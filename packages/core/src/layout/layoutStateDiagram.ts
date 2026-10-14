@@ -378,6 +378,8 @@ export function layoutStateDiagram(
   });
 
   return {
+    accTitle: model.accTitle,
+    accDescr: model.accDescr,
     states,
     transitions,
     // The core's extent holds every box, frame, route and label it placed.

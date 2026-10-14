@@ -416,6 +416,25 @@ timeline:
     ]);
   });
 
+  it("accepts unquoted parentheses in a bracketed label, which Mermaid rejects — a recorded permissive divergence", () => {
+    // Measured on mermaid 12.2.0: `P[a (b)]` is a parse error ("got 'PS'"),
+    // and only the quoted `P["a (b)"]` draws, as the rect `a (b)`. Siren
+    // draws both, deliberately (nook 01M4R3RVV, at `LABEL_CONTENT`): a
+    // corpus row cannot hold it, since its source is not valid Mermaid, so
+    // this test is the record. Changing it is a policy change, not a fix.
+    const { document, diagnostics } = parseFlowchartOk(`flowchart TB
+  P[Watering 灌溉控制器 (Rain / Pump / Wells)]
+  Q["a (b)"] --> R[a (b)]
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((n) => [n.id, n.label.text, n.shape])).toEqual([
+      ["P", "Watering 灌溉控制器 (Rain / Pump / Wells)", "rect"],
+      ["Q", "a (b)", "rect"],
+      ["R", "a (b)", "rect"],
+    ]);
+  });
+
   it("reads `A>text]` at an edge endpoint, where the arrow's own `>` must not be mistaken for the spelling's", () => {
     // The one spelling whose opening character also appears in `-->`. The
     // line is cut into endpoints at the arrow first, so what each pattern
@@ -1980,6 +1999,53 @@ describe("the arrow token an edge is written with", () => {
     if (bareThird.document?.kind === "flowchart") {
       expect(bareThird.document.nodes.map((node) => node.id)).toEqual(["A", "B", "C.-D"]);
       expect(bareThird.document.edges).toEqual([expect.objectContaining({ from: "A", to: "B" })]);
+    }
+  });
+
+  it("reads `-` inside a node id wherever Mermaid's lexer does, and not where it starts an arrow", () => {
+    // 01M2SVAFT, every case measured on mermaid 12.2.0. Mermaid's id
+    // alphabet takes `-` unless the next character is `>`, `-` or `.`, the
+    // three that begin an arrow — so `a-b-->c` is `a-b` and an arrow with no
+    // space between them, and `a--b`, `a-.b`, `a - b` are parse errors.
+    const reads: [string, string[], string[]][] = [
+      ["a-b --> c", ["a-b", "c"], ["a-b>c"]],
+      ["a-b-->c", ["a-b", "c"], ["a-b>c"]],
+      ["a-->b-c", ["a", "b-c"], ["a>b-c"]],
+      ["a-b-c --> d", ["a-b-c", "d"], ["a-b-c>d"]],
+      ["a-b", ["a-b"], []],
+      ["a- --> b", ["a-", "b"], ["a->b"]],
+      ["a-", ["a-"], []],
+      ["b --> a-", ["b", "a-"], ["b>a-"]],
+      ["-a --> b", ["-a", "b"], ["-a>b"]],
+      ["a-b-- text -->c", ["a-b", "c"], ["a-b>c"]],
+      ["a-b---c", ["a-b", "c"], ["a-b>c"]],
+      ["a-b==>c", ["a-b", "c"], ["a-b>c"]],
+      ["a-b-.->c", ["a-b", "c"], ["a-b>c"]],
+      ["a-b[Label] --> c", ["a-b", "c"], ["a-b>c"]],
+      ["a-b:::x --> c", ["a-b", "c"], ["a-b>c"]],
+      ["a-b & c-d --> e", ["a-b", "c-d", "e"], ["a-b>e", "c-d>e"]],
+      // An `o` or an `x` after a dash is inside the id, not an arrow's
+      // marker: `a-o-->b` is `a-o` and a plain arrow, and so is `a.o-->b`.
+      ["a-o-->b", ["a-o", "b"], ["a-o>b"]],
+      ["a.o-->b", ["a.o", "b"], ["a.o>b"]],
+    ];
+    for (const [line, nodeIds, edgeEnds] of reads) {
+      const { document, diagnostics } = parseSiren(`flowchart TB\n  ${line}\n`);
+      expect([line, diagnostics]).toEqual([line, []]);
+      if (document?.kind !== "flowchart") throw new Error(`no flowchart for "${line}"`);
+      expect([line, document.nodes.map((n) => n.id)]).toEqual([line, nodeIds]);
+      expect([line, document.edges.map((e) => `${e.from}>${e.to}`)]).toEqual([line, edgeEnds]);
+    }
+
+    // The marker still works where it is one: `a-o--ob` ends in a circle.
+    const circle = parseSiren("flowchart TB\n  a-o--ob\n");
+    if (circle.document?.kind !== "flowchart") throw new Error("no flowchart");
+    expect(circle.document.edges.map((e) => [e.from, e.to, e.toEnd])).toEqual([
+      ["a-o", "b", "circle"],
+    ]);
+
+    for (const refused of ["a--b", "a - b", "a-.b --> c"]) {
+      expect([refused, parseSiren(`flowchart TB\n  ${refused}\n`).document]).toEqual([refused, null]);
     }
   });
 

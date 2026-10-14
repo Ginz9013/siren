@@ -87,6 +87,8 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
   );
 
   const model: ClassModel = {
+    accTitle: document.accTitle,
+    accDescr: document.accDescr,
     direction: document.direction,
     classes,
     relationships,

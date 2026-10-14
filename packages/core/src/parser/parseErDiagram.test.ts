@@ -424,6 +424,24 @@ describe("parseErDiagram", () => {
     expect(document.entities.map((entity) => entity.name)).toEqual(["CUSTOMER", "ORDER"]);
   });
 
+  it("reads accTitle and accDescr in any case, with or without space around the colon", () => {
+    // Measured (mermaid 12.2.0): `ACCTITLE: hi`, `ACCDESCR: hi`,
+    // `AccTitle: Hi`, `accDescr:hi` and `accTitle : hi` each set the field
+    // and declare no entity beside `A`.
+    for (const [line, accTitle, accDescr] of [
+      ["ACCTITLE: hi", "hi", null],
+      ["ACCDESCR: hi", null, "hi"],
+      ["AccTitle: Hi", "Hi", null],
+      ["accDescr:hi", null, "hi"],
+      ["accTitle : hi", "hi", null],
+    ]) {
+      const document = documentOf(`erDiagram\n  ${line}\n  A\n`);
+      expect(document.accTitle).toBe(accTitle);
+      expect(document.accDescr).toBe(accDescr);
+      expect(document.entities.map((entity) => entity.name)).toEqual(["A"]);
+    }
+  });
+
   it("leaves both null when the document writes neither", () => {
     // `null` rather than `""`, the way `FlowchartDocument` spells it: the
     // renderer draws no `<title>` at all for a document that named none,
@@ -540,42 +558,34 @@ describe("parseErDiagram — the places an ER diagram reads a label", () => {
 });
 
 describe("parseErDiagram refuses an unimplemented construct by name", () => {
-  it("names the multi-line accDescr block rather than reading an entity out of it", () => {
-    // Measured (mermaid 11.17.2): `accDescr {` / `a long description` / `}`
-    // written beside `CUSTOMER` reports **one** entity, `CUSTOMER` — the
-    // block is the description's own multi-line spelling and puts no box on
-    // the canvas.
-    //
-    // ⚠️ `ENTITY_HEAD_RE` matches that opening line exactly as it matches
-    // `CUSTOMER {`, so without a guard read *before* it this parser would
-    // draw a box called `accDescr` for a document Mermaid draws no box for —
-    // a silently wrong picture rather than a refusal.
-    //
-    // The control below is the boundary: `accTitle {` has no such rule.
-    // Measured, `accTitle {` / `x` / `}` is a **parse error** in Mermaid
-    // ("Expecting 'ATTRIBUTE_WORD'"), which is an entity called `accTitle`
-    // opening a block with a malformed attribute in it — the reading this
-    // parser already gives it, so it must stay untouched.
-    expect(
-      refusalsFor("erDiagram\n  accDescr {\n    a long description\n  }\n  CUSTOMER\n"),
-    ).toEqual([
-      'Unimplemented erDiagram construct: the multi-line `accDescr { ... }` description, in "accDescr {"',
-    ]);
+  it("reads the multi-line accDescr block as the description, never as an entity", () => {
+    // 01M4WS1P6. Measured on mermaid 12.2.0: `accDescr {` / `string x` / `}`
+    // beside `CUSTOMER` is a description and one entity — never an entity
+    // called `accDescr` carrying a `string x` row, which is the silently
+    // wrong picture an earlier reading of this line drew. The block reads as
+    // it does in every kind (`readAccDescrBlock`): indent and blank lines
+    // go, `ACCDESCR {` is the same block, and what follows `}` is the next
+    // statement.
+    const document = documentOf("erDiagram\n  accDescr {\n    string x\n\n      more\n  }\n  CUSTOMER\n");
+    expect(document.accDescr).toBe("string x\nmore");
+    expect(document.entities.map((entity) => entity.name)).toEqual(["CUSTOMER"]);
 
-    // **The body that made this a silently wrong picture rather than a
-    // missing one.** Measured: `accDescr {` / `string x` / `}` beside
-    // `CUSTOMER` reports **one** entity in Mermaid. `string x` is a
-    // well-formed attribute, so without the guard this parser read the
-    // block as an entity's and drew two boxes — `CUSTOMER`, and an
-    // `accDescr` carrying a `string x` row — saying nothing. One
-    // diagnostic, and no second box.
-    expect(refusalsFor("erDiagram\n  accDescr {\n    string x\n  }\n  CUSTOMER\n")).toEqual([
-      'Unimplemented erDiagram construct: the multi-line `accDescr { ... }` description, in "accDescr {"',
-    ]);
+    const capitals = documentOf("erDiagram\n  ACCDESCR {\n    string x\n  } CUSTOMER\n");
+    expect(capitals.accDescr).toBe("string x");
+    expect(capitals.entities.map((entity) => entity.name)).toEqual(["CUSTOMER"]);
 
-    // The boundary: `accTitle {` has no such rule in Mermaid, so it stays
-    // an ordinary entity opening an ordinary attribute block here.
+    expect(documentOf("erDiagram\n  accDescr{one}\n  A\n").accDescr).toBe("one");
+
+    // The boundary, unchanged: `accTitle {` has no such rule in Mermaid, so
+    // it stays an ordinary entity opening an ordinary attribute block here.
     expect(namesOf("erDiagram\n  accTitle {\n    string x\n  }\n")).toEqual(["accTitle"]);
+  });
+
+  it("refuses an accDescr block that never closes, as Mermaid does", () => {
+    // Measured on 12.2.0: a parse error.
+    const { document, diagnostics } = parseErDiagram("erDiagram\n  accDescr {\n  one\n  A\n");
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => [d.severity, d.line])).toEqual([["error", 2]]);
   });
 
   it('names the "u" cardinality, the fifth one this parser does not draw', () => {
@@ -1023,19 +1033,52 @@ describe("parseErDiagram refuses an unimplemented construct by name", () => {
       ]);
     }
 
-    // An opening backtick with no closing one on the line. ⚠️ **This is a
-    // divergence, and a deliberate one**: Mermaid's `block_bq` rule is
-    // `` [^`]+ ``, which matches a newline, so measured, `string `a` on one
-    // line and ``b` `` on the next is **one** attribute named `a\n    b` —
-    // a name with a line break and the source's indentation inside it.
-    // This parser reads a line at a time and refuses both halves, which
-    // costs the document and says so; drawing a single-line cell for a
-    // two-line name would be the silent kind of wrong. Unterminated
-    // altogether — no second backtick anywhere — is a parse error in
-    // Mermaid too, so that half agrees.
-    expect(refusalsFor("erDiagram\n  E {\n    string `a\n    b`\n  }\n")).toEqual([
+    // An opening backtick with no partner **anywhere** after it. Measured
+    // (mermaid 12.2.0): `string `a` and then `}` is a parse error ("got
+    // '1'") — the run swallows the closing brace and the end of the
+    // document arrives inside the backticks. A backtick whose partner is on
+    // a later line is a different document, read below.
+    expect(refusalsFor("erDiagram\n  E {\n    string `a\n  }\n")).toEqual([
       'Unrecognized erDiagram attribute: "string `a"',
-      'Unrecognized erDiagram attribute: "b`"',
+    ]);
+  });
+
+  it("reads a backticked word across lines, keeping the line break and indentation Mermaid records", () => {
+    // Measured (mermaid 12.2.0): the `block_bq` word rule is `` [^`]+ ``,
+    // and that class matches a newline like any other character, so the
+    // run simply continues onto the next line. Mermaid records **one**
+    // attribute, `type="string" name="a\n    b"` — the source's own
+    // indentation inside the name. The record is kept as Mermaid keeps it;
+    // what a cell with a line break *draws* is the layout's to decide.
+    const source = "erDiagram\n  ORDER {\n    string `a\n    b`\n  }\n";
+    expect(refusalsFor(source)).toEqual([]);
+    expect(attributesOf(source, "ORDER")).toEqual([
+      { type: "string", name: "a\n    b", keys: [], comment: plainLabel("") },
+    ]);
+
+    // Keys, a comment and the next attribute still follow the closing
+    // backtick — measured, `string `a` / `b` PK "c"` / `int z` reports
+    // both attributes with every field.
+    expect(
+      attributesOf('erDiagram\n  ORDER {\n    string `a\n    b` PK "c"\n    int z\n  }\n', "ORDER"),
+    ).toEqual([
+      { type: "string", name: "a\n    b", keys: ["PK"], comment: plainLabel("c") },
+      { type: "int", name: "z", keys: [], comment: plainLabel("") },
+    ]);
+
+    // The block may open mid-line and the run cross into a line that then
+    // closes it — measured, `ORDER { string `a` / `b` } F` is ORDER with
+    // that attribute and then a bare `F`.
+    const midLine = "erDiagram\n  ORDER { string `a\n    b` } F\n";
+    expect(namesOf(midLine)).toEqual(["ORDER", "F"]);
+    expect(attributesOf(midLine, "ORDER")).toEqual([
+      { type: "string", name: "a\n    b", keys: [], comment: plainLabel("") },
+    ]);
+
+    // A blank line inside the run is part of it too — measured,
+    // `name="a\n\n    b"`.
+    expect(attributesOf("erDiagram\n  ORDER {\n    string `a\n\n    b`\n  }\n", "ORDER")).toEqual([
+      { type: "string", name: "a\n\n    b", keys: [], comment: plainLabel("") },
     ]);
   });
 
@@ -1866,8 +1909,11 @@ describe("parseErDiagram reads subgraph clusters", () => {
     // measured, writing `s1 ||--|| B : r` *before* the block leaves `s1`
     // undrawn as well (its edge then points at a node `getData()` does not
     // carry).
+    //
+    // (01M3BXNYR) The relationship-end half of this — `s1 ||--|| B : r` —
+    // is no longer refused: it draws to the frame, pinned below and by the
+    // corpus row `er-subgraph-entity-name`. The bare mention stays refused.
     for (const source of [
-      "erDiagram\n  subgraph s1\n    A\n  end\n  s1 ||--|| B : r\n",
       "erDiagram\n  subgraph s1\n    A\n  end\n  s1\n  A ||--|| B : r\n",
     ]) {
       const { document, diagnostics } = parseErDiagram(source);
@@ -1879,49 +1925,96 @@ describe("parseErDiagram reads subgraph clusters", () => {
     }
   });
 
-  it("refuses by name a `style` or `class` that paints a cluster", () => {
+  it("draws no entity for a relationship end naming a cluster, in either order", () => {
+    // (01M3BXNYR) Measured (mermaid 12.2.0): the relationship's phantom
+    // entity is dropped by `getData()` and the edge starts at the frame.
+    // Written above the block, Mermaid 12.2.0 fails to render; Siren reads
+    // the same document either way (user decision, 2026-10-14).
+    for (const source of [
+      "erDiagram\n  subgraph s1\n    A\n  end\n  s1 ||--o{ B : r\n",
+      "erDiagram\n  s1 ||--o{ B : r\n  subgraph s1\n    A\n  end\n",
+    ]) {
+      const { document, diagnostics } = parseErDiagram(source);
+      expect(diagnostics).toEqual([]);
+      const er = document as ErDocument;
+      expect(er.entities.map((entity) => entity.name).sort()).toEqual(["A", "B"]);
+      expect(er.relationships.map(({ left, right }) => [left, right])).toEqual([["s1", "B"]]);
+    }
+  });
+
+  it("still refuses a cluster name at a relationship end that is more than a name", () => {
+    // Only a plain end — outside every block, no `:::` — can be the frame's.
+    // An end inside a block would claim the frame as that block's member, an
+    // end with a class would style a phantom, and a name two blocks share
+    // has no one frame to join: each stays refused by name until measured.
+    for (const source of [
+      "erDiagram\n  subgraph s1\n    A\n  end\n  s1:::c ||--o{ B : r\n",
+      "erDiagram\n  subgraph s1\n    A\n  end\n  subgraph s2\n    s1 ||--o{ B : r\n  end\n",
+      "erDiagram\n  subgraph s1\n    A\n  end\n  subgraph s1\n    C\n  end\n  s1 ||--o{ B : r\n",
+    ]) {
+      const { document, diagnostics } = parseErDiagram(source);
+      expect(document).toBeNull();
+      expect(diagnostics.map((diagnostic) => diagnostic.message)).toContain(
+        'Unimplemented erDiagram construct: an entity sharing its name with a ' +
+          '`subgraph` cluster ("s1"), in "subgraph s1"',
+      );
+    }
+  });
+
+  it("resolves a `style` or `class` written below a block to that block", () => {
     // ⚠️ **A cluster is a legal style target in this kind**, measured and
     // not assumed: Mermaid's ER `addCssStyles` and `setClass` each look up
-    // `this.entities.get(id)` *and* `this.subGraphLookup.get(id)`, and
-    // probing `subgraph s1 / A / end / style s1 fill:#f96` answers
-    // `getSubGraphs() -> [{id:"s1", …, cssStyles:["fill:#f96"]}]`, while
-    // `class s1 urgent` answers `classes:["urgent"]` on the same record.
-    // So this is *not* the relationship case, where the directive reaches
-    // nothing at all and dropping it matches Mermaid exactly.
-    //
-    // `01M395S26` implements the cluster and leaves its paint to a ticket of
-    // its own. Left unread, the directive would be dropped in silence — by
-    // `resolveStyles`, whose rule for an unknown target is to drop it as
-    // Mermaid does — and a frame Mermaid fills would come out unfilled with
-    // nothing to notice. Refused by name instead.
+    // `this.entities.get(id)` *and* `this.subGraphLookup.get(id)`, and in
+    // headless Chrome (mermaid 12.2.0) `subgraph s1 / A / end / style s1
+    // fill:#f96` draws the cluster rect `fill:#f96 !important`, `class s1
+    // urgent` the classDef's declarations on it. Read, not refused; which
+    // block the name reached is said with the block itself.
     for (const [statement, keyword] of [
       ["style s1 fill:#f96", "style"],
       ["class s1 urgent", "class"],
     ]) {
       const { document, diagnostics } = parseErDiagram(
-        `erDiagram\n  subgraph s1\n    A\n  end\n  ${statement}\n  A ||--|| B : r\n`,
+        `erDiagram\n  subgraph s1\n    A\n  end\n  classDef urgent fill:#f96\n  ${statement}\n  A ||--|| B : r\n`,
       );
-      expect(document).toBeNull();
-      expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
-        "Unimplemented erDiagram construct: a `" +
-          keyword +
-          '` statement painting a `subgraph` cluster ("s1"), in "' +
-          statement +
-          '"',
-      ]);
+      expect(diagnostics).toEqual([]);
+      const er = document as ErDocument;
+      const painting = er.styles.find((style) => style.authoredAs === keyword)!;
+      expect(painting.targetIds).toEqual(["s1"]);
+      expect(painting.clusterTargets?.get("s1")).toBe(er.subgraphs[0]);
     }
+  });
 
-    // **And the order matters, so the refusal reads it.** Measured, a
-    // `style` written *above* the block reaches Mermaid's `addCssStyles`
-    // before `addSubGraph` has registered the name, and paints nothing at
-    // all — `cssStyles` comes back empty. Siren drops that unknown target
-    // in silence too, which is the same picture, so refusing it would cost
-    // a document Mermaid draws.
-    const above = parseErDiagram(
-      "erDiagram\n  style s1 fill:#f96\n  subgraph s1\n    A\n  end\n  A ||--|| B : r\n",
+  it("resolves no block for a statement written above it, as Mermaid does not", () => {
+    // **The order matters, measured.** `addSubGraph` registers the name at
+    // the closing `end`, so a `style` (or `class`) written *above* the
+    // block finds no cluster and paints nothing — the rect carries no
+    // style in Mermaid 12.2.0's drawing. No rejection either: the document
+    // draws.
+    for (const statement of ["style s1 fill:#f96", "class s1 urgent"]) {
+      const { document, diagnostics } = parseErDiagram(
+        `erDiagram\n  classDef urgent fill:#f96\n  ${statement}\n  subgraph s1\n    A\n  end\n`,
+      );
+      expect(diagnostics).toEqual([]);
+      const painting = (document as ErDocument).styles.find(
+        (style) => style.styleKind !== "classDef",
+      )!;
+      expect(painting.clusterTargets?.get("s1")).toBeUndefined();
+    }
+  });
+
+  it("resolves a shared block name to the block closed most recently before the statement", () => {
+    // Measured (mermaid 12.2.0, `getSubGraphs`): `subgraph s1 / A / end /
+    // style s1 fill:#f96 / subgraph s1 / B / end` puts `fill:#f96` on the
+    // block holding `A`; a second `style s1 stroke:#00f` after the second
+    // block lands on the block holding `B`. `subGraphLookup` is a map the
+    // closing `end` overwrites.
+    const er = documentOf(
+      "erDiagram\n  subgraph s1\n    A\n  end\n  style s1 fill:#f96\n" +
+        "  subgraph s1\n    B\n  end\n  style s1 stroke:#00f\n",
     );
-    expect(above.diagnostics).toEqual([]);
-    expect(above.document).not.toBeNull();
+    const [first, second] = er.styles;
+    expect(first.clusterTargets?.get("s1")).toBe(er.subgraphs[0]);
+    expect(second.clusterTargets?.get("s1")).toBe(er.subgraphs[1]);
   });
 
   it("reads the bracketed title, in both of its measured spellings", () => {
@@ -2119,5 +2212,434 @@ describe("parseErDiagram — the `;` Mermaid drops from a style line", () => {
         ({ severity, line, column }) => [severity, line, column],
       ),
     ).toEqual([["warning", 2, 26]]);
+  });
+});
+
+describe("parseErDiagram — a name read where Mermaid's lexer reads one (01M3C621W)", () => {
+  // Mermaid 12.2.0's ER lexer takes the first rule that matches, and its
+  // name rule comes after every keyword and number rule. Each case below is
+  // measured against it.
+  const entities = (source: string) => documentOf(source).entities.map((entity) => entity.name);
+  const refused = (body: string) => parseErDiagram(`erDiagram\n  ${body}\n`).document === null;
+
+  it("refuses a cardinality or statement keyword standing where a name belongs", () => {
+    for (const body of [
+      "CUSTOMER one ORDER",
+      "to",
+      "one",
+      "many",
+      "only one",
+      "zero or one",
+      "zero or many",
+      "one or more",
+      "optionally to",
+      "A to B",
+      "to ||--o{ B : x",
+      "A zero or one B",
+      // A keyword ends at a word boundary, so these begin with one too.
+      "to-do",
+      "one-x",
+      "class-a",
+      "style-x",
+      "end-x",
+      "erDiagram-x",
+      "u-boat",
+      "u.x",
+      "style",
+    ]) {
+      expect([body, refused(body)]).toEqual([body, true]);
+    }
+  });
+
+  it("keeps a word the keyword rules cannot end inside as an ordinary name", () => {
+    expect(entities("erDiagram\n  many_x\n  uboat\n  only\n  zero\n  optionally\n  zero or\n  oneX\n")).toEqual([
+      "many_x",
+      "uboat",
+      "only",
+      "zero",
+      "optionally",
+      "zero",
+      "or",
+      "oneX",
+    ]);
+  });
+
+  it("splits a name at the end of its leading number, as the NUM rule does", () => {
+    for (const [body, names] of [
+      ["123abc", ["123", "abc"]],
+      ["1abc", ["1", "abc"]],
+      ["1-2", ["1", "-2"]],
+      ["1.5", ["1.5"]],
+      ["1.5.7", ["1.5", ".7"]],
+      ["007", ["007"]],
+      ["2 abc", ["2", "abc"]],
+    ] as const) {
+      expect([body, entities(`erDiagram\n  ${body}\n`)]).toEqual([body, names]);
+    }
+    // `1` before a space and a letter is a token of its own, not a name.
+    expect(refused("1 abc")).toBe(true);
+  });
+
+  it("reads a relationship whose left name splits as the number and a relationship from the rest", () => {
+    const document = documentOf("erDiagram\n  123abc ||--o{ B : x\n");
+    expect(document.entities.map((entity) => entity.name)).toEqual(["123", "abc", "B"]);
+    expect(document.relationships.map((r) => [r.left, r.right])).toEqual([["abc", "B"]]);
+  });
+
+  it("refuses a keyword or a split name as a relationship's right end or its label", () => {
+    for (const body of [
+      "A ||--o{ 123abc : x",
+      "A ||--o{ to : x",
+      "A ||--o{ to-do : x",
+      "A ||--o{ B : one",
+      "A ||--o{ B : to-do",
+      "A ||--o{ B : 123abc",
+      "A ||--o{ B : style",
+    ]) {
+      expect([body, refused(body)]).toEqual([body, true]);
+    }
+  });
+
+  it("splits a second dotted number the same way", () => {
+    expect(entities("erDiagram\n  12.34.56\n")).toEqual(["12.34", ".56"]);
+  });
+
+  it("refuses a keyword or a split name as a subgraph's name or a member inside one", () => {
+    for (const body of [
+      "subgraph one\n  A\n  end",
+      "subgraph 123abc\n  A\n  end",
+      "subgraph to-do\n  A\n  end",
+      "subgraph 1\n  A\n  end",
+      "subgraph s1\n  one\n  end",
+      "subgraph s1\n  1\n  end",
+    ]) {
+      expect([body, refused(body)]).toEqual([body, true]);
+    }
+    expect(documentOf("erDiagram\n  subgraph only\n  A\n  end\n").subgraphs.map((block) => block.name)).toEqual([
+      "only",
+    ]);
+  });
+
+  it("refuses a bare `1` ending a line when the next line opens with a name, as the lexer looks across the break", () => {
+    for (const body of ["1\n  A", "A\n  1\n  B", "1\n\n  A", "1\n  \"B\"", "1\n  2"]) {
+      expect([body, refused(body)]).toEqual([body, true]);
+    }
+    // The control group: nothing after it, a block opening, or a timeline.
+    expect(entities("erDiagram\n  1\n")).toEqual(["1"]);
+    expect(entities("erDiagram\n  1 {\n    int x\n  }\n")).toEqual(["1"]);
+    expect(entities("erDiagram\n  1\n\ntimeline:\n  enter 1 fade\n")).toEqual(["1"]);
+  });
+
+  it("reads a multi-word cardinality only with single spaces, as Mermaid's rules spell it", () => {
+    for (const body of ["zero or  more", "zero  or more", "zero or\tmore", "only  x"]) {
+      expect([body, entities(`erDiagram\n  ${body}\n`)]).toEqual([body, body.split(/\s+/u)]);
+    }
+    expect(refused("ZERO OR MORE")).toBe(true);
+  });
+
+  it("leaves an attribute block to its own alphabet, where these words are ordinary", () => {
+    expect(attributesOf("erDiagram\n  A {\n    string one\n    one name\n    int to-do\n  }\n", "A").map(({ type, name }) => [type, name])).toEqual([
+      ["string", "one"],
+      ["one", "name"],
+      ["int", "to-do"],
+    ]);
+    expect(refused("A {\n    int 123abc\n  }")).toBe(true);
+  });
+});
+
+/**
+ * `:::` on a relationship's ends, a `style` aimed at a relationship id, and
+ * the reserved words in a class list (01M39FA7F, 01M3BXNYR part 2). Every
+ * expectation below was measured on mermaid 12.2.0 with
+ * `scripts/mermaid-probe.mjs`.
+ */
+describe("parseErDiagram — `:::` on a relationship end", () => {
+  it("applies a `:::` on the left end to that entity and keeps the relationship between the names", () => {
+    // Measured: `A:::x ||--o{ B : y` reports `A cssClasses="default x"` and
+    // the relationship `leftEntity="A" … rightEntity="B" label="y"` — the
+    // class never reaches the relationship's record.
+    const document = documentOf("erDiagram\n  A:::x ||--o{ B : y\n");
+    expect(document.entities.map((e) => e.name)).toEqual(["A", "B"]);
+    expect(document.relationships.map((r) => [r.left, r.right, r.label.text])).toEqual([
+      ["A", "B", "y"],
+    ]);
+    expect(document.styles).toEqual([
+      {
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: ["A"],
+        name: "x",
+        properties: [],
+        line: 2,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("applies a `:::` on the right end, on both ends, and after a quoted name", () => {
+    // Measured, one probe apiece:
+    //   A ||--o{ B:::z : y                 → B cssClasses="default z"
+    //   A:::x ||--o{ B:::z : y             → A "default x", B "default z"
+    //   "Customer Account":::x ||--o{ B : y → "Customer Account" "default x"
+    //   A:::x,w ||--o{ B : y               → A "default x w"
+    // and in every one the relationship is still `A`/`B` (or the unquoted
+    // name) on its two ends, label `y`.
+    const applied = (source: string) =>
+      documentOf(source).styles.map((s) => [s.targetIds, s.name, s.authoredAs]);
+    const ends = (source: string) => documentOf(source).relationships.map((r) => [r.left, r.right]);
+
+    expect(applied("erDiagram\n  A ||--o{ B:::z : y\n")).toEqual([[["B"], "z", ":::"]]);
+    expect(ends("erDiagram\n  A ||--o{ B:::z : y\n")).toEqual([["A", "B"]]);
+
+    expect(applied("erDiagram\n  A:::x ||--o{ B:::z : y\n")).toEqual([
+      [["A"], "x", ":::"],
+      [["B"], "z", ":::"],
+    ]);
+
+    const quoted = 'erDiagram\n  "Customer Account":::x ||--o{ B : y\n';
+    expect(applied(quoted)).toEqual([[["Customer Account"], "x", ":::"]]);
+    expect(ends(quoted)).toEqual([["Customer Account", "B"]]);
+
+    expect(applied("erDiagram\n  A:::x,w ||--o{ B : y\n")).toEqual([
+      [["A"], "x", ":::"],
+      [["A"], "w", ":::"],
+    ]);
+  });
+});
+
+describe("parseErDiagram — a `style` aimed at a relationship id", () => {
+  it("refuses `style CUSTOMER:ORDER` by naming the reason: a relationship cannot be styled", () => {
+    // Measured (`--markup`, 12.2.0): Mermaid's style condition has no `:` in
+    // its word rule, so `CUSTOMER`'s own rect comes out carrying
+    // `style=":ORDERfill !important"` and nothing reports it. `addCssStyles`
+    // only ever reaches entities and subgraphs. Siren refuses — and the
+    // refusal says *why*, rather than calling the line malformed.
+    expect(refusalsFor("erDiagram\n  CUSTOMER ||--o{ ORDER : places\n  style CUSTOMER:ORDER fill:#f96\n")).toEqual([
+      'Relationships cannot be styled in erDiagram: "CUSTOMER:ORDER" names the relationship between ' +
+        '"CUSTOMER" and "ORDER", and `style` reaches only entities and subgraphs, in "style CUSTOMER:ORDER fill:#f96"',
+    ]);
+    // Wherever it stands in the target list.
+    expect(refusalsFor("erDiagram\n  style A,B:C fill:#f96\n")).toEqual([
+      'Relationships cannot be styled in erDiagram: "B:C" names the relationship between ' +
+        '"B" and "C", and `style` reaches only entities and subgraphs, in "style A,B:C fill:#f96"',
+    ]);
+  });
+});
+
+describe("parseErDiagram — a reserved word in a class list", () => {
+  const reserved = (word: string, line: string) =>
+    `Reserved word "${word}" cannot stand in a class list in erDiagram: Mermaid reads it as a keyword ` +
+    `and refuses the line, in "${line}"`;
+
+  it("refuses `class A end` by name, as Mermaid refuses it", () => {
+    // Measured (12.2.0): `class\b` switches no lexer condition, so `end` is
+    // lexed as `END` and the line is a parse error, "got 'END'". The same
+    // for every word of `RESERVED_BARE_NAMES`, in either case:
+    //   class A subgraph → got 'SUBGRAPH'   class A class → got 'CLASS'
+    //   class A style → got 'STYLE'         class A classDef → got 'CLASSDEF'
+    //   class A END → got 'END'
+    expect(refusalsFor("erDiagram\n  A\n  class A end\n")).toEqual([reserved("end", "class A end")]);
+    for (const word of ["subgraph", "class", "style", "classDef", "END"]) {
+      expect(refusalsFor(`erDiagram\n  A\n  class A ${word}\n`)).toEqual([
+        reserved(word, `class A ${word}`),
+      ]);
+    }
+  });
+
+  it("refuses one in the target half and anywhere in either list, and leaves `style`/`classDef` names alone", () => {
+    // Measured (12.2.0): `class end u` → got 'END', `class A u,end` → got
+    // 'END', `class end-x u` → got 'END' (the keyword rule fires at the head
+    // of the token), while `class A endx` is the ordinary class `endx`, and
+    // `style end fill:red` / `classDef end fill:red` are accepted — the style
+    // condition has no keywords.
+    expect(refusalsFor("erDiagram\n  class end u\n")).toEqual([reserved("end", "class end u")]);
+    expect(refusalsFor("erDiagram\n  A\n  class A u,end\n")).toEqual([reserved("end", "class A u,end")]);
+    expect(refusalsFor("erDiagram\n  class A,Style u\n")).toEqual([reserved("Style", "class A,Style u")]);
+    expect(refusalsFor("erDiagram\n  class end-x u\n")).toEqual([reserved("end", "class end-x u")]);
+
+    expect(stylesOf("erDiagram\n  A\n  class A endx\n").map((s) => s.name)).toEqual(["endx"]);
+    expect(stylesOf("erDiagram\n  style end fill:red\n").map((s) => s.targetIds)).toEqual([["end"]]);
+    expect(stylesOf("erDiagram\n  classDef end fill:red\n").map((s) => s.name)).toEqual(["end"]);
+  });
+
+  it("refuses one after `:::`, on an entity and on either end of a relationship", () => {
+    // Measured (12.2.0): `A:::end`, `A:::u,end`, `A:::end-x`,
+    // `A:::end ||--o{ B : y` and `A ||--o{ B:::end : y` are each a parse
+    // error, "got 'END'" — `:::` changes no lexer condition. Likewise
+    // `A:::subgraph`, `A:::class`, `A:::style`, `A:::classDef`.
+    expect(refusalsFor("erDiagram\n  A:::end\n")).toEqual([reserved("end", "A:::end")]);
+    expect(refusalsFor("erDiagram\n  A:::u,end\n")).toEqual([reserved("end", "A:::u,end")]);
+    expect(refusalsFor("erDiagram\n  A:::end-x\n")).toEqual([reserved("end", "A:::end-x")]);
+    expect(refusalsFor("erDiagram\n  A:::classDef\n")).toEqual([reserved("classDef", "A:::classDef")]);
+    expect(refusalsFor("erDiagram\n  A:::end ||--o{ B : y\n")).toEqual([
+      reserved("end", "A:::end ||--o{ B : y"),
+    ]);
+    expect(refusalsFor("erDiagram\n  A ||--o{ B:::style : y\n")).toEqual([
+      reserved("style", "A ||--o{ B:::style : y"),
+    ]);
+  });
+});
+
+describe("parseErDiagram — a cardinality or body keyword in a class list", () => {
+  const reserved = (word: string, line: string) =>
+    `Reserved word "${word}" cannot stand in a class list in erDiagram: Mermaid reads it as a keyword ` +
+    `and refuses the line, in "${line}"`;
+
+  it("refuses one by name in every class-list position, as Mermaid refuses it", () => {
+    // Measured (12.2.0), one probe per word per position — `class A w`,
+    // `class w A`, `class A x,w`, `A:::w`, `A:::x,w`, `A:::w ||--o{ B : y`,
+    // `A ||--o{ B:::w : y` — every one a parse error naming the token the
+    // lexer found: `one` → 'ONLY_ONE', `many` → 'ZERO_OR_MORE', `to` →
+    // 'IDENTIFYING', `erDiagram` → 'ER_DIAGRAM', `u-x` / `u.x` →
+    // 'MD_PARENT', any case (`ONE`, `Many`, `TO`).
+    const cases: [string, string][] = [
+      ["class A one", "one"],
+      ["class many A", "many"],
+      ["class A x,to", "to"],
+      ["class A ONE", "ONE"],
+      ["A:::erDiagram", "erDiagram"],
+      ["A:::x,Many", "Many"],
+      ["A:::u-x", "u"],
+      ["A:::TO ||--o{ B : y", "TO"],
+      ["A ||--o{ B:::u.x : y", "u"],
+      ["A ||--o{ B:::x,one : y", "one"],
+    ];
+    for (const [line, word] of cases) {
+      expect(refusalsFor(`erDiagram\n  ${line}\n`), line).toEqual([reserved(word, line)]);
+    }
+  });
+
+  it("refuses a multi-word cardinality that opens at a member, and `u` before a glued cardinality", () => {
+    // Measured (12.2.0): `class A zero or more` → got 'ZERO_OR_MORE' (Siren
+    // read it as the class `zero` and two entities, `or` and `more`),
+    // `A:::only one to many B : y` → got 'ONLY_ONE', `class zero or one A`
+    // → got 'ZERO_OR_ONE', `A:::u||--o{ B : y` → got 'MD_PARENT' (its rule
+    // is `u(?=[.\-|])`).
+    const cases: [string, string][] = [
+      ["class A zero or more", "zero or more"],
+      ["class zero or one A", "zero or one"],
+      ["A:::only one to many B : y", "only one"],
+      ["A:::u||--o{ B : y", "u"],
+    ];
+    for (const [line, word] of cases) {
+      expect(refusalsFor(`erDiagram\n  ${line}\n`), line).toEqual([reserved(word, line)]);
+    }
+  });
+
+  it("leaves the words that only open a keyword, and `u` with nothing after it, as ordinary classes", () => {
+    // Measured (12.2.0): `only`, `zero`, `u`, `ux` are accepted in every
+    // class-list position (`A:::only` → cssClasses "default only"), and so
+    // are `zero` with two spaces before `or more` and `x` before a word
+    // cardinality (`A:::x one--o{ B : y` is a relationship from `A`).
+    for (const line of ["class A only", "class zero A", "A:::u", "A:::x,ux", "A ||--o{ B:::only : y", "A:::x one--o{ B : y"]) {
+      expect(refusalsFor(`erDiagram\n  A\n  ${line}\n`), line).toEqual([]);
+    }
+    expect(stylesOf("erDiagram\n  A:::zero  or more\n").map((s) => s.name)).toEqual(["zero"]);
+  });
+});
+
+describe("parseErDiagram — a number in a class list", () => {
+  const number = (head: string, line: string) =>
+    `Number "${head}" cannot stand in a class list in erDiagram: a class name in Mermaid cannot begin ` +
+    `with a digit, and it refuses the line, in "${line}"`;
+
+  it("refuses a digit-headed member by name in every class-list position, as Mermaid refuses it", () => {
+    // Measured (12.2.0): an `idList` member is `UNICODE_TEXT` only, and the
+    // lexer's number rules come before its name rule with no word boundary,
+    // so `class A 2` → got 'NUM', `class A 1abc` → got 'NUM', `A:::1.5` →
+    // got 'DECIMAL_NUM', `A:::1` → got 'ENTITY_ONE', `class 1 A` → got
+    // 'ONLY_ONE', and likewise after `:::` on either relationship end.
+    const cases: [string, string][] = [
+      ["class A 2", "2"],
+      ["class 1abc A", "1"],
+      ["class A x,1.5", "1.5"],
+      ["A:::1", "1"],
+      ["A:::x,1x", "1"],
+      ["A:::2 ||--o{ B : y", "2"],
+      ["A ||--o{ B:::x,1 : y", "1"],
+    ];
+    for (const [line, head] of cases) {
+      expect(refusalsFor(`erDiagram\n  ${line}\n`), line).toEqual([number(head, line)]);
+    }
+  });
+
+  it("leaves a digit after the head of a class name alone", () => {
+    // Measured (12.2.0): `A:::x1` and `class A x-2` are ordinary classes.
+    expect(stylesOf("erDiagram\n  A:::x1\n  class A x-2\n").map((s) => s.name)).toEqual(["x1", "x-2"]);
+  });
+});
+
+describe("parseErDiagram — whitespace around `:::`", () => {
+  const applied = (source: string) =>
+    stylesOf(source).map((s) => [s.targetIds, s.name, s.authoredAs]);
+
+  it("reads `:::` with whitespace on either side of it, on an entity and on either relationship end", () => {
+    // Measured (12.2.0): the lexer skips whitespace between tokens, so
+    // `A :::x ||--o{ B : y` gives `A` the class `x`, `A ||--o{ B ::: z : y`
+    // gives `B` the class `z`, `A ::: x` and `A::: x` give `A` the class `x`,
+    // and `A ::: x , w` gives it both — each with the relationship or entity
+    // recorded as without the spaces.
+    const left = "erDiagram\n  A :::x ||--o{ B : y\n";
+    expect(applied(left)).toEqual([[["A"], "x", ":::"]]);
+    expect(relationshipsOf(left).map((r) => [r.left, r.right])).toEqual([["A", "B"]]);
+    const right = "erDiagram\n  A ||--o{ B ::: z : y\n";
+    expect(applied(right)).toEqual([[["B"], "z", ":::"]]);
+    expect(relationshipsOf(right).map((r) => [r.left, r.right, r.label])).toEqual([["A", "B", plainLabel("y")]]);
+    expect(applied("erDiagram\n  A ::: x\n")).toEqual([[["A"], "x", ":::"]]);
+    expect(namesOf("erDiagram\n  A ::: x\n")).toEqual(["A"]);
+    expect(applied("erDiagram\n  A::: x , w\n")).toEqual([
+      [["A"], "x", ":::"],
+      [["A"], "w", ":::"],
+    ]);
+  });
+
+  it("reads it beside an alias, a quoted name and an attribute block, and still refuses `:::` with no list", () => {
+    // Measured (12.2.0): `A["al"] ::: x` (alias and class), `"A B" ::: x`,
+    // and `A ::: x { int y }` (class and attribute) are accepted;
+    // `A :::` with the list on the next line is a parse error, "got
+    // 'NEWLINE'".
+    expect(applied('erDiagram\n  A["al"] ::: x\n')).toEqual([[["A"], "x", ":::"]]);
+    expect(applied('erDiagram\n  "A B" ::: x\n')).toEqual([[["A B"], "x", ":::"]]);
+    expect(applied("erDiagram\n  A ::: x { int y }\n")).toEqual([[["A"], "x", ":::"]]);
+    expect(attributesOf("erDiagram\n  A ::: x { int y }\n", "A").map((a) => a.name)).toEqual(["y"]);
+    expect(refusalsFor("erDiagram\n  A :::\n  x\n")).not.toEqual([]);
+  });
+});
+
+describe("parseErDiagram — `u` (MD_PARENT) after a `:::` class list", () => {
+  it("refuses it by name, as it refuses `A u--o{ B : x`", () => {
+    // Measured (12.2.0): `A:::x u--o{ B : y`, `A:::x,w U--o{ B : y`,
+    // `"A B":::x u--o{ B : y` and `A ::: x u--o{ B : y` all report
+    // `leftCard="MD_PARENT"` with the class on `A` — the same construct the
+    // bare spelling is, so the same named refusal.
+    for (const line of [
+      "A:::x u--o{ B : y",
+      "A:::x,w U--o{ B : y",
+      '"A B":::x u--o{ B : y',
+      "A ::: x u..o{ B : y",
+    ]) {
+      expect(refusalsFor(`erDiagram\n  ${line}\n`), line).toEqual([
+        `Unimplemented erDiagram construct: the "u" (MD_PARENT) relationship cardinality, in "${line}"`,
+      ]);
+    }
+  });
+});
+
+describe("parseErDiagram — a cluster name also declared as an entity with attributes", () => {
+  it("stays refused by name though a relationship end names the cluster too, in either order", () => {
+    // Characterization guard (refused by construction since 1e3dd5d): the
+    // plain relationship end `s1 ||--|| B : r` may name the cluster, but the
+    // attribute block `s1 { int x }` is an entity wearing the cluster's
+    // name, which is the sharing the parser refuses — whether the block
+    // comes before the cluster or after it.
+    const refusal =
+      "Unimplemented erDiagram construct: an entity sharing its name with a `subgraph` cluster " +
+      '("s1"), in "subgraph s1"';
+    const cluster = "  subgraph s1\n    A\n  end\n";
+    const entity = "  s1 {\n    int x\n  }\n";
+    const relationship = "  s1 ||--|| B : r\n";
+    expect(refusalsFor(`erDiagram\n${cluster}${entity}${relationship}`)).toEqual([refusal]);
+    expect(refusalsFor(`erDiagram\n${entity}${cluster}${relationship}`)).toEqual([refusal]);
+    expect(refusalsFor(`erDiagram\n${relationship}${cluster}${entity}`)).toEqual([refusal]);
   });
 });

@@ -47,7 +47,14 @@ import { unsafeStyleValue } from "../unsafeStyleValue";
  * Only targets that end up with at least one declaration appear in the
  * result, so a target whose every declaration was rejected is absent rather
  * than present-and-empty — the renderer's "no styles, no `style` attribute"
- * case, reached without it having to test for an empty list.
+ * case, reached without it having to test for an empty list. *
+ * **Every `targetId` in the result is one of `validTargetIds`** — a target
+ * the document names but nothing declares is dropped here, silently, the
+ * way Mermaid drops it. That is a promise callers lean on rather than a
+ * detail: `buildFlowchartModel` writes each result straight onto
+ * `nodeById.get(targetId)!`, so a result naming an unknown id would crash
+ * `render()` with a TypeError instead of returning a diagnostic (found by
+ * mutation, 01M37GQS1). `resolveStyles.test.ts` pins it.
  */
 export function resolveStyles(
   declarations: readonly StyleDecl[],
@@ -71,28 +78,53 @@ export function resolveStyles(
    */
   const byTargetId = new Map<string, { frame: Map<string, string>; text: Map<string, string> }>();
 
+  // Each statement's contribution, worked out in source order so the
+  // diagnostics come out in the order the author wrote the lines.
+  const appliedBy = new Map<StyleDecl, StyleProperty[]>();
   for (const declaration of declarations) {
     if (declaration.styleKind === "classDef") continue;
 
-    let applied: StyleProperty[];
     if (declaration.styleKind === "apply") {
       const defined = definitions.get(declaration.name ?? "");
       if (defined === undefined) {
-        // Applying a name nothing defines is a typo, and a silent one:
-        // without this the target is simply not styled, and the author is
-        // left comparing two spellings by eye.
+        // Applying a name nothing defines is usually a typo, and a silent
+        // one: without this the target is simply not styled, and the author
+        // is left comparing two spellings by eye. So it speaks — but as a
+        // **warning** (01M39FAVK, decided 2026-10-14). Mermaid 12.2.0
+        // accepts it in all four kinds, records the class and paints
+        // nothing, so the picture drawn here, the target unstyled, is
+        // Mermaid's; an error would cost the whole picture, which is the
+        // trade the compatibility condition exists to refuse. The
+        // distinction from an unknown *target*, dropped in silence as
+        // Mermaid drops it, is kept: the two are different mistakes.
         diagnostics.push({
-          severity: "error",
+          severity: "warning",
           message: `${declaration.authoredAs} applies "${declaration.name}", which no classDef defines; dropping the declaration.`,
           line: declaration.line,
           column: declaration.column,
         });
         continue;
       }
-      applied = defined;
+      appliedBy.set(declaration, defined);
     } else {
-      applied = acceptedProperties(declaration, diagnostics);
+      appliedBy.set(declaration, acceptedProperties(declaration, diagnostics));
     }
+  }
+
+  // Then applied in two layers: every class first, every `style` after,
+  // each layer in source order (the sort is stable). Measured on mermaid
+  // 12.2.0 in flowchart, ER, class and state diagrams, with `:::` as well
+  // as `class`: a `style` beats an applied class **whichever is written
+  // first** — `style A fill:#0ff` above `class A alpha` still paints
+  // `#0ff` (01M39F9N1). Plain source order, which this used to be, drew
+  // the class's `fill` instead, with no diagnostic. Within a layer the
+  // later statement still wins, and a property keeps the position it was
+  // first given, so the class's `stroke` stays after the `fill` it shares.
+  const layerOf = (declaration: StyleDecl) => (declaration.styleKind === "style" ? 1 : 0);
+  const layered = [...appliedBy.keys()].sort((a, b) => layerOf(a) - layerOf(b));
+
+  for (const declaration of layered) {
+    const applied = appliedBy.get(declaration)!;
 
     for (const targetId of declaration.targetIds) {
       // Naming a target in a styling statement does not declare it, exactly

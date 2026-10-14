@@ -311,6 +311,101 @@ describe("parseSequenceDiagram", () => {
     expect(document.title).toBe("Order confirmation flow");
   });
 
+  it("parses the colon spelling of title, in any case, keeping later colons in the text", () => {
+    // Measured on Mermaid 12.2.0: `title: Hello`, `TITLE: hi` and
+    // `title: a: b` give the titles "Hello", "hi" and "a: b".
+    for (const [line, title] of [
+      ["title: Hello", "Hello"],
+      ["TITLE: hi", "hi"],
+      ["title: a: b", "a: b"],
+    ]) {
+      const { document, diagnostics } = parseOk(`sequenceDiagram\n  ${line}\n  participant A\n`);
+
+      expect(diagnostics).toEqual([]);
+      expect(document.title).toBe(title);
+    }
+  });
+
+  it("rejects title: with no space after the colon, as Mermaid does", () => {
+    // Mermaid 12.2.0 reports a parse error for `title:Hello`.
+    const result = parseSequenceDiagram(`sequenceDiagram\n  title:Hello\n  participant A\n`);
+
+    expect(result.diagnostics.some((d) => d.severity === "error")).toBe(true);
+  });
+
+  it("reads accDescr's one-line spelling in any case, with or without space around the colon, last one winning", () => {
+    // Measured on Mermaid 12.2.0: `accDescr: hi there`, `ACCDESCR: hi`,
+    // `accDescr : hi` and `accDescr:hi` all set the description, and of two
+    // the later wins. `accTitle : hi` reads the same way.
+    for (const [lines, accDescr] of [
+      ["accDescr: hi there", "hi there"],
+      ["ACCDESCR: hi", "hi"],
+      ["accDescr : hi", "hi"],
+      ["accDescr:hi", "hi"],
+      ["accDescr: a\n  accDescr: b", "b"],
+    ]) {
+      const { document, diagnostics } = parseOk(`sequenceDiagram\n  ${lines}\n  A->>B: x\n`);
+
+      expect(diagnostics).toEqual([]);
+      expect(document.accDescr).toBe(accDescr);
+      expect(document.participants).toEqual([]);
+    }
+
+    expect(parseOk(`sequenceDiagram\n  accTitle : hi\n  A->>B: x\n`).document.accTitle).toBe("hi");
+  });
+
+  it("reads accDescr's braced spelling across lines, dropping each line's leading whitespace and blank lines", () => {
+    // Measured on Mermaid 12.2.0: the block below gives "line one\nline two",
+    // `accDescr{one}` and `accDescr { one }` give "one", `accDescr { one` /
+    // `two }` gives "one\ntwo", and an empty block gives "" — which writes
+    // no <desc> — so it reads as no description at all.
+    for (const [block, accDescr] of [
+      ["accDescr {\n    line one\n\n      line two\n  }", "line one\nline two"],
+      ["accDescr{one}", "one"],
+      ["ACCDESCR { one }", "one"],
+      ["accDescr { one\n  two }", "one\ntwo"],
+      ["accDescr {\n  }", null],
+      ["accDescr: a\n  accDescr {\n    b\n  }", "b"],
+    ]) {
+      const { document, diagnostics } = parseOk(`sequenceDiagram\n  ${block}\n  A->>B: x\n`);
+
+      expect(diagnostics).toEqual([]);
+      expect(document.accDescr).toBe(accDescr);
+      expect(document.statements.map((s) => s.kind)).toEqual(["message"]);
+    }
+  });
+
+  it("reads what follows an accDescr block's closing brace as the next statement, as Mermaid does", () => {
+    // Measured on Mermaid 12.2.0: `accDescr { one } A->>B: x` draws the
+    // message, so does `}` followed by it on a later line, and
+    // `accDescr { one } extra` is a parse error.
+    for (const block of ["accDescr { one } A->>B: x", "accDescr {\n    one\n  } A->>B: x"]) {
+      const { document, diagnostics } = parseOk(`sequenceDiagram\n  ${block}\n`);
+
+      expect(diagnostics).toEqual([]);
+      expect(document.accDescr).toBe("one");
+      expect(document.statements.map((s) => s.kind)).toEqual(["message"]);
+    }
+
+    const refused = parseSequenceDiagram(`sequenceDiagram\n  accDescr { one } extra\n  A->>B: x\n`);
+    expect(refused.document).toBeNull();
+    expect(refused.diagnostics).toEqual([
+      expect.objectContaining({ severity: "error", line: 2, column: 20 }),
+    ]);
+  });
+
+  it("refuses an accDescr block that never closes, naming the line that opened it", () => {
+    // Mermaid 12.2.0 reads every line after an unclosed `accDescr {` as the
+    // description and draws an empty diagram — not what the document says,
+    // so Siren refuses it rather than drawing that.
+    const result = parseSequenceDiagram(`sequenceDiagram\n  accDescr {\n  one\n  A->>B: x\n`);
+
+    expect(result.document).toBeNull();
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ severity: "error", line: 2, message: expect.stringContaining("accDescr") }),
+    ]);
+  });
+
   it("parses accTitle into the document's accTitle field, distinct from title", () => {
     const source = `sequenceDiagram
   title Order confirmation flow
@@ -356,6 +451,119 @@ describe("parseSequenceDiagram", () => {
         column: 3,
       },
     ]);
+  });
+
+  it("parses links into one href interaction per entry of its JSON object, in the object's order", () => {
+    const source = `sequenceDiagram
+  participant A
+  links A: {"Home": "https://x.com", "Docs": "https://docs.x.com"}
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions).toEqual([
+      {
+        interactionKind: "href",
+        targetId: "A",
+        action: "https://x.com",
+        argument: null,
+        tooltip: "Home",
+        line: 3,
+        column: 3,
+      },
+      {
+        interactionKind: "href",
+        targetId: "A",
+        action: "https://docs.x.com",
+        argument: null,
+        tooltip: "Docs",
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  // Measured on Mermaid 12.2.0: both spellings read with a space before the
+  // colon, giving A.links = {Home: "https://x.com"}.
+  it.each([
+    ["link", "link A : Home @ https://x.com"],
+    ["links", 'links A : {"Home": "https://x.com"}'],
+  ])("reads %s with whitespace before its colon", (_, statement) => {
+    const { document, diagnostics } = parseOk(`sequenceDiagram
+  participant A
+  ${statement}
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions.map((i) => [i.targetId, i.tooltip, i.action])).toEqual([
+      ["A", "Home", "https://x.com"],
+    ]);
+  });
+
+  // Mermaid 12.2.0 ignores each of these silently (measured: `A.links` stays
+  // `{}`) and still draws the diagram; Siren draws it too and says why the
+  // links are missing.
+  it.each([
+    ["text that is not JSON", "not-json"],
+    ["an empty object", "{}"],
+    // Mermaid 12.2.0 iterates these with `for...in`, which finds no key.
+    ["a JSON number", "5"],
+    ["JSON null", "null"],
+    ["an empty array", "[]"],
+  ])("warns on a links statement holding %s, and still parses the diagram", (_, json) => {
+    const source = `sequenceDiagram
+  participant A
+  links A: ${json}
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(document.interactions).toEqual([]);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ severity: "warning", line: 3, column: 3 });
+    expect(diagnostics[0].message).toMatch(/links A/);
+  });
+
+  // Measured on Mermaid 12.2.0: it iterates whatever `JSON.parse` returned
+  // with `for...in`, so an array's or a string's indices become the labels —
+  // A.links = {"0": "https://x.com", "1": "https://y.com"} and
+  // {"0": "a", "1": "b"} — and it draws a menu of those links.
+  it.each([
+    ["a JSON array", '["https://x.com", "https://y.com"]', [["0", "https://x.com"], ["1", "https://y.com"]]],
+    ["a JSON string", '"ab"', [["0", "a"], ["1", "b"]]],
+  ])("reads %s as links labelled by index, as Mermaid does", (_, json, expected) => {
+    const { document, diagnostics } = parseOk(`sequenceDiagram
+  participant A
+  links A: ${json}
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions.map((i) => [i.tooltip, i.action])).toEqual(expected);
+  });
+
+  // Measured on Mermaid 12.2.0: A.links keeps the values as written,
+  // {"H": 5, "N": null, "G": "https://g.com"}. Its menu then hands each value
+  // to `sanitizeUrl`, which throws on 5 (the whole diagram fails to render)
+  // and turns null into about:blank. Siren draws every entry its db records,
+  // the value as the href's text, and warns that it was not a string.
+  it("draws a links entry whose value is not a string with that value as its href, and warns", () => {
+    const { document, diagnostics } = parseOk(`sequenceDiagram
+  participant A
+  links A: {"H": 5, "N": null, "G": "https://g.com"}
+`);
+
+    expect(document.interactions.map((i) => [i.tooltip, i.action])).toEqual([
+      ["H", "5"],
+      ["N", "null"],
+      ["G", "https://g.com"],
+    ]);
+    expect(diagnostics.map((d) => [d.severity, d.line, d.column])).toEqual([
+      ["warning", 3, 3],
+      ["warning", 3, 3],
+    ]);
+    expect(diagnostics[0]!.message).toMatch(/links A: .*"H"/);
+    expect(diagnostics[1]!.message).toMatch(/links A: .*"N"/);
   });
 
   it("returns a null document plus an error diagnostic for an unrecognized statement line, without throwing", () => {

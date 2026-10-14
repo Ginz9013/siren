@@ -116,6 +116,8 @@ function note(
 
 function classModel(partial: Partial<ClassModel> = {}): ClassModel {
   return {
+    accTitle: null,
+    accDescr: null,
     direction: "TB",
     classes: [],
     relationships: [],

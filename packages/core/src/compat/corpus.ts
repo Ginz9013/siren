@@ -904,6 +904,26 @@ function edgeStyle(result: SirenRenderResult, id: string): string {
   return svgOf(result).querySelector(`path.siren-edge[data-siren-id="${id}"]`)?.getAttribute("style") ?? "";
 }
 
+/**
+ * The inline author style one class box is painted with, as two halves:
+ * `frame` from its `rect.siren-class-frame` and `name` from its
+ * `text.siren-class-name` — `""` for a half the author styled with nothing.
+ *
+ * `nodeStyle` and `stateStyle`'s answer for this kind, read the same way:
+ * the attribute the browser will paint from, rather than the model upstream
+ * of it. Two halves because the author's `color` lands on the label and not
+ * on the frame, so a reader of the rectangle alone could not tell "the
+ * label was recoloured" from "the `color` was dropped".
+ */
+function classStyle(result: SirenRenderResult, id: string): { frame: string; name: string } {
+  const g = svgOf(result).querySelector(`g.siren-class[data-siren-id="${id}"]`);
+  if (g === null) throw new Error(`no class "${id}" was drawn`);
+  return {
+    frame: g.querySelector("rect.siren-class-frame")?.getAttribute("style") ?? "",
+    name: g.querySelector("text.siren-class-name")?.getAttribute("style") ?? "",
+  };
+}
+
 /** Every class-diagram class as `id`, in draw order. */
 function classes(result: SirenRenderResult): string[] {
   return elements(result, "g.siren-class").map(idOf);
@@ -1112,6 +1132,42 @@ function erRelationshipLabelAnchor(
 }
 
 /**
+ * Every point one ER relationship's line is routed through, `from` end
+ * first — off `data-siren-points` (`pathPoints`), because the line is drawn
+ * rounded and its `d` holds control points the line never passes through.
+ */
+function erRelationshipRoute(result: SirenRenderResult, id: string): Point[] {
+  return pathPoints(
+    result,
+    `g.siren-er-relationship[data-siren-id="${id}"] path.siren-er-relationship-line`,
+  );
+}
+
+/**
+ * The lines each cell of one column of an ER entity's attribute table draws,
+ * top to bottom — one entry per cell, and in it one string per line a
+ * reader sees.
+ *
+ * Read off the row tspans when the cell has them and off the `<text>` when
+ * it is one plain line, so a cell drawn as `a` over `b` reads `["a", "b"]`
+ * and one drawn as the single line `ab` reads `["ab"]` — the difference
+ * `erAttributeRows`, which flattens each cell to its `textContent`, cannot
+ * see.
+ */
+function erAttributeLines(result: SirenRenderResult, id: string, column: string): string[][] {
+  return Array.from(
+    svgOf(result).querySelectorAll(
+      `g.siren-er-entity[data-siren-id="${id}"] text.siren-er-attribute-${column}`,
+    ),
+  )
+    .sort((a, b) => Number(a.getAttribute("y")) - Number(b.getAttribute("y")))
+    .map((text) => {
+      const rows = Array.from(text.querySelectorAll(":scope > tspan.siren-label-row"));
+      return rows.length === 0 ? [text.textContent ?? ""] : rows.map((row) => row.textContent ?? "");
+    });
+}
+
+/**
  * One ER entity's attribute table as drawn, one string per row, each cell
  * written `column=text` and ordered by where it was actually placed.
  *
@@ -1158,6 +1214,23 @@ function erEntityStyle(result: SirenRenderResult, id: string): string {
   );
   if (frame === null) throw new Error(`no entity "${id}" was drawn with a rectangle`);
   return frame.getAttribute("style") ?? "";
+}
+
+/**
+ * Every ER cluster as drawn, in draw order: its title, the inline author
+ * style on its frame `<rect>`, and the one on its title `<text>` — `""` for
+ * none. Read off the drawn elements because that is where an author's
+ * `style s1` / `class s1` either lands or silently does not: the model
+ * holding the declaration proves nothing about the picture.
+ */
+function erSubgraphStyles(
+  result: SirenRenderResult,
+): { title: string; frame: string; text: string }[] {
+  return elements(result, "g.siren-er-subgraph").map((g) => ({
+    title: g.querySelector("text.siren-er-subgraph-label")?.textContent ?? "",
+    frame: g.querySelector("rect.siren-er-subgraph-frame")?.getAttribute("style") ?? "",
+    text: g.querySelector("text.siren-er-subgraph-label")?.getAttribute("style") ?? "",
+  }));
 }
 
 /**
@@ -1824,6 +1897,28 @@ export const COMPAT_CASES: readonly CompatCase[] = [
   // -------------------------------------------------------------------------
   // flowchart — node ids
   // -------------------------------------------------------------------------
+  {
+    id: "fc-node-id-dash",
+    kind: "flowchart",
+    source: `flowchart TB
+      a-b-->c-d
+      x.o-->y`,
+    status: "supported",
+    meaning:
+      "A node id may hold `-` wherever the next character is not `>`, `-` or " +
+      "`.`, the three that begin an arrow — Mermaid's own id rule. Measured " +
+      "on 12.2.0: `a-b-->c-d` is the nodes `a-b` and `c-d` and one edge, with " +
+      "no space needed before the arrow; `a-b-c`, `-a` and `a-` are ids; " +
+      "`a--b`, `a-.b` and `a - b` are parse errors. Siren refused every dash " +
+      "id (01M2SVAFT). Widening the alphabet moved the arrow markers' guard " +
+      "with it: an `o` or `x` right after an id character is the id's, so " +
+      "`x.o-->y` is the node `x.o` and a plain arrow, as Mermaid reads it — " +
+      "Siren used to read it as `x.` and a circle-headed arrow, silently.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["a-b[a-b]", "c-d[c-d]", "x.o[x.o]", "y[y]"]);
+      expectSame("edges", edges(result), ["a-b-c-d", "x.o-y"]);
+    },
+  },
   {
     id: "fc-node-id-dot",
     kind: "flowchart",
@@ -2987,6 +3082,55 @@ line2\`"]`,
     },
   },
   {
+    id: "fc-style-beats-class",
+    kind: "flowchart",
+    source: `flowchart TB
+      classDef alpha fill:#f00,stroke:#00f
+      A
+      style A fill:#0ff
+      class A alpha`,
+    status: "supported",
+    meaning:
+      "A `style` beats an applied class **whichever is written first**. " +
+      "Measured on 12.2.0 (flowchart): with `style` above the `class` line the " +
+      "target still paints the `style`'s `fill`, keeping the class's " +
+      "`stroke` — `fill:#0ff !important;stroke:#00f !important`. Siren used " +
+      "to let the later line win, drawing the class's `fill` with no " +
+      "diagnostic (01M39F9N1; ADR-0008's 2026-10-14 amendment).",
+    assert: (result) => {
+      expectSame("A's frame", nodeStyle(result, "A"), "fill:#0ff;stroke:#00f");
+    },
+  },
+  {
+    id: "fc-style-classdef-default",
+    kind: "flowchart",
+    source: `flowchart TB
+      A --> B
+      B --> C
+      classDef default fill:#abc,stroke:#00f
+      classDef urgent fill:#f00
+      class B urgent
+      style C fill:#0f0`,
+    status: "supported",
+    meaning:
+      "`classDef default` styles **every** node without being applied: " +
+      "Mermaid creates each vertex already wearing a class called `default`. " +
+      "Measured on 12.2.0 (`--markup`): A paints `fill:#abc;stroke:#00f`; B, " +
+      "which also wears `urgent`, paints `fill:#f00;stroke:#00f` — `default` " +
+      "is the lowest class, so `urgent` overrides the fill it shares and the " +
+      "stroke survives; a `style` beats it as it beats any class; the line " +
+      "may come after the nodes; and a subgraph's frame is not painted. Siren " +
+      "used to record the definition and apply it to nothing, with no " +
+      "diagnostic (01M39F94W). Flowchart only: re-measured, a class diagram " +
+      "paints nothing for it, a state diagram refuses it, and ER refuses it " +
+      "by name (`er-style-classdef-default`).",
+    assert: (result) => {
+      expectSame("A wears only default", nodeStyle(result, "A"), "fill:#abc;stroke:#00f");
+      expectSame("B's own class overrides default's fill", nodeStyle(result, "B"), "fill:#f00;stroke:#00f");
+      expectSame("a style overrides default", nodeStyle(result, "C"), "fill:#0f0;stroke:#00f");
+    },
+  },
+  {
     id: "fc-style-classdef",
     kind: "flowchart",
     source: `flowchart TB
@@ -3021,12 +3165,12 @@ line2\`"]`,
       "A,Ghost emphasis` and `class Ghost,A emphasis` both give `A` " +
       "`classes=[\"emphasis\"]`). The same measurement in the other two kinds that " +
       "share `resolveStyles`: a class diagram's `cssClass \"Ghost\" urgent` " +
-      "likewise adds no class and says nothing. A state diagram agrees " +
-      "about the silence but **not** about the drawing — there `class " +
-      "Ghost urgent` *declares* `Ghost` as a state carrying the class, a " +
-      "gap in that kind's own statement set which is why this row is " +
-      "written for a flowchart: it is a kind where Siren now matches " +
-      "Mermaid's picture exactly, so the row can claim support honestly. " +
+      "likewise adds no class and says nothing. A state diagram's database " +
+      "records `class Ghost urgent` as a state `Ghost` carrying the class, " +
+      "but re-measured on 12.2.0 with `--markup` no figure is drawn for it " +
+      "(01M37GQRM), so the picture agrees there too; this row is written " +
+      "for a flowchart because that is where the measurement was first " +
+      "made. " +
       "Siren used to raise an error-severity diagnostic here in all three " +
       "kinds — a divergence it invented, and the reason this construct " +
       "could not be recorded as supported until now.",
@@ -3386,6 +3530,28 @@ line2\`"]`,
     },
   },
   {
+    id: "fc-acc-descr-multiline",
+    kind: "flowchart",
+    source: `flowchart TB
+      accDescr {
+        how the order
+          moves along
+      } A[Start] --> B[End]`,
+    status: "supported",
+    meaning:
+      "`accDescr`'s braced spelling in a flowchart. Measured on 12.2.0: the " +
+      "description is the block's lines with their indent dropped, \"how the " +
+      "order\\nmoves along\", and what follows the `}` is the next statement — " +
+      "here the whole edge. Read by the same `readAccDescrBlock` the sequence " +
+      "and ER parsers use (01M4WS1P6). Lower case only, unlike those two: a " +
+      "flowchart's `ACCDESCR {` is a parse error.",
+    assert: (result) => {
+      expectSame("the accessible description text", svgOf(result).querySelector("desc")?.textContent, "how the order\nmoves along");
+      expectSame("nodes", nodes(result), ["A[Start]", "B[End]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+    },
+  },
+  {
     id: "fc-acc-title",
     kind: "flowchart",
     source: `flowchart TB
@@ -3446,6 +3612,32 @@ line2\`"]`,
   // -------------------------------------------------------------------------
   // classDiagram
   // -------------------------------------------------------------------------
+  {
+    id: "cls-acc",
+    kind: "class",
+    source: `classDiagram
+      accTitle: Orders
+      accDescr: how orders move
+      class Order`,
+    status: "supported",
+    meaning:
+      "`accTitle:` and `accDescr:` give a class diagram its accessible title " +
+      "and description, a `<title>` and a `<desc>` on the root, drawn nowhere " +
+      "on the canvas — as Mermaid 12.2.0 writes them for every kind. Lower " +
+      "case only in this kind: `ACCTITLE: T` is the class `ACCTITLE` with the " +
+      "member `T` there. Siren drew classes called `accTitle` and `accDescr`, " +
+      "each with the text as a member, with no diagnostic (01M4WVVN9).",
+    assert: (result) => {
+      const svg = svgOf(result);
+      const title = svg.querySelector(":scope > title");
+      const desc = svg.querySelector(":scope > desc");
+      expectSame("the accessible title", title?.textContent, "Orders");
+      expectSame("the accessible description", desc?.textContent, "how orders move");
+      expectSame("labelled by it", svg.getAttribute("aria-labelledby"), title?.getAttribute("id"));
+      expectSame("described by it", svg.getAttribute("aria-describedby"), desc?.getAttribute("id"));
+      expectSame("no class is drawn for either line", classes(result), ["Order"]);
+    },
+  },
   {
     id: "cls-class-bare",
     kind: "class",
@@ -3969,6 +4161,126 @@ line2\`"]`,
       expectSame("B's runs", labelRuns(name, "style"), ["t[style=fill: red]"]);
     },
   },
+  {
+    id: "cls-style-statement",
+    kind: "class",
+    source: `classDiagram
+      class Order
+      class Other
+      style Order fill:#f96,stroke:#00f,color:#0a0`,
+    status: "supported",
+    meaning:
+      "`style X decls` writes declarations straight onto one class box. " +
+      "Measured in headless Chrome (mermaid 12.2.0, computed style): Order's " +
+      "frame paints `fill:rgb(255, 153, 102)` and `stroke:rgb(0, 0, 255)`, " +
+      "its label `color:rgb(0, 170, 0)` — the `color` reaches the text — and " +
+      "Other keeps the palette (`fill:rgb(240, 253, 250)`). jsdom's markup " +
+      "shows no `fill` anywhere for it, which is why 01M4WT4KY measured in a " +
+      "real browser.",
+    assert: (result) => {
+      expectSame("Order's paint", classStyle(result, "Order"), {
+        frame: "fill:#f96;stroke:#00f",
+        name: "fill:#0a0",
+      });
+      expectSame("Other is unstyled", classStyle(result, "Other"), { frame: "", name: "" });
+    },
+  },
+  {
+    id: "cls-style-cssclass",
+    kind: "class",
+    source: `classDiagram
+      class Early
+      class Late
+      class Plain
+      cssClass "Early" urgent
+      classDef urgent fill:#f96,stroke:#00f,color:#0a0
+      cssClass "Late" urgent`,
+    status: "supported",
+    meaning:
+      "`cssClass \"X\" c` applies the `classDef c` declarations to a class " +
+      "box, and Siren paints them **whichever side of the `classDef` line " +
+      "the `cssClass` is written on**. Mermaid 12.2.0 does not: measured in " +
+      "headless Chrome (computed style, this source), Early — applied before " +
+      "the `classDef` — paints `fill:rgb(255, 153, 102)`, " +
+      "`stroke:rgb(0, 0, 255)` and a label `color:rgb(0, 170, 0)`, while " +
+      "Late — applied after it — wears the class " +
+      "(`class=\"node default urgent\"`) and paints nothing of it: palette " +
+      "`fill:rgb(240, 253, 250)`, `stroke:rgb(45, 212, 191)`, label " +
+      "`rgb(40, 37, 61)`. A `classDef` names its declarations for every box " +
+      "wearing the class and says nothing about line order, so this is " +
+      "CONTEXT.md's third rule: Mermaid's picture contradicts the document, " +
+      "and Siren draws what the document says (01M4WT4KY). The target must " +
+      "be quoted: `cssClass Order urgent` is a Mermaid parse error " +
+      "(`Expecting 'STR', got 'ALPHA'`).",
+    assert: (result) => {
+      const urgent = { frame: "fill:#f96;stroke:#00f", name: "fill:#0a0" };
+      expectSame("applied before the classDef", classStyle(result, "Early"), urgent);
+      expectSame("applied after the classDef", classStyle(result, "Late"), urgent);
+      expectSame("the class no cssClass named", classStyle(result, "Plain"), { frame: "", name: "" });
+    },
+  },
+  {
+    id: "cls-style-shorthand",
+    kind: "class",
+    source: `classDiagram
+      class Early:::urgent
+      classDef urgent fill:#f96,stroke:#00f,color:#0a0
+      class Late:::urgent
+      class Plain`,
+    status: "supported",
+    meaning:
+      "`class X:::c` declares a class and attaches the `classDef c` " +
+      "declarations to it, and Siren paints them **whichever side of the " +
+      "`classDef` line the attach is written on**. Mermaid 12.2.0 does not: " +
+      "measured in headless Chrome (computed style, this source), Early — " +
+      "attached before the `classDef` — paints `fill:rgb(255, 153, 102)`, " +
+      "`stroke:rgb(0, 0, 255)` and a label `color:rgb(0, 170, 0)`, while " +
+      "Late — attached after it — wears the class " +
+      "(`class=\"node default urgent\"`) and paints nothing of it: palette " +
+      "`fill:rgb(240, 253, 250)`, `stroke:rgb(45, 212, 191)`, label " +
+      "`rgb(40, 37, 61)`. A `classDef` names its declarations for every box " +
+      "wearing the class and says nothing about line order, so this is " +
+      "CONTEXT.md's third rule: Mermaid's picture contradicts the document, " +
+      "and Siren draws what the document says (01M4WT4KY). Siren used to " +
+      "refuse the line as unrecognized. Where Mermaid takes `:::` at all, " +
+      "measured: after the name, a `~generic~` or a `[\"label\"]`, with or " +
+      "without spaces round it, and in the block form's opening line. " +
+      "Everywhere else it is a parse error — a relationship end " +
+      "(`X:::c --> Y`, `Y --> X:::c`), a bare `X:::c`, the inline member " +
+      "form, after an annotation, a list (`:::c,d`), a second `:::`, and a " +
+      "hyphenated name — and Siren refuses those too.",
+    assert: (result) => {
+      const urgent = { frame: "fill:#f96;stroke:#00f", name: "fill:#0a0" };
+      expectSame("attached before the classDef", classStyle(result, "Early"), urgent);
+      expectSame("attached after the classDef", classStyle(result, "Late"), urgent);
+      expectSame("the class no attach named", classStyle(result, "Plain"), { frame: "", name: "" });
+    },
+  },
+  {
+    id: "cls-style-shorthand-block",
+    kind: "class",
+    source: `classDiagram
+      classDef urgent fill:#f96,stroke:#00f,color:#0a0
+      class Order:::urgent {
+        +int id
+      }`,
+    status: "supported",
+    meaning:
+      "`:::c` on a block-form declaration's opening line attaches the class " +
+      "just as `class X:::c` does, members and all. Measured on mermaid " +
+      "12.2.0 (headless Chrome): `class X:::c {` and `class X:::c{` both draw " +
+      "X with its members and `class=\"node default c\"`. The attach is " +
+      "written after the `classDef` here, so Mermaid paints nothing of it " +
+      "(palette `fill:rgb(253, 244, 255)`); Siren paints it, by the rule-3 " +
+      "divergence `cls-style-shorthand` records.",
+    assert: (result) => {
+      expectSame("Order's paint", classStyle(result, "Order"), {
+        frame: "fill:#f96;stroke:#00f",
+        name: "fill:#0a0",
+      });
+      expectSame("Order's members", members(result, "Order"), ["+int id"]);
+    },
+  },
   // -------------------------------------------------------------------------
   // sequenceDiagram
   // -------------------------------------------------------------------------
@@ -4243,6 +4555,50 @@ line2\`"]`,
     },
   },
   {
+    id: "seq-acc-descr",
+    kind: "sequence",
+    source: `sequenceDiagram
+      accDescr: how a browser asks for orders
+      A->>B: Hello`,
+    status: "supported",
+    meaning:
+      "`accDescr:` gives the diagram its screen-reader-only description, a " +
+      "`<desc>` on the `<svg>` that the root names with aria-describedby — " +
+      "Mermaid 12.2.0 writes both in the `render()` code every kind shares, " +
+      "the same as `er-acc-descr`. Nothing is drawn on the canvas.",
+    assert: (result) => {
+      const svg = svgOf(result);
+      const desc = svg.querySelector(":scope > desc");
+      if (desc === null) throw new Error("no <desc> was drawn");
+      expectSame("the accessible description text", desc.textContent, "how a browser asks for orders");
+      expectSame("the root svg is described by that desc", svg.getAttribute("aria-describedby"), desc.getAttribute("id"));
+      expectSame("no accessible title was invented", svg.querySelector(":scope > title"), null);
+    },
+  },
+  {
+    id: "seq-acc-descr-multiline",
+    kind: "sequence",
+    source: `sequenceDiagram
+      accDescr {
+        how a browser
+        asks for orders
+      }
+      A->>B: Hello`,
+    status: "supported",
+    meaning:
+      "`accDescr`'s braced spelling. Measured on 12.2.0: the description is " +
+      "the block's lines with each one's leading whitespace dropped, " +
+      "\"how a browser\\nasks for orders\". Its own row because it is its own " +
+      "statement in Mermaid's grammar (`acc_descr_multiline_value`).",
+    assert: (result) => {
+      expectSame(
+        "the accessible description text",
+        svgOf(result).querySelector(":scope > desc")?.textContent,
+        "how a browser\nasks for orders",
+      );
+    },
+  },
+  {
     id: "seq-link",
     kind: "sequence",
     source: `sequenceDiagram
@@ -4265,6 +4621,158 @@ line2\`"]`,
         "Label reaches the reader as the participant's tooltip",
         group?.querySelector("title")?.textContent,
         "Dashboard",
+      );
+    },
+  },
+  {
+    id: "seq-link-mention",
+    kind: "sequence",
+    source: `sequenceDiagram
+      link C: Docs @ https://example.com
+      A->>B: hi
+      link B: Home @ https://example.org`,
+    status: "supported",
+    meaning:
+      "A `link` names its participant the way a message does. Measured on " +
+      "12.2.0: `link C` creates lane C where it is written — first here, so " +
+      "the lanes are C, A, B — and `link B` reaches B, which only the " +
+      "message created.",
+    assert: (result) => {
+      expectSame("lanes", laneOrder(result), ["C", "A", "B"]);
+      // Each participant box is drawn at the top and again at the bottom, as
+      // Mermaid draws it, so each link appears twice; one of each is enough.
+      const hrefs = new Set(
+        Array.from(svgOf(result).querySelectorAll("a.siren-link")).map(
+          (a) => `${a.querySelector("g.siren-participant")?.getAttribute("data-siren-id")} ${a.getAttribute("href")}`,
+        ),
+      );
+      expectSame("both participants link out", [...hrefs], ["C https://example.com", "B https://example.org"]);
+    },
+  },
+  {
+    id: "seq-links-menu",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      participant B
+      A->>B: hi
+      links A: {"Home": "https://x.com", "Docs": "https://d.com"}
+      link A: Home @ https://z.com
+      link A: Wiki @ https://w.com`,
+    status: "supported",
+    meaning:
+      "`links A: {json}` gives A one link per entry, and `link A:` lines add " +
+      "to the same set. Measured on 12.2.0: A.links = {Home: z, Docs: d, " +
+      "Wiki: w} — document order, a later Home replacing the earlier one's " +
+      "url in its place. Mermaid shows them as a menu when A is clicked, by " +
+      "JavaScript; Siren draws the same links, in the same order, as a menu " +
+      "of real links under A's box, shown on hover or focus by CSS alone " +
+      "(decision on 01M3NM3BZ). A's box itself links nowhere.",
+    assert: (result) => {
+      const svg = svgOf(result);
+      const menus = Array.from(svg.querySelectorAll("g.siren-link-menu"));
+      // A is drawn at the top and again at the bottom, as Mermaid draws it,
+      // and each box carries the menu.
+      expectSame("a menu on each of A's boxes", menus.length, 2);
+      for (const menu of menus) {
+        expectSame(
+          "the links, merged in document order",
+          Array.from(menu.querySelectorAll("a")).map((a) => `${a.textContent} ${a.getAttribute("href")}`),
+          ["Home https://z.com", "Docs https://d.com", "Wiki https://w.com"],
+        );
+      }
+      expectSame(
+        "A's box is not itself a link",
+        svg.querySelector('g.siren-participant[data-siren-id="A"]')?.closest("a") ?? null,
+        null,
+      );
+    },
+  },
+  {
+    id: "seq-link-repeated",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      link A: Home @ https://x.com
+      link A: Docs @ https://d.com`,
+    status: "supported",
+    meaning:
+      "Two `link` lines on one participant give it two links (12.2.0: " +
+      "A.links = {Home, Docs}). Siren used to keep only the last one; both " +
+      "now reach its menu.",
+    assert: (result) => {
+      const menu = svgOf(result).querySelector("g.siren-link-menu");
+      expectSame(
+        "both links, in order",
+        Array.from(menu?.querySelectorAll("a") ?? []).map((a) => a.getAttribute("href")),
+        ["https://x.com", "https://d.com"],
+      );
+    },
+  },
+  {
+    id: "seq-links-mention",
+    kind: "sequence",
+    source: `sequenceDiagram
+      links C: {"Docs": "https://example.com"}
+      A->>B: hi
+      links B: {"Home": "https://example.org"}`,
+    status: "supported",
+    meaning:
+      "`links` names its participant the way `link` does. Measured on " +
+      "12.2.0: `links C` before the message creates lane C first (C, A, B), " +
+      "and `links B` reaches B, which only the message created. One link " +
+      "is no menu: the box itself is the link, as with `link`.",
+    assert: (result) => {
+      expectSame("lanes", laneOrder(result), ["C", "A", "B"]);
+      const hrefs = new Set(
+        Array.from(svgOf(result).querySelectorAll("a.siren-link")).map(
+          (a) => `${a.querySelector("g.siren-participant")?.getAttribute("data-siren-id")} ${a.getAttribute("href")}`,
+        ),
+      );
+      expectSame("each box links out", [...hrefs], ["C https://example.com", "B https://example.org"]);
+    },
+  },
+  {
+    id: "seq-links-not-json",
+    kind: "sequence",
+    source: `sequenceDiagram
+      links C: not-json
+      A->>B: hi`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 ignores a `links` whose text is not a JSON object " +
+      "without a word (C.links stays {}), but still creates lane C where it " +
+      "is written. Siren draws the same lanes and says why C has no links.",
+    warnings: ["links C: the text after the colon is not JSON; no link is added"],
+    assert: (result) => {
+      expectSame("lanes", laneOrder(result), ["C", "A", "B"]);
+      expectSame("no link", svgOf(result).querySelector("a"), null);
+    },
+  },
+  {
+    id: "seq-links-non-object",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      links A: ["https://x.com", "https://y.com"]`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 reads `links` with `JSON.parse` and walks the result " +
+      "with `for...in`, so JSON that is not an object still gives links " +
+      "(measured: an array gives A.links = {\"0\": x, \"1\": y}, the string " +
+      "\"ab\" gives {\"0\": \"a\", \"1\": \"b\"}, and 5 or null gives {}), and " +
+      "it draws them as a menu labelled 0, 1. Siren draws the same menu. An " +
+      "entry whose value is not a string is recorded as written ({\"H\": 5}); " +
+      "Mermaid then fails to render the diagram (`url.trim is not a " +
+      "function`) for 5, true or an object, and links null, false or 0 to " +
+      "about:blank. Siren draws such an entry with the value's text as its " +
+      "href and a warning.",
+    assert: (result) => {
+      const menu = svgOf(result).querySelector("g.siren-link-menu");
+      expectSame(
+        "links labelled by index, in order",
+        Array.from(menu?.querySelectorAll("a") ?? []).map((a) => `${a.textContent} ${a.getAttribute("href")}`),
+        ["0 https://x.com", "1 https://y.com"],
       );
     },
   },
@@ -4477,6 +4985,22 @@ line2\`"]`,
         svgOf(result).querySelector("a.siren-link")?.getAttribute("href"),
         "https://example.com",
       );
+    },
+  },
+  {
+    id: "seq-title-colon",
+    kind: "sequence",
+    source: `sequenceDiagram
+      title: Checkout: happy path
+      participant A`,
+    status: "supported",
+    meaning:
+      "`title: text` is the colon spelling of `title text`; the first colon " +
+      "and the whitespace after it are the separator, so a later colon stays " +
+      "in the title (measured on 12.2.0: \"Checkout: happy path\"). The space " +
+      "is required — Mermaid rejects `title:Checkout`.",
+    assert: (result) => {
+      expectSame("the title is drawn", texts(result, "text.siren-title"), ["Checkout: happy path"]);
     },
   },
   {
@@ -4849,6 +5373,33 @@ line2\`"]`,
     },
   },
   {
+    id: "st-acc",
+    kind: "state",
+    source: `stateDiagram-v2
+      accTitle: Orders
+      accDescr: how orders move
+      Idle --> Busy`,
+    status: "supported",
+    meaning:
+      "`accTitle:` and `accDescr:` give a state diagram its accessible title " +
+      "and description, a `<title>` and a `<desc>` on the root that " +
+      "aria-labelledby/aria-describedby name, drawn nowhere on the canvas — " +
+      "Mermaid 12.2.0 writes both for this kind as for every other (any " +
+      "case, space allowed before the colon, the braced block too). Siren " +
+      "read both lines as descriptions and drew states called `accTitle` " +
+      "and `accDescr`, with no diagnostic (01M4WVVN9).",
+    assert: (result) => {
+      const svg = svgOf(result);
+      const title = svg.querySelector(":scope > title");
+      const desc = svg.querySelector(":scope > desc");
+      expectSame("the accessible title", title?.textContent, "Orders");
+      expectSame("the accessible description", desc?.textContent, "how orders move");
+      expectSame("labelled by it", svg.getAttribute("aria-labelledby"), title?.getAttribute("id"));
+      expectSame("described by it", svg.getAttribute("aria-describedby"), desc?.getAttribute("id"));
+      expectSame("no state is drawn for either line", states(result), ["Idle", "Busy"]);
+    },
+  },
+  {
     id: "st-state-bare",
     kind: "state",
     source: `stateDiagram-v2
@@ -4863,6 +5414,51 @@ line2\`"]`,
       expectSame("transitions", transitions(result), []);
       expectSame(
         "its name is drawn in the box",
+        texts(result, "g.siren-state text.siren-state-label"),
+        ["Lonely"],
+      );
+    },
+  },
+  {
+    id: "st-bare-ids-one-line",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Busy
+      direction sideways
+      Foo Bar --> Done`,
+    status: "supported",
+    meaning:
+      "Several statements on one line: a bare id ends its statement at the " +
+      "whitespace after it, and the rest of the line is the next one. " +
+      "Measured on 12.2.0: `direction sideways` declares two states called " +
+      "`direction` and `sideways` (`direction` is not reserved, so this is " +
+      "not a direction statement), and `Foo Bar --> Done` declares Foo and " +
+      "the transition Bar → Done. General, not a few words': `Foo Bar`, " +
+      "`A B C`, `hide X`, `fork X` and `end X` all read the same way. A " +
+      "reserved word is never split off.",
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Busy", "direction", "sideways", "Foo", "Bar", "Done"]);
+      expectSame("transitions", transitions(result), ["Idle-Busy: ", "Bar-Done: "]);
+    },
+  },
+  {
+    id: "st-state-keyword-description",
+    kind: "state",
+    source: `stateDiagram-v2
+      state : hi
+      Lonely`,
+    status: "supported",
+    meaning:
+      "`state : text` declares **nothing**, as `state` alone does. Measured " +
+      "(mermaid 12.2.0): no state enters the table and nothing is an error, " +
+      "while every other reserved word as a description's subject — `note " +
+      ": hi`, `style : hi`, `href : hi` and the rest — is a parse error, " +
+      "which Siren now refuses by name too. Siren used to declare a state " +
+      "called `state` here (01M2ZQQQ6).",
+    assert: (result) => {
+      expectSame("states", states(result), ["Lonely"]);
+      expectSame(
+        "no box is drawn for the keyword",
         texts(result, "g.siren-state text.siren-state-label"),
         ["Lonely"],
       );
@@ -5049,6 +5645,24 @@ line2\`"]`,
         texts(result, 'g.siren-state[data-siren-id="start:1"] text'),
         [],
       );
+    },
+  },
+  {
+    id: "st-lone-pseudo-start",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*]
+      [*] --> Idle`,
+    status: "supported",
+    meaning:
+      "`[*]` on a line of its own is the level's start pseudo-state. Measured " +
+      "on 12.2.0 (`--markup`): the start disc is drawn, and the transition " +
+      "after it leaves from that same disc rather than a second one — one " +
+      "start per level, as two `[*] -->` lines share one. Inside a composite " +
+      "it is that composite's start. Siren refused the line (01M4WSRMX).",
+    assert: (result) => {
+      expectSame("one start disc and the state", stateFigures(result), ["start:1: disc", "Idle: box"]);
+      expectSame("transitions", transitions(result), ["start:1-Idle: "]);
     },
   },
   {
@@ -5993,6 +6607,79 @@ line2\`"]`,
     },
   },
   {
+    id: "st-note-pseudo-start",
+    kind: "state",
+    source: `stateDiagram-v2
+      [*] --> Idle
+      Idle --> [*]
+      note right of [*] : begins here`,
+    status: "supported",
+    meaning:
+      "A note on `[*]` hangs on the level's **start** pseudo-state, whichever " +
+      "`[*]` the author meant. Measured on 12.2.0: the note lands on " +
+      "`root_start` (on `C_start` inside `state C`), never on an end, and is " +
+      "drawn as an ordinary note beside the start disc. A level whose only " +
+      "`[*]` is an end makes Mermaid invent a start with no shape and fail to " +
+      "render, so Siren refuses that document, saying why (01M36DWFN).",
+    assert: (result) => {
+      expectSame("the note is drawn on the start disc", stateNoteText(result, "start:1"), ["begins here"]);
+      expectSame("and not on the end", stateNoteText(result, "end:1"), []);
+    },
+  },
+  {
+    id: "st-note-multiline",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Busy
+      note right of Idle
+        line one
+
+          line two
+      end note`,
+    status: "supported",
+    meaning:
+      "The multi-line note, `note … of X` with no colon, running to `end " +
+      "note`. Measured on 12.2.0: the text reaches the state with its source " +
+      "indentation (`\"line one\\n      line two\"`), but the drawn note is one " +
+      "row per non-blank line with no leading space — `line one`, `line two` " +
+      "— so the rows are what Siren reads (01M36DWFN).",
+    assert: (result) => {
+      expectSame(
+        "one row per line, no indent, no blank row",
+        labelRows(svgOf(result).querySelector('g.siren-state[data-siren-id="Idle"] text.siren-note-text')),
+        ["line one", "line two"],
+      );
+    },
+  },
+  {
+    id: "st-note-position-case",
+    kind: "state",
+    source: `stateDiagram-v2
+      direction LR
+      Idle --> Busy
+      note LEFT OF Busy : shouty`,
+    status: "supported",
+    meaning:
+      "A note's side in any case — **the first corpus row of CONTEXT.md's " +
+      "third rule** (decided on 01M36DWFN, 2026-09-23). Mermaid 12.2.0 " +
+      "accepts `note LEFT OF Busy`, records the position verbatim as " +
+      "`\"LEFT OF\"`, and then picks the side with an exact `=== \"left of\"`, " +
+      "so it draws the note on the **right**, exactly where `right of` would " +
+      "put it — the opposite of what the line says, with no diagnostic. " +
+      "Mermaid's *record* is right and only its drawing is wrong, so this is " +
+      "still a measurement of meaning against picture: the document names " +
+      "the left, and Siren draws the left. The row asserts Siren's picture.",
+    assert: (result) => {
+      const note = stateNoteRect(result, "Busy");
+      const box = stateRect(result, "Busy");
+      expectSame(
+        `the note is drawn left of Busy (${JSON.stringify([note, box])})`,
+        note.right <= box.left,
+        true,
+      );
+    },
+  },
+  {
     id: "st-note",
     kind: "state",
     source: `stateDiagram-v2
@@ -6214,6 +6901,86 @@ line2\`"]`,
       // everything: the state no `class` statement named carries no inline
       // declaration at all.
       expectSame("and the unstyled state carries none", stateStyle(result, "Idle"), "");
+    },
+  },
+  {
+    id: "st-style-statement",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Busy
+      Busy --> Done
+      state Group {
+        Inner
+      }
+      style Busy fill:#f00
+      style Idle,Done stroke:#00f
+      style Group fill:#ff0`,
+    status: "supported",
+    meaning:
+      "`style X decls` writes declarations straight onto a state, with no " +
+      "`classDef` between. Measured (mermaid 12.2.0, `--markup`): Busy's " +
+      "rect carries `fill:#f00 !important`, and a comma list in the target " +
+      "position styles each state named. Added straight as `supported` — no " +
+      "`rejected` row ever recorded it, so the `REJECTED` ratchet does not " +
+      "move. With a space after the comma Mermaid paints `B decls` onto A " +
+      "instead; Siren styles both, by CONTEXT.md's third rule (`STYLE_RE` " +
+      "in `parseStateDiagram.ts`). On a composite, Mermaid paints nothing — " +
+      "the frame's `rect.outer` carries no style — although `class Group u` " +
+      "does reach it (the class lands on the composite's `<g>`, and " +
+      "`.u rect` paints the frame). The line names the composite, so Siren " +
+      "paints its frame for `style` as it does for `class`: the third rule " +
+      "again, Mermaid's picture contradicting the document.",
+    assert: (result) => {
+      expectSame("Busy's own rect carries the fill", stateStyle(result, "Busy"), "fill:#f00");
+      expectSame("a composite's frame is styled too", stateStyle(result, "Group"), "fill:#ff0");
+      expectSame("each state in the comma list is styled", stateStyle(result, "Idle"), "stroke:#00f");
+      expectSame("the last one too", stateStyle(result, "Done"), "stroke:#00f");
+    },
+  },
+  {
+    id: "st-class-name-tail",
+    kind: "state",
+    source: `stateDiagram-v2
+      classDef u fill:#00f
+      Idle --> Busy
+      class Busy a,b
+      class Idle`,
+    status: "supported",
+    meaning:
+      "An apply-directive's class name is the whole rest of the line. " +
+      "Measured on 12.2.0: `class Busy a,b` gives Busy `classes=[\"a,b\"]` " +
+      "(and `class Busy u extra` gives `[\"u extra\"]`), and `class Idle` " +
+      "gives `[\"\"]` — both draw, and neither paints anything, since no " +
+      "classDef carries those names. Siren draws the same unstyled picture " +
+      "and says why in two warnings; it used to refuse the document.",
+    warnings: [
+      'class applies "a,b", which no classDef defines; dropping the declaration.',
+      'class names no class to apply; nothing is applied, in "class Idle"',
+    ],
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Busy"]);
+      expectSame("Busy is unstyled", stateStyle(result, "Busy"), "");
+      expectSame("Idle is unstyled", stateStyle(result, "Idle"), "");
+    },
+  },
+  {
+    id: "st-style-beats-class",
+    kind: "state",
+    source: `stateDiagram-v2
+      classDef alpha fill:#f00,stroke:#00f
+      Idle --> Busy
+      style Busy fill:#0ff
+      class Busy alpha`,
+    status: "supported",
+    meaning:
+      "A `style` beats an applied class **whichever is written first**. " +
+      "Measured on 12.2.0 (state): with `style` above the `class` line the " +
+      "target still paints the `style`'s `fill`, keeping the class's " +
+      "`stroke` — `fill:#0ff !important;stroke:#00f !important`. Siren used " +
+      "to let the later line win, drawing the class's `fill` with no " +
+      "diagnostic (01M39F9N1; ADR-0008's 2026-10-14 amendment). The state half could only appear once `style X` was read (01M36C24S).",
+    assert: (result) => {
+      expectSame("Busy's rect", stateStyle(result, "Busy"), "fill:#0ff;stroke:#00f");
     },
   },
   {
@@ -7143,58 +7910,50 @@ line2\`"]`,
     kind: "er",
     source: `erDiagram
       CUSTOMER one ORDER`,
-    status: "silently-wrong",
+    status: "rejected",
     meaning:
       "⚠️ **Siren draws three boxes for a document Mermaid refuses to " +
       "parse, and says nothing.** Measured: `erDiagram / CUSTOMER one " +
       "ORDER` is a parse error, `got 'ONLY_ONE'` — `one` is a cardinality " +
       "keyword, and its lexer rule outranks the name rule, so the word can " +
       "never stand where a name belongs. Siren reads the line as this " +
-      "kind's statement stream and declares `CUSTOMER`, `one` and `ORDER`.\\n\\n" +
+      "kind's statement stream and declares `CUSTOMER`, `one` and `ORDER`.\n\n" +
       "The whole family behaves this way, measured one probe per spelling: " +
       "`to`, `one` and `many` alone are each a parse error and each a box " +
       "here; the multi-word spellings are worse arithmetic — `only one` is " +
       "a parse error and **two** boxes, `zero or one` a parse error and " +
       "**three**. `A to B` draws three boxes. `to ||--o{ B : x` draws a " +
-      "whole relationship.\\n\\n" +
+      "whole relationship.\n\n" +
       "⚠️ **This is not `RESERVED_BARE_NAMES`, and that is the point.** " +
       "That set holds `end`, `subgraph`, `class`, `style` and `classDef`, " +
       "each added by the ticket that made its keyword a statement opener. " +
       "A cardinality word was never a statement opener, so nothing ever " +
       "had a reason to reserve it, and no row named it until " +
       "`01M39812J` measured the alias alphabet and walked into the same " +
-      "lexer rules from the other side.\\n\\n" +
+      "lexer rules from the other side.\n\n" +
       "The exit is implementation, not refusal of the document: these are " +
       "documents Mermaid refuses outright, so Siren refusing them costs an " +
       "author nothing they had. What it costs today is a picture that " +
       "disagrees with Mermaid's with no diagnostic to notice it by. The " +
       "multi-word spellings are the part that is not a one-line fix — they " +
       "have to be caught in the statement stream rather than in a name " +
-      "predicate.\\n\\n" +
+      "predicate.\n\n" +
       "Control group, both sides agreeing and measured alongside: `0+`, " +
       "`1+` and `many(0)` are refused here too, `1` is an entity in both " +
-      "(`ENTITY_ONE`), and `title` is an ordinary name in both.",
-    assert: (result) => {
-      // The wrong picture, spelled out: three boxes where Mermaid draws
-      // none, and `one` among them wearing a cardinality keyword as a
-      // name. Asserting the defect rather than the fix is what a
-      // `silently-wrong` row is for — when this is implemented the row
-      // moves to `rejected` and this assert is replaced, not deleted.
-      expectSame("the three boxes drawn for a document Mermaid refuses", erEntities(result), [
-        "CUSTOMER[CUSTOMER]",
-        "one[one]",
-        "ORDER[ORDER]",
-      ]);
-      // And the part that makes it silent rather than merely wrong.
-      expectSame("no diagnostic says any of this", result.diagnostics, []);
-    },
+      "(`ENTITY_ONE`), and `title` is an ordinary name in both.\n\n" +
+      "**Refused since `01M3C621W`** (re-measured on 12.2.0): the name " +
+      "position now reads its head the way the lexer does — keywords and " +
+      "the multi-word cardinalities first, `\\b` and all (`to-do` and " +
+      "`style-x` are refused, `only` and `oneX` are names) — so Siren " +
+      "refuses the whole family, as Mermaid does, instead of drawing it. " +
+      "Moved here from `silently-wrong`, as this row said it would be.",
   },
   {
     id: "er-name-digit-head",
     kind: "er",
     source: `erDiagram
       123abc`,
-    status: "silently-wrong",
+    status: "supported",
     meaning:
       "⚠️ **Mermaid draws two boxes, Siren draws one, and nothing says " +
       "so.** Measured: `123abc` reports entities `123` and `abc`, because " +
@@ -7202,26 +7961,25 @@ line2\`"]`,
       "digits and hands the rest back to the stream, which reads it as a " +
       "second name. `1-2` is the same shape: two entities, `1` and `-2`. " +
       "Siren's name alphabet has no such seam, so each is one box carrying " +
-      "the whole string.\\n\\n" +
+      "the whole string.\n\n" +
       "⚠️ **The same lexer rule reads two ways in two positions, and that " +
       "is why this could not be fixed where it was found.** `01M39812J` " +
       "wrote `readsAsOneEntityName` to give a **bracketless alias** this " +
       "alphabet, where `A[1abc]` really is a parse error (the grammar wants " +
       "`]`). Reusing that predicate in the name position would refuse `1-2` " +
       "— a document Mermaid draws two boxes for. Refusal is the wrong " +
-      "answer here; **splitting** is the right one.\\n\\n" +
+      "answer here; **splitting** is the right one.\n\n" +
       "So the exit is implementation, and it is the same implementation " +
       "`er-name-cardinality-word` wants: a name position that reads the way " +
       "Mermaid's lexer reads, rather than the way a single regular " +
-      "expression happens to.",
+      "expression happens to.\n\n" +
+      "**Supported since `01M3C621W`**: the name position splits at the end " +
+      "of a leading number as the lexer does (`123abc` → `123`, `abc`; " +
+      "`1-2` → `1`, `-2`; `1.5.7` → `1.5`, `.7`, re-measured on 12.2.0), " +
+      "while a relationship's right end or label must still be one token.",
     assert: (result) => {
-      // One box carrying the whole string, where Mermaid draws `123` and
-      // `abc` side by side. The count is the claim; the label is what says
-      // the seam was never found.
-      expectSame("the single box drawn where Mermaid draws two", erEntities(result), [
-        "123abc[123abc]",
-      ]);
-      expectSame("no diagnostic says the name was not split", result.diagnostics, []);
+      // Split where Mermaid's NUM rule ends: the digits, then the rest.
+      expectSame("two boxes, split at the number", erEntities(result), ["123[123]", "abc[abc]"]);
     },
   },
   {
@@ -7387,35 +8145,43 @@ line2\`"]`,
     source: `erDiagram
       ORDER {
         string \`a
-        b\`
+        b\` PK
+        int z
       }`,
-    status: "rejected",
+    status: "supported",
     meaning:
-      "**A backticked word may span lines**, and this is the half of " +
-      "`er-attribute-backtick` that did not land with it. Measured: the " +
-      "`block_bq` condition's word rule is `` [^`]+ ``, and that character " +
-      "class matches a newline like any other character, so the run between " +
-      "the two backticks simply continues onto the next line. Mermaid " +
-      "reports one attribute, `type=\"string\"`, `name=\"a\\n    b\"` — the " +
-      "name carries the line break **and the source's own indentation**, " +
-      "which is a second decision nobody has made: what a cell containing a " +
-      "newline should be drawn as.\n\n" +
-      "Siren reads a line at a time, so it refuses both halves " +
-      "(`Unrecognized erDiagram attribute: \"string \\`a\"` and " +
-      "`\"b\\`\"`). That is a violation of the absolute compatibility " +
-      "condition — Mermaid draws this document and Siren draws nothing — " +
-      "but an **honest** one: the document costs the author a picture and " +
-      "says so, which is why it counts here and not against " +
-      "`SILENTLY_WRONG`.\n\n" +
-      "⚠️ **This row exists because `01M394HDP` measured the gap and the " +
-      "ratchet could not see it.** Three rows fell that ticket and this one " +
-      "rose, which is the accounting the ratchet comment asks for: a rise " +
-      "that names something already broken is not a regression. On this " +
-      "project a number that only ever falls has been an undercount four " +
-      "times, every one of them found by widening what gets named.\n\n" +
-      "Truly unterminated — a backtick with no partner anywhere in the " +
-      "document — is a parse error in Mermaid too, so that half already " +
-      "agrees and is asserted in `parseErDiagram.test.ts`.",
+      "**A backticked word may span lines**, the half of " +
+      "`er-attribute-backtick` that did not land with it. Measured (mermaid " +
+      "12.2.0): the `block_bq` condition's word rule is `` [^`]+ ``, and that " +
+      "character class matches a newline like any other character, so the run " +
+      "between the two backticks simply continues onto the next line. Mermaid " +
+      "records one attribute, `type=\"string\"`, `name=\"a\\n        b\"` — " +
+      "the line break **and the source's own indentation** in the name — then " +
+      "the key after the closing backtick, and `int z` as a second " +
+      "attribute.\n\n" +
+      "What it **draws** is the measured answer to the question the record " +
+      "left open: `--markup` shows the name cell as two row tspans, `a` and " +
+      "`b` — two lines, the indentation gone (a blank line inside the run " +
+      "draws no row of its own). Siren keeps the record as Mermaid keeps it " +
+      "and draws the cell the same way: one row per line, trimmed, in a row " +
+      "of the table tall enough for both.\n\n" +
+      "Truly unterminated — a backtick with no partner anywhere after it — is " +
+      "a parse error in Mermaid too, and refused here; asserted in " +
+      "`parseErDiagram.test.ts`.",
+    assert: (result) => {
+      // The drawn name cell, line by line: two lines, `a` over `b`. A reader
+      // that drew the record verbatim would give one cell `a\n        b`
+      // (one line once SVG collapses it), and one that dropped the break
+      // would give `ab` or `a b` — each reads differently here.
+      expectSame("ORDER's name cells, line by line", erAttributeLines(result, "ORDER", "name"), [
+        ["a", "b"],
+        ["z"],
+      ]);
+      // And the rest of the row followed the closing backtick: the key is
+      // `string`'s, and `int z` is a second attribute, not part of the name.
+      expectSame("ORDER's key cells", erAttributeLines(result, "ORDER", "keys"), [["PK"], [""]]);
+      expectSame("ORDER's type cells", erAttributeLines(result, "ORDER", "type"), [["string"], ["int"]]);
+    },
   },
   {
     id: "er-block-one-line",
@@ -7722,30 +8488,188 @@ line2\`"]`,
       subgraph s1
         A
       end
-      s1 ||--|| B : r`,
-    status: "rejected",
+      s1 ||--o{ B : r`,
+    status: "supported",
     meaning:
-      "A name worn by an entity and by a cluster at once — and **the silent " +
-      "mis-render ER clusters arrive with**, which is why it has a row of " +
-      "its own rather than living inside `er-subgraph`.\n\n" +
-      "Measured (mermaid 11.17.2): the relationship production calls " +
+      "A relationship endpoint naming a `subgraph` cluster joins the cluster's " +
+      "**frame**, and no box is drawn for the name.\n\n" +
+      "Measured (mermaid 12.2.0): the relationship production calls " +
       "`addEntity` on both endpoints unconditionally and only then asks " +
-      "`subGraphLookup.has(...)`, so this document records a phantom entity " +
-      "`entity-s1-1` that `getData()` throws away and hands the edge the " +
-      "**cluster** `s1` as its start — `getData.edges` answers " +
-      "`{start:\"s1\", end:\"entity-B-2\"}` with no entity node for `s1` at " +
-      "all. A bare `s1` after the block records the same phantom and " +
-      "`getData()` drops it just the same, and writing the relationship " +
-      "*above* the block leaves the edge pointing at a node `getData()` " +
-      "does not carry. In every one of them Mermaid draws **no box** for " +
-      "`s1`: the frame has taken the name.\n\n" +
-      "Every reading Siren's parser has is an ordinary entity, so it would " +
-      "draw that box — a third figure beside the frame, with nothing in the " +
-      "picture to notice. Refused by name instead, at the header, because " +
-      "the construct is the *sharing* and neither half is wrong alone. " +
-      "Its exit is implementation: an endpoint that resolves to a frame, " +
-      "which `layoutDirectedGraph` already routes to the frame itself " +
-      "(`fc-subgraph-edge` is the flowchart's row for it).",
+      "`subGraphLookup.has(...)`, so the document records a phantom entity " +
+      "`entity-s1-1` that `getData()` throws away, and hands the edge the " +
+      "cluster `s1` as its start (`getData.edges` answers " +
+      "`{start:\"s1\", end:\"entity-B-2\"}`). In headless Chrome the " +
+      "drawing has two entity boxes (`A`, `B`) and one frame, and the line " +
+      "runs from the frame's bottom edge to `B`'s top edge with its markers " +
+      "at those two ends. Siren resolves the endpoint to the frame in " +
+      "`buildErModel`, and the shared ELK core routes to the frame itself, " +
+      "as it does for `fc-subgraph-edge`.",
+    assert: (result) => {
+      // No third figure: the name belongs to the frame, not to a box.
+      expectSame("the entities as drawn", erEntities(result), ["A[A]", "B[B]"]);
+      expectSame("the relationship and its markers", erRelationships(result), [
+        "s1:B: only-one-solid-zero-or-more",
+      ]);
+      const frame = erSubgraphBox(result, "s1");
+      const route = erRelationshipRoute(result, "s1:B");
+      const start = route[0];
+      const end = route[route.length - 1];
+      // The picture, not the claim: `TB`, so the line leaves the frame
+      // through its bottom edge and arrives at the top of `B`'s box, which
+      // is where Mermaid 12.2.0 draws it.
+      expectSame("the line starts on the frame's boundary", onBoxBoundary(frame, start), true);
+      expectSame("on its bottom edge", start.y, frame.bottom);
+      expectSame("and ends on B's top edge", end.y, erEntityRect(result, "B").top);
+    },
+  },
+  {
+    id: "er-subgraph-endpoint-before-block",
+    kind: "er",
+    source: `erDiagram
+      s1 ||--o{ B : r
+      subgraph s1
+        A
+      end`,
+    status: "supported",
+    meaning:
+      "`er-subgraph-entity-name` with the relationship written **above** the " +
+      "block: the line still joins the frame `s1`, and no box is drawn for " +
+      "the name.\n\n" +
+      "⚠️ **Mermaid 12.2.0 itself fails to render this order** — measured in " +
+      "headless Chrome, `render()` throws `JsonImportException: Referenced " +
+      "shape does not exist: entity-s1-0`: the relationship recorded the " +
+      "phantom entity before the block existed, its edge points at that " +
+      "phantom, and `getData()` then drops the phantom because the name has " +
+      "become a cluster's. The document is unambiguous — the same statements " +
+      "as the other order, which Mermaid draws frame-to-box — so Siren draws " +
+      "that picture in both orders (user decision, 2026-10-14; CONTEXT.md's " +
+      "rule for where Mermaid's own output contradicts the document).",
+    assert: (result) => {
+      expectSame("the entities as drawn", erEntities(result), ["B[B]", "A[A]"]);
+      expectSame("the relationship and its markers", erRelationships(result), [
+        "s1:B: only-one-solid-zero-or-more",
+      ]);
+      const frame = erSubgraphBox(result, "s1");
+      const route = erRelationshipRoute(result, "s1:B");
+      expectSame("the line starts on the frame's boundary", onBoxBoundary(frame, route[0]), true);
+      expectSame(
+        "and ends on B's boundary",
+        onBoxBoundary(erEntityRect(result, "B"), route[route.length - 1]),
+        true,
+      );
+    },
+  },
+  {
+    id: "er-subgraph-endpoint-both-clusters",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1
+        A
+      end
+      subgraph s2
+        C
+      end
+      s1 ||--o{ s2 : r`,
+    status: "supported",
+    meaning:
+      "Both ends of one relationship may name a cluster: the line joins the " +
+      "two frames, and neither name draws a box.\n\n" +
+      "Measured (mermaid 12.2.0, headless Chrome): two entity boxes (`A`, " +
+      "`C`), two frames, and the line from `s1`'s bottom edge to `s2`'s top " +
+      "edge, a cardinality marker at each — the flowchart's `fc-subgraph-edge` " +
+      "picture, in this kind.",
+    assert: (result) => {
+      expectSame("the entities as drawn", erEntities(result), ["A[A]", "C[C]"]);
+      expectSame("the relationship and its markers", erRelationships(result), [
+        "s1:s2: only-one-solid-zero-or-more",
+      ]);
+      const route = erRelationshipRoute(result, "s1:s2");
+      const start = route[0];
+      const end = route[route.length - 1];
+      expectSame("the line leaves the bottom of `s1`'s frame", start.y, erSubgraphBox(result, "s1").bottom);
+      expectSame("and arrives at the top of `s2`'s", end.y, erSubgraphBox(result, "s2").top);
+      expectSame("on `s1`'s boundary", onBoxBoundary(erSubgraphBox(result, "s1"), start), true);
+      expectSame("and on `s2`'s", onBoxBoundary(erSubgraphBox(result, "s2"), end), true);
+    },
+  },
+  {
+    id: "er-subgraph-endpoint-self",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1
+        A
+      end
+      s1 ||--o{ s1 : r`,
+    status: "supported",
+    meaning:
+      "A relationship from a cluster to itself is a loop on the **frame**, " +
+      "and no box is drawn for the name.\n\n" +
+      "Measured (mermaid 12.2.0, headless Chrome): one entity box (`A`), one " +
+      "frame, and the line leaving the frame's left edge and coming back to " +
+      "it lower down — outside the frame, not through `A`. ELK routes a " +
+      "cluster's self-loop itself; there is no special case here.",
+    assert: (result) => {
+      expectSame("the entities as drawn", erEntities(result), ["A[A]"]);
+      expectSame("the relationship and its markers", erRelationships(result), [
+        "s1:s1: only-one-solid-zero-or-more",
+      ]);
+      const frame = erSubgraphBox(result, "s1");
+      const route = erRelationshipRoute(result, "s1:s1");
+      expectSame("the loop starts on the frame's boundary", onBoxBoundary(frame, route[0]), true);
+      expectSame(
+        "and comes back to it",
+        onBoxBoundary(frame, route[route.length - 1]),
+        true,
+      );
+      expectSame(
+        "at a different point",
+        route[0].x === route[route.length - 1].x && route[0].y === route[route.length - 1].y,
+        false,
+      );
+      // Around the frame, not buried in it: a loop drawn inside would cross
+      // the member it is not about.
+      expectSame(
+        "and runs outside the frame between them",
+        route.every((point) => !insideBox(frame, point)),
+        true,
+      );
+    },
+  },
+  {
+    id: "er-subgraph-endpoint-nested",
+    kind: "er",
+    source: `erDiagram
+      subgraph outer
+        subgraph inner
+          A
+        end
+        C
+      end
+      inner ||--o{ B : r`,
+    status: "supported",
+    meaning:
+      "A cluster nested in another may be a relationship's end: the line " +
+      "joins the **inner** frame and crosses the outer one, and no box is " +
+      "drawn for the name.\n\n" +
+      "Measured (mermaid 12.2.0, headless Chrome): three entity boxes (`A`, " +
+      "`C`, `B`), two frames, and the line from `inner`'s bottom edge — not " +
+      "`outer`'s — down to `B`'s top edge.",
+    assert: (result) => {
+      expectSame("the entities as drawn", erEntities(result), ["A[A]", "C[C]", "B[B]"]);
+      expectSame("the relationship and its markers", erRelationships(result), [
+        "inner:B: only-one-solid-zero-or-more",
+      ]);
+      const inner = erSubgraphBox(result, "inner");
+      const route = erRelationshipRoute(result, "inner:B");
+      expectSame("the line starts on the inner frame's boundary", onBoxBoundary(inner, route[0]), true);
+      expectSame("on its bottom edge", route[0].y, inner.bottom);
+      expectSame(
+        "not on the outer frame's",
+        onBoxBoundary(erSubgraphBox(result, "outer"), route[0]),
+        false,
+      );
+      expectSame("and ends on B's top edge", route[route.length - 1].y, erEntityRect(result, "B").top);
+    },
   },
   {
     id: "er-subgraph-style",
@@ -7755,24 +8679,27 @@ line2\`"]`,
         A ||--|| B : r
       end
       style s1 fill:#f96`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "⚠️ **A cluster is a legal `style` target in this kind**, measured " +
       "and not assumed — which is the opposite of a relationship, whose id " +
       "reaches nothing at all (`er-style-target-colon`). Mermaid's ER " +
       "`addCssStyles` looks up `this.entities.get(id)` **and** " +
-      "`this.subGraphLookup.get(id)`, and this very document answers " +
-      "`getSubGraphs() -> [{id:\"s1\", …, cssStyles:[\"fill:#f96\"]}]`.\n\n" +
-      "`01M395S26` implements the cluster and leaves its paint to a ticket " +
-      "of its own, so the directive is refused by name: dropped instead, it " +
-      "would go in silence — `resolveStyles` drops an unknown target " +
-      "exactly as Mermaid does — and a frame Mermaid fills would come out " +
-      "unfilled with nothing to notice.\n\n" +
-      "**Order-sensitive, and the refusal reads the order.** A `style s1` " +
-      "written *above* the block reaches `addCssStyles` before " +
-      "`addSubGraph` has registered the name and paints nothing at all " +
-      "(measured — `cssStyles` comes back empty), which is the same picture " +
-      "Siren draws by dropping it; that document is not refused.",
+      "`this.subGraphLookup.get(id)`; this very document answers " +
+      "`getSubGraphs() -> [{id:\"s1\", …, cssStyles:[\"fill:#f96\"]}]`, " +
+      "and mermaid 12.2.0 draws the cluster's rect `fill:#f96 !important` " +
+      "(headless Chrome, computed fill `rgb(255, 153, 102)`).\n\n" +
+      "Siren paints the frame `<rect>` with the declaration inline (ADR-0008). " +
+      "The author names the block; the frame's id is the generated " +
+      "`subgraph:1`, and `buildErModel` rewrites the one into the other in " +
+      "the set it hands `resolveStyles` (01M3BXN5N). Read off the drawn " +
+      "frame, because a declaration that reached the model and not the " +
+      "picture would leave every diagnostic empty.",
+    assert: (result) => {
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "s1", frame: "fill:#f96", text: "" },
+      ]);
+    },
   },
   {
     id: "er-subgraph-class",
@@ -7783,7 +8710,7 @@ line2\`"]`,
       end
       classDef urgent fill:#f96
       class s1 urgent`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "The row above's construct under the other keyword, and a row of its " +
       "own for the reason `er-style-class-statement` is one beside " +
@@ -7793,13 +8720,191 @@ line2\`"]`,
       "look.\n\n" +
       "Measured, `setClass` reaches `this.subGraphLookup` exactly as " +
       "`addCssStyles` does: this document answers `getSubGraphs() -> " +
-      "[{id:\"s1\", classes:[\"urgent\"], …}]` and `getData()` carries " +
-      "`cssClasses:\"urgent\"` on the group node. Refused by name for the " +
-      "same reason, and paid off by the same ticket.\n\n" +
+      "[{id:\"s1\", classes:[\"urgent\"], …}]`, and mermaid 12.2.0 draws the " +
+      "cluster `g.cluster urgent` with its rect `fill:#f96 !important`.\n\n" +
       "The third spelling is **not** a gap: `subgraph s1:::urgent` is a " +
       "parse error in Mermaid (\"Expecting 'EOF', 'NEWLINE', 'SQS', " +
       "'SEMI', got 'STYLE_SEPARATOR'\"), so there is nothing there to " +
       "implement.",
+    assert: (result) => {
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "s1", frame: "fill:#f96", text: "" },
+      ]);
+    },
+  },
+  {
+    id: "er-subgraph-style-above-block",
+    kind: "er",
+    source: `erDiagram
+      classDef urgent fill:#f96
+      style s1 fill:#f96
+      class s1 urgent
+      subgraph s1
+        A ||--|| B : r
+      end`,
+    status: "supported",
+    meaning:
+      "**Order-sensitive, measured.** Mermaid's `addSubGraph` registers a " +
+      "block's name at its closing `end`, so a `style` or `class` written " +
+      "*above* the block looks the name up before it exists and paints " +
+      "nothing: mermaid 12.2.0 draws this cluster's rect with no style at " +
+      "all (computed fill the theme's `rgb(249, 249, 251)`), and no error. " +
+      "Siren draws the same — an unstyled frame, no diagnostic — because " +
+      "the parser resolves a block name only against the blocks already " +
+      "closed (`ErStyleDecl.clusterTargets`).",
+    assert: (result) => {
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "s1", frame: "", text: "" },
+      ]);
+    },
+  },
+  {
+    id: "er-subgraph-class-before-classdef",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1
+        A ||--|| B : r
+      end
+      class s1 urgent
+      classDef urgent fill:#f96`,
+    status: "supported",
+    meaning:
+      "Only the *block* must come first; the `classDef` need not. Measured " +
+      "(mermaid 12.2.0): `class s1 urgent` above `classDef urgent` still " +
+      "paints the cluster `fill:#f96 !important` — the class is looked up " +
+      "when the picture is drawn, not when `setClass` runs. Siren's shared " +
+      "`resolveStyles` pairs a definition with its directive in any order.",
+    assert: (result) => {
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "s1", frame: "fill:#f96", text: "" },
+      ]);
+    },
+  },
+  {
+    id: "er-subgraph-style-beats-class",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1
+        A ||--|| B : r
+      end
+      classDef urgent fill:#f00,stroke:#00f
+      style s1 fill:#0ff
+      class s1 urgent`,
+    status: "supported",
+    meaning:
+      "A cluster follows the entity's rule (`er-style-beats-class`): " +
+      "`style` beats an applied class **whichever is written first**. " +
+      "Measured (mermaid 12.2.0), both orders draw the cluster rect " +
+      "`fill:#0ff !important;stroke:#00f !important` — the `style`'s fill, " +
+      "the class's stroke. Siren gets it from `resolveStyles`' two tiers " +
+      "(ADR-0008, 2026-10-14 amendment), unchanged.",
+    assert: (result) => {
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "s1", frame: "fill:#0ff;stroke:#00f", text: "" },
+      ]);
+    },
+  },
+  {
+    id: "er-subgraph-class-entity-and-cluster",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1
+        A ||--|| B : r
+      end
+      classDef urgent fill:#f96
+      class A,s1 urgent`,
+    status: "supported",
+    meaning:
+      "One `class` statement listing an entity and a cluster paints both. " +
+      "Measured (mermaid 12.2.0): `A`'s box and the `s1` rect both come out " +
+      "`rgb(255, 153, 102)`, `B` keeps its palette fill — `setClass` tries " +
+      "both maps for every id it is given.",
+    assert: (result) => {
+      expectSame("A's box", erEntityStyle(result, "A"), "fill:#f96");
+      expectSame("B's box", erEntityStyle(result, "B"), "");
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "s1", frame: "fill:#f96", text: "" },
+      ]);
+    },
+  },
+  {
+    id: "er-subgraph-style-color",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1
+        A ||--|| B : r
+      end
+      style s1 fill:#f96,color:#0a0`,
+    status: "supported",
+    meaning:
+      "An author's `color` on a cluster reaches its **title**, the one text " +
+      "a cluster draws. Measured (mermaid 12.2.0, headless Chrome): the " +
+      "cluster label's computed colour is `rgb(0, 170, 0)`, the rect's fill " +
+      "`#f96`; the same holds through `classDef … color:#0a0` + `class`. " +
+      "Siren routes `color` to the title's `<text>` spelled `fill`, the " +
+      "word SVG paints text with (ADR-0008's label amendment), and leaves it " +
+      "off the frame. The entities inside are not recoloured — measured, " +
+      "neither box changes.",
+    assert: (result) => {
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "s1", frame: "fill:#f96", text: "fill:#0a0" },
+      ]);
+      expectSame("A's box", erEntityStyle(result, "A"), "");
+    },
+  },
+  {
+    id: "er-subgraph-class-nested",
+    kind: "er",
+    source: `erDiagram
+      subgraph outer
+        subgraph inner
+          A ||--|| B : r
+        end
+        C
+      end
+      classDef urgent fill:#f96
+      class outer urgent`,
+    status: "supported",
+    meaning:
+      "A class on an outer cluster stays on the outer cluster. Measured " +
+      "(mermaid 12.2.0): `outer`'s rect is `fill:#f96 !important` while " +
+      "`inner`'s carries no style and keeps the theme's fill, and no entity " +
+      "changes — nothing cascades from a block to what it holds, as nothing " +
+      "cascades between Siren's targets (ADR-0008).",
+    assert: (result) => {
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "outer", frame: "fill:#f96", text: "" },
+        { title: "inner", frame: "", text: "" },
+      ]);
+      expectSame("C's box", erEntityStyle(result, "C"), "");
+    },
+  },
+  {
+    id: "er-subgraph-style-shared-name",
+    kind: "er",
+    source: `erDiagram
+      subgraph s1
+        A
+      end
+      style s1 fill:#f96
+      subgraph s1
+        B
+      end
+      style s1 stroke:#00f`,
+    status: "supported",
+    meaning:
+      "Two blocks may share a name, and a `style` reaches the one **closed " +
+      "most recently** before it. Measured (mermaid 12.2.0, `getSubGraphs`): " +
+      "the first block, holding `A`, answers `cssStyles:[\"fill:#f96\"]` and " +
+      "the second, holding `B`, `cssStyles:[\"stroke:#00f\"]` — " +
+      "`subGraphLookup` is a map each `end` overwrites. Drawn in that order " +
+      "here, each frame wearing its own generated id.",
+    assert: (result) => {
+      expectSame("the clusters as drawn", erSubgraphStyles(result), [
+        { title: "s1", frame: "fill:#f96", text: "" },
+        { title: "s1", frame: "stroke:#00f", text: "" },
+      ]);
+    },
   },
   {
     id: "er-style-statement",
@@ -7977,7 +9082,7 @@ line2\`"]`,
     source: `erDiagram
       CUSTOMER ||--o{ ORDER : places
       ORDER:::urgent`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "`:::` is the apply-directive written onto the entity instead of as a " +
       "statement of its own. Measured: `ORDER:::urgent` reaches the same " +
@@ -7998,7 +9103,18 @@ line2\`"]`,
       "speaks). Mermaid draws this document and paints nothing, so Siren is " +
       "the stricter of the two here — a divergence this row now measures " +
       "rather than one it hides, and the reason the number fell by two and " +
-      "not by three.",
+      "not by three.\n\n" +
+      "**Supported since `01M39FAVK`.** That rule is a **warning** now, in " +
+      "all four kinds that style: re-measured on 12.2.0, ER, flowchart, " +
+      "class and state diagrams each accept an undefined class name, " +
+      "record it and paint nothing, so the picture is Mermaid's and only " +
+      "the author is told. The unknown-target / unknown-name distinction " +
+      "survives, as a warning versus silence.",
+    warnings: ['::: applies "urgent", which no classDef defines; dropping the declaration.'],
+    assert: (result) => {
+      expectSame("ORDER is drawn, unstyled, as Mermaid draws it", erEntityStyle(result, "ORDER"), "");
+      expectSame("the entities drawn", erEntities(result), ["CUSTOMER[CUSTOMER]", "ORDER[ORDER]"]);
+    },
   },
   {
     id: "er-style-class-shorthand-defined",
@@ -8034,6 +9150,119 @@ line2\`"]`,
     },
   },
   {
+    id: "er-style-class-shorthand-relationship",
+    kind: "er",
+    source: `erDiagram
+      classDef urgent fill:#f96
+      classDef calm fill:#9cf
+      CUSTOMER:::urgent ||--o{ ORDER:::calm : places`,
+    status: "supported",
+    meaning:
+      "`:::` on a relationship's ends. Mermaid's grammar has a production " +
+      "for `entityName ::: idList relSpec entityName ::: idList : role`, so " +
+      "either end, or both, may carry a class list. Measured on 12.2.0: " +
+      "this document paints `CUSTOMER` `fill:#f96` and `ORDER` `fill:#9cf` " +
+      "(`--markup`, `style=\"fill:… !important\"` on each box), and the " +
+      "relationship is recorded as `leftEntity=\"CUSTOMER\"` / " +
+      "`rightEntity=\"ORDER\"` — the class never reaches it, so its id stays " +
+      "`CUSTOMER:ORDER` and not `CUSTOMER:::urgent:ORDER`. One end alone, a " +
+      "quoted name (`\"Customer Account\":::x`), a class list (`A:::x,w`) " +
+      "and a cardinality glued on (`A:::x||--o{`) are each measured to " +
+      "behave the same way.\n\n" +
+      "The `:::` sits between the name and the cardinality — never after a " +
+      "bracketed alias, which a relationship end cannot carry at all " +
+      "(`A[\"Al\"]:::x ||--o{ B : y` is a parse error). Without a label the " +
+      "line is still refused, as in Mermaid (`A:::x ||--o{ B:::z` → parse " +
+      "error).",
+    assert: (result) => {
+      expectSame("CUSTOMER's inline style", erEntityStyle(result, "CUSTOMER"), "fill:#f96");
+      expectSame("ORDER's inline style", erEntityStyle(result, "ORDER"), "fill:#9cf");
+      expectSame("the entities drawn", erEntities(result), ["CUSTOMER[CUSTOMER]", "ORDER[ORDER]"]);
+      expectSame("the relationships drawn", erRelationships(result), [
+        "CUSTOMER:ORDER: only-one-solid-zero-or-more",
+      ]);
+    },
+  },
+  {
+    id: "er-style-class-shorthand-spaced",
+    kind: "er",
+    source: `erDiagram
+      classDef urgent fill:#f96
+      classDef calm fill:#9cf
+      CUSTOMER :::urgent ||--o{ ORDER ::: calm : places
+      ITEM ::: calm , urgent`,
+    status: "supported",
+    meaning:
+      "`:::` with whitespace around it. Mermaid's lexer skips whitespace " +
+      "between any two tokens and `:::` is a token of its own, so the " +
+      "spaced spellings are the same construct as the glued ones. Measured " +
+      "on 12.2.0 (`--markup`): `CUSTOMER` is painted `fill:#f96`, `ORDER` " +
+      "`fill:#9cf`, and `ITEM` — `calm` then `urgent` — `fill:#f96`, the " +
+      "later class winning; the relationship is still recorded between " +
+      "`CUSTOMER` and `ORDER`. `A ::: x`, `A::: x`, `A[\"al\"] ::: x` and " +
+      "`A ::: x { int y }` are each measured to give the class too. Until " +
+      "ticket backlog-batch-1014/07 Siren read `:::` only glued to the name " +
+      "and refused every spaced spelling as an unrecognized line. A newline " +
+      "is not whitespace here: `A :::` with the list on the next line is a " +
+      "parse error in Mermaid (\"got 'NEWLINE'\"), and refused here.",
+    assert: (result) => {
+      expectSame("CUSTOMER's inline style", erEntityStyle(result, "CUSTOMER"), "fill:#f96");
+      expectSame("ORDER's inline style", erEntityStyle(result, "ORDER"), "fill:#9cf");
+      expectSame("ITEM's inline style", erEntityStyle(result, "ITEM"), "fill:#f96");
+      expectSame("the relationships drawn", erRelationships(result), [
+        "CUSTOMER:ORDER: only-one-solid-zero-or-more",
+      ]);
+    },
+  },
+  {
+    id: "er-class-reserved-word",
+    kind: "er",
+    source: `erDiagram
+      A
+      class A end`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason**: until 01M3BXNYR " +
+      "Siren read this as \"apply the class `end` to `A`\" while Mermaid " +
+      "refuses it, and no row said so. `class\\b` switches no lexer " +
+      "condition, so `end` is lexed as the `END` keyword — measured on " +
+      "12.2.0, a parse error, `got 'END'`. Siren now refuses it by name " +
+      "(\"Reserved word … cannot stand in a class list\").\n\n" +
+      "Measured position by position, for every word of " +
+      "`RESERVED_BARE_NAMES` (`end`, `subgraph`, `class`, `style`, " +
+      "`classDef`, any case): Mermaid refuses one in **either half** of a " +
+      "`class` statement (`class end u`, `class A u,end`) and after `:::` " +
+      "(`A:::end`, `A:::u,end`, `A:::end ||--o{ B : y`, " +
+      "`A ||--o{ B:::end : y`), and at the head of a member (`end-x`, but " +
+      "not `endx`). It **accepts** them as a `style` target or a `classDef` " +
+      "name (`style end fill:red`, `classDef end fill:red`), because " +
+      "`style\\b` and `classDef\\b` switch to a condition with no keywords — " +
+      "so those are left alone. A quoted class name is refused by Mermaid " +
+      "anyway (`class A \"end\"` → `got 'ENTITY_NAME'`).\n\n" +
+      "**Not only those five words** (backlog-batch-1014/07). A class-list " +
+      "member is `UNICODE_TEXT` alone, so every lexer rule that outranks the " +
+      "name rule refuses one. Measured on 12.2.0, one probe per word in each " +
+      "of the seven positions above (`class A w`, `class w A`, " +
+      "`class A x,w`, `A:::w`, `A:::x,w`, `A:::w ||--o{ B : y`, " +
+      "`A ||--o{ B:::w : y`): the cardinality and body words — `one` " +
+      "(`got 'ONLY_ONE'`), `many` (`'ZERO_OR_MORE'`), `to` " +
+      "(`'IDENTIFYING'`) — `erDiagram` (`'ER_DIAGRAM'`) and `u-x` / `u.x` " +
+      "(`'MD_PARENT'`), any case; and a member opening a multi-word " +
+      "cardinality or a glued one (`class A zero or more`, " +
+      "`A:::only one to many B : y`, `A:::u||--o{ B : y`). Siren read every " +
+      "one as an ordinary class — `class A zero or more` even as the class " +
+      "`zero` and two entities, `or` and `more` — and refuses them now with " +
+      "the same \"Reserved word\" diagnostic. `only`, `zero`, `u` and `ux` " +
+      "alone are ordinary classes in Mermaid and here.\n\n" +
+      "**And a number.** The lexer's number rules come before its name rule " +
+      "too, with no word boundary, so `class A 2` and `class A 1abc` " +
+      "(`got 'NUM'`), `A:::1.5` (`'DECIMAL_NUM'`) and `A:::1` " +
+      "(`'ENTITY_ONE'`) are each refused in every position, while `A:::x1` " +
+      "is a class. Siren refuses a digit-headed member by name (\"Number … " +
+      "cannot stand in a class list\"). The row's status and count do not " +
+      "move: one construct, measured wider.",
+  },
+  {
     id: "er-style-target-colon",
     kind: "er",
     source: `erDiagram
@@ -8059,10 +9288,13 @@ line2\`"]`,
       "So this is the **exception to the absolute condition**, in the form " +
       "CONTEXT.md states it: Mermaid renders it, but Mermaid renders it " +
       "*wrong* and says nothing, so Siren refuses rather than copying the " +
-      "bug. ⚠️ The refusal is real but **generic** today " +
-      "(`Unrecognized erDiagram line`), which tells the author their line " +
-      "is malformed rather than that they are styling something that cannot " +
-      "be styled. Naming it is what keeps this row here.\n\n" +
+      "bug. The refusal **names the reason** (01M39FA7F): the diagnostic " +
+      "says relationships cannot be styled in erDiagram, that " +
+      "`CUSTOMER:ORDER` names the relationship between `CUSTOMER` and " +
+      "`ORDER`, and that `style` reaches only entities and subgraphs — so " +
+      "the author learns they are styling something that " +
+      "cannot be styled, not that their line is malformed. Re-measured on " +
+      "12.2.0: the rect still carries `style=\":ORDERfill !important\"`.\n\n" +
       "This row is mine, not `01M3977QT`'s. It measured that a " +
       "relationship cannot be styled and drew the right conclusion for the " +
       "target set, but read this document as painting nothing; the `rect` " +
@@ -8206,8 +9438,7 @@ line2\`"]`,
       "above because Mermaid gives it its own statement, its own store and " +
       "its own multi-line `accDescr { ... }` spelling — and `fc-acc-title` " +
       "and `fc-acc-descr` are already two rows for that reason. The braced " +
-      "spelling is still unimplemented, and now refused **by name** rather " +
-      "than read as an entity called `accDescr`.",
+      "spelling is `er-acc-descr-multiline`.",
     assert: (result) => {
       const svg = svgOf(result);
       const desc = svg.querySelector("desc");
@@ -8233,6 +9464,50 @@ line2\`"]`,
     },
   },
   {
+    id: "er-case-acc",
+    kind: "er",
+    source: `erDiagram
+      ACCTITLE: Order book
+      AccDescr : how orders relate to customers
+      CUSTOMER`,
+    status: "supported",
+    meaning:
+      "`accTitle` and `accDescr` in any case, with whitespace allowed before " +
+      "the colon — the one pair of ER keywords that was still read in lower " +
+      "case only. Measured on 12.2.0: `ACCTITLE: hi`, `ACCDESCR: hi` and " +
+      "`accTitle : hi` each set the field and draw no box.",
+    assert: (result) => {
+      const svg = svgOf(result);
+      expectSame("the accessible title text", svg.querySelector("title")?.textContent, "Order book");
+      expectSame(
+        "the accessible description text",
+        svg.querySelector("desc")?.textContent,
+        "how orders relate to customers",
+      );
+      expectSame("the entities drawn", erEntities(result), ["CUSTOMER[CUSTOMER]"]);
+    },
+  },
+  {
+    id: "er-style-beats-class",
+    kind: "er",
+    source: `erDiagram
+      classDef alpha fill:#f00,stroke:#00f
+      A
+      style A fill:#0ff
+      A:::alpha`,
+    status: "supported",
+    meaning:
+      "A `style` beats an applied class **whichever is written first**. " +
+      "Measured on 12.2.0 (ER, with `:::`): with `style` above the `class` line the " +
+      "target still paints the `style`'s `fill`, keeping the class's " +
+      "`stroke` — `fill:#0ff !important;stroke:#00f !important`. Siren used " +
+      "to let the later line win, drawing the class's `fill` with no " +
+      "diagnostic (01M39F9N1; ADR-0008's 2026-10-14 amendment).",
+    assert: (result) => {
+      expectSame("A's box", erEntityStyle(result, "A"), "fill:#0ff;stroke:#00f");
+    },
+  },
+  {
     id: "er-acc-descr-multiline",
     kind: "er",
     source: `erDiagram
@@ -8240,7 +9515,7 @@ line2\`"]`,
         string x
       }
       CUSTOMER`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "`accDescr`'s **braced** spelling, the multi-line description. " +
       "Measured: this document reports exactly one entity, `CUSTOMER` — the " +
@@ -8256,7 +9531,20 @@ line2\`"]`,
       "a description written in anything but two attribute-shaped words " +
       "was refused instead. `parseErDiagram` now names it and drains the " +
       "block, so the body's prose is not reported as malformed ER on top of " +
-      "the refusal.",
+      "the refusal.\n\n" +
+      "The same hole stayed open in capitals until `01M4WAFD4`: the guard " +
+      "was case-sensitive, so `ACCDESCR {` / `string x` / `}` — the same " +
+      "block in Mermaid 12.2.0 — drew the two boxes again. It is refused by " +
+      "name in any case now.\n\n" +
+      "**Supported since `01M4WS1P6`**: the block is read as the description " +
+      "through the shared `readAccDescrBlock`, exactly as a flowchart's and a " +
+      "sequence diagram's are (measured on 12.2.0: indent and blank lines go, " +
+      "an empty block is no description, what follows `}` is the next " +
+      "statement) — so the body is never an entity's attributes, in any case.",
+    assert: (result) => {
+      expectSame("the accessible description text", svgOf(result).querySelector("desc")?.textContent, "string x");
+      expectSame("one entity, and no box called accDescr", erEntities(result), ["CUSTOMER[CUSTOMER]"]);
+    },
   },
 
   {

@@ -7,6 +7,7 @@ import type {
   ErEntityDecl,
   ErRelationshipDecl,
   ErRelationshipLine,
+  ErStyleDecl,
   ErSubgraph,
   Label,
   ParseResult,
@@ -19,6 +20,7 @@ import { labelDiagnostics, readLabel } from "../label/readLabel";
 import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
+import { readAccDescrBlock } from "./readAccDescrBlock";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 
 /** The headers a diagnostic here names, asked of the one registry that accepts them. */
@@ -246,6 +248,32 @@ const CLASS_DEF_RE = new RegExp(
 );
 
 /**
+ * `style CUSTOMER:ORDER fill:#f96` — a `style` aimed at a **relationship
+ * id**, refused by name (01M39FA7F).
+ *
+ * A relationship's id is `${from}:${to}`, so this is the spelling an author
+ * reaches for — and it can never work: Mermaid's `addCssStyles` looks only
+ * in `entities` and `subGraphs`. What Mermaid does with it is worse than
+ * refusing: the style condition's word rule has no `:`, and `style:
+ * style styleComponent` concatenates with no separator, so measured with
+ * `--markup` (12.2.0) **`CUSTOMER`'s own rect carries
+ * `style=":ORDERfill !important"`**, with no error. So this is the
+ * exception to the absolute condition, as the `er-style-target-colon` row
+ * records it: Mermaid renders the line, but wrongly and silently, and
+ * CONTEXT.md's first rule — reject rather than render wrongly — is what
+ * applies, not the third (the third would have Siren *draw* what the
+ * document says, and a relationship cannot be styled in this kind at all —
+ * `er-style-statement`). Siren
+ * refuses and says why, rather than calling the line malformed.
+ *
+ * Any member of the target list, which is an `idList` (`style A,B:C …`).
+ */
+const STYLE_RELATIONSHIP_TARGET_RE = new RegExp(
+  `^style\\b\\s+(?:${STYLE_NAME_SOURCE}\\s*,\\s*)*(${STYLE_NAME_SOURCE}):(${STYLE_NAME_SOURCE})`,
+  "iu",
+);
+
+/**
  * `class ORDER urgent` — the apply-directive as a statement of its own.
  *
  * ⚠️ **`class\b` does *not* switch the lexer condition**, unlike its two
@@ -273,8 +301,87 @@ const CLASS_DEF_RE = new RegExp(
  */
 const CLASS_RE = new RegExp(
   `^class\\b\\s+(${idListSource(NAME_SOURCE)})\\s+(${idListSource(NAME_SOURCE)})`,
-  "iu",
+  "diu",
 );
+
+/**
+ * What Mermaid's lexer finds at the head of a member of the class lists
+ * `match` read in `groups`, when it is not a name — a keyword, or a number
+ * — or `null` when every member is a name.
+ *
+ * A class list is an `idList`, whose members are `UNICODE_TEXT` alone, and
+ * `class\b` and `:::` leave the lexer in its initial condition, where every
+ * keyword rule outranks the name rule. So a member is refused wherever
+ * `KEYWORD_AT_NAME_HEAD_RE` or `MULTI_WORD_CARDINALITY_RE` claims its head —
+ * the same two sets `bareNameTokenLength` asks of a name position, read
+ * `\b`-terminated, so `endx` and `oneX` are ordinary classes and `end-x` is
+ * `END` then `-x`.
+ *
+ * Measured (12.2.0), every word in every class-list position — both halves
+ * of a `class` statement, after `:::` on an entity and after `:::` on either
+ * end of a relationship: the five `RESERVED_BARE_NAMES` ("got 'END'" …),
+ * the cardinality and body words (`one` → 'ONLY_ONE', `many` →
+ * 'ZERO_OR_MORE', `to` → 'IDENTIFYING'), `erDiagram` → 'ER_DIAGRAM' and
+ * `u-x` → 'MD_PARENT', in any case, are each a parse error; `only`, `zero`,
+ * `u` and `ux` are ordinary classes.
+ *
+ * **And a number**, because the lexer's number rules (`[0-9]+\.[0-9]+`,
+ * `[0-9]+` with no word boundary, and `1` as a cardinality) also come before
+ * its name rule, and none of them is `UNICODE_TEXT`. Measured (12.2.0):
+ * `class A 2` and `class A 1abc` → got 'NUM', `A:::1.5` → got
+ * 'DECIMAL_NUM', `A:::1` → got 'ENTITY_ONE', in every position; `A:::x1` is
+ * an ordinary class. So a class name, unlike an entity name, may not begin
+ * with a digit at all.
+ *
+ * ⚠️ **The last member is read with what follows the list**, because two of
+ * those rules look past a word: `class A zero or more` is 'ZERO_OR_MORE'
+ * and `A:::u||--o{ B : y` is 'MD_PARENT' (`u(?=[.\-|])`), measured, though
+ * `zero` and `u` alone are classes. A member before a comma has only the
+ * comma after it, which neither rule reads.
+ *
+ * ⚠️ **Asked of the class lists only, never of a `style` or `classDef`
+ * name.** `style\b` and `classDef\b` switch to the style condition, which
+ * has no keywords: `style end fill:red` and `classDef end fill:red` are
+ * accepted (measured).
+ */
+interface ClassMemberHead {
+  /** The token at the member's head, as written. */
+  head: string;
+  /** Whether that token is a number rather than a keyword. */
+  number: boolean;
+}
+
+function reservedClassMember(match: RegExpExecArray, groups: readonly number[]): ClassMemberHead | null {
+  for (const group of groups) {
+    const list = match[group];
+    if (list === undefined) {
+      continue;
+    }
+    const members = splitIdList(list);
+    const after = match.input.slice(match.indices![group]![1]);
+    for (const [index, member] of members.entries()) {
+      const text = index === members.length - 1 ? member + after : member;
+      const keyword = KEYWORD_AT_NAME_HEAD_RE.exec(text) ?? MULTI_WORD_CARDINALITY_RE.exec(text);
+      if (keyword !== null) {
+        return { head: keyword[0], number: false };
+      }
+      const number = /^(?:[0-9]+\.[0-9]+|[0-9]+)/u.exec(member);
+      if (number !== null) {
+        return { head: number[0], number: true };
+      }
+    }
+  }
+  return null;
+}
+
+/** The refusal for what `reservedClassMember` found in a class list on `line`. */
+const reservedClassRefusal = ({ head, number }: ClassMemberHead, line: string): ErLineRefusal => ({
+  refusal: number
+    ? `Number "${head}" cannot stand in a class list in erDiagram: a class name in Mermaid cannot begin ` +
+      `with a digit, and it refuses the line, in "${line}"`
+    : `Reserved word "${head}" cannot stand in a class list in erDiagram: Mermaid reads it as a keyword ` +
+      `and refuses the line, in "${line}"`,
+});
 
 /**
  * The class **every ER entity already wears**, and the one name a `classDef`
@@ -384,6 +491,21 @@ const alternation = (spellings: readonly string[]): string =>
     .join("|");
 
 /**
+ * An optional `:::` and the class list after it — the apply-directive
+ * written onto a name, as `ENTITY_HEAD_RE` and both ends of
+ * `RELATIONSHIP_SOURCE` read it. One capturing group: the list.
+ *
+ * **Whitespace on either side of the `:::` is skipped**, because Mermaid's
+ * lexer skips it between any two tokens and `:::` is a token of its own.
+ * Measured (12.2.0): `A :::x ||--o{ B : y`, `A ||--o{ B ::: z : y`,
+ * `A ::: x`, `A::: x`, `A["al"] ::: x` and `A ::: x { int y }` each give
+ * the class exactly as the unspaced spelling does. A newline is not
+ * skipped — `A :::` with the list on the next line is a parse error ("got
+ * 'NEWLINE'") — and a line here never holds one.
+ */
+const CLASS_LIST_SOURCE = `(?:\\s*:::\\s*(${idListSource(NAME_SOURCE)}))?`;
+
+/**
  * One relationship:
  * `<entity> <cardinality> <body> <cardinality> <entity> : <label>`, in
  * either spelling of each of the three middle tokens — **and they mix**,
@@ -415,12 +537,25 @@ const alternation = (spellings: readonly string[]): string =>
  * by `readLabel` (ADR-0015 — measured, `: "places<br/>many"` is the edge
  * label `<p>places<br>many</p>`), and `readLabelAt` places a problem in it
  * by where its group begins.
+ *
+ * **Either end may carry `:::` and a class list** (01M39FA7F), after its
+ * name and with or without whitespace around it (`CLASS_LIST_SOURCE`) —
+ * Mermaid's productions 8–10,
+ * `entityName ::: idList relSpec entityName ::: idList : role`. Measured
+ * (12.2.0): `A:::x ||--o{ B:::z : y` gives `A` the class `x` and `B` the
+ * class `z`, and the relationship is still recorded between `A` and `B`, so
+ * its id stays `${from}:${to}` and the class never reaches it. A quoted
+ * name takes one too (`"Customer Account":::x`), a cardinality may be glued
+ * on (`A:::x||--o{`, since `|` is in no name), and the list is an `idList`
+ * (`A:::x,w`). An aliased end is no relationship end at all in Mermaid
+ * (`A["Al"]:::x ||--o{ B : y` is a parse error), which this pattern never
+ * reads.
  */
 const RELATIONSHIP_SOURCE =
-  `^(${ANY_NAME_SOURCE})(?:\\s*(?=[|}])|\\s+)(${alternation(Object.keys(CARDINALITY_BY_SPELLING))})` +
+  `^(${ANY_NAME_SOURCE})${CLASS_LIST_SOURCE}(?:\\s*(?=[|}])|\\s+)(${alternation(Object.keys(CARDINALITY_BY_SPELLING))})` +
   `\\s*(${alternation(Object.keys(LINE_BY_SPELLING))})\\s*` +
   `(${alternation(Object.keys(CARDINALITY_BY_SPELLING))})\\s*(${ANY_NAME_SOURCE})` +
-  `\\s*:\\s*(?:"([^"\\r\\n]+)"|(${NAME_SOURCE}))`;
+  `${CLASS_LIST_SOURCE}\\s*:\\s*(?:"([^"\\r\\n]+)"|(${NAME_SOURCE}))`;
 
 /**
  * ⚠️ **Not anchored on the end of the line.** Mermaid's grammar is
@@ -449,12 +584,20 @@ function readRelationship(
   text: string,
   at: SourcePosition,
   diagnostics: Diagnostic[],
-): { decl: ErRelationshipDecl; length: number } | null {
+): {
+  decl: ErRelationshipDecl;
+  leftClasses: string[];
+  rightClasses: string[];
+  /** A keyword or number heading a member of either end's class list — see `reservedClassMember`. */
+  reservedClass: ClassMemberHead | null;
+  length: number;
+} | null {
   const match = RELATIONSHIP_RE.exec(text);
   if (match === null) {
     return null;
   }
-  const [, left, leftMarker, body, rightMarker, right, quotedLabel, bareLabel] = match;
+  const [, left, leftClasses, leftMarker, body, rightMarker, right, rightClasses, quotedLabel, bareLabel] =
+    match;
   const label = quotedLabel ?? bareLabel;
   // Lower-cased for the lookup because Mermaid's lexer rules are all `/i` —
   // measured, `A ZERO OR ONE to many B : x` reports `ZERO_OR_ONE`, so the
@@ -478,6 +621,17 @@ function readRelationship(
   ) {
     return null;
   }
+  // And each bare end, and a bare label, must be one name token as Mermaid's
+  // lexer reads one (01M3C621W): `A ||--o{ to : x`, `A ||--o{ 123abc : x`
+  // and `A ||--o{ B : one` are parse errors, measured. A left end that is
+  // *not* one token is not a relationship from here — `123abc ||--o{ B : x`
+  // is the entity `123` and then a relationship from `abc` — so this
+  // declines and leaves the stream to read the name first.
+  if (
+    [left, right, bareLabel].some((text) => text !== undefined && !text.startsWith('"') && !isOneNameToken(text))
+  ) {
+    return null;
+  }
   return {
     decl: {
       // Unquoted here, once, so that every stage after this one sees the id
@@ -489,8 +643,11 @@ function readRelationship(
       line: LINE_BY_SPELLING[spelling(body)],
       rightCardinality: CARDINALITY_BY_SPELLING[spelling(rightMarker)],
       right: unquoteName(right),
-      label: readLabelInto(match, quotedLabel !== undefined ? 6 : 7, at, diagnostics),
+      label: readLabelInto(match, quotedLabel !== undefined ? 8 : 9, at, diagnostics),
     },
+    leftClasses: leftClasses === undefined ? [] : splitIdList(leftClasses),
+    rightClasses: rightClasses === undefined ? [] : splitIdList(rightClasses),
+    reservedClass: reservedClassMember(match, [2, 7]),
     length: match[0].length,
   };
 }
@@ -567,9 +724,13 @@ function readDirection(line: string): Direction | null {
  * unread — the same line `parseFlowchart` draws — and refused by name in
  * `UNIMPLEMENTED` below, because `ENTITY_HEAD_RE` would otherwise read it
  * as an entity called `accDescr` opening an attribute block.
+ *
+ * Both keywords are read in any case, with whitespace allowed before the
+ * colon, as Mermaid 12.2.0 reads them (measured: `ACCTITLE: hi`,
+ * `ACCDESCR: hi`, `accTitle : hi`, `accDescr:hi`).
  */
-const ACC_TITLE_RE = /^accTitle:\s*(.+)$/;
-const ACC_DESCR_RE = /^accDescr:\s*(.+)$/;
+const ACC_TITLE_RE = /^accTitle\s*:\s*(.+)$/i;
+const ACC_DESCR_RE = /^accDescr\s*:\s*(.+)$/i;
 
 /**
  * The opening line of Mermaid's **braced** `accDescr { ... }`, which this
@@ -596,7 +757,15 @@ const ACC_DESCR_RE = /^accDescr:\s*(.+)$/;
  * is why the defect could sit here unseen: it only shows when the
  * description is written in two words that look like a type and a name.
  */
-const ACC_DESCR_BRACED_RE = /^accDescr\s*\{$/;
+// In any case: measured on 12.2.0, `ACCDESCR {` is the same block, and a
+// case-sensitive test let it through to `ENTITY_HEAD_RE` as an entity called
+// `ACCDESCR` — the silently wrong picture above, in capitals.
+//
+// **Read now, not refused** (01M4WS1P6): the block is the description,
+// through the shared `readAccDescrBlock`, so the guard that kept it from
+// `ENTITY_HEAD_RE` is now what reads it. Not anchored at the end any more:
+// `accDescr{one}` and `accDescr { one } A` open the same block.
+const ACC_DESCR_BRACED_RE = /^accDescr\s*\{/i;
 
 /**
  * `subgraph s1`, `subgraph s1["My Title"]`, `subgraph s1 [Bracket Title]` —
@@ -805,7 +974,7 @@ const END_RE = /^end\b\s*/iu;
  */
 const ENTITY_HEAD_RE = new RegExp(
   `^(${ANY_NAME_SOURCE})(?:\\s*\\[\\s*(?:"([^"\\r\\n]+)"|(${NAME_SOURCE}))\\s*\\])?` +
-    `(?::::(${idListSource(NAME_SOURCE)}))?(\\s*\\{)?`,
+    `${CLASS_LIST_SOURCE}(\\s*\\{)?`,
   "du",
 );
 const ATTRIBUTE_BLOCK_CLOSE = "}";
@@ -843,7 +1012,55 @@ const ATTRIBUTE_BLOCK_CLOSE = "}";
  * ever fires at the head of a token.
  */
 const KEYWORD_AT_NAME_HEAD_RE =
-  /^(?:(?:erDiagram|classDef|class|subgraph|end|many|one|to)\b|u(?=[-.|])|--|\.\.|\.-|-\.)/iu;
+  /^(?:(?:erDiagram|style|classDef|class|subgraph|end|many|one|to)\b|u(?=[-.|])|--|\.\.|\.-|-\.)/iu;
+
+/**
+ * How much of `text` Mermaid's INITIAL lexer reads as **one** entity name
+ * at its head — or `null` when the token there is not a name at all.
+ *
+ * The lexer takes the first rule that matches (mermaid 12.2.0, rules read
+ * out of its bundle), and its name rule comes after every keyword and
+ * number rule, so the head of a name position is decided in that order
+ * (01M3C621W):
+ *
+ * 1. A keyword: `KEYWORD_AT_NAME_HEAD_RE`, plus the cardinality spellings
+ *    that open with an ordinary word — `only one`, `zero or one|more|many`,
+ *    `optionally to` — which only claim the word when the rest follows,
+ *    **one literal space apart**: Mermaid's rules are spelled with a space,
+ *    not `\s+`. Measured: `CUSTOMER one ORDER`, `only one`, `zero or one`,
+ *    `to-do` and `style-x` are parse errors; `only`, `zero` and `zero or`
+ *    are names, and so is every word of `zero or  more` (two spaces) and
+ *    `zero or<tab>more` — three boxes in Mermaid.
+ * 2. `[0-9]+\.[0-9]+`, one name (`1.5`; `1.5.7` is `1.5` and `.7`).
+ * 3. `1` before whitespace and a letter, quote or digit, or before a
+ *    relationship body: a token of its own, never a name (`1 abc` is a
+ *    parse error). ⚠️ That `\s+` crosses lines: `1` ending a line and `A`
+ *    opening the next is a parse error too, measured — which is why a
+ *    caller at the end of a line hands this the next line's text after it.
+ * 4. `[0-9]+`, with **no word boundary**: the digits are a name and the
+ *    rest is the next one — `123abc` is `123` and `abc`, `1-2` is `1` and
+ *    `-2`, measured.
+ * 5. Otherwise the name rule, `NAME_SOURCE`.
+ *
+ * A quoted name never reaches this: quoting takes anything.
+ */
+const MULTI_WORD_CARDINALITY_RE = /^(?:only one|zero or (?:one|more|many)|optionally to)\b/iu;
+const SPECIAL_ONE_RE = /^1(?=\s+[A-Za-z_"'0-9]|--|\.\.|\.-|-\.)/u;
+const NAME_AT_HEAD_RE = new RegExp(`^${NAME_SOURCE}`, "u");
+
+function bareNameTokenLength(text: string): number | null {
+  if (KEYWORD_AT_NAME_HEAD_RE.test(text) || MULTI_WORD_CARDINALITY_RE.test(text) || SPECIAL_ONE_RE.test(text)) {
+    return null;
+  }
+  const number = /^(?:[0-9]+\.[0-9]+|[0-9]+)/u.exec(text);
+  if (number !== null) {
+    return number[0].length;
+  }
+  return NAME_AT_HEAD_RE.exec(text)?.[0].length ?? null;
+}
+
+/** Whether a bare `name` is exactly one entity-name token, all of it. */
+const isOneNameToken = (name: string): boolean => bareNameTokenLength(name) === name.length;
 
 /**
  * A bare string Mermaid's lexer reads as **exactly one** `entityName` token —
@@ -880,9 +1097,8 @@ const KEYWORD_AT_NAME_HEAD_RE =
  * statements and both tokens are names there; inside brackets the same
  * string is a parse error, because the grammar wants a `]` after the first.
  * Asking this in `readEntityHead`'s name position would cost a document
- * Mermaid draws. The name position's own over-reach — a bare `to`, `one` or
- * `many` draws a box here and is a parse error in Mermaid — is a separate,
- * unrowed gap; see the report on this ticket.
+ * Mermaid draws. The name position answers with `bareNameTokenLength`
+ * instead, which splits there where this refuses (01M3C621W).
  */
 function readsAsOneEntityName(bare: string): boolean {
   if (KEYWORD_AT_NAME_HEAD_RE.test(bare)) {
@@ -897,6 +1113,8 @@ interface ErEntityHead {
   alias: Label | null;
   /** The classes a `:::` applied to it, in source order; empty when it wrote none. */
   classes: string[];
+  /** A keyword or number heading a member of that class list — see `reservedClassMember`. */
+  reservedClass: ClassMemberHead | null;
   opensBlock: boolean;
   length: number;
 }
@@ -907,18 +1125,41 @@ interface ErEntityHead {
  *
  * `at` is where `text` begins in the document, and `diagnostics` where a
  * problem in the alias is reported — only once the head is known to be one,
- * so a string this declines reports nothing.
+ * so a string this declines reports nothing. `after` is what follows `text`
+ * in the source when `text` runs to the end of its line, for the lexer rule
+ * that looks past it — see `bareNameTokenLength`.
  */
 function readEntityHead(
   text: string,
   at: SourcePosition,
   diagnostics: Diagnostic[],
+  after: string,
 ): ErEntityHead | null {
   const match = ENTITY_HEAD_RE.exec(text);
   if (match === null) {
     return null;
   }
   const [whole, name, quotedAlias, bareAlias, classes, brace] = match;
+  // Where Mermaid's lexer would read the head of this name — see
+  // `bareNameTokenLength`. A keyword there declines the head; a shorter
+  // token makes the head just that token, and the rest of the text is the
+  // next statement (`123abc` is the entities `123` and `abc`, measured).
+  if (!name.startsWith('"')) {
+    const token = bareNameTokenLength(text + after);
+    if (token === null) {
+      return null;
+    }
+    if (token < name.length) {
+      return {
+        name: text.slice(0, token),
+        alias: null,
+        classes: [],
+        reservedClass: null,
+        opensBlock: false,
+        length: token,
+      };
+    }
+  }
   // The over-reach guard the name alphabet needs: `-` and `.` are each a
   // whole name, so the alphabet admits `--`, which Mermaid's lexer reads as
   // a relationship body and refuses. Quoted, the same characters *are* a
@@ -942,6 +1183,7 @@ function readEntityHead(
     name: unquoteName(name),
     alias: aliasGroup === null ? null : readLabelInto(match, aliasGroup, at, diagnostics),
     classes: classes === undefined ? [] : splitIdList(classes),
+    reservedClass: reservedClassMember(match, [4]),
     opensBlock: brace !== undefined,
     length: whole.length,
   };
@@ -951,6 +1193,13 @@ function readEntityHead(
 interface ErLineReading {
   /** The entities named, in source order, relationship endpoints included. */
   entities: ErEntityDecl[];
+  /**
+   * The mentions in `entities` that are a relationship's end and nothing
+   * more: no `:::` on that end, and written outside every `subgraph` block.
+   * Only such a mention may name a cluster rather than an entity — see the
+   * shared-name rule at the end of `parseErDiagram`.
+   */
+  plainEndpoints: ErEntityDecl[];
   /** The relationships named, in source order. */
   relationships: ErRelationshipDecl[];
   /**
@@ -998,6 +1247,16 @@ interface ErLineReading {
 }
 
 /**
+ * A line `readLine` could read far enough to know **why** it must be
+ * refused — a construct Mermaid itself refuses or draws wrongly — with the
+ * message that names the reason. `null` stays the answer for a line it
+ * cannot read at all.
+ */
+interface ErLineRefusal {
+  refusal: string;
+}
+
+/**
  * Everything `line` declares, given the block it began inside — or `null`
  * when any part of it is unreadable.
  *
@@ -1035,14 +1294,20 @@ interface ErLineReading {
  * arrived on an earlier line would keep the attributes of a line that was
  * refused. Returning `null` costs the document and says so, which is the
  * trade every refusal in this parser makes.
+ *
+ * `after` is the source past the end of `line` (`textAfter`), read only by
+ * the one name rule whose lookahead crosses a line break: a bare `1` ending
+ * the line is a name or a token of its own depending on what comes next.
  */
 function readLine(
   line: string,
   openEntity: ErEntityDecl | null,
   where: SourcePosition,
   openBlocks: readonly ErSubgraph[],
-): ErLineReading | null {
+  after: string,
+): ErLineReading | ErLineRefusal | typeof CONTINUES | null {
   const entities: ErEntityDecl[] = [];
+  const plainEndpoints: ErEntityDecl[] = [];
   const relationships: ErRelationshipDecl[] = [];
   const styles: StyleDecl[] = [];
   const malformedStyles: string[] = [];
@@ -1087,6 +1352,9 @@ function readLine(
       if (read === null) {
         return null;
       }
+      if (read === CONTINUES) {
+        return CONTINUES;
+      }
       appends.push({ entity: open, attributes: read.attributes });
       rest = rest.slice(read.length).trimStart();
       continue;
@@ -1099,6 +1367,16 @@ function readLine(
     // same words are still refused where a *name* belongs (`A ||--o{ style :
     // x` is a parse error), so the reservation is what a word falls back to
     // once no statement here has claimed it.
+    const relationshipTarget = STYLE_RELATIONSHIP_TARGET_RE.exec(rest);
+    if (relationshipTarget !== null) {
+      const [, from, to] = relationshipTarget;
+      return {
+        refusal:
+          `Relationships cannot be styled in erDiagram: "${from}:${to}" names the relationship between ` +
+          `"${from}" and "${to}", and \`style\` reaches only entities and subgraphs, in "${line}"`,
+      };
+    }
+
     const style = STYLE_RE.exec(rest);
     if (style !== null) {
       const { properties, malformed } = parseStyleProperties(style[2]);
@@ -1152,23 +1430,17 @@ function readLine(
 
     const apply = CLASS_RE.exec(rest);
     if (apply !== null) {
+      const word = reservedClassMember(apply, [1, 2]);
+      if (word !== null) {
+        return reservedClassRefusal(word, line);
+      }
       // One `StyleDecl` per class name, in the order the author wrote them
       // — which is what gives the stacking its answer: measured, a later
       // class wins a property both name (`class A alpha,beta` paints
       // `beta`'s fill) while a property only the earlier one names survives,
       // and that is exactly what `resolveStyles` does with a sequence of
       // applications.
-      for (const name of splitIdList(apply[2])) {
-        styles.push({
-          styleKind: "apply",
-          authoredAs: "class",
-          targetIds: splitIdList(apply[1]),
-          name,
-          properties: [],
-          line: where.line,
-          column: where.column,
-        });
-      }
+      styles.push(...applications(splitIdList(apply[2]), splitIdList(apply[1]), "class", where));
       // Its own length, not the line's: `class` never left the initial
       // condition, so the stream continues. See `CLASS_RE`.
       rest = rest.slice(apply[0].length).trimStart();
@@ -1192,14 +1464,25 @@ function readLine(
 
     const relationship = readRelationship(rest, restAt(), diagnostics);
     if (relationship !== null) {
+      // A keyword or number after either end's `:::` is not a name to Mermaid's
+      // lexer, and the line a parse error — see `reservedClassMember`.
+      if (relationship.reservedClass !== null) {
+        return reservedClassRefusal(relationship.reservedClass, line);
+      }
       // Both endpoints join the one entity list, in the order the line names
       // them — measured, a relationship declares its entities exactly as a
       // bare name does and Mermaid's table interleaves the two kinds of
       // statement in first-mention order. `buildErModel` de-duplicates.
-      entities.push(
-        { name: relationship.decl.left, alias: null, attributes: [] },
-        { name: relationship.decl.right, alias: null, attributes: [] },
-      );
+      const leftEnd: ErEntityDecl = { name: relationship.decl.left, alias: null, attributes: [] };
+      const rightEnd: ErEntityDecl = { name: relationship.decl.right, alias: null, attributes: [] };
+      entities.push(leftEnd, rightEnd);
+      // Outside every block and with no `:::` of its own, an end is nothing
+      // but a name — which is all a cluster endpoint may be (see the
+      // shared-name rule at the end of `parseErDiagram`).
+      if (depth === 0) {
+        if (relationship.leftClasses.length === 0) plainEndpoints.push(leftEnd);
+        if (relationship.rightClasses.length === 0) plainEndpoints.push(rightEnd);
+      }
       // **Both endpoints join the open block**, measured rather than
       // assumed: `subgraph sales / CUSTOMER ||--o{ ORDER : places / end`
       // answers `nodes:["CUSTOMER","ORDER"]`, because Mermaid's
@@ -1208,13 +1491,20 @@ function readLine(
       claim(relationship.decl.left);
       claim(relationship.decl.right);
       relationships.push(relationship.decl);
+      styles.push(
+        ...applications(relationship.leftClasses, [relationship.decl.left], ":::", where),
+        ...applications(relationship.rightClasses, [relationship.decl.right], ":::", where),
+      );
       rest = rest.slice(relationship.length).trimStart();
       continue;
     }
 
-    const head = readEntityHead(rest, restAt(), diagnostics);
+    const head = readEntityHead(rest, restAt(), diagnostics, after);
     if (head === null) {
       return null;
+    }
+    if (head.reservedClass !== null) {
+      return reservedClassRefusal(head.reservedClass, line);
     }
     const declared: ErEntityDecl = { name: head.name, alias: head.alias, attributes: [] };
     entities.push(declared);
@@ -1223,17 +1513,7 @@ function readLine(
     // construct in two spellings (measured: both reach `setClass` and leave
     // `cssClasses="default urgent"`), so it becomes the same `apply` and
     // differs only in the keyword a diagnostic would quote.
-    for (const name of head.classes) {
-      styles.push({
-        styleKind: "apply",
-        authoredAs: ":::",
-        targetIds: [declared.name],
-        name,
-        properties: [],
-        line: where.line,
-        column: where.column,
-      });
-    }
+    styles.push(...applications(head.classes, [declared.name], ":::", where));
     rest = rest.slice(head.length).trimStart();
 
     if (head.opensBlock) {
@@ -1246,6 +1526,7 @@ function readLine(
   }
   return {
     entities,
+    plainEndpoints,
     relationships,
     diagnostics,
     styles,
@@ -1254,6 +1535,29 @@ function readLine(
     memberships,
     remainingOpenBlocks: depth,
   };
+}
+
+/**
+ * One `apply` per class in `names`, in source order, onto `targetIds`, stamped
+ * at `where` — what `class A x,y`, `A:::x,y` and `:::` on a relationship end
+ * all become, differing only in the keyword `authoredAs` keeps for a
+ * diagnostic. Each declaration gets its own copy of the target list.
+ */
+function applications(
+  names: readonly string[],
+  targetIds: readonly string[],
+  authoredAs: "class" | ":::",
+  where: SourcePosition,
+): StyleDecl[] {
+  return names.map((name) => ({
+    styleKind: "apply",
+    authoredAs,
+    targetIds: [...targetIds],
+    name,
+    properties: [],
+    line: where.line,
+    column: where.column,
+  }));
 }
 
 /**
@@ -1350,15 +1654,13 @@ const ATTRIBUTE_TOKEN_RULES: readonly { kind: "key" | "word" | "comment"; patter
    * runs may touch: `` `a``b` `` is a type and a name (measured), not one
    * word with backticks in the middle.
    *
-   * ⚠️ **One measured divergence, taken deliberately.** Mermaid's
-   * `` [^`]+ `` matches a newline, so a backticked word may span lines —
-   * measured, `` string `a `` over `` b` `` is one attribute named
-   * `` a\n    b ``, indentation included. This reader works a line at a
-   * time, so `[^`]+` is spelled against one line and both halves are
-   * refused instead: the document costs and says so, where a single-line
-   * cell drawn for a two-line name would be the silent kind of wrong. A
-   * backtick with no partner anywhere is a parse error in Mermaid too, so
-   * that half agrees rather than diverging.
+   * ⚠️ **The run may span lines.** Mermaid's `` [^`]+ `` matches a
+   * newline — measured, `` string `a `` over `` b` `` is one attribute
+   * named `` a\n    b ``, indentation included — and so does this
+   * pattern's. The tokenizer is handed a line at a time, though, so a run
+   * still open where its text ends is answered with `CONTINUES` and the
+   * caller reads the next line onto it. A backtick with no partner
+   * anywhere is a parse error in Mermaid too, and here.
    *
    * Group 1 rather than the whole match, which is what strips the quotes —
    * see `tokenizeAttributeLine`.
@@ -1372,6 +1674,24 @@ const ATTRIBUTE_TOKEN_RULES: readonly { kind: "key" | "word" | "comment"; patter
    */
   { kind: "comment", pattern: /^"([^"]*)"/du },
 ];
+
+/**
+ * The answer for text that ends inside a backticked word — an opening
+ * backtick with no partner after it in the text read so far.
+ *
+ * Not a refusal, because Mermaid's `` [^`]+ `` matches a newline: measured
+ * (mermaid 12.2.0), `string `a` on one line and ``b` `` on the next is
+ * **one** attribute named `a\n    b`, the source's indentation included. So
+ * the caller reads the next line onto this one and asks again, and only a
+ * document that ends with the run still open is refused — which Mermaid
+ * refuses too ("got '1'").
+ *
+ * `readLine` answers with it too, for a line it stopped reading inside such
+ * a run. Nothing on that line is taken: the caller reads the next line onto
+ * it and hands the whole back, so the all-or-nothing rule holds over the
+ * lines the run spans.
+ */
+const CONTINUES = "continues";
 
 interface AttributeToken {
   kind: "key" | "word" | "comment" | "punctuation";
@@ -1393,7 +1713,9 @@ interface AttributeToken {
  * `punctuation` token, which is how `,` — a token the grammar names but the
  * lexer has no rule for inside a block — comes to separate two keys.
  */
-function tokenizeAttributeLine(text: string): { tokens: AttributeToken[]; length: number } | null {
+function tokenizeAttributeLine(
+  text: string,
+): { tokens: AttributeToken[]; length: number } | typeof CONTINUES | null {
   const tokens: AttributeToken[] = [];
   let rest = text;
   while (rest.length > 0) {
@@ -1420,6 +1742,12 @@ function tokenizeAttributeLine(text: string): { tokens: AttributeToken[]; length
         tokens.push({ kind: "punctuation", text: ",", match: null, offset: text.length - rest.length });
         rest = rest.slice(1);
         continue;
+      }
+      // A backtick whose partner is not in `text` at all: the run is still
+      // open where the text ends, and only the caller can say whether a
+      // later line closes it — see `CONTINUES`.
+      if (rest.startsWith("`") && !rest.includes("`", 1)) {
+        return CONTINUES;
       }
       return null;
     }
@@ -1465,10 +1793,10 @@ function readAttributes(
   text: string,
   at: SourcePosition,
   diagnostics: Diagnostic[],
-): { attributes: ErAttribute[]; length: number } | null {
+): { attributes: ErAttribute[]; length: number } | typeof CONTINUES | null {
   const tokenized = tokenizeAttributeLine(text);
-  if (tokenized === null) {
-    return null;
+  if (tokenized === null || tokenized === CONTINUES) {
+    return tokenized;
   }
   const { tokens, length } = tokenized;
   const attributes: ErAttribute[] = [];
@@ -1540,7 +1868,8 @@ function readAttributes(
  * Read **last**, after every construct this parser does implement, so a
  * pattern here can never shadow a working one. Each is anchored on the
  * *statement* rather than on a bare word, which is what leaves an entity the
- * author simply named `direction` or `to` alone.
+ * author simply named `direction` alone. (Not `to`: alone, that is the
+ * cardinality keyword and refused — see `bareNameTokenLength`.)
  *
  * The table shrinks as constructs land. Every one of these has a ticket.
  */
@@ -1585,7 +1914,11 @@ const UNIMPLEMENTED: readonly { pattern: RegExp; name: string }[] = [
     // `A U--o{ B : x` reports `leftCard="MD_PARENT"` too, and without the
     // flag that document was told it was unrecognized rather than
     // unimplemented.
-    pattern: new RegExp(`^${ANY_NAME_SOURCE}\\s+u(?=[-.|])`, "iu"),
+    //
+    // And with a `:::` class list on that name, which is the same construct
+    // (measured, 12.2.0): `A:::x u--o{ B : y` and `A ::: x u..o{ B : y`
+    // report `leftCard="MD_PARENT"` with the class on `A`.
+    pattern: new RegExp(`^${ANY_NAME_SOURCE}${CLASS_LIST_SOURCE}\\s+u(?=[-.|])`, "iu"),
     name: 'the "u" (MD_PARENT) relationship cardinality',
   },
   {
@@ -1617,6 +1950,14 @@ function unimplementedIn(line: string): string | null {
     }
   }
   return null;
+}
+
+/** A line held open by a backticked run, and its refusal if the document ends inside it. */
+interface PendingLine {
+  text: string;
+  lineNumber: number;
+  column: number;
+  refusal: string;
 }
 
 /**
@@ -1674,11 +2015,11 @@ export function parseErDiagram(source: string): ParseResult {
   let accTitle: string | null = null;
   let accDescr: string | null = null;
   /**
-   * Whether the reader is inside a `accDescr { ... }` block it has already
-   * refused by name. Its body is prose rather than ER, so every line of it
-   * is dropped until the closing brace — see `ACC_DESCR_BRACED_RE`.
+   * The index of the last line an `accDescr { ... }` block took, or -1. Its
+   * lines are the description, read already, rather than ER — see
+   * `ACC_DESCR_BRACED_RE`.
    */
-  let drainingAccDescr = false;
+  let accDescrBlockThrough = -1;
   /**
    * The author's styling statements in written order, definitions and
    * apply-directives alike. Left unpaired here on purpose: an
@@ -1686,7 +2027,7 @@ export function parseErDiagram(source: string): ParseResult {
    * `A / class A u / classDef u fill:red` paints `A` — and pairing them is
    * `resolveStyles`' job, which is where the other four kinds leave it too.
    */
-  const styles: StyleDecl[] = [];
+  const styles: ErStyleDecl[] = [];
   /**
    * The `subgraph` blocks written at the top level, in source order; a
    * nested one is inside its parent's own `subgraphs` instead.
@@ -1712,19 +2053,33 @@ export function parseErDiagram(source: string): ParseResult {
    */
   const blockHeaders: { name: string; line: string; lineNumber: number; column: number }[] = [];
   /**
-   * The names of the blocks whose `end` the reader has already passed —
+   * The blocks whose `end` the reader has already passed, by name —
    * Mermaid's `subGraphLookup`, which `addSubGraph` fills at the closing
-   * `end` and not at the header.
+   * `end` and not at the header, a later block of a name replacing an
+   * earlier one.
    *
-   * ⚠️ **The refusal below turns on this rather than on the whole
-   * document's blocks, and that is measured.** A `style s1 fill:#f96`
+   * ⚠️ **A style target resolves against this rather than against the
+   * whole document's blocks, and that is measured.** A `style s1 fill:#f96`
    * written *above* `subgraph s1 ... end` reaches `addCssStyles` before the
-   * name is registered and paints nothing — `cssStyles` comes back empty —
-   * which is the very picture `resolveStyles` already produces by dropping
-   * an unknown target. Refusing that document would cost a picture Mermaid
-   * draws.
+   * name is registered and paints nothing — the frame comes out unstyled
+   * in mermaid 12.2.0's drawing — while the same line below the block
+   * fills it.
    */
-  const registeredBlocks = new Set<string>();
+  const registeredBlocks = new Map<string, ErSubgraph>();
+  /** Every `ErLineReading.plainEndpoints` taken, for the shared-name rule. */
+  const plainEndpoints = new Set<ErEntityDecl>();
+  /**
+   * A line that ended inside a backticked word, with every line read onto
+   * it since — `null` when no run is open. The reader's third mode, and the
+   * only one that crosses a line break inside a single token: measured
+   * (mermaid 12.2.0), `` [^`]+ `` matches a newline, so `string `a` and
+   * ``b` `` on the next line are one attribute named `a\n    b`. Each next
+   * line is appended raw — its indentation is part of the name Mermaid
+   * records, and a blank line is part of it too — and the whole is read
+   * again from where the run began, so a run that never closes costs
+   * exactly the statement it opened in.
+   */
+  let pending: PendingLine | null = null;
 
   /**
    * Adds diagnostics read off one line to the document's, and marks the
@@ -1755,6 +2110,7 @@ export function parseErDiagram(source: string): ParseResult {
     line: string,
   ): void => {
     entities.push(...reading.entities);
+    for (const endpoint of reading.plainEndpoints) plainEndpoints.add(endpoint);
     report(reading.diagnostics);
     // Membership is replayed here rather than written as the line was read,
     // so a line that turned out unreadable claims no members — the
@@ -1768,40 +2124,37 @@ export function parseErDiagram(source: string): ParseResult {
       }
     }
     for (const closed of openBlocks.slice(reading.remainingOpenBlocks)) {
-      registeredBlocks.add(closed.name);
+      // A later block of the same name replaces the earlier one, as
+      // Mermaid's `subGraphLookup.set` does at its `end`.
+      registeredBlocks.set(closed.name, closed);
     }
     openBlocks = openBlocks.slice(0, reading.remainingOpenBlocks);
     blockOpenedAt = blockOpenedAt.slice(0, reading.remainingOpenBlocks);
 
-    // ⚠️ **A cluster is a legal style target in this kind, and painting it
-    // is not implemented** — so the directive is refused by name rather
-    // than dropped. Measured from Mermaid's own ER database (11.17.2):
-    // `addCssStyles` and `setClass` each look up `this.entities.get(id)`
-    // **and** `this.subGraphLookup.get(id)`, and `style s1 fill:#f96` below
-    // `subgraph s1 ... end` comes back as `cssStyles:["fill:#f96"]` on the
-    // cluster, `class s1 urgent` as `classes:["urgent"]` on it. That is the
-    // opposite of a relationship, which reaches neither map and is dropped
-    // here on purpose (see `resolveStyles`' call in `buildErModel`).
+    // ⚠️ **A cluster is a legal style target in this kind** — measured
+    // from Mermaid's own ER database: `addCssStyles` and `setClass` each
+    // look up `this.entities.get(id)` **and** `this.subGraphLookup.get(id)`,
+    // and in mermaid 12.2.0's drawing `style s1 fill:#f96` below `subgraph
+    // s1 ... end` fills the frame, `class s1 urgent` paints the classDef on
+    // it. That is the opposite of a relationship, which reaches neither map
+    // (see `resolveStyles`' call in `buildErModel`).
     //
-    // Asked after the truncation above so that an `end` earlier on this
-    // very line has already registered its block, which is the order
-    // Mermaid reads the two statements in.
-    for (const style of reading.styles) {
+    // Resolved *here*, to the block itself, because only this reader knows
+    // which blocks had closed when the statement was read: a statement above
+    // its block paints nothing in Mermaid, and two blocks sharing a name
+    // answer with the one closed last. Asked after the truncation above so
+    // that an `end` earlier on this very line has already registered its
+    // block, which is the order Mermaid reads the two statements in.
+    const read: ErStyleDecl[] = reading.styles.map((style) => {
+      const clusterTargets = new Map<string, ErSubgraph>();
       for (const targetId of style.targetIds) {
-        if (!registeredBlocks.has(targetId)) continue;
-        diagnostics.push({
-          severity: "error",
-          message:
-            `Unimplemented erDiagram construct: a \`${style.authoredAs}\` statement ` +
-            `painting a \`subgraph\` cluster ("${targetId}"), in "${line}"`,
-          line: lineNumber,
-          column,
-        });
-        sawError = true;
+        const block = registeredBlocks.get(targetId);
+        if (block !== undefined) clusterTargets.set(targetId, block);
       }
-    }
+      return clusterTargets.size === 0 ? style : { ...style, clusterTargets };
+    });
     relationships.push(...reading.relationships);
-    styles.push(...reading.styles);
+    styles.push(...read);
     for (const segment of reading.malformedStyles) {
       diagnostics.push({
         severity: "error",
@@ -1814,14 +2167,47 @@ export function parseErDiagram(source: string): ParseResult {
   };
 
   const lines = source.split(/\r\n|\r|\n/);
+  /**
+   * What follows line `index` in the source, as far as the one lexer rule
+   * that reads across a line break needs it: a newline and the next line
+   * with anything on it — or nothing, at the end of the diagram. See
+   * `bareNameTokenLength`. A timeline header ends what Mermaid would read,
+   * so it is never the text after.
+   */
+  const textAfter = (index: number): string => {
+    for (let next = index + 1; next < lines.length; next += 1) {
+      const text = lines[next].trim();
+      if (text.length > 0) {
+        return isTimelineHeader(text) ? "" : `\n${text}`;
+      }
+    }
+    return "";
+  };
   for (const [index, rawLine] of lines.entries()) {
-    const line = rawLine.trim();
+    if (index <= accDescrBlockThrough) {
+      continue;
+    }
+    let line = rawLine.trim();
+    let lineNumber = index + 1;
+    let column = rawLine.length - rawLine.trimStart().length + 1;
+    const continuing: boolean = pending !== null;
+    /** This line, held over for the next to be read onto it, refused with `refusal` if none is. */
+    const carried = (refusal: string): PendingLine => ({
+      text: continuing ? line : rawLine.trimStart(),
+      lineNumber,
+      column,
+      refusal,
+    });
+    if (pending !== null) {
+      // Read before the blank-line skip and before every statement pattern:
+      // inside the run, a line is characters of a name and nothing else.
+      line = `${pending.text}\n${rawLine}`;
+      ({ lineNumber, column } = pending);
+      pending = null;
+    }
     if (line.length === 0) {
       continue;
     }
-
-    const lineNumber = index + 1;
-    const column = rawLine.length - rawLine.trimStart().length + 1;
 
     // The first timeline header ends the diagram body for good — the
     // one-way switch every other kind makes, so an ER statement written after
@@ -1838,7 +2224,7 @@ export function parseErDiagram(source: string): ParseResult {
     // the in-block reader see it first — answers an author who wrote a
     // timeline with "Unrecognized erDiagram attribute", which names the
     // wrong problem.
-    if (sawHeader && isTimelineHeader(line)) {
+    if (!continuing && sawHeader && isTimelineHeader(line)) {
       const blocks = parseTimelineBlocks(lines, index);
       diagnostics.push(...blocks.diagnostics);
       if (blocks.diagnostics.length > 0) {
@@ -1847,17 +2233,6 @@ export function parseErDiagram(source: string): ParseResult {
       timeline = blocks.timeline;
       namedTimelines = blocks.namedTimelines;
       break;
-    }
-
-    // Inside a refused `accDescr { ... }`, every line is prose. Read before
-    // the attribute-block reader, which those two can never both be true
-    // for: this block is entered without an `openEntity`, because no entity
-    // was declared for it.
-    if (drainingAccDescr) {
-      if (line === ATTRIBUTE_BLOCK_CLOSE) {
-        drainingAccDescr = false;
-      }
-      continue;
     }
 
     // A line that *starts* inside a block. It need not end inside one —
@@ -1870,11 +2245,15 @@ export function parseErDiagram(source: string): ParseResult {
     // and that an unreadable line is reported as an **attribute** rather
     // than as a line, which is what an author who is inside a block wrote.
     if (openEntity !== null) {
-      const reading = readLine(line, openEntity, { line: lineNumber, column }, openBlocks);
-      if (reading === null) {
+      const reading = readLine(line, openEntity, { line: lineNumber, column }, openBlocks, textAfter(index));
+      if (reading === CONTINUES) {
+        pending = carried(`Unrecognized erDiagram attribute: "${line.split("\n")[0]}"`);
+        continue;
+      }
+      if (reading === null || "refusal" in reading) {
         diagnostics.push({
           severity: "error",
-          message: `Unrecognized erDiagram attribute: "${line}"`,
+          message: reading?.refusal ?? `Unrecognized erDiagram attribute: "${line}"`,
           line: lineNumber,
           column,
         });
@@ -1915,7 +2294,7 @@ export function parseErDiagram(source: string): ParseResult {
     // and `accTitle: direction LR` records no accessible title — so a reader
     // that asked "is this an accTitle?" or "is this a relationship?" first
     // would answer a question Mermaid never reaches. See `DIRECTION_RULES`.
-    const namedDirection = readDirection(line);
+    const namedDirection = continuing ? null : readDirection(line);
     if (namedDirection !== null) {
       // ⚠️ **The same statement means two different things depending on
       // where it stands**, and that is Mermaid's own action rather than a
@@ -1944,8 +2323,18 @@ export function parseErDiagram(source: string): ParseResult {
     // sets the **document's** direction and opens no block at all — its
     // trailing `end` is then a parse error, which is what Siren answers too
     // once `readLine` finds that `end` with nothing open.
-    const header = SUBGRAPH_HEAD_RE.exec(line);
-    if (header !== null && !RESERVED_BARE_NAMES.has(header[1].toLowerCase())) {
+    const header = continuing ? null : SUBGRAPH_HEAD_RE.exec(line);
+    // The name read as the lexer reads it, as anywhere else a name stands
+    // (01M3C621W): measured, `subgraph one`, `subgraph 123abc`, `subgraph
+    // to-do` and `subgraph 1` with a statement on the next line are each a
+    // parse error, so none of them is a header — the line falls through
+    // and is refused as one.
+    if (
+      header !== null &&
+      !RESERVED_BARE_NAMES.has(header[1].toLowerCase()) &&
+      (header[1].startsWith('"') ||
+        bareNameTokenLength(line.slice(header.indices![1]![0]) + textAfter(index)) === header[1].length)
+    ) {
       const name = unquoteName(header[1]);
       // The title if the header wrote one, otherwise the name — measured,
       // `subgraph s1` answers `title:"s1"`. The name is never read for tags.
@@ -1986,46 +2375,56 @@ export function parseErDiagram(source: string): ParseResult {
     // ordinary entity names in this alphabet — measured, a bare `accTitle`
     // is a box — so the colon is the whole of the boundary, and a reader
     // asking "is this a name?" first would never see it.
-    const namedAccTitle = ACC_TITLE_RE.exec(line);
+    const namedAccTitle = continuing ? null : ACC_TITLE_RE.exec(line);
     if (namedAccTitle !== null) {
       accTitle = namedAccTitle[1].trim();
       continue;
     }
 
-    const namedAccDescr = ACC_DESCR_RE.exec(line);
+    const namedAccDescr = continuing ? null : ACC_DESCR_RE.exec(line);
     if (namedAccDescr !== null) {
       accDescr = namedAccDescr[1].trim();
       continue;
     }
 
-    // The braced spelling, refused by name here rather than in the table at
-    // the bottom, because `ENTITY_HEAD_RE` below would otherwise claim it —
-    // see `ACC_DESCR_BRACED_RE`.
-    //
-    // The body is then drained to its closing brace rather than read, so the
-    // refusal is **one** diagnostic naming the construct instead of that one
-    // plus a line of prose reported as an unrecognized statement: the
-    // description is text, and telling an author their sentence is malformed
-    // ER says the wrong thing twice over.
-    if (ACC_DESCR_BRACED_RE.test(line)) {
-      diagnostics.push({
-        severity: "error",
-        message:
-          "Unimplemented erDiagram construct: the multi-line `accDescr { ... }` " +
-          `description, in "${line}"`,
-        line: lineNumber,
-        column,
-      });
-      sawError = true;
-      drainingAccDescr = true;
+    // The braced spelling, read here rather than among the statements below,
+    // because `ENTITY_HEAD_RE` would otherwise claim it — see
+    // `ACC_DESCR_BRACED_RE`. Its lines are skipped once read; what follows
+    // its `}` is written back onto the `}` line, blanked to its column, for
+    // this loop to read as that line's statements. A block that never closes
+    // is a parse error in Mermaid, measured.
+    if (!continuing && ACC_DESCR_BRACED_RE.test(line)) {
+      const block = readAccDescrBlock(lines, index, rawLine.indexOf("{"));
+      if (!block.closed) {
+        diagnostics.push({
+          severity: "error",
+          message: "Unclosed `accDescr { ... }` block: no `}` ends the description it opens",
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
+        break;
+      }
+      accDescr = block.description;
+      if (block.rest === null) {
+        accDescrBlockThrough = block.closeIndex;
+      } else {
+        lines[block.closeIndex] = block.rest;
+        accDescrBlockThrough = block.closeIndex - 1;
+      }
       continue;
     }
 
     // Every remaining statement, read left to right across the line — see
     // `readLine`. All or nothing: a line it cannot finish reading
     // contributes none of its boxes rather than some of them.
-    const reading = readLine(line, null, { line: lineNumber, column }, openBlocks);
-    if (reading !== null) {
+    const reading = readLine(line, null, { line: lineNumber, column }, openBlocks, textAfter(index));
+    if (reading === CONTINUES) {
+      const first = line.split("\n")[0];
+      pending = carried(unimplementedIn(first) ?? `Unrecognized erDiagram line: "${first}"`);
+      continue;
+    }
+    if (reading !== null && !("refusal" in reading)) {
       take(reading, lineNumber, column, line);
       if (reading.openEntity !== null) {
         // A block left open where the line ended; its body is appended to
@@ -2043,9 +2442,22 @@ export function parseErDiagram(source: string): ParseResult {
     // above has declined it.
     diagnostics.push({
       severity: "error",
-      message: unimplementedIn(line) ?? `Unrecognized erDiagram line: "${line}"`,
+      message: reading?.refusal ?? unimplementedIn(line) ?? `Unrecognized erDiagram line: "${line}"`,
       line: lineNumber,
       column,
+    });
+    sawError = true;
+  }
+
+  // A backticked word still open where the document ends — no partner
+  // anywhere after it. Measured, a parse error in Mermaid too ("got '1'"),
+  // so it is refused at the line that opened it, in that line's words.
+  if (pending !== null) {
+    diagnostics.push({
+      severity: "error",
+      message: pending.refusal,
+      line: pending.lineNumber,
+      column: pending.column,
     });
     sawError = true;
   }
@@ -2064,7 +2476,10 @@ export function parseErDiagram(source: string): ParseResult {
   // document outright ("Parse error"), so reading it as if the brace were
   // there would draw a picture for a document Mermaid draws nothing for —
   // the one direction the absolute compatibility condition rules out.
-  if (openedAt !== null) {
+  //
+  // Not when a backticked word is what is still open: its run swallowed the
+  // brace, and the open run, already reported above, is the one problem.
+  if (openedAt !== null && pending === null) {
     diagnostics.push({
       severity: "error",
       message: `Unclosed erDiagram attribute block: "${openedAt.line}"`,
@@ -2074,27 +2489,48 @@ export function parseErDiagram(source: string): ParseResult {
     sawError = true;
   }
 
-  // ⚠️ **A name worn by an entity and by a cluster at once, refused by
-  // name — the silent mis-render this construct arrives with.**
+  // ⚠️ **A name worn by an entity and by a cluster at once.**
   //
-  // Measured (mermaid 11.17.2), and the same answer whichever statement
-  // comes first: `subgraph s1 / A / end / s1 ||--|| B : r` records a
-  // phantom entity `entity-s1-1` that `getData()` throws away, handing the
-  // edge the **cluster** `s1` as its start; a bare `s1` after the block
-  // records the same phantom and `getData()` drops it too; and writing the
-  // relationship *before* the block leaves the edge pointing at a node
-  // `getData()` does not carry. In every one of them Mermaid draws **no
-  // box** for `s1` — the frame has taken the name.
+  // Measured (mermaid 12.2.0): the relationship production calls
+  // `addEntity` on both endpoints unconditionally and only then asks
+  // `subGraphLookup.has(...)`, so `subgraph s1 / A / end / s1 ||--|| B : r`
+  // records a phantom entity `entity-s1-1` that `getData()` throws away and
+  // hands the edge the **cluster** `s1` as its start. Mermaid draws no box
+  // for `s1`: the frame has taken the name, and the line ends on the frame.
   //
-  // Every reading this parser has is an ordinary entity, so it would draw
-  // that box: a third figure beside the frame, with no diagnostic anywhere.
-  // Refused instead, at the header rather than at the mention, because the
-  // construct is the *sharing* and neither half is wrong on its own.
-  // Order-independent for the same reason, which is also what keeps it out
-  // of `UNIMPLEMENTED`: no pattern over one line can see the other half.
-  const mentioned = new Set(entities.map((entity) => entity.name));
+  // **A relationship's end may therefore name a cluster**, and such a
+  // mention is not an entity: it is dropped from `entities` here, so no box
+  // is drawn, and the relationship keeps the name for `buildErModel` to
+  // resolve to the frame. In either order — the user's decision
+  // (2026-10-14): written *above* the block, Mermaid 12.2.0 fails to render
+  // at all (`Referenced shape does not exist: entity-s1-0`, its edge
+  // pointing at the phantom it then drops), and Siren draws what the
+  // document says, the same frame-to-entity line.
+  //
+  // Only a **plain** end qualifies (`plainEndpoints`): one written outside
+  // every block and with no `:::`. Anything else sharing the name — a bare
+  // `s1`, an attribute block, an end inside a block (which would claim the
+  // frame as a member), an end carrying a class, or a name two blocks share
+  // — is still refused by name, at the header rather than at the mention,
+  // because the construct is the *sharing* and neither half is wrong on its
+  // own. Order-independent for the same reason, which is also what keeps it
+  // out of `UNIMPLEMENTED`: no pattern over one line can see the other half.
+  const blocksByName = new Map<string, number>();
   for (const header of blockHeaders) {
-    if (!mentioned.has(header.name)) continue;
+    blocksByName.set(header.name, (blocksByName.get(header.name) ?? 0) + 1);
+  }
+  const refused = new Set<string>();
+  const clusterEnds = new Set<ErEntityDecl>();
+  for (const entity of entities) {
+    if (!blocksByName.has(entity.name)) continue;
+    if (plainEndpoints.has(entity) && blocksByName.get(entity.name) === 1) {
+      clusterEnds.add(entity);
+    } else {
+      refused.add(entity.name);
+    }
+  }
+  for (const header of blockHeaders) {
+    if (!refused.has(header.name)) continue;
     diagnostics.push({
       severity: "error",
       message:
@@ -2111,7 +2547,7 @@ export function parseErDiagram(source: string): ParseResult {
   // the `end` were there would draw a picture for a document Mermaid draws
   // nothing for — the same trade the unclosed attribute block makes, and
   // reported per block so an author who forgot two `end`s is told twice.
-  for (const opened of blockOpenedAt) {
+  for (const opened of pending === null ? blockOpenedAt : []) {
     diagnostics.push({
       severity: "error",
       message: `Unclosed erDiagram subgraph block: "${opened.line}"`,
@@ -2128,7 +2564,8 @@ export function parseErDiagram(source: string): ParseResult {
   const document: ErDocument = {
     kind: "er",
     direction,
-    entities,
+    // A relationship end that named a cluster is the frame's, not a box.
+    entities: entities.filter((entity) => !clusterEnds.has(entity)),
     relationships,
     subgraphs,
     styles,

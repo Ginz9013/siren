@@ -621,6 +621,48 @@ enter C fade
     expect(calls).toEqual([[1, 2], [2, 2], [0, 2]]);
   });
 
+  describe("onClick", () => {
+    const CLICKABLE_SOURCE = `flowchart TD
+A --> B
+click A call showDetails("42")
+timeline:
+  enter A fade
+  enter B fade
+`;
+
+    function clickNode(container: HTMLElement, id: string): void {
+      container
+        .querySelector<SVGElement>(`.siren-board-viewport [data-siren-click][data-siren-id="${id}"]`)!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    }
+
+    it("delivers a `click … call` interaction to the board's onClick, as render()'s onClick would", () => {
+      const container = document.createElement("div");
+      const onClick = vi.fn();
+
+      createBoard(container, { source: CLICKABLE_SOURCE, measureText: FAKE_MEASURER, onClick });
+      clickNode(container, "A");
+
+      expect(onClick).toHaveBeenCalledTimes(1);
+      expect(onClick).toHaveBeenCalledWith({ id: "A", action: "showDetails", argument: "42" });
+    });
+
+    it("keeps delivering after every re-render: setSource, the full diagram and back", () => {
+      const container = document.createElement("div");
+      const onClick = vi.fn();
+      const board = createBoard(container, { measureText: FAKE_MEASURER, onClick });
+
+      board.setSource(CLICKABLE_SOURCE);
+      clickNode(container, "A");
+      board.setFullDiagram(true);
+      clickNode(container, "A");
+      board.setFullDiagram(false);
+      clickNode(container, "A");
+
+      expect(onClick).toHaveBeenCalledTimes(3);
+    });
+  });
+
   describe("full diagram", () => {
     /**
      * By step 2, A carries a highlight class and B an exit class — the two

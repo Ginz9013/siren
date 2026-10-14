@@ -57,6 +57,14 @@ interface ResolutionState {
    * places a lane where its participant is first mentioned.
    */
   mentionOrder: string[];
+  /**
+   * The `link` targets not yet mentioned, in document order. A link names
+   * its participant like any statement does (Mermaid 12.2.0 creates and
+   * places the lane where the link is written), but the parser keeps links
+   * apart from the statement tree, so the walk mentions each one just
+   * before the first statement written after it — `flushLinkMentions`.
+   */
+  pendingLinks: { targetId: string; line: number }[];
   seenPairCounts: Map<string, number>;
   blockCounters: Map<string, number>;
   /** How many activations are currently open on each participant's lifeline — the validity check `deactivate` needs. */
@@ -108,18 +116,16 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
   }));
   const participantsById = new Map(participants.map((p) => [p.id, p]));
 
-  // A `link` targets a participant, not a message or a block — the same
-  // narrower set `click`/`callback` resolve against on the other two kinds.
-  const interactions = resolveInteractions(
-    document.interactions,
-    new Set(participants.map((p) => p.id)),
-    diagnostics,
-  );
-
   const state: ResolutionState = {
     diagnostics,
     mentionedSoFar: new Set<string>(),
     mentionOrder: [],
+    // A link with no line — only a hand-built document has one — sorts last
+    // and is mentioned after the whole walk.
+    // A `links` statement that named no usable link still places its lane.
+    pendingLinks: [...document.interactions, ...(document.linkMentions ?? [])]
+      .map((link) => ({ targetId: link.targetId, line: link.line ?? Infinity }))
+      .sort((a, b) => a.line - b.line),
     seenPairCounts: new Map<string, number>(),
     blockCounters: new Map<string, number>(),
     openActivationCounts: new Map<string, number>(),
@@ -133,6 +139,17 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
   const boxes = resolveBoxes(document, diagnostics);
 
   const { statements } = resolveStatements(document.statements, participantsById, state);
+  flushLinkMentions(Infinity, participantsById, state);
+
+  // A `link` targets a participant, not a message or a block — the same
+  // narrower set `click`/`callback` resolve against on the other two kinds.
+  // Resolved after the walk, because a link may name a participant only a
+  // later statement, or the link itself, creates (01M3NNNE6).
+  const interactions = resolveInteractions(
+    document.interactions,
+    new Set(participantsById.keys()),
+    diagnostics,
+  );
 
   // Lanes in first-mention order. A declared participant no statement names
   // (only a hand-built document can have one) keeps its place after them.
@@ -178,6 +195,7 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
   const model: SequenceModel = {
     title: document.title,
     accTitle: document.accTitle,
+    accDescr: document.accDescr,
     participants,
     boxes,
     statements,
@@ -249,6 +267,17 @@ function mention(
   }
 }
 
+/** Mentions every pending link written before `line`, in document order. */
+function flushLinkMentions(
+  line: number,
+  participantsById: Map<string, ResolvedSequenceParticipant>,
+  state: ResolutionState,
+): void {
+  while (state.pendingLinks.length > 0 && state.pendingLinks[0].line < line) {
+    mention(state.pendingLinks.shift()!.targetId, participantsById, state);
+  }
+}
+
 function resolveStatements(
   statements: SequenceStatement[],
   participantsById: Map<string, ResolvedSequenceParticipant>,
@@ -258,6 +287,8 @@ function resolveStatements(
   const touched = new Set<string>();
 
   for (const statement of statements) {
+    if (statement.line !== undefined) flushLinkMentions(statement.line, participantsById, state);
+
     if (statement.kind === "autonumberOn") {
       state.autonumbering = true;
       continue;

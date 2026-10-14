@@ -4,3 +4,5 @@
 {"id":"01M2FPZ9M1AYTY6RGB91SH3DK3","t":4,"a":"83a1","op":"label.add","v":"feature"}
 {"id":"01M2NPXKDMP9JKPHWSMT0HDYMY","t":5,"a":"83a1","op":"comment","body":"重新盤點 backlog 出發點（2026-09-17）：spec v1 non-goals 排除項，之後沒有任何 board 再提過。會動 Board 公開介面（可能要新的 addDiagram/switchTo），規劃前建議先確認有沒有明確 consumer 場景（例如某個 demo 或產品頁真的需要分頁）。維持 backlog。"}
 {"id":"01M4GAKADG04CSQT0Z00DF2406","t":6,"a":"83a1","op":"comment","body":"`.scratch/siren-board-slice/` 已遷移到 nook：`01M4GAJVP4C3KGZSECWJVZ83R5`"}
+{"id":"01M4WRP3VACMPZ3V3KZQN6XP8B","t":7,"a":"83a1","op":"comment","body":"## 取消（2026-10-14，使用者決定）\n\n清 backlog 時決定：這張票是 spec non-goals 留下的，標著「等有真實 consumer 需求再做」，到今天仍然沒有已知的 consumer 在等。與其先做出一套沒人用、之後要長期維護的公開行為，不如取消，等有實際需求時用 `nook issue set <ref> status backlog` 重開——票上的分析與待決問題都保留在這裡。"}
+{"id":"01M4WRP41W86709YB5HBS6EJ38","t":8,"a":"83a1","op":"set","k":"status","v":"cancelled"}

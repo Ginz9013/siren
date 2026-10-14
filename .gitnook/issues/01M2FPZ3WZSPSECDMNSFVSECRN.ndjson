@@ -4,3 +4,5 @@
 {"id":"01M2FPZ3X92JDSJS4722678N4H","t":4,"a":"83a1","op":"label.add","v":"api"}
 {"id":"01M2NPXJTCMBHWNDHGG1DYT2EY","t":5,"a":"83a1","op":"comment","body":"重新盤點 backlog 出發點（2026-09-17）：spec 原話「deferred pending a real consumer need」，目前沒有已知 consumer 在等這組 API。動工前先確認有沒有實際需求，避免做出一套沒人用的公開介面。維持 backlog。"}
 {"id":"01M4GAKA8J570DD79CQ140HHG8","t":6,"a":"83a1","op":"comment","body":"`.scratch/siren-board-viewport-slice/` 已遷移到 nook：`01M4GAJWC3BD8QCXW74D5ZV5DM`"}
+{"id":"01M4WRP30QC5R10E9JT1X8TGWV","t":7,"a":"83a1","op":"comment","body":"## 取消（2026-10-14，使用者決定）\n\n清 backlog 時決定：這張票是 spec non-goals 留下的，標著「等有真實 consumer 需求再做」，到今天仍然沒有已知的 consumer 在等。與其先做出一套沒人用、之後要長期維護的公開行為，不如取消，等有實際需求時用 `nook issue set <ref> status backlog` 重開——票上的分析與待決問題都保留在這裡。"}
+{"id":"01M4WRP379HBSCE7CX3DAH0RZP","t":8,"a":"83a1","op":"set","k":"status","v":"cancelled"}

@@ -280,6 +280,8 @@ function buildDiagram(
   relationships: PositionedClassRelationship[] = [],
 ): PositionedClassDiagram {
   return {
+    accTitle: null,
+    accDescr: null,
     direction: "TB",
     classes,
     relationships,

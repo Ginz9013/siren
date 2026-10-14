@@ -615,6 +615,8 @@ export function layoutClassDiagram(
   });
 
   return {
+    accTitle: model.accTitle,
+    accDescr: model.accDescr,
     direction: model.direction,
     classes,
     relationships,

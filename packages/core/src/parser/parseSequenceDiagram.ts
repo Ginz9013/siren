@@ -9,6 +9,7 @@ import type {
   SequenceBox,
   SequenceCriticalBranch,
   SequenceDocument,
+  SequenceLinkMention,
   SequenceNotePlacement,
   SequenceParBranch,
   SequenceParticipantDecl,
@@ -23,6 +24,7 @@ import { CSS_NAMED_COLORS } from "../label/cssColor";
 import { plainLabel, type SourcePosition } from "../label/label";
 import { readLabelAt, readTextAt } from "../label/readLabelAt";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
+import { readAccDescrBlock } from "./readAccDescrBlock";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 
 /**
@@ -47,11 +49,33 @@ const SEQUENCE_HEADER_SPELLINGS = listAcceptedHeaders(["sequence"]);
  */
 const TIMELINE_HEADER_TERMINATOR = "<timeline header>";
 const PARTICIPANT_RE = /^(participant|actor)\s+(\w+)(?:\s+as\s+(.+?))?\s*$/di;
-const TITLE_RE = /^title\s+(.+)$/i;
-/** `accTitle: text` — screen-reader-only, distinct from the visible `title` above. The colon is required. */
-const ACC_TITLE_RE = /^accTitle:\s*(.+)$/i;
+/**
+ * `title text` or `title: text`. The colon spelling needs whitespace after the
+ * colon (Mermaid 12.2.0 rejects `title:Hello`); `title : text` is the plain
+ * spelling, and Mermaid keeps that colon in the title too.
+ */
+const TITLE_RE = /^title(?::\s+|\s+)(.+)$/i;
+/**
+ * `accTitle: text` — screen-reader-only, distinct from the visible `title`
+ * above. The colon is required; whitespace may stand before it (Mermaid
+ * 12.2.0 reads `accTitle : hi` as "hi").
+ */
+const ACC_TITLE_RE = /^accTitle\s*:\s*(.+)$/i;
+/** `accDescr: text` — the screen-reader-only description, read exactly as `accTitle` is. */
+const ACC_DESCR_RE = /^accDescr\s*:\s*(.+)$/i;
+/**
+ * The opening of the braced `accDescr { ... }`, in any case. The block runs
+ * to the first `}`, on this line or a later one (`readAccDescrBlock`).
+ */
+const ACC_DESCR_BLOCK_RE = /^accDescr\s*\{/i;
 /** `link A: Label @ url` — a navigable link on a participant, Mermaid's own spelling for this diagram kind. */
-const LINK_RE = /^link\s+(\w+):\s*(.+?)\s*@\s*(\S+)$/i;
+const LINK_RE = /^link\s+(\w+)\s*:\s*(.+?)\s*@\s*(\S+)$/i;
+/**
+ * `links A: {"Label": "url", ...}` — several links on a participant at once,
+ * as one JSON object. Mermaid 12.2.0 parses the text after the colon with
+ * `JSON.parse`; `readLinksInto` does the same.
+ */
+const LINKS_RE = /^links\s+(\w+)\s*:\s*(.*)$/i;
 /** The lone participant id argument of a `destroy` statement. */
 const DESTROY_ID_RE = /^(\w+)$/;
 
@@ -137,6 +161,36 @@ const DEACTIVATE_RE = /^deactivate\s+(\w+)$/i;
  */
 const NOTE_RE = /^note\s+(over|right of|left of)\s+([\w,]+)\s*:\s*(.*)$/di;
 
+/**
+ * Reads a braced `accDescr { ... }` opened on the current line, through the
+ * shared `readAccDescrBlock` every kind with the statement uses, and leaves
+ * `state.index` on the next line to read: the one after the `}`, or the `}`
+ * line itself when a statement follows the brace there (`accDescr { one }
+ * A->>B: x` draws the message, measured), blanked up to it. A block that
+ * never closes is refused — see `readAccDescrBlock`.
+ */
+function readAccDescrBlockAt(state: ParserState, line: number, column: number): void {
+  const block = readAccDescrBlock(state.lines, state.index, state.lines[state.index].indexOf("{"));
+  if (!block.closed) {
+    state.diagnostics.push({
+      severity: "error",
+      message: "Unclosed `accDescr { ... }` block: no `}` ends the description it opens",
+      line,
+      column,
+    });
+    state.sawError = true;
+    state.index = state.lines.length;
+    return;
+  }
+  state.accDescr = block.description;
+  if (block.rest === null) {
+    state.index = block.closeIndex + 1;
+  } else {
+    state.lines[block.closeIndex] = block.rest;
+    state.index = block.closeIndex;
+  }
+}
+
 /** Mutable cursor + accumulators threaded through the recursive-descent body parser. */
 interface ParserState {
   readonly lines: string[];
@@ -148,7 +202,10 @@ interface ParserState {
   sawError: boolean;
   title: string | null;
   accTitle: string | null;
+  accDescr: string | null;
   readonly interactions: Interaction[];
+  /** See `SequenceDocument.linkMentions`. */
+  readonly linkMentions: SequenceLinkMention[];
 }
 
 /** Result of matching a line against a single leading keyword (e.g. `loop`, `end`). */
@@ -460,6 +517,26 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
     const accTitleMatch = ACC_TITLE_RE.exec(line);
     if (accTitleMatch !== null) {
       state.accTitle = accTitleMatch[1].trim();
+      state.index++;
+      continue;
+    }
+
+    const accDescrMatch = ACC_DESCR_RE.exec(line);
+    if (accDescrMatch !== null) {
+      state.accDescr = accDescrMatch[1].trim();
+      state.index++;
+      continue;
+    }
+
+    const accDescrBlockMatch = ACC_DESCR_BLOCK_RE.exec(line);
+    if (accDescrBlockMatch !== null) {
+      readAccDescrBlockAt(state, lineNumber, column);
+      continue;
+    }
+
+    const linksMatch = LINKS_RE.exec(line);
+    if (linksMatch !== null) {
+      readLinksInto(state, linksMatch[1], linksMatch[2], lineNumber, column);
       state.index++;
       continue;
     }
@@ -810,6 +887,88 @@ function parseBranches<TBranch extends { label: Label | null; body: SequenceStat
 }
 
 /**
+ * Records one href interaction per entry of a `links` statement's JSON
+ * object, in the object's own order, each entry's key as the label (carried
+ * as `tooltip`, exactly as `link A: Label @ url` carries its label).
+ */
+function readLinksInto(
+  state: ParserState,
+  targetId: string,
+  json: string,
+  line: number,
+  column: number,
+): void {
+  const added = readLinkEntries(state, targetId, json, line, column);
+  if (added === 0) state.linkMentions.push({ targetId, line, column });
+}
+
+/** Pushes the links a `links` statement's JSON names; returns how many it added. */
+function readLinkEntries(
+  state: ParserState,
+  targetId: string,
+  json: string,
+  line: number,
+  column: number,
+): number {
+  const warn = (why: string): void => {
+    state.diagnostics.push({
+      severity: "warning",
+      message: `links ${targetId}: ${why}; no link is added`,
+      line,
+      column,
+    });
+  };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    warn("the text after the colon is not JSON");
+    return 0;
+  }
+  // Mermaid 12.2.0 iterates whatever `JSON.parse` returned with `for...in`
+  // (measured), so an array or a string draws links labelled "0", "1", ...
+  // and a number, `true` or `null` draws none. `Object.entries` walks the
+  // same keys in the same order.
+  const entries =
+    typeof parsed === "string" || (typeof parsed === "object" && parsed !== null)
+      ? Object.entries(parsed)
+      : [];
+  if (entries.length === 0) {
+    warn("the JSON names no links");
+    return 0;
+  }
+
+  let added = 0;
+  for (const [label, value] of entries) {
+    // Mermaid 12.2.0 records a non-string value as written ({"H": 5}) and
+    // then fails to render the diagram, or for null/false/0 draws an entry
+    // linking to about:blank. Siren draws the entry its db records, with
+    // the value's text as the href, and says so.
+    const url = typeof value === "string" ? value : String(value);
+    if (typeof value !== "string") {
+      state.diagnostics.push({
+        severity: "warning",
+        message: `links ${targetId}: the link "${label}" has a value that is not a string; it links to "${url}"`,
+        line,
+        column,
+      });
+    }
+    state.interactions.push({
+      interactionKind: "href",
+      targetId,
+      action: url,
+      argument: null,
+      tooltip: label,
+      line,
+      column,
+    });
+    added++;
+  }
+  return added;
+}
+
+/**
  * Parses Siren sequence-diagram source text (a `sequenceDiagram` header,
  * `participant`/`actor` declarations, message statements, `title`,
  * `autonumber`/`autonumber off`, nested control-flow blocks,
@@ -836,7 +995,9 @@ export function parseSequenceDiagram(source: string): ParseResult {
     sawError: false,
     title: null,
     accTitle: null,
+    accDescr: null,
     interactions: [],
+    linkMentions: [],
   };
 
   while (state.index < lines.length && lines[state.index].trim().length === 0) {
@@ -894,8 +1055,10 @@ export function parseSequenceDiagram(source: string): ParseResult {
   const hasBody =
     state.title !== null ||
     state.accTitle !== null ||
+    state.accDescr !== null ||
     state.participants.length > 0 ||
     state.interactions.length > 0 ||
+    state.linkMentions.length > 0 ||
     statements.length > 0;
   if (!hasBody) {
     diagnostics.push({
@@ -911,7 +1074,9 @@ export function parseSequenceDiagram(source: string): ParseResult {
     kind: "sequence",
     title: state.title,
     accTitle: state.accTitle,
+    accDescr: state.accDescr,
     interactions: state.interactions,
+    ...(state.linkMentions.length > 0 ? { linkMentions: state.linkMentions } : {}),
     participants: state.participants,
     boxes: state.boxes,
     statements,

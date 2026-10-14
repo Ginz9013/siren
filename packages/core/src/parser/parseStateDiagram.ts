@@ -7,6 +7,7 @@ import type {
   SirenTimeline,
   StateDecl,
   StateDocument,
+  StateNote,
   StateNotePosition,
   StateRegion,
   StateStereotype,
@@ -14,11 +15,13 @@ import type {
   StyleDecl,
   StyleProperty,
 } from "../contracts";
-import { readLabelAt } from "../label/readLabelAt";
+import { readLabelAt, readTextAt } from "../label/readLabelAt";
+import { plainLabel } from "../label/label";
 import { parseStyleProperties } from "./parseDeclarationList";
+import { readAccDescrBlock } from "./readAccDescrBlock";
 import {
   listAcceptedHeaders,
-  matchClassDirection,
+  matchStateDirection,
   matchDiagramHeader,
 } from "./parseDirection";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
@@ -61,7 +64,15 @@ const STATE_DECL_RE = /^(\w+)$/;
 /**
  * The words Mermaid's state-diagram lexer takes for itself, and which
  * therefore **cannot name a state** where an id is read from the lexer's
- * INITIAL condition — a line of its own, or either endpoint of a transition.
+ * INITIAL condition — a line of its own, either endpoint of a transition, or
+ * the subject of a description (`X : text`).
+ *
+ * **Ten words, not seven** (01M2ZQQQ6, re-measured on mermaid 12.2.0):
+ * `href`, `default` and `stateDiagram` are each a parse error alone, as an
+ * endpoint and as a description's subject, exactly like the seven below.
+ * They were missed because the first measurement only tried a fifteen-word
+ * candidate list. `stateDiagram-v2` needs no entry: its `-` is not `\w`, so
+ * no id read here can spell it.
  *
  * Measured against mermaid 11.17.2 with `scripts/mermaid-probe.mjs`, sixteen
  * keyword-shaped candidates in both of those positions. Exactly these seven
@@ -91,7 +102,7 @@ const STATE_DECL_RE = /^(\w+)$/;
  * `Note`, `NOTE`, `Class`, `Style`, `Click`, `Scale` and `ClassDef` are each
  * refused exactly as their lowercase spellings are.
  */
-const RESERVED_WORD_RE = /^(?:state|note|classDef|class|style|click|scale)$/i;
+const RESERVED_WORD_RE = /^(?:state|note|classDef|class|style|click|scale|href|default|stateDiagram)$/i;
 
 /**
  * The refusal for an id the author may not use, quoting their own line back
@@ -156,6 +167,16 @@ const KEYWORD_ONLY_RE = /^state(?:\s+\w+)?$/i;
 const STATE_DESCRIPTION_RE = /^(\w+)\s*:\s*(\S.*)$/d;
 
 /**
+ * `accTitle: text`, `accDescr: text` and the opening of the braced
+ * `accDescr { ... }` — read before `STATE_DESCRIPTION_RE`, which matches the
+ * first two as well. Any case, whitespace allowed before the colon, as
+ * Mermaid 12.2.0's state lexer reads them (01M4WVVN9).
+ */
+const ACC_TITLE_RE = /^accTitle\s*:\s*(.+)$/i;
+const ACC_DESCR_RE = /^accDescr\s*:\s*(.+)$/i;
+const ACC_DESCR_BLOCK_RE = /^accDescr\s*\{/i;
+
+/**
  * The other spelling of the very same thing — `state "waiting" as Idle`.
  *
  * **Not a rename**, which is the reading `as` invites: measured (mermaid
@@ -170,7 +191,7 @@ const STATE_DESCRIPTION_RE = /^(\w+)\s*:\s*(\S.*)$/d;
  * `state "" as X` is a **parse error in Mermaid**, not a state with a blank
  * description.
  */
-const QUOTED_DESCRIPTION_RE = /^state\s+"\s*([^"]*\S)\s*"\s+as\s+(\w+)$/d;
+const QUOTED_DESCRIPTION_RE = /^state\s+"\s*([^"]*\S)\s*"\s+as\s+(\w+)$/di;
 
 /**
  * The statement that opens a composite state: `state Outer {`, or the same
@@ -203,7 +224,7 @@ const QUOTED_DESCRIPTION_RE = /^state\s+"\s*([^"]*\S)\s*"\s+as\s+(\w+)$/d;
  * that does not render. That anchor is also what keeps the two spellings
  * apart from the two description patterns below, which end at the id.
  */
-const COMPOSITE_OPEN_RE = /^state\s+(?:"\s*([^"]*\S)\s*"\s+as\s+)?(\w+)\s*\{$/d;
+const COMPOSITE_OPEN_RE = /^state\s+(?:"\s*([^"]*\S)\s*"\s+as\s+)?(\w+)\s*\{$/di;
 
 /**
  * `state Choice <<choice>>` — the marker that changes which figure a state
@@ -221,8 +242,8 @@ const COMPOSITE_OPEN_RE = /^state\s+(?:"\s*([^"]*\S)\s*"\s+as\s+)?(\w+)\s*\{$/d;
  * - **Case-insensitive**, as Mermaid's own lexer rule is
  *   (`/^(?:.*<<fork>>)/i`): `<<CHOICE>>`, `<<FORK>>` and `<<Join>>` each
  *   report the lowercase `type`. Unlike a note's position (see
- *   `isNotePosition`), the casing changes nothing about what Mermaid then
- *   *records*, so there is no wrong picture to decline here.
+ *   `notePositionOf`), the casing changes nothing about what Mermaid then
+ *   *records*, so there is no wrong picture to correct here.
  * - **No spaces inside the angle brackets.** `state X << choice >>` is *not*
  *   a stereotype: measured, it declares nothing and `X` comes back
  *   `type="default"`, because Mermaid's rule spells the brackets literally.
@@ -280,10 +301,11 @@ const DIVIDER_RE = /^(?:--)+$/;
  *   *lexical* error, not a note drawn over the box, so `over` is a sequence
  *   diagram's word and not this kind's.
  * - **The target is read in `\w+`**, the alphabet every other state id in
- *   this file is read in — so `note right of [*] : text`, which Mermaid does
- *   accept (it attaches the note to the level's *start* pseudo-state,
- *   measured), is deliberately not matched here and is refused by name in
- *   `UNIMPLEMENTED` instead.
+ *   this file is read in, **or is `[*]`**: Mermaid attaches `note right of
+ *   [*] : text` to the level's *start* pseudo-state, whichever side of an
+ *   arrow the author's `[*]` sits on (measured, 12.2.0; 01M36DWFN). Which
+ *   pseudo-state that is can only be known once the level is read, so it is
+ *   settled after the loop — see `pendingPseudoNotes`.
  * - **The text may not contain a colon.** `note right of Idle : a : b : c`
  *   is a parse error in Mermaid, so a second colon is not text — it is a
  *   malformed line, and letting `.*` swallow it would draw a picture for a
@@ -293,7 +315,18 @@ const DIVIDER_RE = /^(?:--)+$/;
  *   `STATE_DESCRIPTION_RE` carries for `Empty :`, and for the same measured
  *   reason.
  */
-const NOTE_RE = /^note\s+((?:left|right)\s+of)\s+(\w+)\s*:\s*([^:]*\S)\s*$/di;
+const NOTE_RE = /^note\s+((?:left|right)\s+of)\s+(\w+|\[\*\])\s*:\s*([^:]*\S)\s*$/di;
+
+/**
+ * `note right of Idle` with no colon — the opening of the multi-line form,
+ * whose text runs to a line `end note` (any case, measured: `END NOTE` closes
+ * it too). Measured on mermaid 12.2.0: the text reaches the state with its
+ * source indentation, but the drawn note is one row per non-blank line with
+ * no leading space — so that is what is read, each line through the label
+ * reader on its own (01M36DWFN). A colon is ordinary text inside the block.
+ */
+const NOTE_BLOCK_RE = /^note\s+((?:left|right)\s+of)\s+(\w+|\[\*\])\s*$/i;
+const END_NOTE_RE = /^end\s+note$/i;
 
 /**
  * The two positions, as `StateNotePosition` spells them — and the gate that
@@ -307,13 +340,18 @@ const NOTE_RE = /^note\s+((?:left|right)\s+of)\s+(\w+)\s*:\s*([^:]*\S)\s*$/di;
  * (`"RIGHT OF"`), then decides which side to draw on with an exact
  * `position === "left of"` comparison. So `note LEFT OF X : t` renders in
  * Mermaid as a **right-of** note: a wrong picture with no diagnostic, from
- * Mermaid's own case sensitivity. Siren will neither copy that nor silently
- * pick the other side, so an uncanonical spelling is declined here and
- * refused as an unrecognized line — CONTEXT.md's one exception to the
- * compatibility condition, applied where it was written for.
+ * Mermaid's own case sensitivity. Re-measured on 12.2.0 with the same result.
+ *
+ * Siren reads the side in any case and draws it where the words say —
+ * CONTEXT.md's third rule (decided on 01M36DWFN, 2026-09-23): the document is
+ * unambiguous and Mermaid's picture contradicts it. It used to refuse the
+ * spelling as an unrecognized line instead, which cost a document Mermaid
+ * draws. Whitespace between the words is folded too (`left  of`).
  */
-const isNotePosition = (spelling: string): spelling is StateNotePosition =>
-  spelling === "left of" || spelling === "right of";
+const notePositionOf = (spelling: string): StateNotePosition | null => {
+  const folded = spelling.toLowerCase().replace(/\s+/g, " ");
+  return folded === "left of" || folded === "right of" ? folded : null;
+};
 
 /**
  * `note "floating" as N` — the note spelling that belongs to no state.
@@ -334,40 +372,86 @@ const isNotePosition = (spelling: string): spelling is StateNotePosition =>
 const FLOATING_NOTE_RE = /^note\s+"[^"]*"\s+as\s+\w+$/i;
 
 /**
+ * Every statement keyword in this file is read in any case — `classDef`,
+ * `class`, `style`, `state … as`, `direction` and its value, `note` and its
+ * side, the stereotypes — because every rule of Mermaid 12.2.0's state lexer
+ * is `/i`; measured, `CLASSDEF`, `CLASS`, `STYLE`, `DIRECTION LR`, `Direction
+ * Rl`, `STATE C {` and `STATE "x" AS y` all read as their lower-case
+ * spellings (01M4WAFCY).
+ */
+
+/**
  * `classDef urgent fill:#f96` — a named set of declarations, applied to
  * nothing on its own, spelled exactly as a flowchart and a class diagram
  * spell it.
  */
-const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
+const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/i;
 
 /**
  * `class Busy urgent` — the apply-directive, in this kind's spelling of it.
  *
- * The **target list** is comma-separated and the **class name** is not, and
- * that asymmetry is measured rather than assumed (mermaid 11.17.2):
+ * The **target list** is comma-separated and the **class name** is the
+ * whole rest of the line, and that asymmetry is measured rather than
+ * assumed:
  *
  *     class Busy,Done urgent    →  classes=["urgent"] on *both* states
  *     class Busy, Done urgent   →  the same, so a space after the comma is spare
- *     class Busy alpha,beta     →  classes=["alpha,beta"] — one class name,
- *                                  matching no `classDef`, painting nothing
+ *     class Busy alpha,beta     →  classes=["alpha,beta"] — one class name
+ *     class Busy u extra        →  classes=["u extra"] — spaces too (12.2.0)
+ *     class Busy                →  classes=[""] — no name at all (12.2.0)
  *
- * So the second capture is a single `\w+`: a state wearing two classes is
- * written as two `class` statements, and measured, those *do* stack
- * (`classes=["alpha","beta"]`).
+ * So a state wearing two classes takes them from two `class` statements
+ * (measured, those *do* stack: `classes=["alpha","beta"]`), and a name
+ * like `alpha,beta` matches no `classDef` and paints nothing, which
+ * `resolveStyles` reports as a warning. Siren used to read the name as a
+ * single `\w+` and refuse the other two documents outright (01M37GQRM).
  *
- * The target list is greedy and backtracks, the way `parseFlowchart`'s
- * `CLASS_APPLY_RE` does — `[\w\s,]` cannot cross the space before the class
- * name and gives it back — which is what reads `class A,B x` and
- * `class A, B x` with one pattern instead of two. The alphabet is `\w`
- * alone, without the flowchart's `.`, because a state id is read in `\w+`
- * everywhere else in this file.
+ * The target list is ids joined by commas, with spaces allowed around a
+ * comma; the first space *not* followed by a comma ends it. The alphabet is
+ * `\w` alone, without the flowchart's `.`, because a state id is read in
+ * `\w+` everywhere else in this file.
  *
- * **Two operands, both required.** A lone `class` is a whole-document parse
- * error in Mermaid (measured), and this pattern declining it is what leaves
- * it to `RESERVED_WORD_RE` — the reservation that exists for exactly this
+ * **At least one target.** A lone `class` is a whole-document parse error
+ * in Mermaid (measured), and this pattern declining it is what leaves it to
+ * `RESERVED_WORD_RE` — the reservation that exists for exactly this
  * statement.
  */
-const CLASS_APPLY_RE = /^class\s+([\w\s,]*[\w,])\s+(\w+)\s*$/;
+const CLASS_APPLY_RE = /^class\s+(\w+(?:\s*,\s*\w+)*)\s*,?(?:\s+(\S.*?))?\s*$/i;
+
+/**
+ * A bare id followed by whitespace and more — the first of several
+ * statements on one line. Read only once every statement pattern has
+ * declined the whole line; see where it is used.
+ */
+const LEADING_BARE_ID_RE = /^(\w+)\s+(?=\S)/;
+
+/**
+ * `style Busy fill:#f00,stroke:#00f` — declarations written straight onto
+ * their targets, no named definition between (01M36C24S).
+ *
+ * The target list is the apply-directive's: comma-separated, greedy and
+ * backtracking, so `[\w\s,]` gives back the space before the declarations,
+ * which cannot themselves be read as targets because a declaration holds a
+ * `:`. Measured (mermaid 12.2.0, `--markup`): `style A,B fill:#f00` paints
+ * both rects.
+ *
+ * ⚠️ **A space after the comma is a divergence, by CONTEXT.md's third
+ * rule.** Mermaid reads `style A, B fill:#f00` as target `A` with the
+ * declaration `B fill:#f00`, so A's rect carries
+ * `style="B fill:#f00 !important"` and B carries nothing — a picture that
+ * contradicts the line, with no diagnostic. Siren styles both, as the line
+ * says, and as `class A, B x` already reads in both tools.
+ *
+ * ⚠️ **So is a composite target.** Measured, `style C fill:#f00` on a
+ * composite leaves Mermaid's frame unpainted, while `class C u` paints it
+ * (the class lands on the composite's `<g>` and `.u rect` reaches the
+ * frame). Siren paints the frame for both, as the line says.
+ *
+ * A target nothing declares draws nothing, as it does in Mermaid (measured:
+ * `style Ghost fill:#00f` records a state `Ghost` that no figure is drawn
+ * for), so it is left to `resolveStyles`, which drops unknown targets.
+ */
+const STYLE_RE = /^style\s+([\w\s,]*[\w,])\s+([^\s].*)$/i;
 
 /**
  * The constructs this parser reads well enough to *recognize* and does not
@@ -390,32 +474,13 @@ const CLASS_APPLY_RE = /^class\s+([\w\s,]*[\w,])\s+(\w+)\s*$/;
  * The table shrinks as constructs land: a composite opened with a quoted
  * description used to sit here, and left by being implemented rather than by
  * having its message reworded (`COMPOSITE_OPEN_RE` reads both spellings now),
- * and so did author styling (`CLASS_DEF_RE` and `CLASS_APPLY_RE`).
+ * and so did author styling (`CLASS_DEF_RE` and `CLASS_APPLY_RE`), and so
+ * did the last two entries, a note on `[*]` and the multi-line note
+ * (01M36DWFN). **It is empty now**, and kept: the next construct measured
+ * and not yet implemented belongs here, refused by name, rather than in the
+ * unrecognized-line message.
  */
 const UNIMPLEMENTED: readonly { pattern: RegExp; name: (match: RegExpExecArray) => string }[] = [
-  {
-    // The note construct itself is implemented (`NOTE_RE`); these are the
-    // two spellings of it that are not, each measured to be valid Mermaid
-    // and each left here so it is refused by name rather than as a
-    // malformed line.
-    //
-    // Measured: `note right of [*] : the beginning` attaches the note to the
-    // level's **start** pseudo-state — `root_start` — whichever side of an
-    // arrow the author's `[*]` lines put it on (a document whose only `[*]`
-    // is an *end* still reports the note on `root_start`, with the end left
-    // bare). Siren's pseudo-states carry generated ids and no note, so this
-    // is a gap and says so.
-    pattern: /^note\s+(?:left|right)\s+of\s+\[\*\]/,
-    name: () => 'a note on a "[*]" pseudo-state',
-  },
-  {
-    // Measured: `note right of Idle` with no colon opens the multi-line
-    // form, whose text runs to a closing `end note` and reaches the state as
-    // one string with newlines in it. A single-line note is `NOTE_RE`'s;
-    // this spelling needs a drawn box of several rows and has none.
-    pattern: /^note\s+(?:left|right)\s+of\s+\w+\s*$/,
-    name: () => 'a multi-line "note ... end note"',
-  },
 ];
 
 /**
@@ -502,6 +567,8 @@ export function parseStateDiagram(source: string): ParseResult {
    * what is wrong, and no half-parsed document reaches the next stage.
    */
   let sawError = false;
+  let accTitle: string | null = null;
+  let accDescr: string | null = null;
 
   /**
    * The document's own rank direction, once a statement at the document's
@@ -740,6 +807,41 @@ export function parseStateDiagram(source: string): ParseResult {
     column: number,
   ): void => {
     declareState(id, line, column).note = { position, label };
+  };
+
+  /**
+   * Notes written on `[*]`, waiting for their level to be read. Mermaid hangs
+   * such a note on the level's **start** pseudo-state whichever `[*]` the
+   * author meant (measured, 12.2.0) — and the start may be written after the
+   * note, so it is looked up once the whole document is read.
+   */
+  const pendingPseudoNotes: {
+    parentId: string | null;
+    regionIndex: number | null;
+    note: StateNote;
+    line: number;
+    column: number;
+  }[] = [];
+
+  /** A note on `target` — a state, which it declares if need be, or `[*]`. */
+  const noteOn = (
+    target: string,
+    position: StateNotePosition,
+    label: Label,
+    line: number,
+    column: number,
+  ): void => {
+    if (target === PSEUDO_STATE) {
+      pendingPseudoNotes.push({
+        parentId: currentParentId(),
+        regionIndex: currentRegionIndex(),
+        note: { position, label },
+        line,
+        column,
+      });
+      return;
+    }
+    annotateState(target, position, label, line, column);
   };
 
   /**
@@ -1022,11 +1124,11 @@ export function parseStateDiagram(source: string): ParseResult {
     // where the header put it. At the document's own level it is the whole
     // diagram's, and there the *first* one wins (see `documentDirection`).
     //
-    // Read with `matchClassDirection` rather than a pattern of this file's
-    // own, so the five spellings and the `TD` alias cannot drift between two
-    // regexes; the name is the class diagram's only because that is where
-    // the statement was first read.
-    const statementDirection = matchClassDirection(line);
+    // Read with `matchStateDirection`, beside the class diagram's matcher in
+    // `parseDirection.ts`, so the five spellings and the `TD` alias cannot
+    // drift between two places — but a matcher of its own, because this
+    // kind reads the statement in any case and a class diagram does not.
+    const statementDirection = matchStateDirection(line);
     if (statementDirection !== null) {
       if (openBlocks.length > 0) {
         // Onto the **region** it was written in, which for an undivided
@@ -1082,7 +1184,36 @@ export function parseStateDiagram(source: string): ParseResult {
       continue;
     }
 
+    const styleMatch = STYLE_RE.exec(line);
+    if (styleMatch !== null) {
+      styles.push({
+        styleKind: "style",
+        authoredAs: "style",
+        targetIds: styleMatch[1]
+          .split(",")
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0),
+        name: null,
+        properties: readStyleProperties(styleMatch[2], lineNumber, column),
+        line: lineNumber,
+        column,
+      });
+      continue;
+    }
+
     const classApplyMatch = CLASS_APPLY_RE.exec(line);
+    if (classApplyMatch !== null && classApplyMatch[2] === undefined) {
+      // Targets and no class: measured, Mermaid draws the document and the
+      // targets wear `classes=[""]`, which paints nothing — so nothing is
+      // recorded, and the author is told.
+      diagnostics.push({
+        severity: "warning",
+        message: `class names no class to apply; nothing is applied, in "${line}"`,
+        line: lineNumber,
+        column,
+      });
+      continue;
+    }
     if (classApplyMatch !== null) {
       styles.push({
         styleKind: "apply",
@@ -1102,19 +1233,90 @@ export function parseStateDiagram(source: string): ParseResult {
       continue;
     }
 
+    // The two accessibility statements (01M4WVVN9). Read before the
+    // description patterns, which would otherwise take `accTitle: T` for a
+    // state called `accTitle` described "T" — the box Siren used to draw.
+    // Measured on 12.2.0: any case, whitespace allowed before the colon, and
+    // the braced block read as in every kind; a lone `accTitle` with no
+    // colon is still an ordinary state.
+    const accTitleMatch = ACC_TITLE_RE.exec(line);
+    if (accTitleMatch !== null) {
+      accTitle = accTitleMatch[1].trim();
+      continue;
+    }
+    const accDescrMatch = ACC_DESCR_RE.exec(line);
+    if (accDescrMatch !== null) {
+      accDescr = accDescrMatch[1].trim();
+      continue;
+    }
+    if (ACC_DESCR_BLOCK_RE.test(line)) {
+      const block = readAccDescrBlock(lines, index, rawLine.indexOf("{"));
+      if (!block.closed) {
+        diagnostics.push({
+          severity: "error",
+          message: "Unclosed `accDescr { ... }` block: no `}` ends the description it opens",
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
+        break;
+      }
+      accDescr = block.description;
+      if (block.rest === null) {
+        index = block.closeIndex;
+      } else {
+        lines[block.closeIndex] = block.rest;
+        index = block.closeIndex - 1;
+      }
+      continue;
+    }
+
     // A note, written onto the state it names. Read before the bare-state
     // and description patterns for the reason `classDef` is: neither may
     // claim a statement opening with one of the words this parser reserves.
     const noteMatch = NOTE_RE.exec(line);
-    if (noteMatch !== null && isNotePosition(noteMatch[1])) {
-      const [, position, targetId] = noteMatch;
-      annotateState(
-        targetId,
-        position,
-        readLabelIn(noteMatch, 3, lineNumber, column),
+    const notePosition = noteMatch === null ? null : notePositionOf(noteMatch[1]);
+    if (noteMatch !== null && notePosition !== null) {
+      noteOn(noteMatch[2], notePosition, readLabelIn(noteMatch, 3, lineNumber, column), lineNumber, column);
+      continue;
+    }
+
+    // The multi-line form: every line up to `end note` is the note's text,
+    // one row per non-blank line, each read as a label on its own so a
+    // problem in it points at its own line and column.
+    const noteBlockMatch = NOTE_BLOCK_RE.exec(line);
+    const blockPosition = noteBlockMatch === null ? null : notePositionOf(noteBlockMatch[1]);
+    if (noteBlockMatch !== null && blockPosition !== null) {
+      const close = lines.findIndex((candidate, at) => at > index && END_NOTE_RE.test(candidate.trim()));
+      if (close === -1) {
+        diagnostics.push({
+          severity: "error",
+          message: `Unclosed multi-line note: no "end note" ends the note opened in "${line}"`,
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
+        break;
+      }
+      const rows: Label["rows"] = [];
+      const texts: string[] = [];
+      for (let at = index + 1; at < close; at++) {
+        const text = lines[at].trim();
+        if (text.length === 0) continue;
+        const read = readTextAt(text, { line: at + 1, column: lines[at].length - lines[at].trimStart().length + 1 }, "html");
+        diagnostics.push(...read.diagnostics);
+        if (read.hasError) sawError = true;
+        rows.push(...read.label.rows);
+        texts.push(read.label.text);
+      }
+      noteOn(
+        noteBlockMatch[2],
+        blockPosition,
+        rows.length === 0 ? plainLabel("") : { text: texts.join("\n"), rows },
         lineNumber,
         column,
       );
+      index = close;
       continue;
     }
 
@@ -1122,6 +1324,17 @@ export function parseStateDiagram(source: string): ParseResult {
     // without producing anything — see `FLOATING_NOTE_RE`: Mermaid parses it
     // and records nothing, so recording nothing is the compatible answer.
     if (FLOATING_NOTE_RE.test(line)) {
+      continue;
+    }
+
+    // `[*]` on a line of its own is the level's start pseudo-state.
+    // Measured on mermaid 12.2.0 (`--markup`): it draws the start disc of
+    // the level it is written at, and a later `[*] --> A` leaves from that
+    // same disc — so it is `declarePseudoState`'s one-per-level start, as a
+    // transition's from side is (01M4WSRMX). `Foo [*]` reaches here too,
+    // as the rest of a line whose leading id was split off.
+    if (line === PSEUDO_STATE) {
+      declarePseudoState("start", lineNumber, column);
       continue;
     }
 
@@ -1147,6 +1360,20 @@ export function parseStateDiagram(source: string): ParseResult {
 
     const descriptionMatch = STATE_DESCRIPTION_RE.exec(line);
     if (descriptionMatch !== null) {
+      // The third INITIAL read site (01M2ZQQQ6). Measured on 12.2.0: a
+      // reserved subject is a parse error, except `state`, which is
+      // tolerated and declares nothing — as on a line of its own.
+      if (RESERVED_WORD_RE.test(descriptionMatch[1])) {
+        if (descriptionMatch[1].toLowerCase() === "state") continue;
+        diagnostics.push({
+          severity: "error",
+          message: reservedWordRefusal(descriptionMatch[1], line),
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
+        continue;
+      }
       describeState(
         descriptionMatch[1],
         readLabelIn(descriptionMatch, 2, lineNumber, column),
@@ -1174,6 +1401,25 @@ export function parseStateDiagram(source: string): ParseResult {
     // implement: a line only reaches the table once every working pattern
     // above has declined it.
     const unimplemented = unimplementedIn(line);
+
+    // Several statements on one line. Measured (mermaid 12.2.0): a bare id
+    // ends its statement at the whitespace after it, and the rest of the
+    // line is the next statement — `Foo Bar` declares two states, `A B C`
+    // three, `direction sideways` and `hide X` both their words (neither is
+    // reserved), `Foo Bar --> C` Foo and the transition Bar → C. A general
+    // lexer behaviour, not a few words' (01M369AQW). So the leading id is
+    // declared and the rest goes back through every pattern above as a line
+    // of its own, blanked up to where it starts so a refusal of it names the
+    // right column. A reserved word is never split off: Mermaid lexes it as
+    // a keyword, and the line stays refused.
+    const leadingId = unimplemented === null ? LEADING_BARE_ID_RE.exec(line) : null;
+    if (leadingId !== null && !RESERVED_WORD_RE.test(leadingId[1])) {
+      declareState(leadingId[1], lineNumber, column);
+      lines[index] = " ".repeat(column - 1 + leadingId[0].length) + line.slice(leadingId[0].length);
+      index--;
+      continue;
+    }
+
     diagnostics.push({
       severity: "error",
       message: unimplemented ?? `Unrecognized stateDiagram line: "${line}"`,
@@ -1181,6 +1427,33 @@ export function parseStateDiagram(source: string): ParseResult {
       column,
     });
     sawError = true;
+  }
+
+  // Each `note … of [*]` onto its level's start pseudo-state, the last one
+  // written winning as two notes on one state do. A level with no start
+  // has nothing Mermaid can draw the note on: measured on 12.2.0, it invents
+  // a start with no shape and fails to render ("No such shape: undefined"),
+  // so the document is refused, saying why.
+  for (const pending of pendingPseudoNotes) {
+    const start = states.find(
+      (state) =>
+        state.id === null &&
+        state.kind === "start" &&
+        state.parentId === pending.parentId &&
+        state.regionIndex === pending.regionIndex,
+    );
+    if (start === undefined) {
+      diagnostics.push({
+        severity: "error",
+        message:
+          'A note on "[*]" hangs on its level\'s start, and this level has no start pseudo-state — write `[*] --> …` here, or note a named state',
+        line: pending.line,
+        column: pending.column,
+      });
+      sawError = true;
+      continue;
+    }
+    start.note = pending.note;
   }
 
   // A block the author never closed, reported in the words they opened it
@@ -1255,6 +1528,8 @@ export function parseStateDiagram(source: string): ParseResult {
 
   const document: StateDocument = {
     kind: "state",
+    accTitle,
+    accDescr,
     // `TB` is Mermaid's own default for a document that names no direction,
     // measured: the header alone reports `TB`.
     direction: documentDirection ?? "TB",

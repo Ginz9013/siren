@@ -13,6 +13,7 @@ import { CONNECTOR_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
 import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { drawConnectorRoute } from "./connectorCurve";
+import { appendAccessibleText } from "./appendAccessibleText";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 import { wrapInteraction } from "./wrapInteraction";
@@ -122,6 +123,10 @@ export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVG
   // see `mintIdScope`. Four fixed ids here rather than the flowchart's one,
   // so the exposure was four times the size and the fix is the same fix.
   const scope = mintIdScope();
+
+  // The diagram's accessible title and description, first (01M4WVVN9):
+  // Mermaid 12.2.0 writes them for this kind as for every other.
+  appendAccessibleText(svg, scope, diagram.accTitle, diagram.accDescr);
 
   svg.appendChild(buildDefs(scope));
 

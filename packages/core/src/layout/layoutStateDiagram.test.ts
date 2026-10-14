@@ -26,6 +26,8 @@ function model(
       .flatMap(({ from, to }) => [from, to])
       .filter((id, index, all) => all.indexOf(id) === index);
   return {
+    accTitle: null,
+    accDescr: null,
     direction,
     states: ids.map((id) => ({
       id,
@@ -137,6 +139,8 @@ describe("layoutStateDiagram", () => {
     // loop on one state or on a composite's frame no differently.
     const laid = layoutStateDiagram(
       {
+        accTitle: null,
+        accDescr: null,
         direction: "TB",
         states: [
           { id: "start:1", kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
@@ -310,6 +314,8 @@ describe("layoutStateDiagram", () => {
     // outside. The note joins the composite's cluster, so the frame the core
     // sizes holds it.
     const nested: StateModel = {
+      accTitle: null,
+      accDescr: null,
       direction: "TB",
       states: [
         { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
@@ -357,6 +363,8 @@ describe("layoutStateDiagram", () => {
     // the size handed in, with its members outside it). The note is a member like any
     // other: every frame around its state, and the canvas, hold it.
     const nested: StateModel = {
+      accTitle: null,
+      accDescr: null,
       direction: "TB",
       states: [
         { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: "LR", note: null },
@@ -397,6 +405,8 @@ describe("layoutStateDiagram", () => {
     // whose end is the cluster itself, so the core ends it on the frame's
     // outline — not on a member, and not inside the title band.
     const withNote: StateModel = {
+      accTitle: null,
+      accDescr: null,
       direction: "TB",
       states: [
         { id: "Before", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
@@ -447,6 +457,8 @@ describe("layoutStateDiagram", () => {
     // the figure UML draws here.
     const laid = layoutStateDiagram(
       {
+        accTitle: null,
+        accDescr: null,
         direction: "TB",
         states: [
           { id: "start:1", kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
@@ -499,6 +511,8 @@ describe("layoutStateDiagram", () => {
     // as it is for a described state.
     const laid = layoutStateDiagram(
       {
+        accTitle: null,
+        accDescr: null,
         direction: "TB",
         states: [
           { id: "Choice", kind: "state", stereotype: "choice", descriptions: [], parentId: null, direction: null, note: null },
@@ -554,6 +568,8 @@ describe("layoutStateDiagram", () => {
     const forkIn = (documentDirection: Direction, compositeDirection: Direction | null) =>
       layoutStateDiagram(
         {
+          accTitle: null,
+          accDescr: null,
           direction: documentDirection,
           states: [
             { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: compositeDirection, note: null },
@@ -580,6 +596,8 @@ describe("layoutStateDiagram", () => {
     const atRoot = (direction: Direction) =>
       layoutStateDiagram(
         {
+          accTitle: null,
+          accDescr: null,
           direction,
           states: [
             { id: "Split", kind: "state", stereotype: "fork", descriptions: [], parentId: null, direction: null, note: null },
@@ -605,6 +623,8 @@ describe("layoutStateDiagram", () => {
     const choiceAt = (direction: Direction) =>
       layoutStateDiagram(
         {
+          accTitle: null,
+          accDescr: null,
           direction,
           states: [
             { id: "Choice", kind: "state", stereotype: "choice", descriptions: [], parentId: null, direction: null, note: null },
@@ -630,6 +650,8 @@ describe("layoutStateDiagram", () => {
     // one.
     const laid = layoutStateDiagram(
       {
+        accTitle: null,
+        accDescr: null,
         direction: "TB",
         states: [
           { id: "s", kind: "state", stereotype: null, descriptions: [plainLabel("waiting for work")], parentId: null, direction: null, note: null },
@@ -671,6 +693,8 @@ describe("layoutStateDiagram", () => {
     // description exists.
     const laid = layoutStateDiagram(
       {
+        accTitle: null,
+        accDescr: null,
         direction: "TB",
         states: [
           { id: "s", kind: "state", stereotype: null, descriptions: [plainLabel("first"), plainLabel("second"), plainLabel("third")], parentId: null, direction: null, note: null },
@@ -708,6 +732,8 @@ describe("layoutStateDiagram", () => {
     // members, its padding and a band for its title, as it does a subgraph's.
     const laid = layoutStateDiagram(
       {
+        accTitle: null,
+        accDescr: null,
         direction: "TB",
         states: [
           { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
@@ -753,6 +779,8 @@ describe("layoutStateDiagram", () => {
     // the part that reaches highest.
     const laid = layoutStateDiagram(
       {
+        accTitle: null,
+        accDescr: null,
         direction: "TB",
         states: [
           { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
@@ -810,6 +838,8 @@ describe("layoutStateDiagram", () => {
     // 136-wide state boxes pack one region above the other.)
     const laid = layoutStateDiagram(
       {
+        accTitle: null,
+        accDescr: null,
         direction: "TB",
         states: [
           { id: "Active", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
@@ -887,6 +917,8 @@ describe("layoutStateDiagram", () => {
     const regionHoldingAFrame = () =>
       layoutStateDiagram(
         {
+          accTitle: null,
+          accDescr: null,
           direction: "TB",
           states: [
             { id: "Active", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
@@ -911,6 +943,8 @@ describe("layoutStateDiagram", () => {
     const compositeHoldingADividedBlock = () =>
       layoutStateDiagram(
         {
+          accTitle: null,
+          accDescr: null,
           direction: "TB",
           states: [
             { id: "Outer", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: "LR", note: null },
@@ -966,6 +1000,8 @@ describe("layoutStateDiagram", () => {
     // its column.
     const laid = layoutStateDiagram(
       {
+        accTitle: null,
+        accDescr: null,
         direction: "TB",
         states: [
           { id: "Active", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
@@ -1002,6 +1038,8 @@ describe("layoutStateDiagram", () => {
     // neither. (Mermaid 11 drew this the same way; Siren's dagre core turned
     // the regions with the document, a divergence that ends here.)
     const divided = (direction: Direction): StateModel => ({
+      accTitle: null,
+      accDescr: null,
       direction,
       states: [
         { id: "Active", kind: "composite", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
@@ -1043,6 +1081,8 @@ describe("layoutStateDiagram", () => {
     // Mermaid 12.2.0 does (measured: `X --> C` stops on C's outline).
     const laid = layoutStateDiagram(
       {
+        accTitle: null,
+        accDescr: null,
         direction: "TB",
         states: [
           { id: "start:1", kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
@@ -1106,6 +1146,8 @@ describe("layoutStateDiagram", () => {
     // block out in it while no transition voids it.
     const laid = layoutStateDiagram(
       {
+        accTitle: null,
+        accDescr: null,
         direction: "LR",
         states: [
           { id: "X", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
@@ -1136,6 +1178,8 @@ describe("layoutStateDiagram", () => {
     // direction (`configureCrossHierarchyEdges`). `X --> C` and `C --> C`
     // instead keep A and B in a row: both ends of each share a parent.
     const composite = (transitions: { from: string; to: string }[]): StateModel => ({
+      accTitle: null,
+      accDescr: null,
       direction: "TB",
       states: [
         { id: "X", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
@@ -1177,6 +1221,8 @@ describe("layoutStateDiagram", () => {
     // while the diagram's own two ranks stay stacked.
     const laid = layoutStateDiagram(
       {
+        accTitle: null,
+        accDescr: null,
         direction: "TB",
         states: [
           { id: "Before", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
@@ -1264,6 +1310,8 @@ describe("layoutStateDiagram — a composite's title", () => {
     // drawn where the core put it.
     const laid = layoutStateDiagram(
       {
+        accTitle: null,
+        accDescr: null,
         direction: "TB",
         states: [
           { id: "X", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
@@ -1310,6 +1358,8 @@ describe("layoutStateDiagram — Mermaid 12's handover order", () => {
     const long = (text: string) => plainLabel(text);
     const laid = layoutStateDiagram(
       {
+        accTitle: null,
+        accDescr: null,
         direction: "TB",
         states: [
           { id: "start:1", kind: "start", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },

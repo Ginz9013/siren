@@ -11,6 +11,7 @@ import { CONNECTOR_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
 import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { drawConnectorRoute } from "./connectorCurve";
+import { appendAccessibleText } from "./appendAccessibleText";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 
@@ -161,24 +162,7 @@ export function renderErDiagramToSVG(diagram: PositionedErDiagram): SVGSVGElemen
   //
   // Before `<defs>`, because Mermaid puts them first and an accessible name
   // is read from the first `<title>` a consumer finds.
-  if (diagram.accTitle !== null) {
-    const accTitleId = `chart-title${scope}`;
-    const accTitleEl = document.createElementNS(SVG_NS, "title");
-    accTitleEl.setAttribute("id", accTitleId);
-    accTitleEl.textContent = diagram.accTitle;
-    svg.appendChild(accTitleEl);
-    svg.setAttribute("aria-labelledby", accTitleId);
-  }
-  // Its own `if` rather than an `else` or a shared one: two statements, two
-  // stores in Mermaid, and a document may write either alone.
-  if (diagram.accDescr !== null) {
-    const accDescrId = `chart-desc${scope}`;
-    const accDescrEl = document.createElementNS(SVG_NS, "desc");
-    accDescrEl.setAttribute("id", accDescrId);
-    accDescrEl.textContent = diagram.accDescr;
-    svg.appendChild(accDescrEl);
-    svg.setAttribute("aria-describedby", accDescrId);
-  }
+  appendAccessibleText(svg, scope, diagram.accTitle, diagram.accDescr);
 
   svg.appendChild(buildDefs(scope));
 
@@ -252,15 +236,21 @@ function buildSubgraph(subgraph: PositionedErSubgraph): SVGGElement {
   frame.setAttribute("y", String(subgraph.y));
   frame.setAttribute("width", String(subgraph.width));
   frame.setAttribute("height", String(subgraph.height));
+  // The author's `style s1 …` / `class s1 …`, on the rect the theme styles
+  // and not on the group — the placement ADR-0008 argues for an entity's
+  // box, and the element Mermaid 12.2.0 itself puts it on.
+  applyAuthorStyle(frame, subgraph.style?.frame ?? []);
   g.appendChild(frame);
 
   // Drawn by `drawLabel` at the anchor in the title strip: one plain row is
   // the `<text>`'s own `textContent`, anything else a row tspan per row
   // (ADR-0015).
-  appendLabel(
-    g,
-    drawPlaced(subgraph.label, "siren-er-subgraph-label"),
-  );
+  const title = drawPlaced(subgraph.label, "siren-er-subgraph-label");
+  // The title is the one text a cluster draws, so it is where an author's
+  // `color` lands — measured, Mermaid 12.2.0 colours the cluster label with
+  // it — already translated to the `fill` SVG paints text with.
+  applyAuthorStyle(title.text, subgraph.style?.text ?? []);
+  appendLabel(g, title);
 
   return g;
 }
@@ -511,10 +501,12 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
     for (const row of table.rows) {
       for (const cell of row.cells) {
         const className = `siren-er-attribute siren-er-attribute-${cell.column}`;
-        if (cell.column === "comment") {
+        if ("label" in cell) {
           // The comment is a label (ADR-0015), drawn by `drawLabel` at the
           // anchor layout placed so its widest row starts where the column's
           // cells do. One plain row is the `<text>`'s own `textContent`.
+          // A type or name that spans lines is drawn the same way, one plain
+          // row per line (`PositionedErAttributeLinesCell`).
           const drawn = drawPlaced(cell, className);
           applyAuthorStyle(drawn.text, entity.style.text);
           appendLabel(g, drawn);

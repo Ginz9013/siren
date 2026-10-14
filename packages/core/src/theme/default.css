@@ -704,6 +704,45 @@
 }
 
 /*
+ * A sequence participant's menu of links — one with two or more `link` /
+ * `links` entries (`buildSequenceLinkMenu`). Mermaid opens its menu with
+ * JavaScript; this one is CSS only: the rows stay hidden until the
+ * transparent trigger over the participant's box is hovered, or the menu's
+ * group (`tabindex="0"`) or one of its links holds focus. `visibility`
+ * rather than `display`, so a hidden link is neither painted, hovered nor
+ * reached by Tab, and the rows need no layout of their own to reappear.
+ * Hovering the shown rows keeps them shown: they sit inside the hovered
+ * group, flush against the box.
+ */
+.siren-link-menu {
+  font-family: var(--siren-font-family);
+  font-size: var(--siren-font-size);
+}
+
+.siren-link-menu-trigger {
+  cursor: pointer;
+}
+
+.siren-link-menu-items {
+  visibility: hidden;
+}
+
+.siren-link-menu:hover .siren-link-menu-items,
+.siren-link-menu:focus-within .siren-link-menu-items {
+  visibility: visible;
+}
+
+.siren-link-menu-item rect {
+  fill: var(--siren-node-fill);
+  stroke: var(--siren-node-stroke);
+  stroke-width: var(--siren-stroke-width);
+}
+
+.siren-link-menu-item text {
+  fill: var(--siren-label-link);
+}
+
+/*
  * The connector from a note to the class — or the state — it annotates.
  * Dashed — UML's own convention, and what keeps it from reading as a ninth
  * relationship type or as a transition. Mermaid draws the state diagram's

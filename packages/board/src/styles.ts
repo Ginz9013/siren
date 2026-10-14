@@ -33,15 +33,25 @@ const STYLE_ELEMENT_ID = "siren-board-styles";
  * Every chrome color goes through a `--siren-board-*` token, declared here
  * rather than in `siren-core`'s theme (ADR-0006: board owns its chrome).
  * The values are siren-website's decision 01M3BY1GPP, and there is one set of
- * them, in one `:root` block — the same shape core's theme has (ADR-0014).
+ * them, in one block on the root — the same shape core's theme has (ADR-0014).
  * Board picks no palette on the page's behalf: nothing below reads the
  * reader's system color preference or any theme attribute, so a consumer who
  * wants dark chrome redeclares these six tokens under a selector of their own,
  * exactly as they would core's color tokens. demos/theme-dark.css does both
  * at once.
+ *
+ * The token block selects the root as `:where(:root)`, which has zero
+ * specificity. This sheet is appended to `<head>` on first use, after any CSS
+ * the consumer links, so a plain `:root` here tied with theirs on specificity
+ * and won on order — a consumer's `:root { --siren-board-accent: … }` did
+ * nothing (nook 01M3VYFBX). Now `:root`, `html` or anything else they write
+ * wins wherever it sits. Not `@layer`: jsdom cannot parse it and drops the
+ * whole sheet, and only the tokens should yield — the chrome rules keep
+ * their class specificity, so a page's `button { … }` reset cannot restyle
+ * the bar.
  */
 const CSS = `
-:root {
+:where(:root) {
   --siren-board-surface: #ffffff;
   --siren-board-surface-hover: #f8f6fc;
   --siren-board-text: #1d1730;

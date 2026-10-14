@@ -412,8 +412,14 @@ describe("the corpus, case by case", () => {
  * has turned out to be an undercount. Every one of the seven was found by
  * widening what gets named, never by tightening a ratchet, and this one was
  * found by a ticket about something else entirely.
+ *
+ * **2 → 0: the ER name position, read as the lexer reads it.** `01M3C621W`
+ * made a bare name's head follow Mermaid's INITIAL lexer rule for rule
+ * (`bareNameTokenLength`): `er-name-cardinality-word` is refused now, as
+ * Mermaid refuses it, and moves to `rejected`; `er-name-digit-head` splits
+ * at the end of its number, as Mermaid does, and moves to `supported`.
  */
-const SILENTLY_WRONG = 2;
+const SILENTLY_WRONG = 0;
 
 /**
  * The number of `rejected` cases. The **backlog**: constructs an author is
@@ -1436,8 +1442,63 @@ const SILENTLY_WRONG = 2;
  * error-severity diagnostic naming the curve. Nothing broke: before T7 every
  * `interpolate` line was refused as an unrecognized style declaration, and
  * no row recorded it. `silently-wrong` does not move.
+ *
+ * **15 → 14: a stricter rule relaxed to Mermaid's picture.** The direction
+ * this number is meant to go. `01M39FAVK` lowered "applies a name no classDef defines" from an
+ * error to a warning in the shared `resolveStyles` (decided 2026-10-14):
+ * Mermaid 12.2.0 accepts such a name in all four kinds that style, records
+ * it and paints nothing. `er-style-class-shorthand`, which was refused only
+ * by that rule, draws now and moves to `supported`, asserting the unstyled
+ * entity and the warning. `silently-wrong` does not move.
+ *
+ * **14 → 13: a refused block, read.** `01M4WS1P6` read ER's braced
+ * `accDescr { ... }` through the `readAccDescrBlock` the sequence and
+ * flowchart parsers share, measured on 12.2.0 to behave identically in all
+ * three kinds. `er-acc-descr-multiline` moves to `supported`, asserting the
+ * description and that no entity is drawn for the block's body.
+ *
+ * **13 → 14: case (1), a row leaving `silently-wrong`.** `01M3C621W` made
+ * `er-name-cardinality-word` an honest refusal; `silently-wrong` fell by
+ * one for it (and by one more for `er-name-digit-head`, which works now),
+ * so the sum of the two fell rather than held.
+ *
+ * **14 → 15: case (2), a divergence written down for the first time.**
+ * `01M3BXNYR` (part 2) found that `class A end` — a reserved word in a class
+ * list — was read here as "apply the class `end`" while Mermaid 12.2.0
+ * refuses the line ("got 'END'"). It was never measured because the guard
+ * that reserves those words was asked of names, not of class lists. Siren
+ * now refuses it by name, and `er-class-reserved-word` records it. Nothing
+ * that rendered stopped rendering: Mermaid draws no picture for it.
+ * `silently-wrong` does not move — the old reading drew a warning (no
+ * `classDef end`), so it was never silent. The same ticket's
+ * `er-style-class-shorthand-relationship` is new and `supported`, and
+ * `er-style-target-colon` stays `rejected` with a named refusal now.
+ *
+ * **15 → 14: a construct started working.** `01M39CT0G`: a backticked
+ * attribute word may span lines (Mermaid's `` [^`]+ `` matches a newline),
+ * and Siren now reads it as one attribute and draws the cell as Mermaid
+ * 12.2.0 does — one row per line, indentation gone.
+ * `er-attribute-backtick-multiline` moves to `supported`.
+ *
+ * **14 → 12: two constructs started working.** `01M3BXN5N`: a `style` or
+ * `class` naming an ER `subgraph` block below its `end` paints the cluster —
+ * the frame's `<rect>`, and its title for an author's `color` — as Mermaid
+ * 12.2.0 does. `er-subgraph-style` and `er-subgraph-class` move to
+ * `supported`, asserting the declared value on the drawn frame. The seven
+ * rows added beside them (above-block, class-before-classDef,
+ * style-beats-class, entity-and-cluster, color, nested, shared-name) are
+ * new and `supported`; they pin what was measured, and none moves a count.
+ *
+ * **12 → 11: a construct started working.** `01M3BXNYR`: a relationship end
+ * naming an ER `subgraph` cluster joins the cluster's frame and draws no box
+ * for the name, as Mermaid 12.2.0 does — routed by ELK to the frame itself,
+ * not through a representative member as the note above once said.
+ * `er-subgraph-entity-name` moves to `supported`, asserting the line's end
+ * on the frame's boundary. The four rows beside it (relationship above the
+ * block — which Mermaid 12.2.0 fails to render, both ends clusters, a
+ * cluster to itself, a nested cluster) are new and `supported`.
  */
-const REJECTED = 15;
+const REJECTED = 11;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

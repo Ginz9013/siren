@@ -17,6 +17,8 @@ const rowsLabel = (...rows: string[]): Label => ({
  */
 function classDocument(overrides: Partial<ClassDocument> = {}): ClassDocument {
   return {
+    accTitle: null,
+    accDescr: null,
     kind: "class",
     direction: "TB",
     classes: [],
@@ -1175,7 +1177,7 @@ describe("buildClassModel", () => {
 
     expect(diagnostics).toEqual([
       {
-        severity: "error",
+        severity: "warning",
         message:
           'cssClass applies "emphsis", which no classDef defines; dropping the declaration.',
         line: 6,

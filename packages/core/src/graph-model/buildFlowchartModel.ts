@@ -51,7 +51,7 @@ export function buildFlowchartModel(
   // resolved separately below.
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   for (const { targetId, style } of resolveStyles(
-    document.styles,
+    withImplicitDefaultClass(document.styles, [...nodeById.keys()]),
     new Set(nodeById.keys()),
     diagnostics,
   )) {
@@ -584,4 +584,40 @@ function resolveAddress(
     return [];
   }
   return [edge.id];
+}
+
+/**
+ * The flowchart's styling statements with one more in front: `default`
+ * applied to every node, when the document defines a `classDef default`.
+ *
+ * Mermaid creates every vertex already wearing a class called `default`, so
+ * `classDef default fill:#abc` paints each node with no statement applying
+ * it — and paints it under everything else (measured on 12.2.0, 01M39F94W):
+ * a node that also wears `urgent` takes `urgent`'s fill and keeps
+ * `default`'s stroke, a `style` beats it, the definition may follow the
+ * nodes, and a subgraph's frame is not painted. Put first, the implicit
+ * application is the earliest statement of the class tier `resolveStyles`
+ * applies before `style`s, which is exactly that lowest place — so the
+ * shared resolver needs no idea of an implicit class. Only flowcharts: a
+ * class diagram paints nothing for it, a state diagram refuses it, and an
+ * ER diagram refuses it by name.
+ *
+ * Nothing is added without the definition, so a document that never says
+ * `default` draws exactly as before and is warned about nothing.
+ */
+function withImplicitDefaultClass(styles: readonly StyleDecl[], nodeIds: string[]): readonly StyleDecl[] {
+  const definition = styles.find((style) => style.styleKind === "classDef" && style.name === "default");
+  if (definition === undefined) return styles;
+  return [
+    {
+      styleKind: "apply",
+      authoredAs: "class",
+      targetIds: nodeIds,
+      name: "default",
+      properties: [],
+      line: definition.line,
+      column: definition.column,
+    },
+    ...styles,
+  ];
 }

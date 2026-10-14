@@ -2,6 +2,7 @@ import type {
   Diagnostic,
   ErDocument,
   ErModelResult,
+  ErStyleDecl,
   ErSubgraph,
   ResolvedErEntity,
   ResolvedErRelationship,
@@ -87,8 +88,13 @@ export function buildErModel(document: ErDocument): ErModelResult {
   }
 
   const entities = [...byId.values()];
-  const relationships = assignRelationshipIds(document);
-  const subgraphs = resolveErSubgraphs(document.subgraphs, byId);
+  // Before the relationships, because a relationship's end may name a
+  // cluster and the id it names it by is minted here.
+  const { subgraphs, idOf: subgraphIdOf } = resolveErSubgraphs(document.subgraphs, byId);
+  const relationships = assignRelationshipIds(
+    document,
+    clusterEndpointIds(document.subgraphs, subgraphIdOf, byId),
+  );
 
   // **Three kinds of timeline target: an entity, a relationship and a
   // subgraph**, sharing one id space exactly as a flowchart's nodes, edges
@@ -145,7 +151,7 @@ export function buildErModel(document: ErDocument): ErModelResult {
   // five diagram kinds cannot end up with five opinions about what an
   // author's `color` means.
   //
-  // ⚠️ **The entity ids alone, and deliberately not `addressable`.** Measured
+  // ⚠️ **Entity and cluster ids, and deliberately not `addressable`.** Measured
   // from Mermaid's own ER database (11.17.2): `addCssStyles(ids, styles)` and
   // `setClass(ids, classNames)` each look up `this.entities.get(id)` and
   // `this.subGraphLookup.get(id)` and nothing else, so **no relationship can
@@ -154,9 +160,24 @@ export function buildErModel(document: ErDocument): ErModelResult {
   // is `${from}:${to}` (01M3977716), which is exactly the string an author
   // would reach for, so handing the timeline's target list over here would
   // paint a line Mermaid leaves alone, with no diagnostic anywhere.
+  //
+  // **A cluster is the one other target, under the id generated for it.**
+  // Measured (mermaid 12.2.0): `style s1 fill:#f96` below `subgraph s1 ...
+  // end` paints the frame, because `addCssStyles` and `setClass` look up
+  // `subGraphLookup` too. The author wrote the block's *name*; the parser
+  // said which block that name reached at that line
+  // (`ErStyleDecl.clusterTargets`), and the id is rewritten here — in the
+  // set handed to the shared resolver, never in the resolver, which four
+  // other kinds call and none of which can style a generated id.
+  const entityIds = new Set(entities.map((entity) => entity.id));
   const styles = resolveStyles(
-    document.styles,
-    new Set(entities.map((entity) => entity.id)),
+    document.styles.map((declaration) => ({
+      ...declaration,
+      targetIds: declaration.targetIds.flatMap((targetId) =>
+        styleTargetsOf(targetId, declaration, entityIds, subgraphIdOf),
+      ),
+    })),
+    new Set([...entityIds, ...subgraphs.map((subgraph) => subgraph.id)]),
     diagnostics,
   );
 
@@ -218,7 +239,7 @@ export function buildErModel(document: ErDocument): ErModelResult {
 function resolveErSubgraphs(
   blocks: readonly ErSubgraph[],
   entityById: ReadonlyMap<string, ResolvedErEntity>,
-): ResolvedErSubgraph[] {
+): { subgraphs: ResolvedErSubgraph[]; idOf: ReadonlyMap<ErSubgraph, string> } {
   const resolved: ResolvedErSubgraph[] = [];
   /** Each block's assigned id, in the order the ids were minted. */
   const idOf = new Map<ErSubgraph, string>();
@@ -250,7 +271,62 @@ function resolveErSubgraphs(
     claim(block);
   }
 
-  return resolved;
+  return { subgraphs: resolved, idOf };
+}
+
+/**
+ * The generated id of each cluster a relationship's end may name, by the
+ * block's name: every block whose name no entity wears and no other block
+ * shares.
+ *
+ * Measured (mermaid 12.2.0): `subgraph s1 / A / end / s1 ||--|| B : r`
+ * hands the edge the **cluster** `s1` as its start and draws no box for the
+ * name — the phantom entity its relationship production records is dropped
+ * by `getData()`. The parser has already dropped that mention from
+ * `entities` (it refuses every reading it cannot draw this way), so a
+ * relationship end naming no entity and exactly one block is the frame's.
+ */
+function clusterEndpointIds(
+  blocks: readonly ErSubgraph[],
+  idOf: ReadonlyMap<ErSubgraph, string>,
+  entityById: ReadonlyMap<string, ResolvedErEntity>,
+): ReadonlyMap<string, string> {
+  const idsByName = new Map<string, string[]>();
+  const visit = (block: ErSubgraph): void => {
+    idsByName.set(block.name, [...(idsByName.get(block.name) ?? []), idOf.get(block)!]);
+    for (const child of block.subgraphs) visit(child);
+  };
+  for (const block of blocks) visit(block);
+  const clusterIdByName = new Map<string, string>();
+  for (const [name, ids] of idsByName) {
+    if (ids.length === 1 && !entityById.has(name)) clusterIdByName.set(name, ids[0]);
+  }
+  return clusterIdByName;
+}
+
+/**
+ * The ids one authored style target reaches: the entity of that name, the
+ * cluster the parser resolved it to, both (Mermaid's lookup tries both maps),
+ * or neither.
+ *
+ * ⚠️ **A target reaching neither is dropped here, not passed through.** The
+ * resolver's set now holds generated cluster ids, so a literal target that
+ * happened to spell one (`subgraph:1`) would otherwise paint a frame the
+ * author never named — Mermaid looks that string up as an entity or a block
+ * name, finds neither, and paints nothing.
+ */
+function styleTargetsOf(
+  targetId: string,
+  declaration: ErStyleDecl,
+  entityIds: ReadonlySet<string>,
+  subgraphIdOf: ReadonlyMap<ErSubgraph, string>,
+): string[] {
+  const reached: string[] = [];
+  if (entityIds.has(targetId)) reached.push(targetId);
+  const block = declaration.clusterTargets?.get(targetId);
+  const clusterId = block === undefined ? undefined : subgraphIdOf.get(block);
+  if (clusterId !== undefined) reached.push(clusterId);
+  return reached;
 }
 
 /**
@@ -345,7 +421,10 @@ function listOf(items: readonly string[]): string {
  * stage that reversed them here would be a second, silent swap on top of
  * the one this codebase exists to avoid.
  */
-function assignRelationshipIds(document: ErDocument): ResolvedErRelationship[] {
+function assignRelationshipIds(
+  document: ErDocument,
+  clusterIdByName: ReadonlyMap<string, string>,
+): ResolvedErRelationship[] {
   // `${from}:${to}`, then `#2`, `#3`, ... for repeats of the same ordered
   // pair. The `#2` half is `buildClassModel` and `buildFlowchartModel`'s
   // convention exactly; the separator is **not**, and this is the only kind
@@ -370,9 +449,11 @@ function assignRelationshipIds(document: ErDocument): ResolvedErRelationship[] {
     const baseId = `${relationship.left}:${relationship.right}`;
 
     return {
+      // The id keeps the author's words, as a flowchart edge to a subgraph
+      // keeps `one-two`; only the ends are rewritten, to the frame's id.
       id: occurrence === 1 ? baseId : `${baseId}#${occurrence}`,
-      from: relationship.left,
-      to: relationship.right,
+      from: clusterIdByName.get(relationship.left) ?? relationship.left,
+      to: clusterIdByName.get(relationship.right) ?? relationship.right,
       fromCardinality: relationship.leftCardinality,
       toCardinality: relationship.rightCardinality,
       line: relationship.line,

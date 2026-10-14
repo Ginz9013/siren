@@ -3,3 +3,6 @@
 {"id":"01M3NM3BTH6Q0P97PK7BF6QGG1","t":3,"a":"83a1","op":"label.add","v":"compat"}
 {"id":"01M3NM3BTHSZ27DQD516NJQEC8","t":4,"a":"83a1","op":"label.add","v":"sequence"}
 {"id":"01M4WAFTFTJ18YGE76ATX3QVWZ","t":5,"a":"83a1","op":"comment","body":"## v0.6.0 後重新檢視（2026-10-14，Mermaid 12.2.0）：仍成立，版本更新\n\nMermaid 12.2.0 接受 `title: Hello`、`Title: Hello`、`TITLE: hi`，`getDiagramTitle()` 回傳 \"Hello\" / \"hi\"。Siren 的 `TITLE_RE`（`parseSequenceDiagram.ts:50`）仍回報 `Unrecognized sequenceDiagram line: \"title: Hello\"`。\n\n過時：描述寫 `^title\\s+`，現在已經是 `/^title\\s+(.+)$/i`（不分大小寫）。"}
+{"id":"01M4WKC7YNZEK0PT8NX8BJ8VZ9","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4WKVX9Q4YK48XV5WZXJPNFN","t":7,"a":"83a1","op":"comment","body":"## 已實作（e889c5a，branch backlog-quick-wins）\n\n`TITLE_RE` 改成 `/^title(?::\\s+|\\s+)(.+)$/i`。新增語料庫列 `seq-title-colon`（supported），棘輪不動。\n\nMermaid 12.2.0 實測：`title: Hello`→\"Hello\"、`TITLE: hi`→\"hi\"、`title: a: b`→\"a: b\"、`title : Hello`→\": Hello\"（Siren 本來就一致）、**`title:Hello`（冒號後無空白）parse error**，Siren 維持拒絕。\n\n未處理、留作紀錄：`title:` 後面什麼都沒有時，Mermaid 會把**下一行**吞成 title（`A->>B: x` 變成標題、沒有 actor），Siren 拒絕。這是 Mermaid 自己畫出與文件矛盾的圖，若要處理是 CONTEXT.md 第三條規則的範圍，另開票再決定。"}
+{"id":"01M4WKVY42JDQ30FFD9M4S163B","t":8,"a":"83a1","op":"set","k":"status","v":"review"}

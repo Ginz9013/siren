@@ -18,6 +18,8 @@ function document(
     stateIds ??
     transitions.flatMap(({ from, to }) => [from, to]).filter((id, index, all) => all.indexOf(id) === index);
   return {
+    accTitle: null,
+    accDescr: null,
     kind: "state",
     direction,
     regions: [],
@@ -170,6 +172,8 @@ describe("buildStateModel", () => {
     // none and can have none: `[*]` is not an id, so no description
     // statement can name one.
     const { model, diagnostics } = buildStateModel({
+      accTitle: null,
+      accDescr: null,
       kind: "state",
       direction: "TB",
       regions: [],
@@ -249,6 +253,8 @@ describe("buildStateModel", () => {
     // them is this stage's job (ADR-0010 — `${kind}:${n}`, a colon, which
     // no authored `\w+` id can spell).
     const { model, diagnostics } = buildStateModel({
+      accTitle: null,
+      accDescr: null,
       kind: "state",
       direction: "TB",
       regions: [],
@@ -332,6 +338,8 @@ describe("buildStateModel", () => {
     // has to be shared rather than minted per occurrence — `start:1` twice
     // and never `start:1` beside `start:2`.
     const { model } = buildStateModel({
+      accTitle: null,
+      accDescr: null,
       kind: "state",
       direction: "TB",
       regions: [],
@@ -440,6 +448,8 @@ describe("buildStateModel", () => {
 
   it("joins `[*] --> [*]` from the start pseudo-state to the end one, which are two different states", () => {
     const { model } = buildStateModel({
+      accTitle: null,
+      accDescr: null,
       kind: "state",
       direction: "TB",
       regions: [],
@@ -499,6 +509,8 @@ describe("buildStateModel", () => {
     // generated ids carry a colon and authored ids are `\w+`, so the
     // collision is unconstructible rather than merely unlikely.
     const { model } = buildStateModel({
+      accTitle: null,
+      accDescr: null,
       kind: "state",
       direction: "TB",
       regions: [],
@@ -582,6 +594,8 @@ describe("buildStateModel", () => {
     // the order they are declared — the root first — rather than a second
     // spelling being invented for a nested one.
     const { model, diagnostics } = buildStateModel({
+      accTitle: null,
+      accDescr: null,
       kind: "state",
       direction: "TB",
       regions: [],
@@ -636,6 +650,8 @@ describe("buildStateModel", () => {
     // `region:1` is, and the colon keeps it out of the `\w+` space every
     // authored id lives in.
     const { model, diagnostics } = buildStateModel({
+      accTitle: null,
+      accDescr: null,
       kind: "state",
       direction: "TB",
       regions: [
@@ -695,6 +711,8 @@ describe("buildStateModel", () => {
     // numbering costs nothing, and closing it would move an unrelated
     // block's ids.
     const { model, diagnostics } = buildStateModel({
+      accTitle: null,
+      accDescr: null,
       kind: "state",
       direction: "TB",
       regions: [
@@ -743,6 +761,8 @@ describe("buildStateModel", () => {
     // pseudo-state is addressable for free: `buildStateModel` has just given
     // it a generated id, and an id is all `resolveTimeline` asks for.
     const { model, diagnostics } = buildStateModel({
+      accTitle: null,
+      accDescr: null,
       kind: "state",
       direction: "TB",
       regions: [],

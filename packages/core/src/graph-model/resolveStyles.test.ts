@@ -24,6 +24,28 @@ function styleDecl(
 }
 
 describe("resolveStyles", () => {
+  it("returns only targets it was handed as valid, whatever the declarations name — the promise callers write through", () => {
+    // `buildFlowchartModel` assigns each result to `nodeById.get(targetId)!`;
+    // one unknown id here is a TypeError out of `render()`, not a diagnostic
+    // (01M37GQS1). Every statement shape names unknown ids below, first,
+    // last and alone.
+    const valid = new Set(["A", "B"]);
+    const resolved = resolveStyles(
+      [
+        styleDecl({ styleKind: "classDef", name: "hot", properties: [{ property: "fill", value: "#f00" }] }),
+        styleDecl({ styleKind: "style", targetIds: ["Ghost"], properties: [{ property: "fill", value: "#0f0" }] }),
+        styleDecl({ styleKind: "style", targetIds: ["A"], properties: [{ property: "fill", value: "#0f0" }] }),
+        styleDecl({ styleKind: "apply", authoredAs: "class", targetIds: ["X", "B", "Y"], name: "hot" }),
+        styleDecl({ styleKind: "apply", authoredAs: "class", targetIds: ["Z"], name: "hot" }),
+      ],
+      valid,
+      [],
+    );
+
+    expect(resolved.map((r) => r.targetId).sort()).toEqual(["A", "B"]);
+    for (const { targetId } of resolved) expect(valid.has(targetId)).toBe(true);
+  });
+
   /**
    * Characterization, written before the "unknown target" rule changed and
    * expected to pass unchanged after it.
@@ -241,7 +263,7 @@ describe("resolveStyles", () => {
       expect(styles).toEqual([]);
       expect(diagnostics).toEqual([
         {
-          severity: "error",
+          severity: "warning",
           message:
             'cssClass applies "emphsis", which no classDef defines; dropping the declaration.',
           line: 6,
@@ -332,6 +354,44 @@ describe("resolveStyles", () => {
         },
       ]);
       expect(diagnostics).toEqual([]);
+    });
+
+    it("lets a `style` beat an applied class whichever is written first", () => {
+      // 01M39F9N1. Measured on mermaid 12.2.0, in flowchart, ER, class and
+      // state diagrams alike, with `:::` as well as `class`: `style A
+      // fill:#0ff` written *before* `class A alpha` still wins —
+      // `fill:#0ff !important;stroke:#00f !important`. Source order decides
+      // only within a layer (two `style`s, or two classes), never between
+      // them. Siren used to apply the later of the two, so this source drew
+      // `fill:#f00` with no diagnostic.
+      const alpha = styleDecl({
+        styleKind: "classDef",
+        name: "alpha",
+        properties: [
+          { property: "fill", value: "#f00" },
+          { property: "stroke", value: "#00f" },
+        ],
+      });
+      const style = styleDecl({ styleKind: "style", targetIds: ["A"], properties: [{ property: "fill", value: "#0ff" }] });
+      const apply = styleDecl({ styleKind: "apply", authoredAs: "class", targetIds: ["A"], name: "alpha" });
+
+      for (const order of [
+        [alpha, style, apply],
+        [alpha, apply, style],
+      ]) {
+        expect(resolveStyles(order, new Set(["A"]), [])).toEqual([
+          {
+            targetId: "A",
+            style: {
+              frame: [
+                { property: "fill", value: "#0ff" },
+                { property: "stroke", value: "#00f" },
+              ],
+              text: [],
+            },
+          },
+        ]);
+      }
     });
   });
 

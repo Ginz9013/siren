@@ -4,3 +4,5 @@
 {"id":"01M2FPZ5RGJAPDQ4KH8W7959RF","t":4,"a":"83a1","op":"label.add","v":"polish"}
 {"id":"01M2NPXJGSTCCQJHEXQDEKMA9R","t":5,"a":"83a1","op":"comment","body":"重新盤點 backlog 出發點（2026-09-17）：spec non-goals 標的純 UX 打磨項目，不影響功能正確性。維持 backlog，等其他功能性缺口清完再排。"}
 {"id":"01M4GAKAB14Z851XCTKJ7P6QTJ","t":6,"a":"83a1","op":"comment","body":"`.scratch/siren-board-viewport-slice/` 已遷移到 nook：`01M4GAJWC3BD8QCXW74D5ZV5DM`"}
+{"id":"01M4WRP3E0G3CRQG83XMWQHCW4","t":7,"a":"83a1","op":"comment","body":"## 取消（2026-10-14，使用者決定）\n\n清 backlog 時決定：這張票是 spec non-goals 留下的，標著「等有真實 consumer 需求再做」，到今天仍然沒有已知的 consumer 在等。與其先做出一套沒人用、之後要長期維護的公開行為，不如取消，等有實際需求時用 `nook issue set <ref> status backlog` 重開——票上的分析與待決問題都保留在這裡。"}
+{"id":"01M4WRP3MRWZ71S8HTBQ258MHC","t":8,"a":"83a1","op":"set","k":"status","v":"cancelled"}

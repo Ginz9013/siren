@@ -8,6 +8,83 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- Sequence diagrams accept the colon spelling of the title, `title: text`, in any case, as Mermaid
+  12.2.0 does. A later colon stays in the title. `title:text` with no space is still rejected,
+  because Mermaid rejects it too (nook `01M3NM3BT`).
+- ER diagrams read `accTitle:` and `accDescr:` in any case and with whitespace before the colon
+  (`ACCDESCR: hi`, `accTitle : hi`), as Mermaid 12.2.0 does (nook `01M4WAFD4`).
+- Sequence diagrams read `accDescr: text` and the braced `accDescr { ... }` block, in any case,
+  and draw the description as the SVG's `<desc>` with `aria-describedby` on the root, as Mermaid
+  12.2.0 does. A block's lines lose their leading whitespace, an empty block is no description, and
+  a block that never closes is refused. `accTitle : text`, with a space before the colon, is read
+  too (nook `01M3NNNE1`).
+- State diagrams read `style X decls` and paint the declarations onto the state, as Mermaid 12.2.0
+  does; a comma list in the target position styles each state (nook `01M36C24S`). It used to
+  refuse the whole document. Two places draw what the line says where Mermaid does not: `style A, B`
+  with a space after the comma styles both (Mermaid paints `B decls` onto A), and a composite's
+  frame is painted (Mermaid paints it for `class` but not for `style`).
+- State diagrams read several statements on one line, as Mermaid 12.2.0 does: a bare id ends its
+  statement at the whitespace after it. `Foo Bar` declares two states, `direction sideways` two
+  states called `direction` and `sideways`, and `Foo Bar --> Done` Foo and the transition Bar → Done
+  (nook `01M369AQW`). Such a document used to be refused outright.
+- A state diagram's `class` statement reads its class name as the whole rest of the line, as
+  Mermaid 12.2.0 does: `class Busy a,b` applies a class called `a,b` (which no `classDef` defines,
+  so it warns and paints nothing), and `class Busy` with no name is accepted with a warning. Both
+  documents used to be refused (nook `01M37GQRM`).
+- State-diagram notes: `note … of [*]` hangs on the level's start pseudo-state, as Mermaid 12.2.0
+  draws it (a level with no start is refused, since Mermaid cannot draw it either); the multi-line
+  `note … end note` is read as one row per non-blank line; and a note's side is read in any case,
+  `note LEFT OF X` drawn on the left as the line says, where Mermaid draws it on the right
+  (nook `01M36DWFN`). All three used to be refused.
+- State diagrams read every statement keyword in any case, as Mermaid 12.2.0 does: `CLASSDEF`,
+  `CLASS`, `STYLE`, `DIRECTION` and its value (`Direction Rl`), `STATE C {` and `STATE "x" AS y`
+  (nook `01M4WAFCY`). They used to be refused.
+- A state diagram reads `[*]` on a line of its own as its level's start pseudo-state, as Mermaid
+  12.2.0 draws it; a later `[*] --> A` leaves from the same disc (nook `01M4WSRMX`).
+- Flowchart node ids may hold `-` wherever Mermaid's lexer allows it — anywhere the next
+  character is not `>`, `-` or `.` — so `a-b --> c`, `a-b-->c-d`, `-a` and `a-` read as Mermaid
+  12.2.0 reads them (nook `01M2SVAFT`). They used to be refused.
+- Flowcharts and ER diagrams read the braced `accDescr { ... }` block, as sequence diagrams do, and
+  flowcharts read `accTitle : text` and `accDescr : text` with a space before the colon (nook
+  `01M4WS1P6`). ER used to refuse the block by name; a flowchart refused it.
+
+### Changed
+
+- A `style` on a node, state or entity now beats a class applied to it whichever line comes first,
+  as Mermaid 12.2.0 paints it in flowchart, class, state and ER diagrams. Before, the later line
+  won, so `style A fill:#0ff` written above `class A alpha` drew the class's fill (nook `01M39F9N1`,
+  ADR-0008 amended).
+- Applying a class name no `classDef` defines (`A:::ghost`, `class A ghost`, `cssClass "A" ghost`)
+  is a **warning** now, not an error, in flowchart, class, state and ER diagrams: the diagram is
+  drawn with the target unstyled, as Mermaid 12.2.0 draws it, instead of not at all. A target that
+  does not exist is still dropped in silence (nook `01M39FAVK`).
+
+### Fixed
+
+- State and class diagrams read `accTitle:` and `accDescr:` (and the braced block) as the diagram's
+  accessible title and description, drawn as the SVG's `<title>` and `<desc>`. Siren used to draw a
+  state or a class called `accTitle` and another called `accDescr` for them, with no diagnostic
+  (nook `01M4WVVN9`). State diagrams read the keywords in any case; class diagrams in lower case
+  only, as Mermaid 12.2.0 does.
+- `x.o-->y` in a flowchart is the node `x.o` and a plain arrow, as Mermaid reads it. It was read as
+  the node `x.` with a circle-headed arrow, with no diagnostic.
+- A flowchart's `classDef default` now styles every node, under any other class or `style`, as
+  Mermaid 12.2.0 paints it. It used to be recorded and applied to nothing, with no diagnostic (nook
+  `01M39F94W`).
+- State diagrams refuse all ten words Mermaid 12.2.0 reserves, adding `href`, `default` and
+  `stateDiagram`, and refuse them as a description's subject too (`note : hi`, `style : hi`), where
+  Siren used to draw a box called `note` or `style` with no diagnostic. `state : hi` declares
+  nothing, as Mermaid reads it (nook `01M2ZQQQ6`).
+- A sequence `link` may name a participant nothing declares. It used to fail with `click "B"
+  references a target that does not exist` when only a message created B; now the link is a
+  mention like any other, creating the lane where it is written, as Mermaid 12.2.0 does
+  (nook `01M3NNNE6`).
+- An ER `ACCDESCR {` block in capitals is refused by name, as the lower-case block is. It used to be
+  read as an entity called `ACCDESCR`, so a body like `string x` drew an extra box with no
+  diagnostic.
+
 ## [0.6.0] - 2026-10-14
 
 **Every graph-shaped diagram is now laid out by ELK, as Mermaid 12 lays it out, and dagre is

@@ -22,6 +22,7 @@ import type {
 import { plainLabel } from "../label/label";
 import { labelDiagnostics, readLabel, type ReadLabelResult } from "../label/readLabel";
 import { parseStyleProperties } from "./parseDeclarationList";
+import { readAccDescrBlock } from "./readAccDescrBlock";
 import { listAcceptedHeaders, matchClassDirection, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 
@@ -50,6 +51,15 @@ const FLOWCHART_HEADER_SPELLINGS = listAcceptedHeaders(["flowchart"]);
  * node with a stray quote in its label, and it is also what keeps the two
  * alternatives from overlapping, so this pattern cannot backtrack
  * exponentially over a line full of quotes.
+ *
+ * An unquoted `(` or `)` is a label character here, and that is a known,
+ * deliberate divergence in Siren's permissive direction: Mermaid 12.2.0
+ * reads `P[a (b)]` as a parse error ("got 'PS'") and only accepts the
+ * quoted `P["a (b)"]`. Siren draws both as the rect labelled `a (b)`.
+ * Accepting more than Mermaid breaks no Mermaid document, and refusing it
+ * would take the picture away from documents that draw today (nook
+ * 01M4R3RVV). It is not a corpus row, because a corpus source must be valid
+ * Mermaid; `parseSiren.test.ts` pins it instead.
  *
  * Written once and shared by both readers below, so that a label means the
  * same thing on a line of its own as it does at an edge endpoint.
@@ -118,12 +128,21 @@ const PAREN_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^()\[\]{}"])*`;
  * that run whole. This pattern is what accepts it: one or more word
  * characters, then any number of "a run of dots, optionally closed by one
  * dash, then more word characters" segments — the exact shape a guarded
- * dotted body has, and no wider. `-` is not a general id character here:
- * `a-b` is a separate gap this ticket does not claim, and the dash this
- * pattern admits is only ever the one immediately after a dot, measured
- * where `a.-b` puts it.
+ * dotted body has.
+ *
+ * **And `-`, wherever it cannot begin an arrow** (01M2SVAFT). Mermaid's own
+ * id rule takes a dash unless the next character is `>`, `-` or `.` — the
+ * three an arrow's body starts with — and that is the whole of it, measured
+ * on mermaid 12.2.0: `a-b --> c` and `a-b-->c` are both the node `a-b` and an
+ * edge, `a-b-c` is one node, `-a` and `a-` (before a space) are nodes,
+ * `a-b---c`, `a-b==>c` and `a-b-.->c` end the id at the arrow, and `a--b`,
+ * `a-.b` and `a - b` are parse errors. So a dash may open the id before a
+ * word character, and may follow any run of it on the same lookahead — or
+ * end it, since an endpoint arrives here trimmed and `a-`, `b --> a-` and
+ * `a-:::x` all name `a-` (measured).
  */
-const ID_RUN = String.raw`\w+(?:\.+-?\w*)*`;
+const ID_DASH = String.raw`-(?=[^>\-.]|$)`;
+const ID_RUN = String.raw`(?:-(?=\w))?\w+(?:\.+-?\w*|${ID_DASH}\w*)*`;
 
 /**
  * Every bracket spelling of a node, paired with the shape it names — the
@@ -404,7 +423,12 @@ const EDGE_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^|"])+`;
 const PIPE_LABEL = String.raw`(?:\s*\|(${EDGE_LABEL_CONTENT})\|)?`;
 
 /** What may decorate an arrow's from-end, and what may decorate its to-end. */
-const FROM_MARKER = String.raw`<|(?<!\w)[ox]`;
+// An `o` or `x` right after an id character is the id's, not a marker:
+// `a-o-->b` and `a.o-->b` are the nodes `a-o` and `a.o` with plain arrows in
+// mermaid 12.2.0 (measured, 01M2SVAFT), since both `-` and `.` are in its id
+// alphabet. Only `\w` was guarded before, which read `a.o-->b` as `a.` and
+// a circle-headed arrow, silently.
+const FROM_MARKER = String.raw`<|(?<![\w.-])[ox]`;
 const TO_MARKER = String.raw`[>ox]`;
 
 /**
@@ -457,7 +481,7 @@ const DOTTED_BODY = String.raw`-?\.+-`;
  * closer too refused both, and refused them for the dotted stroke alone,
  * which is a rule no author could predict.
  */
-const RUN_OPENING_DOTTED_BODY = String.raw`(?:-|(?<=(?<!\w)[ox])|(?<!\w))\.+-`;
+const RUN_OPENING_DOTTED_BODY = String.raw`(?:-|(?<=(?<![\w.-])[ox])|(?<!\w))\.+-`;
 
 /**
  * An arrow written as one run: a marker, a body, a marker.
@@ -1281,11 +1305,28 @@ const CLICK_HREF_BARE_RE = new RegExp(
   String.raw`^click\s+(${ID_RUN})\s+"([^"]*)"(?:\s+"([^"]*)")?(?:\s+(${LINK_TARGETS.join("|")}))?$`,
 );
 
-/** `accTitle: text` — screen-reader-only. Spelled exactly as the sequence parser's `ACC_TITLE_RE`. The colon is required. */
-const ACC_TITLE_RE = /^accTitle:\s*(.+)$/;
+/**
+ * `accTitle: text` — screen-reader-only. The colon is required, and may
+ * have whitespace before it: `accTitle : hi` is "hi" (measured, 12.2.0).
+ *
+ * **Lower case only, unlike the sequence and ER spellings.** Measured on
+ * 12.2.0, a flowchart's `ACCTITLE: x`, `ACCDESCR: x` and `ACCDESCR {` are
+ * parse errors: its lexer's acc rules are not `/i`. So these three patterns
+ * are not either.
+ */
+const ACC_TITLE_RE = /^accTitle\s*:\s*(.+)$/;
 
-/** `accDescr: text` — screen-reader-only, the description counterpart of `accTitle`. The colon is required. */
-const ACC_DESCR_RE = /^accDescr:\s*(.+)$/;
+/** `accDescr: text` — screen-reader-only, the description counterpart of `accTitle`, read the same way. */
+const ACC_DESCR_RE = /^accDescr\s*:\s*(.+)$/;
+
+/**
+ * The opening of the braced `accDescr { ... }` block, which runs to the first
+ * `}` on this line or a later one and is read by the shared
+ * `readAccDescrBlock` (01M4WS1P6). Matched against a whole line, before it
+ * is split into statements, because the block is the one statement that
+ * spans lines.
+ */
+const ACC_DESCR_BLOCK_RE = /^\s*accDescr\s*\{/;
 
 /**
  * Strips one layer of surrounding quotes from a `call fn("arg")` argument,
@@ -1753,6 +1794,31 @@ export function parseFlowchart(source: string): ParseResult {
   readLines: for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
     const lineNumber = i + 1;
+
+    // The braced accDescr, read across lines before the line is split into
+    // statements. What follows its `}` goes back into `lines` at the `}`
+    // line, blanked to its column, to be read as that line's statements.
+    if (mode === "flowchart" && ACC_DESCR_BLOCK_RE.test(rawLine)) {
+      const block = readAccDescrBlock(lines, i, rawLine.indexOf("{"));
+      if (!block.closed) {
+        diagnostics.push({
+          severity: "error",
+          message: "Unclosed `accDescr { ... }` block: no `}` ends the description it opens",
+          line: lineNumber,
+          column: rawLine.length - rawLine.trimStart().length + 1,
+        });
+        sawError = true;
+        break readLines;
+      }
+      accDescr = block.description;
+      if (block.rest === null) {
+        i = block.closeIndex;
+      } else {
+        lines[block.closeIndex] = block.rest;
+        i = block.closeIndex - 1;
+      }
+      continue;
+    }
 
     for (const piece of splitStatements(rawLine)) {
       const line = piece.text;

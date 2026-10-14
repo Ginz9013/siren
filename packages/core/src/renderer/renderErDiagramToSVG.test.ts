@@ -293,6 +293,41 @@ describe("renderErDiagramToSVG — labels of more than one row", () => {
     expect(text?.getAttribute("style")).toBe("fill:#fff");
   });
 
+  it("draws a name that spans lines one row tspan per line, at the anchor layout gave it and wearing the entity's text style", () => {
+    // A backticked name across two lines, `a\n    b` in the record, which
+    // Mermaid 12.2.0 draws as the two row tspans `a` and `b` (`--markup`).
+    // The anchor is (81, 100), so its 48px of rows run 76..124 and sit on
+    // 88 and 112 — and no row carries the source's indentation.
+    const name = {
+      column: "name" as const,
+      text: "a\nb",
+      x: 77,
+      y: 100,
+      label: rowsLabel("a", "b"),
+      labelBox: boxOf("a", "b"),
+      anchor: { x: 81, y: 100 },
+    };
+    const [type, , keys] = WITH_ATTRIBUTES.attributeTable.rows[0].cells;
+    const svg = renderErDiagramToSVG(
+      diagram([
+        {
+          ...WITH_ATTRIBUTES,
+          style: { frame: [], text: [{ property: "fill", value: "#fff" }] },
+          attributeTable: { ...WITH_ATTRIBUTES.attributeTable, rows: [{ cells: [type, name, keys] }] },
+        },
+      ]),
+    );
+
+    const text = svg.querySelector("text.siren-er-attribute-name");
+    expect(text?.getAttribute("class")).toBe("siren-er-attribute siren-er-attribute-name");
+    expect(rowsOf(text)).toEqual(["a", "b"]);
+    expect(rowYsOf(text)).toEqual([88, 112]);
+    expect(
+      Array.from(text?.querySelectorAll("tspan.siren-label-row") ?? []).map((row) => row.getAttribute("x")),
+    ).toEqual(["81", "81"]);
+    expect(text?.getAttribute("style")).toBe("fill:#fff");
+  });
+
   it("draws a subgraph's two-row title one row tspan per row, centred on its anchor", () => {
     // `subgraph s1["sales<br/>team"]` (ADR-0015). The anchor is at y 42, so
     // the title's 48px of rows run 18..66 and the two rows sit on 30 and 54.
@@ -909,6 +944,46 @@ describe("renderErDiagramToSVG draws subgraph clusters", () => {
     expect(title?.hasAttribute("data-siren-id")).toBe(false);
   });
 
+  it("writes a cluster's author style onto its frame and its title, and nothing onto an unstyled one", () => {
+    // Measured (mermaid 12.2.0, headless Chrome): `style s1
+    // fill:#f96,color:#0a0` below the block puts `fill:#f96` on the
+    // cluster's rect and turns its title `rgb(0, 170, 0)`. The frame half
+    // goes on the rect the theme styles and the text half — the author's
+    // `color`, already spelled `fill` — on the title's `<text>`, ADR-0008's
+    // placement; neither on the group, where the theme's own rule would win.
+    const svg = renderErDiagramToSVG(
+      diagram(
+        [CUSTOMER],
+        { width: 400, height: 200 },
+        [],
+        [
+          {
+            ...FRAME,
+            style: {
+              frame: [
+                { property: "fill", value: "#f96" },
+                { property: "stroke", value: "#00f" },
+              ],
+              text: [{ property: "fill", value: "#0a0" }],
+            },
+          },
+          { ...FRAME, id: "subgraph:2", style: { frame: [], text: [] } },
+        ],
+      ),
+    );
+
+    const [styled, plain] = Array.from(svg.querySelectorAll("g.siren-er-subgraph"));
+    expect(styled.querySelector("rect.siren-er-subgraph-frame")?.getAttribute("style")).toBe(
+      "fill:#f96;stroke:#00f",
+    );
+    expect(styled.querySelector("text.siren-er-subgraph-label")?.getAttribute("style")).toBe(
+      "fill:#0a0",
+    );
+    expect(styled.hasAttribute("style")).toBe(false);
+    expect(plain.querySelector("rect.siren-er-subgraph-frame")?.hasAttribute("style")).toBe(false);
+    expect(plain.querySelector("text.siren-er-subgraph-label")?.hasAttribute("style")).toBe(false);
+  });
+
   it("paints a frame behind the boxes it groups", () => {
     // SVG has no z-index, so the order elements are appended in *is* the
     // stacking. A frame drawn after the entity it holds would cover it.
@@ -1049,7 +1124,9 @@ describe("render() keeps every cardinality marker on its relationship's end run"
 
   // The ER subgraph parity fixture's shape (nested blocks, a
   // self-relationship, relationships across block boundaries), a bare
-  // self-relationship, and a stack and a row of every cardinality.
+  // self-relationship, and a stack and a row of every cardinality. The first
+  // label is `first` and not `one`: a bare `one` there is the cardinality
+  // keyword, a parse error in Mermaid (01M3C621W).
   const documents: Record<string, string> = {
     "er-subgraphs": `erDiagram
 AUTHOR {
@@ -1084,7 +1161,7 @@ B ||--|| B : is
 A }|--o| B : x
 `,
     "every cardinality, TB": `erDiagram
-A }o--o{ B : one
+A }o--o{ B : first
 A }|--|{ C : two
 B |o--o| D : three
 C ||--}o D : four
@@ -1092,7 +1169,7 @@ D }o--}| E : five
 `,
     "every cardinality, LR": `erDiagram
 direction LR
-A }o--o{ B : one
+A }o--o{ B : first
 A }|--|{ C : two
 B |o--o| D : three
 C ||--}o D : four

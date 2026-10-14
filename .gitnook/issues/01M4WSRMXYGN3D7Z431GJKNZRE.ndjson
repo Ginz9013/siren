@@ -1,0 +1,6 @@
+{"id":"01M4WSRMXYDWWS0HFXJ1K80CNV","t":1,"a":"83a1","op":"create","title":"state: 單獨一行 `[*]`（Mermaid 收、記成 root_start），Siren 報 Unrecognized"}
+{"id":"01M4WSRMY8HWA770PS28SXACGF","t":2,"a":"83a1","op":"set","k":"description","v":"實作 `01M369AQW` 時量到，範圍外。\n\nMermaid 12.2.0：`stateDiagram-v2` / `[*]` → 狀態表出現 `root_start`（type default），不報錯。`Foo [*]` 也一樣（Foo + root_start）。\n\nSiren：`Unrecognized stateDiagram line: \"[*]\"`，整份拒絕。方向是誠實拒絕，不是靜默錯圖。\n\n## 動工前要量\n\n- `--markup`：Mermaid 有沒有真的畫出那個起始圓點（記在狀態表不等於畫出來，見 `01M37GQRM` 的教訓）。\n- 在複合狀態內寫 `[*]` 單獨一行。\n- `[*]` 單獨一行後再寫 `[*] --> A`，是不是同一個偽狀態。"}
+{"id":"01M4WSRMY835YJP650XXK247Q1","t":3,"a":"83a1","op":"label.add","v":"compat"}
+{"id":"01M4WSRMY8S6VMMJCTENM17ZB7","t":4,"a":"83a1","op":"label.add","v":"state"}
+{"id":"01M4WVA83DV6VEBSGXJGX8X1RK","t":5,"a":"83a1","op":"comment","body":"## 已實作（branch backlog-quick-wins）\n\n三個待量項目（12.2.0 `--markup`）：\n- 真的有畫起始圓點 ✓（不只是狀態表裡的記錄）。\n- composite 內單獨一行 `[*]`：畫成該 composite 的 start。\n- `[*]` 後再 `[*] --> A`：同一個圓點，不是兩個。\n\n實作：單獨一行 `[*]` → `declarePseudoState(\"start\")`（每層一個）。`Foo [*]` 經由 `01M369AQW` 的拆分也走到這裡。語料庫 `st-lone-pseudo-start`（supported）。"}
+{"id":"01M4WVA8A1DSHC2SZF315PJCKK","t":6,"a":"83a1","op":"set","k":"status","v":"review"}

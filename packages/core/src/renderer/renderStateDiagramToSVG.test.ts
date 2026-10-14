@@ -43,6 +43,8 @@ function paintsBefore(a: Element, b: Element): boolean {
 }
 
 const DIAGRAM: PositionedStateDiagram = {
+  accTitle: null,
+  accDescr: null,
   states: [
     {
       id: "Idle",
@@ -375,6 +377,8 @@ describe("renderStateDiagramToSVG", () => {
  * generated ones the model minted.
  */
 const PSEUDO_DIAGRAM: PositionedStateDiagram = {
+  accTitle: null,
+  accDescr: null,
   states: [
     { id: "start:1", kind: "start", stereotype: null, x: 40, y: 10, width: 14, height: 14, labels: [], style: { frame: [], text: [] }, dividerY: null, note: null },
     {
@@ -415,6 +419,8 @@ const PSEUDO_DIAGRAM: PositionedStateDiagram = {
  * or more descriptions is given.
  */
 const DESCRIBED_DIAGRAM: PositionedStateDiagram = {
+  accTitle: null,
+  accDescr: null,
   states: [
     {
       id: "s",
@@ -592,6 +598,8 @@ describe("renderStateDiagramToSVG, on the start and end pseudo-states", () => {
  * level running `LR`.
  */
 const STEREOTYPE_DIAGRAM: PositionedStateDiagram = {
+  accTitle: null,
+  accDescr: null,
   states: [
     {
       id: "Choice",
@@ -700,6 +708,8 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
     // draws that as its own `siren-*` figure rather than copying Mermaid's
     // two-rect construction; what is owed is the figure.
     const svg = renderStateDiagramToSVG({
+      accTitle: null,
+      accDescr: null,
       states: [
         {
           id: "Outer",
@@ -762,6 +772,8 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
     // The shared core moves a composite's title along its band, off a route
     // crossing it there, and layout reports the title's centre as `x`.
     const svg = renderStateDiagramToSVG({
+      accTitle: null,
+      accDescr: null,
       states: [
         {
           id: "Outer",
@@ -794,6 +806,8 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
     // the same three note parts a box does, in the group wearing the
     // composite's id.
     const svg = renderStateDiagramToSVG({
+      accTitle: null,
+      accDescr: null,
       states: [
         {
           id: "Outer",
@@ -840,6 +854,8 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
     // opinion that has to agree with the controller's forever, by hand. Two
     // such copies were deleted from this codebase once already.
     const svg = renderStateDiagramToSVG({
+      accTitle: null,
+      accDescr: null,
       states: [
         {
           id: "Outer",
@@ -899,6 +915,8 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
     // names the state and not one of its lines, and Mermaid's generated rule
     // is scoped to the whole node.
     const svg = renderStateDiagramToSVG({
+      accTitle: null,
+      accDescr: null,
       states: [
         {
           id: "Busy",
@@ -965,6 +983,8 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
     // So a class applied to a composite reaches its frame, and this is the
     // assertion that Siren's does too.
     const svg = renderStateDiagramToSVG({
+      accTitle: null,
+      accDescr: null,
       states: [
         {
           id: "Outer",
@@ -1008,6 +1028,8 @@ describe("renderStateDiagramToSVG, on a concurrent region", () => {
     // nothing to write on it: the id is generated, so drawing it would put
     // a string the author never wrote on the picture.
     const svg = renderStateDiagramToSVG({
+      accTitle: null,
+      accDescr: null,
       states: [
         {
           id: "Active",

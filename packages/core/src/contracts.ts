@@ -765,6 +765,13 @@ export type SequenceStatement =
   | SequenceBreakStatement
   | SequenceRectStatement;
 
+/** A participant a `links` statement named without adding a link — see `SequenceDocument.linkMentions`. */
+export interface SequenceLinkMention {
+  targetId: string;
+  line: number;
+  column: number;
+}
+
 /**
  * The parsed `sequenceDiagram` source: title, flat participants list, box
  * groupings, the recursive statement tree, and an optional timeline block.
@@ -781,22 +788,39 @@ export interface SequenceDocument {
    * canvas and reaches no accessibility tree entry of its own.
    */
   accTitle: string | null;
+  /**
+   * The diagram's screen-reader-only description — Mermaid's `accDescr:`
+   * statement or its braced `accDescr { ... }` block. Reaches only the
+   * rendered SVG's `<desc>` element. `null` when the document writes none,
+   * or only an empty block, which Mermaid writes no `<desc>` for.
+   */
+  accDescr: string | null;
   participants: SequenceParticipantDecl[];
   boxes: SequenceBox[];
   statements: SequenceStatement[];
   /**
-   * `link A: Label @ url` statements, as written. Reuses the kind-agnostic
+   * `link A: Label @ url` statements, and one entry per link of a `links A:
+   * {"Label": "url"}` statement, as written. Reuses the kind-agnostic
    * `Interaction` shape class/flowchart already share (`interactionKind:
    * "href"`) rather than a sequence-only type: Mermaid's own class diagram
    * grammar already treats `link`/`callback` as older spellings of `click
    * ... href`/`click ... call` that "produce the same Interaction shapes... a
    * spelling, not a separate concept" (see `parseClassDiagram.ts`), and
    * sequence's `link` is the same idea under a third spelling. `Label` maps
-   * onto `Interaction.tooltip` — Mermaid's own popup-menu behavior for
-   * `link` is not something a static SVG renderer reproduces, so nothing
-   * else about it needs its own field.
+   * onto `Interaction.tooltip`. A participant left with one link after
+   * merging is that link; two or more become its menu
+   * (`PositionedParticipant.linkMenu`).
    */
   interactions: Interaction[];
+  /**
+   * The participants named by a `links A: ...` statement that added no
+   * link to `interactions` (its text was not a JSON object, or an empty
+   * one), in document order. Mermaid 12.2.0 still creates and places the
+   * lane such a statement names, exactly where a `link` would, so the model
+   * needs the mention even though there is nothing to attach. Absent reads
+   * as none — a document built by hand need not carry it.
+   */
+  linkMentions?: SequenceLinkMention[];
   /**
    * The `timeline:` block as written, or `null` when the document declares
    * none at all (as opposed to declaring an empty one) — the same
@@ -914,6 +938,8 @@ export interface SequenceModel {
   title: string | null;
   /** Carried through unchanged from `SequenceDocument.accTitle` — no resolution needed for plain text with no target to validate against. */
   accTitle: string | null;
+  /** Carried through unchanged from `SequenceDocument.accDescr`, as `accTitle` is. */
+  accDescr: string | null;
   /**
    * Every lane, declared or created by a mention, in first-mention order —
    * the left-to-right order the layout draws them in (ADR-0013).
@@ -957,8 +983,48 @@ export interface PositionedParticipant {
   bottom: number;
   width: number;
   height: number;
-  /** The link this participant's box(es) wrap, or `null` — mirrors `PositionedClass.interaction`. */
+  /**
+   * The link this participant's box(es) wrap, or `null` — mirrors
+   * `PositionedClass.interaction`. Set only when the participant has exactly
+   * one link once its `link`/`links` statements are merged; two or more go
+   * to `linkMenu` instead, and this is `null`.
+   */
   interaction: ResolvedInteraction | null;
+  /**
+   * The menu of a participant with two or more links, or `null`. Absent
+   * reads as none.
+   */
+  linkMenu?: PositionedSequenceLinkMenu | null;
+}
+
+/**
+ * The links of a participant that has more than one — Mermaid's "click the
+ * participant for a menu of links" (decision on 01M3NM3BZ).
+ */
+export interface PositionedSequenceLinkMenu {
+  /**
+   * Every link, merged the way Mermaid 12.2.0 merges `links`/`link`
+   * statements: in document order, a later link with an earlier one's label
+   * replacing that one's url in its place. Each link's label is its `tooltip`.
+   */
+  links: ResolvedInteraction[];
+  /**
+   * The menu's left edge. It opens toward the diagram's interior so it is
+   * never cut off: a lane left of the diagram's middle hangs it from its
+   * box's left edge, growing rightward; any other lane from its box's right
+   * edge, growing leftward.
+   */
+  x: number;
+  /** At least the participant's own width, and wide enough for every label. */
+  width: number;
+  /**
+   * The height of one link's row. The rows hang below the top box,
+   * starting at its bottom edge, and above the bottom-row box, ending at
+   * its top edge — toward the diagram's interior in both cases. The layout
+   * keeps the lifeline long enough for the rows to fit between the two
+   * boxes, so neither menu leaves the canvas.
+   */
+  rowHeight: number;
 }
 
 /** A message with layout-assigned y-coordinate and endpoint x-coordinates. */
@@ -1098,6 +1164,8 @@ export interface PositionedSequenceDiagram {
   title: string | null;
   /** Carried through unchanged; drawn as the SVG's `<title>` element, never on the canvas. */
   accTitle: string | null;
+  /** Carried through unchanged; drawn as the SVG's `<desc>` element, never on the canvas. */
+  accDescr: string | null;
   participants: PositionedParticipant[];
   boxes: PositionedBox[];
   /** Messages, blocks, and destroy marks, in document order. */
@@ -1876,6 +1944,18 @@ export interface StyleDecl {
  */
 export interface ClassDocument {
   kind: "class";
+  /**
+   * The diagram's screen-reader-only title — Mermaid's `accTitle:` statement.
+   * Draws nothing on the canvas; reaches only the rendered SVG's `<title>`
+   * (01M4WVVN9: Siren used to draw a class called `accTitle` for it).
+   */
+  accTitle: string | null;
+  /**
+   * The screen-reader-only description — `accDescr:` or the braced
+   * `accDescr { ... }` block. Reaches only the rendered SVG's `<desc>`.
+   * `null` when the document writes none, or only an empty block.
+   */
+  accDescr: string | null;
   direction: Direction;
   classes: ClassDecl[];
   relationships: ClassRelationship[];
@@ -2003,6 +2083,10 @@ export interface ResolvedStyle {
  * interactions and styles, and the resolved timeline.
  */
 export interface ClassModel {
+  /** Carried through unchanged from `ClassDocument.accTitle`. */
+  accTitle: string | null;
+  /** Carried through unchanged from `ClassDocument.accDescr`. */
+  accDescr: string | null;
   direction: Direction;
   classes: ResolvedClass[];
   relationships: ResolvedClassRelationship[];
@@ -2162,6 +2246,10 @@ export interface PositionedClassNote {
  * `render()` takes it from the model.
  */
 export interface PositionedClassDiagram {
+  /** Carried through unchanged from `ClassModel.accTitle`; becomes the root's `<title>`. */
+  accTitle: string | null;
+  /** Carried through unchanged from `ClassModel.accDescr`; becomes the root's `<desc>`. */
+  accDescr: string | null;
   direction: Direction;
   classes: PositionedClass[];
   relationships: PositionedClassRelationship[];
@@ -2560,6 +2648,18 @@ export interface StateRegion {
 export interface StateDocument {
   kind: "state";
   /**
+   * The diagram's screen-reader-only title — Mermaid's `accTitle:` statement.
+   * Draws nothing on the canvas; reaches only the rendered SVG's `<title>`
+   * (01M4WVVN9: Siren used to draw a state called `accTitle` for it).
+   */
+  accTitle: string | null;
+  /**
+   * The screen-reader-only description — `accDescr:` or the braced
+   * `accDescr { ... }` block. Reaches only the rendered SVG's `<desc>`.
+   * `null` when the document writes none, or only an empty block.
+   */
+  accDescr: string | null;
+  /**
    * The whole diagram's rank direction: the `direction LR` (or `TB`/`BT`/
    * `RL`) the author wrote at the document's own level, outside every
    * composite, and `TB` when they wrote none.
@@ -2740,6 +2840,10 @@ export interface ResolvedStateTransition {
  * states, identified transitions, and the resolved timeline.
  */
 export interface StateModel {
+  /** Carried through unchanged from `StateDocument.accTitle`. */
+  accTitle: string | null;
+  /** Carried through unchanged from `StateDocument.accDescr`. */
+  accDescr: string | null;
   /**
    * The whole diagram's rank direction, carried through from
    * `StateDocument.direction` — authored, already resolved to one of the
@@ -2963,6 +3067,10 @@ export interface PositionedStateTransition {
  * model.
  */
 export interface PositionedStateDiagram {
+  /** Carried through unchanged from `StateModel.accTitle`; becomes the root's `<title>`. */
+  accTitle: string | null;
+  /** Carried through unchanged from `StateModel.accDescr`; becomes the root's `<desc>`. */
+  accDescr: string | null;
   states: PositionedState[];
   transitions: PositionedStateTransition[];
   width: number;
@@ -3072,7 +3180,14 @@ export interface ErAttribute {
    * here: the key rule is read first, so `PK x` is a parse error too.
    */
   type: string;
-  /** The attribute's name, in the same alphabet as `type`. */
+  /**
+   * The attribute's name, in the same alphabet as `type` — or, backticked,
+   * any characters but a backtick. ⚠️ **A line break included**, with the
+   * source's indentation after it, exactly as Mermaid records it: measured
+   * (12.2.0), `` string `a `` over `` b` `` is `name="a\n    b"`. The same
+   * holds for a backticked `type`. What such a cell draws — one row per
+   * line, trimmed — is the layout's (`PositionedErAttributeLinesCell`).
+   */
   name: string;
   /**
    * The key kinds written after the name, in source order and **split on
@@ -3202,6 +3317,30 @@ export interface ErSubgraph {
   subgraphs: ErSubgraph[];
 }
 
+/**
+ * An ER `style`, `classDef`, `class` or `:::` statement: the shared
+ * `StyleDecl`, plus which of its targets named a `subgraph` cluster.
+ *
+ * ⚠️ **In this kind a cluster is a legal style target, and only at the
+ * position the statement was written in.** Measured (mermaid 12.2.0,
+ * headless Chrome): Mermaid's ER `addCssStyles` and `setClass` look up
+ * `subGraphLookup` beside `entities`, and `addSubGraph` fills that map at
+ * the block's closing `end` — so `style s1 fill:#f96` *below* `subgraph s1
+ * ... end` paints the frame, and the same line *above* the block paints
+ * nothing. Two blocks may share a name, and the one reached is the one
+ * closed most recently before the statement (measured:
+ * `subgraph s1 / A / end / style s1 … / subgraph s1 / B / end` paints the
+ * first). Only the parser reads in that order, so only it can answer; it
+ * answers with the block itself, and `buildErModel` turns the block into the
+ * id it generated for it.
+ *
+ * Absent, or without a given target, when that target named no closed block
+ * at the time — the target then reaches an entity of that name or nothing.
+ */
+export interface ErStyleDecl extends StyleDecl {
+  clusterTargets?: ReadonlyMap<string, ErSubgraph>;
+}
+
 export interface ErDocument {
   kind: "er";
   /**
@@ -3246,6 +3385,10 @@ export interface ErDocument {
    * `relationships` alone would leave nothing able to say that `ZZZ` came
    * before `A` and after nothing. De-duplication is still `buildErModel`'s,
    * so a name appears here once per mention.
+   *
+   * **Except a relationship end that named a `subgraph` cluster**: that
+   * mention is the frame's, not an entity's, and is not listed (see
+   * `ErRelationshipDecl.left`).
    */
   entities: ErEntityDecl[];
   /** The relationships declared, in source order. */
@@ -3279,16 +3422,20 @@ export interface ErDocument {
    * author's own keyword kept in `StyleDecl.authoredAs` so a diagnostic
    * quotes the line they wrote.
    *
-   * ⚠️ **Only an entity can be a target, measured from Mermaid's own
-   * database rather than inferred.** `addCssStyles(ids, styles)` and
+   * ⚠️ **An entity or a cluster can be a target, and a relationship
+   * cannot — measured from Mermaid's own database rather than inferred.** `addCssStyles(ids, styles)` and
    * `setClass(ids, classNames)` each look up `this.entities.get(id)` and
    * `this.subGraphLookup.get(id)` and nothing else, so **no relationship
    * can ever be styled** — `style CUSTOMER:ORDER fill:#f96` parses, reaches
    * `addCssStyles`, and paints nothing. That is why `buildErModel` hands
-   * `resolveStyles` the entity ids alone and not the `addressable` list the
+   * `resolveStyles` entity and cluster ids alone and not the `addressable` list the
    * timeline gets.
+   *
+   * A **cluster** is the other target Mermaid's lookup reaches, and which
+   * one a statement reached depends on where it was written — see
+   * `ErStyleDecl.clusterTargets`.
    */
-  styles: StyleDecl[];
+  styles: ErStyleDecl[];
   /**
    * The `timeline:` block as written, or `null` when the document declares
    * none — the same field, with the same two meanings, that
@@ -3386,7 +3533,13 @@ export type ErRelationshipLine = "identifying" | "nonIdentifying";
  * asymmetric pair for that reason.
  */
 export interface ErRelationshipDecl {
-  /** The entity named first on the line. */
+  /**
+   * The entity named first on the line — or a `subgraph` cluster's name:
+   * measured (mermaid 12.2.0), an end naming a cluster joins the cluster's
+   * frame and draws no box, and the parser then lists no entity of that
+   * name (`er-subgraph-entity-name`). `buildErModel` resolves it to the
+   * frame. The same holds for `right`.
+   */
   left: string;
   /** The marker written next to `left` — **not** Mermaid's `cardA`. */
   leftCardinality: ErCardinality;
@@ -3571,9 +3724,15 @@ export interface ResolvedErRelationship {
    * `er-relationship-id-space` is what pins it.
    */
   id: string;
-  /** The entity at the left-hand end, as the source wrote it. */
+  /**
+   * The entity at the left-hand end, as the source wrote it — or, where the
+   * source named a `subgraph` cluster there, that cluster's **generated** id
+   * (`subgraph:1`), so layout routes the line to the frame itself (the
+   * flowchart's `GraphEdge` does the same for `one --> two`). `id` keeps the
+   * author's words either way.
+   */
   from: string;
-  /** The entity at the right-hand end. */
+  /** The entity at the right-hand end, or a cluster's id — see `from`. */
   to: string;
   /** The marker drawn against `from`. */
   fromCardinality: ErCardinality;
@@ -3616,12 +3775,15 @@ export interface ErModel {
    */
   subgraphs: ResolvedErSubgraph[];
   /**
-   * Each styled entity's accepted declarations, already flattened by the
-   * shared `resolveStyles` — one entry per entity that ended up with at
-   * least one, and none for an entity the author styled with nothing.
+   * Each styled entity's and cluster's accepted declarations, already
+   * flattened by the shared `resolveStyles` — one entry per target that
+   * ended up with at least one, and none for a target the author styled
+   * with nothing. A cluster's entry is keyed on its **generated** id
+   * (`subgraph:1`), which `buildErModel` wrote in for the block name the
+   * author typed (see `ErStyleDecl.clusterTargets`).
    *
-   * ⚠️ **Only an entity can be a target, and a relationship deliberately
-   * cannot.** Measured from Mermaid's own database: `addCssStyles` and
+   * ⚠️ **An entity or a cluster can be a target, and a relationship
+   * deliberately cannot.** Measured from Mermaid's own database: `addCssStyles` and
    * `setClass` reach `entities` and `subGraphs` and nothing else, so
    * `style CUSTOMER:ORDER fill:#f96` paints nothing there — and
    * `CUSTOMER:ORDER` is exactly the id this model gives that relationship,
@@ -3780,7 +3942,10 @@ export interface PositionedErAttributeRow {
  * column's left plus half the padding) and is what keeps a column of types
  * reading as a column.
  */
-export type PositionedErAttributeCell = PositionedErAttributeTextCell | PositionedErAttributeCommentCell;
+export type PositionedErAttributeCell =
+  | PositionedErAttributeTextCell
+  | PositionedErAttributeLinesCell
+  | PositionedErAttributeCommentCell;
 
 /** A type, name or keys cell: one line of literal text, never read for tags. */
 export interface PositionedErAttributeTextCell {
@@ -3797,6 +3962,27 @@ export interface PositionedErAttributeTextCell {
   x: number;
   /** Vertical centre of the text, the way `PositionedClass`'s member lines are. */
   y: number;
+}
+
+/**
+ * A type or name cell whose text spans lines — a backticked word may cross a
+ * line break, and Mermaid records the break and the source's indentation in
+ * the word (`a\n    b`). Measured (mermaid 12.2.0, `--markup`), it draws
+ * one row per line with the indentation gone and blank lines dropped, so
+ * this cell is that: a label of plain rows, never read for tags, drawn and
+ * placed exactly as a comment cell is. A text that leaves a single line
+ * once that is done stays a `PositionedErAttributeTextCell`.
+ */
+export interface PositionedErAttributeLinesCell {
+  column: "type" | "name";
+  /** The lines drawn, joined by `\n` — `label.text`. */
+  text: string;
+  x: number;
+  /** Vertical centre of the label, as a text cell's `y` is. */
+  y: number;
+  label: Label;
+  labelBox: LabelBox;
+  anchor: Point;
 }
 
 /**
@@ -3882,6 +4068,21 @@ export interface PositionedErSubgraph {
   y: number;
   width: number;
   height: number;
+  /**
+   * Author declarations for this cluster — `style s1 …` or `class s1 …`
+   * written below its block (see `ErStyleDecl.clusterTargets`): the frame
+   * half onto the frame's `<rect>`, the text half (an author's `color`,
+   * spelled `fill`) onto the title's `<text>`, the one text a cluster draws.
+   * Measured, mermaid 12.2.0: the rect carries `fill:#f96 !important` and
+   * the title's colour follows `color:`; a nested cluster inherits none of
+   * its parent's.
+   *
+   * `layoutErDiagram` always writes it, the empty pair for a cluster
+   * nobody styled — `PositionedErEntity.style`'s rule. Optional only so a
+   * diagram built by hand need not spell the empty pair; absent reads as
+   * none, as `hops` does.
+   */
+  style?: AuthorStyle;
 }
 
 export interface PositionedErDiagram {

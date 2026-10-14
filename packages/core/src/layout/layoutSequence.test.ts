@@ -22,6 +22,7 @@ function coreModel(): SequenceModel {
   return {
     title: null,
     accTitle: null,
+    accDescr: null,
     interactions: [],
     participants: [
       {
@@ -171,6 +172,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         {
@@ -261,6 +263,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         {
@@ -353,6 +356,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         {
@@ -445,6 +449,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         {
@@ -575,6 +580,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         {
@@ -664,6 +670,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [participant("A", "Alice"), participant("B", "Bob"), participant("C", "Carol")],
       boxes: [],
@@ -741,6 +748,7 @@ describe("layoutSequence", () => {
     const withoutBlock: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [participant("A", "Alice"), participant("B", "Bob")],
       boxes: [],
@@ -833,6 +841,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         declaredParticipant("A", "Alice"),
@@ -887,6 +896,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         declaredParticipant("A", "Alice"),
@@ -925,6 +935,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
@@ -960,6 +971,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice")],
       boxes: [],
@@ -985,6 +997,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
@@ -1006,6 +1019,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
@@ -1033,6 +1047,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
@@ -1060,6 +1075,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice")],
       boxes: [],
@@ -1097,6 +1113,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), carol],
       boxes: [],
@@ -1151,6 +1168,7 @@ describe("layoutSequence", () => {
     const withBottomRow: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
@@ -1182,6 +1200,7 @@ describe("layoutSequence", () => {
     const withoutBottomRow: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [{ ...declaredParticipant("A", "Alice"), destroyedAt: 4 }, carol],
       boxes: [],
@@ -1207,6 +1226,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: "Grouped",
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [
         declaredParticipant("A", "Alice"),
@@ -1262,6 +1282,7 @@ describe("layoutSequence", () => {
     const withoutBox: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob"), carol],
       boxes: [],
@@ -1306,6 +1327,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
@@ -1329,6 +1351,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [],
@@ -1367,6 +1390,7 @@ describe("layoutSequence", () => {
     const model: SequenceModel = {
       title: "Grouped",
       accTitle: null,
+      accDescr: null,
       interactions: [],
       participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
       boxes: [
@@ -1692,3 +1716,127 @@ describe("layoutSequence's labels", () => {
   });
 });
 
+
+describe("layoutSequence's participant links (01M3NM3BZ)", () => {
+  /** A resolved `link X: Label @ url`, as the model hands it over. */
+  const link = (targetId: string, label: string, url: string) => ({
+    targetId,
+    interactionKind: "href" as const,
+    action: url,
+    argument: null,
+    tooltip: label,
+    linkTarget: null,
+  });
+
+  function participantsWith(interactions: SequenceModel["interactions"]) {
+    const model: SequenceModel = { ...coreModel(), interactions };
+    return new Map(layoutSequence(model, { measureText: fakeMeasurer }).participants.map((p) => [p.id, p]));
+  }
+
+  it("keeps every link a participant has, in document order, as a menu rather than its box's one link", () => {
+    const participants = participantsWith([
+      link("A", "Home", "https://x.com"),
+      link("A", "Docs", "https://d.com"),
+    ]);
+
+    const alice = participants.get("A")!;
+    expect(alice.interaction).toBeNull();
+    expect(alice.linkMenu?.links.map((l) => [l.tooltip, l.action])).toEqual([
+      ["Home", "https://x.com"],
+      ["Docs", "https://d.com"],
+    ]);
+  });
+
+  it("lets a later link with the same label replace the earlier one's url, keeping its place", () => {
+    // Measured on Mermaid 12.2.0: `links A: {"Home": x, "Docs": d}` then
+    // `link A: Home @ z` gives `{Home: z, Docs: d}`.
+    const participants = participantsWith([
+      link("A", "Home", "https://x.com"),
+      link("A", "Docs", "https://d.com"),
+      link("A", "Home", "https://z.com"),
+    ]);
+
+    expect(participants.get("A")!.linkMenu?.links.map((l) => [l.tooltip, l.action])).toEqual([
+      ["Home", "https://z.com"],
+      ["Docs", "https://d.com"],
+    ]);
+  });
+
+  it("makes a participant left with one link after merging a plain link, with no menu", () => {
+    const participants = participantsWith([
+      link("B", "Home", "https://x.com"),
+      link("B", "Home", "https://z.com"),
+      link("C", "Docs", "https://d.com"),
+    ]);
+
+    expect(participants.get("B")!.interaction?.action).toBe("https://z.com");
+    expect(participants.get("B")!.linkMenu ?? null).toBeNull();
+    expect(participants.get("C")!.interaction?.action).toBe("https://d.com");
+    expect(participants.get("C")!.linkMenu ?? null).toBeNull();
+    expect(participants.get("A")!.interaction).toBeNull();
+    expect(participants.get("A")!.linkMenu ?? null).toBeNull();
+  });
+
+  describe("the menu's place", () => {
+    const longLabel = "The full reference manual";
+    const menuLinks = (id: string) => [link(id, "Home", "https://x.com"), link(id, longLabel, "https://d.com")];
+
+    function laidOut() {
+      const model: SequenceModel = {
+        ...coreModel(),
+        interactions: [...menuLinks("A"), ...menuLinks("C")],
+      };
+      return layoutSequence(model, { measureText: fakeMeasurer });
+    }
+
+    it("is wide enough for its box and every label, one text row per link", () => {
+      const diagram = laidOut();
+      for (const id of ["A", "C"]) {
+        const participant = diagram.participants.find((p) => p.id === id)!;
+        const menu = participant.linkMenu!;
+        expect(menu.width).toBeGreaterThanOrEqual(participant.width);
+        expect(menu.width).toBeGreaterThan(fakeMeasurer.measure(longLabel).width);
+        expect(menu.rowHeight).toBeGreaterThanOrEqual(fakeMeasurer.measure(longLabel).height);
+      }
+    });
+
+    it("opens toward the diagram's interior, so it is never cut off at either side", () => {
+      const diagram = laidOut();
+      const first = diagram.participants.find((p) => p.id === "A")!;
+      const last = diagram.participants.find((p) => p.id === "C")!;
+
+      // The leftmost lane's menu hangs from its box's left edge and grows
+      // rightward; the rightmost lane's from its right edge, growing leftward.
+      expect(first.linkMenu!.x).toBe(first.x - first.width / 2);
+      expect(last.linkMenu!.x + last.linkMenu!.width).toBe(last.x + last.width / 2);
+      for (const menu of [first.linkMenu!, last.linkMenu!]) {
+        expect(menu.x).toBeGreaterThanOrEqual(0);
+        expect(menu.x + menu.width).toBeLessThanOrEqual(diagram.width);
+      }
+    });
+
+    it("keeps every row of both of a lone participant's menus inside the canvas, top to bottom", () => {
+      // `participant A` and four links, nothing else: the bottom-row box's
+      // menu, which ends at that box's top edge, used to climb above y 0.
+      const model: SequenceModel = {
+        ...coreModel(),
+        participants: [coreModel().participants[0]!],
+        statements: [],
+        interactions: ["a", "b", "c", "d"].map((key) => link("A", key, `https://${key}.com`)),
+      };
+      const diagram = layoutSequence(model, { measureText: fakeMeasurer });
+      const alice = diagram.participants[0]!;
+      const menu = alice.linkMenu!;
+      const menuHeight = menu.rowHeight * menu.links.length;
+
+      // Rows as `PositionedSequenceLinkMenu.rowHeight` places them: below the
+      // top box's bottom edge, and above the bottom-row box's top edge.
+      const underTopBox = { top: alice.top + alice.height, bottom: alice.top + alice.height + menuHeight };
+      const overBottomBox = { top: alice.bottom - alice.height - menuHeight, bottom: alice.bottom - alice.height };
+      for (const rows of [underTopBox, overBottomBox]) {
+        expect(rows.top).toBeGreaterThanOrEqual(0);
+        expect(rows.bottom).toBeLessThanOrEqual(diagram.height);
+      }
+    });
+  });
+});
