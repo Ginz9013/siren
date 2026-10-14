@@ -3007,6 +3007,35 @@ line2\`"]`,
     },
   },
   {
+    id: "fc-style-classdef-default",
+    kind: "flowchart",
+    source: `flowchart TB
+      A --> B
+      B --> C
+      classDef default fill:#abc,stroke:#00f
+      classDef urgent fill:#f00
+      class B urgent
+      style C fill:#0f0`,
+    status: "supported",
+    meaning:
+      "`classDef default` styles **every** node without being applied: " +
+      "Mermaid creates each vertex already wearing a class called `default`. " +
+      "Measured on 12.2.0 (`--markup`): A paints `fill:#abc;stroke:#00f`; B, " +
+      "which also wears `urgent`, paints `fill:#f00;stroke:#00f` — `default` " +
+      "is the lowest class, so `urgent` overrides the fill it shares and the " +
+      "stroke survives; a `style` beats it as it beats any class; the line " +
+      "may come after the nodes; and a subgraph's frame is not painted. Siren " +
+      "used to record the definition and apply it to nothing, with no " +
+      "diagnostic (01M39F94W). Flowchart only: re-measured, a class diagram " +
+      "paints nothing for it, a state diagram refuses it, and ER refuses it " +
+      "by name (`er-style-classdef-default`).",
+    assert: (result) => {
+      expectSame("A wears only default", nodeStyle(result, "A"), "fill:#abc;stroke:#00f");
+      expectSame("B's own class overrides default's fill", nodeStyle(result, "B"), "fill:#f00;stroke:#00f");
+      expectSame("a style overrides default", nodeStyle(result, "C"), "fill:#0f0;stroke:#00f");
+    },
+  },
+  {
     id: "fc-style-classdef",
     kind: "flowchart",
     source: `flowchart TB

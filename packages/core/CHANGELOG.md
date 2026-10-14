@@ -47,6 +47,9 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ### Fixed
 
+- A flowchart's `classDef default` now styles every node, under any other class or `style`, as
+  Mermaid 12.2.0 paints it. It used to be recorded and applied to nothing, with no diagnostic (nook
+  `01M39F94W`).
 - State diagrams refuse all ten words Mermaid 12.2.0 reserves, adding `href`, `default` and
   `stateDiagram`, and refuse them as a description's subject too (`note : hi`, `style : hi`), where
   Siren used to draw a box called `note` or `style` with no diagnostic. `state : hi` declares
