@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       gitnook:
-        specifier: ^0.6.0
-        version: 0.6.0
+        specifier: ^0.6.1
+        version: 0.6.1
       rolldown:
         specifier: ^1.2.6
         version: 1.2.6
@@ -1125,8 +1125,8 @@ packages:
     resolution: {integrity: sha512-X6fBC0pmImC70gvX2zm56go9hx0MyoGVdG0tUCkg/D+Xnh5TJsOZ7iDbOdI3PvmtrDxnu1YdDufpK2QJX1Meqw==}
     engines: {node: '>=20.20.0'}
 
-  gitnook@0.6.0:
-    resolution: {integrity: sha512-RDW7z+EnFOIn8849CyW3wNh9dChZtOy7OexQ38p9qxq6Bj6d6jruLyUY8igrndFjgqCsjXww7fDOWx+BZGa2aQ==}
+  gitnook@0.6.1:
+    resolution: {integrity: sha512-cW3jGzl8z/fWblfGbl65kj/KXw6sPfo82bZIV+yiybvNhurjpImWLkSbzwk+N+vTwBvuPOHKqiOLv1k1aYwTvQ==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -2525,7 +2525,7 @@ snapshots:
     dependencies:
       resolve-pkg-maps: 1.0.0
 
-  gitnook@0.6.0: {}
+  gitnook@0.6.1: {}
 
   gopd@1.2.0: {}
 
