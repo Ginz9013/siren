@@ -904,6 +904,26 @@ function edgeStyle(result: SirenRenderResult, id: string): string {
   return svgOf(result).querySelector(`path.siren-edge[data-siren-id="${id}"]`)?.getAttribute("style") ?? "";
 }
 
+/**
+ * The inline author style one class box is painted with, as two halves:
+ * `frame` from its `rect.siren-class-frame` and `name` from its
+ * `text.siren-class-name` — `""` for a half the author styled with nothing.
+ *
+ * `nodeStyle` and `stateStyle`'s answer for this kind, read the same way:
+ * the attribute the browser will paint from, rather than the model upstream
+ * of it. Two halves because the author's `color` lands on the label and not
+ * on the frame, so a reader of the rectangle alone could not tell "the
+ * label was recoloured" from "the `color` was dropped".
+ */
+function classStyle(result: SirenRenderResult, id: string): { frame: string; name: string } {
+  const g = svgOf(result).querySelector(`g.siren-class[data-siren-id="${id}"]`);
+  if (g === null) throw new Error(`no class "${id}" was drawn`);
+  return {
+    frame: g.querySelector("rect.siren-class-frame")?.getAttribute("style") ?? "",
+    name: g.querySelector("text.siren-class-name")?.getAttribute("style") ?? "",
+  };
+}
+
 /** Every class-diagram class as `id`, in draw order. */
 function classes(result: SirenRenderResult): string[] {
   return elements(result, "g.siren-class").map(idOf);
@@ -4110,6 +4130,126 @@ line2\`"]`,
     assert: (result) => {
       const name = svgOf(result).querySelector('g.siren-class[data-siren-id="B"] text.siren-class-name');
       expectSame("B's runs", labelRuns(name, "style"), ["t[style=fill: red]"]);
+    },
+  },
+  {
+    id: "cls-style-statement",
+    kind: "class",
+    source: `classDiagram
+      class Order
+      class Other
+      style Order fill:#f96,stroke:#00f,color:#0a0`,
+    status: "supported",
+    meaning:
+      "`style X decls` writes declarations straight onto one class box. " +
+      "Measured in headless Chrome (mermaid 12.2.0, computed style): Order's " +
+      "frame paints `fill:rgb(255, 153, 102)` and `stroke:rgb(0, 0, 255)`, " +
+      "its label `color:rgb(0, 170, 0)` — the `color` reaches the text — and " +
+      "Other keeps the palette (`fill:rgb(240, 253, 250)`). jsdom's markup " +
+      "shows no `fill` anywhere for it, which is why 01M4WT4KY measured in a " +
+      "real browser.",
+    assert: (result) => {
+      expectSame("Order's paint", classStyle(result, "Order"), {
+        frame: "fill:#f96;stroke:#00f",
+        name: "fill:#0a0",
+      });
+      expectSame("Other is unstyled", classStyle(result, "Other"), { frame: "", name: "" });
+    },
+  },
+  {
+    id: "cls-style-cssclass",
+    kind: "class",
+    source: `classDiagram
+      class Early
+      class Late
+      class Plain
+      cssClass "Early" urgent
+      classDef urgent fill:#f96,stroke:#00f,color:#0a0
+      cssClass "Late" urgent`,
+    status: "supported",
+    meaning:
+      "`cssClass \"X\" c` applies the `classDef c` declarations to a class " +
+      "box, and Siren paints them **whichever side of the `classDef` line " +
+      "the `cssClass` is written on**. Mermaid 12.2.0 does not: measured in " +
+      "headless Chrome (computed style, this source), Early — applied before " +
+      "the `classDef` — paints `fill:rgb(255, 153, 102)`, " +
+      "`stroke:rgb(0, 0, 255)` and a label `color:rgb(0, 170, 0)`, while " +
+      "Late — applied after it — wears the class " +
+      "(`class=\"node default urgent\"`) and paints nothing of it: palette " +
+      "`fill:rgb(240, 253, 250)`, `stroke:rgb(45, 212, 191)`, label " +
+      "`rgb(40, 37, 61)`. A `classDef` names its declarations for every box " +
+      "wearing the class and says nothing about line order, so this is " +
+      "CONTEXT.md's third rule: Mermaid's picture contradicts the document, " +
+      "and Siren draws what the document says (01M4WT4KY). The target must " +
+      "be quoted: `cssClass Order urgent` is a Mermaid parse error " +
+      "(`Expecting 'STR', got 'ALPHA'`).",
+    assert: (result) => {
+      const urgent = { frame: "fill:#f96;stroke:#00f", name: "fill:#0a0" };
+      expectSame("applied before the classDef", classStyle(result, "Early"), urgent);
+      expectSame("applied after the classDef", classStyle(result, "Late"), urgent);
+      expectSame("the class no cssClass named", classStyle(result, "Plain"), { frame: "", name: "" });
+    },
+  },
+  {
+    id: "cls-style-shorthand",
+    kind: "class",
+    source: `classDiagram
+      class Early:::urgent
+      classDef urgent fill:#f96,stroke:#00f,color:#0a0
+      class Late:::urgent
+      class Plain`,
+    status: "supported",
+    meaning:
+      "`class X:::c` declares a class and attaches the `classDef c` " +
+      "declarations to it, and Siren paints them **whichever side of the " +
+      "`classDef` line the attach is written on**. Mermaid 12.2.0 does not: " +
+      "measured in headless Chrome (computed style, this source), Early — " +
+      "attached before the `classDef` — paints `fill:rgb(255, 153, 102)`, " +
+      "`stroke:rgb(0, 0, 255)` and a label `color:rgb(0, 170, 0)`, while " +
+      "Late — attached after it — wears the class " +
+      "(`class=\"node default urgent\"`) and paints nothing of it: palette " +
+      "`fill:rgb(240, 253, 250)`, `stroke:rgb(45, 212, 191)`, label " +
+      "`rgb(40, 37, 61)`. A `classDef` names its declarations for every box " +
+      "wearing the class and says nothing about line order, so this is " +
+      "CONTEXT.md's third rule: Mermaid's picture contradicts the document, " +
+      "and Siren draws what the document says (01M4WT4KY). Siren used to " +
+      "refuse the line as unrecognized. Where Mermaid takes `:::` at all, " +
+      "measured: after the name, a `~generic~` or a `[\"label\"]`, with or " +
+      "without spaces round it, and in the block form's opening line. " +
+      "Everywhere else it is a parse error — a relationship end " +
+      "(`X:::c --> Y`, `Y --> X:::c`), a bare `X:::c`, the inline member " +
+      "form, after an annotation, a list (`:::c,d`), a second `:::`, and a " +
+      "hyphenated name — and Siren refuses those too.",
+    assert: (result) => {
+      const urgent = { frame: "fill:#f96;stroke:#00f", name: "fill:#0a0" };
+      expectSame("attached before the classDef", classStyle(result, "Early"), urgent);
+      expectSame("attached after the classDef", classStyle(result, "Late"), urgent);
+      expectSame("the class no attach named", classStyle(result, "Plain"), { frame: "", name: "" });
+    },
+  },
+  {
+    id: "cls-style-shorthand-block",
+    kind: "class",
+    source: `classDiagram
+      classDef urgent fill:#f96,stroke:#00f,color:#0a0
+      class Order:::urgent {
+        +int id
+      }`,
+    status: "supported",
+    meaning:
+      "`:::c` on a block-form declaration's opening line attaches the class " +
+      "just as `class X:::c` does, members and all. Measured on mermaid " +
+      "12.2.0 (headless Chrome): `class X:::c {` and `class X:::c{` both draw " +
+      "X with its members and `class=\"node default c\"`. The attach is " +
+      "written after the `classDef` here, so Mermaid paints nothing of it " +
+      "(palette `fill:rgb(253, 244, 255)`); Siren paints it, by the rule-3 " +
+      "divergence `cls-style-shorthand` records.",
+    assert: (result) => {
+      expectSame("Order's paint", classStyle(result, "Order"), {
+        frame: "fill:#f96;stroke:#00f",
+        name: "fill:#0a0",
+      });
+      expectSame("Order's members", members(result, "Order"), ["+int id"]);
     },
   },
   // -------------------------------------------------------------------------

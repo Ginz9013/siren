@@ -716,6 +716,107 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     ]);
   });
 
+  it("reads `class X:::c` as a declaration plus the same apply directive cssClass produces, in every spelling Mermaid takes", () => {
+    // Measured on mermaid 12.2.0: `:::` follows the name, a generic or a
+    // label, with or without spaces round it, and inside a namespace too.
+    const { document, diagnostics } = parseOk(`classDiagram
+  class A:::urgent
+  class B ::: urgent
+  class C~T~:::urgent
+  class D["Dee"] :::urgent
+  namespace N {
+    class E:::urgent
+  }
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.classes.map((c) => [c.id, c.generic, c.label?.text ?? null])).toEqual([
+      ["A", null, null],
+      ["B", null, null],
+      ["C", "T", null],
+      ["D", null, "Dee"],
+      ["E", null, null],
+    ]);
+    expect(document.namespaces[0].classIds).toEqual(["E"]);
+    expect(document.styles).toEqual(
+      [
+        ["A", 2],
+        ["B", 3],
+        ["C", 4],
+        ["D", 5],
+        ["E", 7],
+      ].map(([id, line]) => ({
+        styleKind: "apply",
+        authoredAs: ":::",
+        targetIds: [id],
+        name: "urgent",
+        properties: [],
+        line,
+        column: id === "E" ? 5 : 3,
+      })),
+    );
+  });
+
+  it("reads `:::c` on a block-form declaration's opening line, keeping the block's members", () => {
+    // Measured on mermaid 12.2.0: `class X:::c {` and `class X:::c{` both
+    // draw X with its members and the class attached.
+    const { document, diagnostics } = parseOk(`classDiagram
+  class A:::urgent {
+    +int a
+  }
+  class B~T~["Bee"] ::: urgent{
+    +b()
+  }
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.classes.map((c) => [c.id, c.generic, c.label?.text ?? null, c.members.map((m) => m.name)])).toEqual([
+      ["A", null, null, ["a"]],
+      ["B", "T", "Bee", ["b"]],
+    ]);
+    expect(document.styles.map((style) => [style.styleKind, style.authoredAs, style.targetIds, style.name, style.line])).toEqual([
+      ["apply", ":::", ["A"], "urgent", 2],
+      ["apply", ":::", ["B"], "urgent", 5],
+    ]);
+  });
+
+  it("refuses `:::` everywhere Mermaid parse-errors on it", () => {
+    // Each measured on mermaid 12.2.0 as a parse error (`got
+    // 'STYLE_SEPARATOR'`, or `got 'MINUS'` for the hyphenated name). Three
+    // of them Siren used to draw: `X:::c --> Y` and `X:::c : +int a` as a
+    // class X with a member, `Y --> X:::c` as a relationship labelled `::c`.
+    const statements = [
+      "X:::c --> Y",
+      "Y --> X:::c",
+      "X:::c --() Y",
+      "X:::c",
+      "X:::c : +int a",
+      "<<interface>> X:::c",
+      "class X:::c,d",
+      "class X:::c:::d",
+      "class X:::my-c",
+    ];
+    const refused = statements.map((statement) => {
+      const { document, diagnostics } = parseClassDiagram(`classDiagram\n  classDef c fill:#f96\n  ${statement}\n`);
+      return [statement, document === null, diagnostics.map((d) => `${d.severity}@${d.line}`)];
+    });
+    expect(refused).toEqual(statements.map((statement) => [statement, true, ["error@3"]]));
+  });
+
+  it("still reads a `:::` inside quotes as text: a class label and a note", () => {
+    // Measured on mermaid 12.2.0: each draws, with `a:::b` as its text.
+    const { document, diagnostics } = parseOk(`classDiagram
+  class A["a:::b"]
+  A --> B
+  note for B "a:::b"
+`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.classes.map((c) => c.id)).toEqual(["A", "B"]);
+    expect(document.styles).toEqual([]);
+    expect(document.notes).toHaveLength(1);
+  });
+
   it("reports an error diagnostic for a style declaration that is not a property:value pair", () => {
     const source = `classDiagram
   class Shape

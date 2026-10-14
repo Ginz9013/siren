@@ -50,6 +50,20 @@ const CLASS_HEADER_SPELLINGS = listAcceptedHeaders(["class"]);
 const BRACKETED_LABEL = String.raw`(?:\["\s*([^"]*\S)\s*"\])?`;
 
 /**
+ * The optional `:::name` a class declaration may end with, attaching a
+ * `classDef` to the class it declares — one capture, the class name.
+ *
+ * Measured on mermaid 12.2.0: it follows the name, a `~generic~` or a
+ * `["label"]`, with or without spaces on either side of the `:::`, in the
+ * bare and the block form alike. Everywhere else Mermaid parse-errors on
+ * it — a relationship end, a bare `X:::c`, the inline member form, after a
+ * `<<annotation>>`, a list (`:::a,b`), a second `:::`, a hyphenated name —
+ * so this fragment is spliced into the declaration patterns only, and every
+ * other `:::` falls through to the unrecognized-line diagnostic.
+ */
+const STYLE_SHORTHAND = String.raw`(?:\s*:::\s*(\w+))?`;
+
+/**
  * A bare `class Animal` declaration, with an optional `~generic~`
  * parameter after the name (`class Square~Shape~`) and an optional
  * bracketed label after that (`class Order["Order Line"]`).
@@ -66,9 +80,15 @@ const BRACKETED_LABEL = String.raw`(?:\["\s*([^"]*\S)\s*"\])?`;
  * after the generic and never before it (`class A["Lab"]~T~` is a parse
  * error). Compiled with `d` so the label's own column is the group's index.
  */
-const CLASS_DECL_RE = new RegExp(String.raw`^class\s+(\w+)(?:~(.+)~)?\s*${BRACKETED_LABEL}\s*$`, "d");
-/** The opening line of a block-form declaration, `class Animal {`, with the same optional generic and label. */
-const CLASS_BLOCK_OPEN_RE = new RegExp(String.raw`^class\s+(\w+)(?:~(.+)~)?\s*${BRACKETED_LABEL}\s*\{$`, "d");
+const CLASS_DECL_RE = new RegExp(
+  String.raw`^class\s+(\w+)(?:~(.+)~)?\s*${BRACKETED_LABEL}${STYLE_SHORTHAND}\s*$`,
+  "d",
+);
+/** The opening line of a block-form declaration, `class Animal {`, with the same optional generic, label and `:::name`. */
+const CLASS_BLOCK_OPEN_RE = new RegExp(
+  String.raw`^class\s+(\w+)(?:~(.+)~)?\s*${BRACKETED_LABEL}${STYLE_SHORTHAND}\s*\{$`,
+  "d",
+);
 /**
  * A relationship statement: two class names, the relation token between
  * them, an optional quoted multiplicity beside each name, and an optional
@@ -466,6 +486,31 @@ export function parseClassDiagram(source: string): ParseResult {
   };
 
   /**
+   * Records the `:::name` a declaration ended with as the apply directive
+   * `cssClass "id" name` would produce, so `resolveStyles` pairs it with its
+   * `classDef` in either source order and nothing downstream learns a third
+   * spelling exists. `authoredAs` is `:::`, the word a diagnostic quotes,
+   * as in a flowchart and an ER diagram.
+   */
+  const attachShorthand = (
+    id: string,
+    name: string | undefined,
+    line: number,
+    column: number,
+  ) => {
+    if (name === undefined) return;
+    styles.push({
+      styleKind: "apply",
+      authoredAs: ":::",
+      targetIds: [id],
+      name,
+      properties: [],
+      line,
+      column,
+    });
+  };
+
+  /**
    * Records a class named by a relationship, the way `parseFlowchart`
    * records a node named by an edge: `Animal <|-- Duck` declares both
    * classes. Only the first mention creates one, so a class named by ten
@@ -796,7 +841,16 @@ export function parseClassDiagram(source: string): ParseResult {
       return startIndex;
     }
 
-    const relationshipMatch = RELATIONSHIP_RE.exec(line);
+    // Mermaid's lexer reads `:::` as the style separator wherever it stands
+    // outside quotes, and only a class declaration takes one
+    // (`STYLE_SHORTHAND`). So a relationship or an inline member holding
+    // one is a parse error there, measured — `Y --> X:::c` is not a
+    // relationship labelled `::c`, and `X:::c --> Y` is not the member
+    // `::c --> Y`. Such a line falls through to the unrecognized-line
+    // diagnostic. Quoted text is no separator: it is stripped first.
+    const holdsShorthand = line.replace(/"[^"]*"/g, '""').includes(":::");
+
+    const relationshipMatch = holdsShorthand ? null : RELATIONSHIP_RE.exec(line);
     if (relationshipMatch !== null) {
       const [
         ,
@@ -840,6 +894,7 @@ export function parseClassDiagram(source: string): ParseResult {
 
     const blockOpenMatch = CLASS_BLOCK_OPEN_RE.exec(line);
     if (blockOpenMatch !== null) {
+      attachShorthand(blockOpenMatch[1], blockOpenMatch[4], lineNumber, column);
       const members: ClassMember[] = [];
       // Annotations inside the block are emitted as their own declarations
       // above, so the block declaration itself never carries one.
@@ -935,6 +990,7 @@ export function parseClassDiagram(source: string): ParseResult {
 
     const classDeclMatch = CLASS_DECL_RE.exec(line);
     if (classDeclMatch !== null) {
+      attachShorthand(classDeclMatch[1], classDeclMatch[4], lineNumber, column);
       declareClass(
         {
           id: classDeclMatch[1],
@@ -953,7 +1009,7 @@ export function parseClassDiagram(source: string): ParseResult {
       return startIndex;
     }
 
-    const inlineMemberMatch = INLINE_MEMBER_RE.exec(line);
+    const inlineMemberMatch = holdsShorthand ? null : INLINE_MEMBER_RE.exec(line);
     if (inlineMemberMatch !== null) {
       const [, id, memberText] = inlineMemberMatch;
       const member = parseMember(memberText, lineNumber, column);
