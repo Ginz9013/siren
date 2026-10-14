@@ -46,7 +46,7 @@ removes dagre is `01M4VPWF5`.
   subgraphs form a cycle (`A --> B` from one subgraph into another, `B --> C` back), the edge that
   closes the cycle is laid out pointing the other way and still drawn from its source to its
   target, so the subgraphs stack in Mermaid's order rather than mirrored (the garden-network fixture's
-  left/right agreement with Mermaid: 25.8% before, 92.6% after).
+  left/right agreement with Mermaid: 25.8% before, 92.1% after).
 - **A subgraph's frame fits what it holds.** As in Mermaid 12, a frame is pulled in after layout to
   its members and the edges routed inside it, rather than also holding where edges leaving it cross
   on their way out. It stops one of the subgraph's own padding (12px) beyond them, where Mermaid
@@ -69,8 +69,8 @@ removes dagre is `01M4VPWF5`.
   and draws an edge entering or leaving the subgraph from above straight through its words. Siren
   moves the title along the band to the place nearest the centre that clears every such edge by
   half a padding; it stays centred when nothing crosses, or when the frame has no room. Edges and
-  frames are unchanged. On the flowchart parity fixtures: 15 edges through a title (was 25;
-  Mermaid 22); crossings, agreement, reversals and detour unchanged.
+  frames are unchanged. On the flowchart parity fixtures: 19 edges through a title (Mermaid 23);
+  crossings, agreement, reversals and detour unchanged.
 - **`A ----> B` still spans three ranks.** Mermaid 12 on ELK silently draws it like `-->`; Siren
   keeps the length the document asks for.
 - **Class diagrams are laid out by ELK too, as Mermaid 12 lays them out.** Relationships and note

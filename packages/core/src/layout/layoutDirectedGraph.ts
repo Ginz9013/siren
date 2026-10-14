@@ -1057,7 +1057,7 @@ function fitFrames(
  * A and C side by side, B under both. On the `garden-network` parity fixture —
  * five subgraphs in a frame-level cycle — handing the edges over unturned
  * mirrored Siren's picture left to right against Mermaid's (25.8% of node
- * pairs in the same left/right order; 92.6% with this).
+ * pairs in the same left/right order; 92.1% with this).
  */
 function subgraphFeedbackEdges(
   edges: readonly DirectedGraphEdge[],
