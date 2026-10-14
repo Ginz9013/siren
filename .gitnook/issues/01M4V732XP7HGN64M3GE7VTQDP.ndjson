@@ -3,3 +3,4 @@
 {"id":"01M4V7337EZRS6XWYDFEAQVSD8","t":3,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/elk-migration/spec.md`（spec issue `01M4V72SN0P6TNYRD3SE2E0VBS`），ticket 檔 `.scratch/elk-migration/T06-state-on-elk.md`。"}
 {"id":"01M4VJKRMMYS2NSBVR808R469P","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4VM05H7KHZ5YDGN3F44TQMY","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4XP32M77VTDNK8ZVQHMS2SV","t":6,"a":"83a1","op":"set","k":"archived","v":true}

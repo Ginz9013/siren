@@ -5,3 +5,4 @@
 {"id":"01M4XJ93NWS5ZCVWGFKK5ACQT7","t":5,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4XJDN42EJRFQY0MDYBR1ATQ","t":6,"a":"83a1","op":"comment","body":"已完成：flowchart 繪製順序為流程線 → 子圖框與標題 → 連線標籤 → 節點。保留 routes、markers、styles、IDs 與 timeline；透明填色仍可透出底層線條。TDD 紅燈 expected 7 to be less than 4，修正後 focused 67 tests 全過。Orchestrator 重跑 pnpm test：core 2414 / board 154 全過，兩套件 tsc --noEmit 與 git diff --check 通過。未提交 diff 的 Standards / Spec 兩軸 review 無阻擋問題。ADR-0016 與 changelog 已更新。未 commit。執行紀錄 .scratch/flowchart-lines-bottom/execution-report.md（Git 忽略）；其他 AI 的 ER 修改未動。"}
 {"id":"01M4XJDNAQC29FFKDC0A4RWT2V","t":7,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4XP334ZY42CBDPC2HS6ZVNH","t":8,"a":"83a1","op":"set","k":"archived","v":true}

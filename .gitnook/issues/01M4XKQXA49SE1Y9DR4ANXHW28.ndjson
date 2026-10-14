@@ -10,3 +10,4 @@
 {"id":"01M4XM7T42X990HXQMYBZWV7SN","t":10,"a":"83a1","op":"comment","body":"使用者要求同一位置改成原始內距的2倍，以便確認視覺差異：節點正值padding×2，子圖12→24px；字級行距折行仍不變。重新開啟實作，另將重建demo使用的dist產物。"}
 {"id":"01M4XMBTY0R1GVB3RHSBXV11XG","t":11,"a":"83a1","op":"comment","body":"已改為原始內距2倍：節點正值水平/垂直padding×2；子圖及巢狀子圖24px。兩組新紅綠證據保留 execution-report-2x.md。Root重跑core2416/board154全過、兩套件tsc與diffcheck通過，Standards/Spec各0 findings。pnpm build成功，core與board demo用dist均已重建。未commit。"}
 {"id":"01M4XMBV4J1N0GXWDHXXFCGVGP","t":12,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4XP336CTBA7Z0ERC132FW3H","t":13,"a":"83a1","op":"set","k":"archived","v":true}

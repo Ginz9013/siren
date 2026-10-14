@@ -3,3 +3,4 @@
 {"id":"01M4V732RSMAQZPK9YEW4N9V4V","t":3,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/elk-migration/spec.md`（spec issue `01M4V72SN0P6TNYRD3SE2E0VBS`），ticket 檔 `.scratch/elk-migration/T05-class-on-elk.md`。"}
 {"id":"01M4VGKYZAMHDFSFXP4J16BK6J","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4VJ2DRD40ZVW74TZMN45VSY","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4XP32JTTY3D7H3J4CXFJECZ","t":6,"a":"83a1","op":"set","k":"archived","v":true}

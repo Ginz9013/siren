@@ -5,3 +5,4 @@
 {"id":"01M4WKC857HM55FW1B4FD9685T","t":5,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4WKVXGAEHSABY4V8F7NNG05","t":6,"a":"83a1","op":"comment","body":"## 已實作（370942b，branch backlog-quick-wins）\n\n`ACC_TITLE_RE`/`ACC_DESCR_RE` 加 `/i`，並允許冒號前有空白；`ACC_DESCR_BRACED_RE` 加 `/i`。新增語料庫列 `er-case-acc`（supported）；`er-acc-descr-multiline` 的 meaning 補記大寫寫法。棘輪不動。\n\nMermaid 12.2.0 實測：`ACCTITLE: hi`、`ACCDESCR: hi`、`AccTitle: Hi`、`accDescr:hi`、**`accTitle : hi`** 都接受、不產生實體；`ACCDESCR {` 是同一個描述區塊。\n\n**順帶修掉一個靜默錯圖**：大寫 `ACCDESCR {` / `string x` / `}` 原本會被 `ENTITY_HEAD_RE` 讀成實體 `ACCDESCR`，多畫一個框、零診斷（跟小寫版當年的問題一模一樣）。現在以大小寫不拘的方式指名拒絕。"}
 {"id":"01M4WKVYAMCFW6HMXTR50KZ3JH","t":7,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M4XP32XZC7RN7QXAKQWRAHRR","t":8,"a":"83a1","op":"set","k":"archived","v":true}

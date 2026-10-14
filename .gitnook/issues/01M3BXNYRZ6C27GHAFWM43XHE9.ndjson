@@ -7,3 +7,4 @@
 {"id":"01M4X7RFCEBY7ZGQTWEBKQVM7G","t":7,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4X88M3CNV02VQKJRN5EWEBN","t":8,"a":"83a1","op":"comment","body":"第二半（`class A end` 保留字守衛）已在 178fcbd 落地：class 陳述的兩半、`:::` 之後、關係兩端的 `:::` 遇到保留字都具名拒絕；style 目標與 classDef 名稱位置 Mermaid 接受，維持不擋。新列 er-class-reserved-word（rejected）。第一半（叢集當關係端點）仍待做。"}
 {"id":"01M4X9QHV3PRR60GVVGHG86W8V","t":9,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M4XP31WGS634B0DB8SZJ7Y4C","t":10,"a":"83a1","op":"set","k":"archived","v":true}

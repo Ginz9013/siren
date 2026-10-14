@@ -3,3 +3,4 @@
 {"id":"01M399C0XVQD7K11TC4A033JET","t":3,"a":"83a1","op":"label.add","v":"docs"}
 {"id":"01M4WAFRNTZH3H5HK5HD80X0QA","t":4,"a":"83a1","op":"comment","body":"## v0.6.0 後重新檢視（2026-10-14）：已修好，以 done 關閉\n\ncommit `59a7c3f`（票 `01M42S6H9`）在 CONTEXT.md 補上了 ER 的詞彙條目：**Entity**、**Entity attribute**、**ER relationship**、ER subgraph。\n\n- ER relationship 條目寫明 id 是 `${from}:${to}`（「a colon where every other kind's connector uses a hyphen」），也寫了 id 撞號會發出警告。\n- 它的 _Avoid_ 寫明單獨的 \"relationship\" 指的是 class 的 **Relationship**，所以「connector convention」那一句不會再被讀成包含 ER。\n\n未做的部分：本票提議的 `reportIdCollisions` 獨立條目，以及指向 ADR-0010 的連結。核心缺口已補上，這兩點若需要再另開小票。"}
 {"id":"01M4WAFWP7PWB6HH0CGCBR5ZV0","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4XP31H8VTBB9MQ1B751GWPT","t":6,"a":"83a1","op":"set","k":"archived","v":true}

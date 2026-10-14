@@ -3,3 +3,4 @@
 {"id":"01M4V732A2GK5E8V71S3GHHSTF","t":3,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/elk-migration/spec.md`（spec issue `01M4V72SN0P6TNYRD3SE2E0VBS`），ticket 檔 `.scratch/elk-migration/T04-edges-avoid-group-titles.md`。"}
 {"id":"01M4VERMENGEM6653FA6390K17","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4VFZ3X8S8QMCE7BP1NH619Z","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4XP32HESWRY8X68ZW0ESA9T","t":6,"a":"83a1","op":"set","k":"archived","v":true}

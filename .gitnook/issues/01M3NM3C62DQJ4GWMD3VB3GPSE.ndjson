@@ -4,3 +4,4 @@
 {"id":"01M3NM3C6D2AJJKPXV2JD9RHY9","t":4,"a":"83a1","op":"label.add","v":"sequence"}
 {"id":"01M4WAFTWPQGT27D7VJWMRR6KZ","t":5,"a":"83a1","op":"comment","body":"## v0.6.0 後重新檢視（2026-10-14）：已修好，以 done 關閉\n\ncommit `a2572c3`（2026-10-04，已包含在 v0.3.0）把 `\"Option\"` 加進 `packages/core/scripts/mermaid-probe.mjs` 的 jsdom globals 名單（約 183-189），旁邊的註解也記錄了 transparent 的問題。\n\nMermaid 12.2.0 實測：\n- 拿掉 Option 會出現 `Option is not defined`；加上後，`box aqua Grp` 得到 `fill:\"aqua\"`。\n- `box Aqua Grp` 在 jsdom 下會把 `Aqua` 當成 label 的一部分（fill 變成 transparent），瀏覽器則當成顏色。這點已寫在 probe 的註解裡。"}
 {"id":"01M4WAFWFM2QK2HAM1XM7FSWYV","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4XP3222EY2Z5R9Y0733E8SG","t":7,"a":"83a1","op":"set","k":"archived","v":true}

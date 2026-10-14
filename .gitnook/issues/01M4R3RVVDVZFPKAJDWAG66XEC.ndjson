@@ -6,3 +6,4 @@
 {"id":"01M4WRRES0FXAQ2EA61HXC6EJ3","t":6,"a":"83a1","op":"comment","body":"## 已完成（branch backlog-quick-wins）\n\n決定執行時的一個修正：**不能補語料庫列**。`CompatCase.source` 的契約是「Valid Mermaid. If it is not valid Mermaid, it does not belong here.」，而 `P[a (b)]` 在 12.2.0 是 parse error。\n\n改用 repo 對「Siren 比 Mermaid 寬鬆」的既有記法：`parseFlowchart.ts` 的 `LABEL_CONTENT` 註解寫明這是刻意的分歧與理由，`parseSiren.test.ts` 新增一條特徵測試釘住 `P[…(…)]`、`Q[\"a (b)\"]`、`R[a (b)]` 三種都畫成 rect，並註明改它是政策變更、不是修 bug。"}
 {"id":"01M4WRREZHED3VXW0NST01KGC3","t":7,"a":"83a1","op":"set","k":"status","v":"done"}
 {"id":"01M4WRRQ3EH29FJ4MVF6773KJF","t":8,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M4XP32ADZG532YG4FD0FRN43","t":9,"a":"83a1","op":"set","k":"archived","v":true}

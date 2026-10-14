@@ -3,3 +3,4 @@
 {"id":"01M4VA4XG47KMVB70ZAFDVNKJV","t":3,"a":"83a1","op":"set","k":"description","v":"Board：`.scratch/elk-migration/spec.md`（spec issue `01M4V72SN0P6TNYRD3SE2E0VBS`），ticket 檔 `.scratch/elk-migration/T02b-port-mermaid-elk-passes.md`。"}
 {"id":"01M4VAWMXPAWDR6WS1C8RDE0TT","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4VCZBZGPBZDWE8TJ5RA8Q2X","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4XP32RCBDH1M35ST0GV7KA9","t":6,"a":"83a1","op":"set","k":"archived","v":true}

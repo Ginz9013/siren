@@ -3,3 +3,4 @@
 {"id":"01M4W5YJ3MJWN9WWDM1Z47TJB5","t":3,"a":"83a1","op":"label.add","v":"elk-migration"}
 {"id":"01M4W5Z50Y0S9EWM49HPX3NESS","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4W6BKCH4ANPFD0BTP9MPNA9","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4XP32SSQQ57SNESV7SMKC7S","t":6,"a":"83a1","op":"set","k":"archived","v":true}

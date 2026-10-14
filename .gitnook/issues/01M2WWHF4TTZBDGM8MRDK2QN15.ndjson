@@ -6,3 +6,4 @@
 {"id":"01M4WKC7HFP2QX8PT3G2QK3PEQ","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4WKVXPWC24KB9XR4K87X08Y","t":7,"a":"83a1","op":"comment","body":"## 已實作（46d3ebe，branch backlog-quick-wins）\n\n決定採最小做法（票上選項 1）：`BoardOptions.onClick` 原樣傳給每一次 `render()`，board 不額外包裝。setSource、setTimeline、full diagram 切換後都持續有效（有測試）。\n\n`demos/gallery.html` 現在把最後一次點擊的回呼顯示在 notes 區；瀏覽器實測點 Confirm 顯示 `onClick: Confirm → confirmOrder(\"42\")`。`demos/class-diagram.html` 的檔頭註解已更新（它仍然自己呼叫 render()，因為那頁並排三張圖）。"}
 {"id":"01M4WKVYH5J0ZP5YQZ1P706XT3","t":8,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M4XP314M4WNX2XK6C696H3HQ","t":9,"a":"83a1","op":"set","k":"archived","v":true}

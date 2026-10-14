@@ -2,3 +2,4 @@
 {"id":"01M4W7Z8K15FFTSVHXZ6MBNB2G","t":2,"a":"83a1","op":"set","k":"description","v":"dist/siren-board.js bundles siren-core from source and with it elkjs 0.9.3 (EPL-2.0), but carried no banner and no THIRD-PARTY-NOTICES.md. Share siren-core's notice plugin with the board build."}
 {"id":"01M4W7Z8K1BDKB0SD35MMX8G1Y","t":3,"a":"83a1","op":"label.add","v":"release"}
 {"id":"01M4W7Z8S8QF2B7PDY3Y3F26JK","t":4,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4XP32V617RRS3TP447R9DWF","t":5,"a":"83a1","op":"set","k":"archived","v":true}
