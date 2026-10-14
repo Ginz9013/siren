@@ -401,7 +401,7 @@ describe("the garden-network diagram, under the default measurer", () => {
     expect(tooWide).toEqual([]);
 
     const wideRectangles = Array.from(drawn.querySelectorAll("g.siren-node rect.siren-node-frame"))
-      .filter((rect) => Number(rect.getAttribute("width")) > 175 + padding)
+      .filter((rect) => Number(rect.getAttribute("width")) > 175 + padding * 2)
       .map((rect) => rect.closest("g.siren-node")!.getAttribute("data-siren-id"));
     expect(wideRectangles).toEqual([]);
     // And the labels did wrap: Tasks alone is far wider than 175px of text.

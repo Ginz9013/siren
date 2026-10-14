@@ -7,8 +7,10 @@ import type {
 } from "../contracts";
 import { type Curve, curveCornerRadius, FLOWCHART_DEFAULT_CURVE } from "../curve/curve";
 import { layoutDirectedGraph } from "./layoutDirectedGraph";
-import { clusterNode, measureTitles, mermaidClosingOrder, placedFrame } from "./clusters";
+import { clusterNode, measureTitles, mermaidClosingOrder, placedFrame, SUBGRAPH_PADDING } from "./clusters";
 import { wrapConnectorLabel, wrapNodeLabel } from "../label/wrapLabel";
+import { BASE_FONT_SIZE_PX } from "../label/label";
+import { LINE_HEIGHT_RATIO } from "../label/layoutLabel";
 
 /**
  * How far a shape's outline leans in from the bounding box it is inscribed
@@ -246,6 +248,14 @@ export function layoutGraph(
   const wrappedById = new Map(
     graph.nodes.map((node) => [node.id, wrapNodeLabel(node.label, options.measureText)]),
   );
+  // The empty measurement contains padding only horizontally and one
+  // 21px text row vertically. Enlarge the shape envelope, leaving the
+  // original label box and wrap width for the renderer.
+  const empty = options.measureText.measure("");
+  const extraPadding = {
+    width: Math.max(0, empty.width),
+    height: Math.max(0, empty.height - BASE_FONT_SIZE_PX * LINE_HEIGHT_RATIO),
+  };
 
   // A subgraph's title is measured once too, for the same two readers: the
   // title band the core keeps in the frame, and the renderer.
@@ -287,6 +297,7 @@ export function layoutGraph(
           id: subgraph.id,
           parentId: subgraph.parentId,
           title: titleBoxById.get(subgraph.id)!,
+          padding: SUBGRAPH_PADDING * 2,
           // The subgraph's own `direction LR` (or `TB`/`BT`/`RL`). Whether
           // it holds is the core's to decide, by Mermaid's rule (see
           // `voidedDirections`).
@@ -298,7 +309,10 @@ export function layoutGraph(
         // The shape decides how much box the measured label needs; the
         // shared layout core is handed sizes and never learns a shape
         // exists.
-        ...boxForLabel(node.shape, wrappedById.get(node.id)!.labelBox),
+        ...boxForLabel(node.shape, {
+          width: wrappedById.get(node.id)!.labelBox.width + extraPadding.width,
+          height: wrappedById.get(node.id)!.labelBox.height + extraPadding.height,
+        }),
         // Membership, and the only thing about a subgraph a member tells the
         // core. `undefined` rather than `null` when the node is in no
         // subgraph, matching the core's optional field.
