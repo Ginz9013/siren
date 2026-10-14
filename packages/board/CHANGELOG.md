@@ -8,6 +8,26 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-14
+
+Requires `siren-core` ^0.6.0. Diagrams look different: see the
+[siren-core changelog](https://github.com/Ginz9013/siren/blob/main/packages/core/CHANGELOG.md#060---2026-10-14).
+
+### Added
+
+- `dist/THIRD-PARTY-NOTICES.md` beside the standalone `dist/siren-board.js`. The bundle includes
+  `siren-core` and, through it, the layout engine elkjs, which is licensed EPL-2.0, not MIT; the
+  notice carries its licence text, and the bundle's first line points to it.
+
+### Changed
+
+- With `siren-core`'s change: flowcharts, class diagrams, state diagrams and ER diagrams are laid
+  out by ELK, as Mermaid 12 lays them out. Connectors are orthogonal with rounded corners and jump
+  each other where they cross, and almost every diagram of those kinds looks different.
+- The standalone `dist/siren-board.js` is about 547 KB gzipped, most of it the layout engine, and
+  the first diagram a page lays out costs about 0.1s while the engine starts. The npm entry
+  (`dist/index.js`) still leaves `siren-core` external.
+
 ## [0.5.0] - 2026-10-12
 
 Requires `siren-core` ^0.5.0. Diagrams look different: see the

@@ -8,6 +8,8 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-14
+
 **Every graph-shaped diagram is now laid out by ELK, as Mermaid 12 lays it out, and dagre is
 gone.** Flowcharts, class diagrams, state diagrams and ER diagrams are laid out by ELK's `layered`
 algorithm (elkjs 0.9.3, the version Mermaid 12.2.0 bundles), configured as Mermaid 12.2.0's default
@@ -16,7 +18,7 @@ routes are orthogonal with rounded corners and line hops, frames are the engine'
 ordered as Mermaid orders them. `@dagrejs/dagre` is no longer a dependency. Against Mermaid 12.2.0
 on the parity fixtures, Siren now draws the same crossings (flowchart 176 to its 176; class, state
 and ER 0) with no edge through an unrelated box, and agrees on above/below and left/right for
-99.6% / 97.8% of node pairs (flowchart), 97.3% / 100% (class), 100% / 98.5% (state) and 97.2% /
+99.6% / 97.8% of node pairs (flowchart), 97.4% / 100% (class), 100% / 98.5% (state) and 97.2% /
 100% (ER). The cost: the standalone `dist/siren-core.js` is about 545 KB gzipped (was about 83 KB),
 and the first layout in a page costs about 0.1s while the engine starts. Where Siren departs from
 Mermaid 12 it measured the difference and wrote it down: a long arrow keeps its length (nook
