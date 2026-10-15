@@ -3538,6 +3538,42 @@ describe("a `%%` in the middle of a flowchart line", () => {
     ]);
   });
 
+  it("still cuts a `%%` glued to a timeline target in every other kind, whose ids hold no `%`", () => {
+    for (const [header, body] of [
+      ["sequenceDiagram", "  A->>B: m"],
+      ["classDiagram", "  class A"],
+      ["stateDiagram-v2", "  A --> B"],
+      ["erDiagram", "  A ||--o{ B : r"],
+    ] as const) {
+      expect([header, parseSiren(`${header}\n${body}\ntimeline:\n  enter A%%x fade\n  unhighlight A%%x\n`)]).toEqual([
+        header,
+        parseSiren(`${header}\n${body}\ntimeline:\n  enter A\n  unhighlight A\n`),
+      ]);
+    }
+  });
+
+  it("reads a `%%` glued to a timeline line's verb or effect as a comment, as it always has", () => {
+    // Only the target slot names a diagram id; a `%%` glued to anything
+    // else in a timeline line opens its comment, as a spaced one does.
+    for (const [header, body] of [
+      ["flowchart TB", "  A --> B"],
+      ["sequenceDiagram", "  A->>B: m"],
+    ] as const) {
+      for (const [commented, plain] of [
+        ["  enter A fade%% note", "  enter A fade"],
+        ["  highlight A glow%%x", "  highlight A glow"],
+        ["  enter A fade, enter B fade%%x", "  enter A fade, enter B fade"],
+        ["  enter%% note", "  enter"],
+      ] as const) {
+        expect([header, commented, parseSiren(`${header}\n${body}\ntimeline:\n${commented}\n`)]).toEqual([
+          header,
+          commented,
+          parseSiren(`${header}\n${body}\ntimeline:\n${plain}\n`),
+        ]);
+      }
+    }
+  });
+
   it("refuses a `%%` trailing the header, at its `%%`", () => {
     // Measured: `flowchart TB %% x` is "Expecting 'NEWLINE', got 'NODE_STRING'"
     // on line 1; so is `graph LR %% x`.

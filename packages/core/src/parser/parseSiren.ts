@@ -60,8 +60,8 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = 
  * where a kind's lexer reads one. So `lines` keeps every line of the
  * diagram as Mermaid's grammar is handed it, and each kind's parser decides.
  * A timeline block is Siren's own syntax, not Mermaid's (ADR-0017), and
- * its lines are still cut at their first `%%` that does not continue an id
- * (`cutTimelineComment`).
+ * its lines are still cut at their first `%%` — save, in a flowchart, one
+ * glued to an action's target (`cutTimelineComment`).
  *
  * Except a line that is nothing but `%%` (`bareCommentLines`). Mermaid's
  * `cleanupComments` removes `^\s*%%(?!{)[^\n]+\n?`, so a whole-line
@@ -127,12 +127,15 @@ function asMermaidReads(source: string): {
   // cut at their first `%%`: `flowchart TB %% x` still names a flowchart,
   // whose own parser then refuses the `%%`, and `timeline: %% x` still
   // opens a block. A timeline block is Siren's own syntax, not Mermaid's
-  // (ADR-0017), so its lines keep a cut — at a `%%` that does not continue
-  // an id (`cutTimelineComment`).
+  // (ADR-0017), so its lines keep the cut — save, in a flowchart, a `%%`
+  // glued to a target (`cutTimelineComment`).
   const cut = linesAsRead.map(cutAtDoublePercent);
   const header = headerOf(cut);
   const timelineStart = header === null ? Infinity : firstTimelineHeader(cut, header.index);
-  const lines = linesAsRead.map((line, index) => (index < timelineStart ? line : cutTimelineComment(line)));
+  const gluedTargets = header?.kind === "flowchart";
+  const lines = linesAsRead.map((line, index) =>
+    index < timelineStart ? line : cutTimelineComment(line, gluedTargets),
+  );
   return { lines, header, timelineStart, asWritten: read.asWritten, frontmatter, directives, bareCommentLines };
 }
 
@@ -143,20 +146,35 @@ function cutAtDoublePercent(line: string): string {
 }
 
 /**
- * A timeline line without its comment: everything from its first `%%` that
- * does not continue an id. A `%%` glued to the end of an id is the id's in a
- * flowchart (`A%%x` is one node, measured on Mermaid 12.2.0, 01M4ZWT8PR),
- * so it is the target's here too — `unhighlight A%%x` names that node,
- * where cutting at the `%%` aimed it at `A`, silently. The characters that
- * continue an id are the flowchart's id alphabet, `\w`, `%`, `.` and `-`.
+ * A timeline line without its comment: everything from its first `%%` on,
+ * as for every line before 01M4ZWT8PR — except, in a flowchart
+ * (`gluedTargets`), a `%%` glued to the end of an action's target. There
+ * `%` is an id character and `A%%x` one node id (measured on Mermaid
+ * 12.2.0), so `unhighlight A%%x` names that node, where the cut aimed it at
+ * `A`, silently; the target runs on to the next space. A `%%` glued to a
+ * verb or an effect (`enter A fade%% note`) still opens the comment, as a
+ * spaced one does, and so does every `%%` in another kind's timeline, whose
+ * ids hold no `%`.
  */
-function cutTimelineComment(line: string): string {
-  const at = line.search(TIMELINE_COMMENT_RE);
-  return at === -1 ? line : line.slice(0, at);
+function cutTimelineComment(line: string, gluedTargets: boolean): string {
+  let from = 0;
+  for (;;) {
+    const at = line.indexOf("%%", from);
+    if (at === -1) return line;
+    if (!gluedTargets || !endsInTargetSlot(line.slice(0, at))) return line.slice(0, at);
+    from = at + line.slice(at).search(/\s|$/);
+  }
 }
 
-/** The `%%` that opens a comment in a timeline line (`cutTimelineComment`). */
-const TIMELINE_COMMENT_RE = /(?<![\w%.-])%%/;
+/**
+ * Whether `before` stops partway through the target of its last action:
+ * that action holds a verb and a target and nothing else, with no space
+ * after the target (the `verb target [effect]` of `TIMELINE_ACTION_RE`).
+ */
+function endsInTargetSlot(before: string): boolean {
+  const action = before.slice(before.lastIndexOf(",") + 1);
+  return /^\s*\S+\s+\S+$/.test(action);
+}
 
 /** Where a line that is nothing but `%%` starts its `%%`, as the author wrote it. */
 interface BareCommentLine {

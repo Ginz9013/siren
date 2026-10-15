@@ -1509,10 +1509,9 @@ function readSubgraphTitle(
   if (quotedTitled !== null) {
     // `subgraph "t" [x]`: the quoted run is the handle, the bracket the
     // title (measured: id `t`, title `x`).
-    const [, quoted, glued = "", spaced = ""] = quotedTitled;
     const content = labelSpan(quotedTitled[4]);
     return {
-      name: handleOfQuoted(quoted + glued + spaced),
+      name: handleOfQuoted(quotedTitleRunText(quotedTitled)),
       ...readLabelAt(
         { text: content.text, at: quotedTitled.indices![4]![0] + content.at },
         { dialect: "html" },
@@ -1531,8 +1530,7 @@ function readSubgraphTitle(
     // `subgraph "t" zz`: the quoted text and the words after it are one
     // title, `t zz`, under no handle (measured, `subGraph0`); `subgraph
     // "t"zz` is one word, `tzz`, and so the handle too (measured).
-    const [, quoted, glued = "", spaced = ""] = quotedWithWords;
-    const text = quoted + glued + spaced;
+    const text = quotedTitleRunText(quotedWithWords);
     return {
       name: handleOfQuoted(text),
       ...readLabelAt({ text, at: LABEL_FENCE.length }, { dialect: "html" }),
@@ -1689,15 +1687,26 @@ const TITLE_WORD_BREAK_RE = new RegExp(String.raw`${TITLE_WORD_BREAKS}|[^\s${TIT
 const TITLE_WORDS = String.raw`(?:\s+${TITLE_WORD})+`;
 
 /**
+ * A quoted title and the words after it, the first optionally glued to the
+ * closing quote, from the start of a subgraph's tail: groups 1 to 3 are the
+ * quoted text, the glued word and the spaced words (`quotedTitleRunText`).
+ * The run `QUOTED_TITLE_WITH_WORDS_RE` reads alone and
+ * `QUOTED_HANDLE_TITLED_RE` reads before a bracket.
+ */
+const QUOTED_TITLE_RUN = String.raw`^"([^"]*)"(${TITLE_WORD})?(${TITLE_WORDS})?`;
+
+/** The text a `QUOTED_TITLE_RUN` match spells: `t zz` for `"t" zz`, `tzz` for `"t"zz`. */
+function quotedTitleRunText([, quoted, glued = "", spaced = ""]: RegExpExecArray): string {
+  return quoted + glued + spaced;
+}
+
+/**
  * `subgraph "t" zz`, `subgraph "t"zz` — a quoted title with words after it,
  * the first of them optionally glued to the closing quote. Mermaid 12.2.0
  * joins it all into one title, `t zz` or `tzz` (measured). The quoted title
  * alone is `FENCED_LABEL_RE`'s, asked first.
  */
-const QUOTED_TITLE_WITH_WORDS_RE = new RegExp(
-  String.raw`^"([^"]*)"(${TITLE_WORD})?(${TITLE_WORDS})?$`,
-  "u",
-);
+const QUOTED_TITLE_WITH_WORDS_RE = new RegExp(String.raw`${QUOTED_TITLE_RUN}$`, "u");
 
 /**
  * `subgraph "t" [x]` — `QUOTED_TITLE_WITH_WORDS_RE`'s run followed by a
@@ -1706,10 +1715,7 @@ const QUOTED_TITLE_WITH_WORDS_RE = new RegExp(
  * `"t"zz [x]` are ids `t`, `t`, `tzz`; `"a b" [x]` and `"t" zz [x]` are ids
  * holding a space, which no edge can spell).
  */
-const QUOTED_HANDLE_TITLED_RE = new RegExp(
-  String.raw`^"([^"]*)"(${TITLE_WORD})?(${TITLE_WORDS})?\s*\[(${LABEL_CONTENT})\]$`,
-  "du",
-);
+const QUOTED_HANDLE_TITLED_RE = new RegExp(String.raw`${QUOTED_TITLE_RUN}\s*\[(${LABEL_CONTENT})\]$`, "du");
 
 /**
  * `subgraph S a & b`, `subgraph S a b c` — a title of several words with no
@@ -1731,12 +1737,13 @@ const BARE_TITLE_WORDS_RE = new RegExp(String.raw`^${TITLE_WORD}${TITLE_WORDS}$`
  * long as no edge voids it (the **Boundary-crossing edge** rule; see
  * `voidedDirections`).
  *
- * Read with `matchClassDirection` rather than a pattern of this file's own —
+ * Which values are directions is `matchClassDirection`'s, not this file's:
  * the spelling, the alias (`TD` → `TB`), and the diagnostic-worthy set of
- * five are already settled there for the header, and a second regex here
- * would only give the two a chance to drift. `DIRECTION_LINE_RE` only cuts
- * the line after the value, so text trailing it (`direction LR zz`, which
- * Mermaid 12.2.0 reads as `LR`) is set aside with a warning.
+ * five are already settled there for the header, and a second list here
+ * would only give the two a chance to drift. This file's own pattern,
+ * `DIRECTION_LINE_RE`, decides no value — it only says where one ends, so
+ * text trailing it (`direction LR zz`, which Mermaid 12.2.0 reads as `LR`)
+ * is set aside with a warning.
  *
  * Scoped to *inside* a block on purpose. At the top level of a flowchart
  * Mermaid 12.2.0 accepts `direction LR` on any line and ignores it — the
