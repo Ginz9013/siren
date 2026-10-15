@@ -378,10 +378,10 @@ function reservedClassMember(match: RegExpExecArray, groups: readonly number[]):
 /** The refusal for what `reservedClassMember` found in a class list on `line`. */
 const reservedClassRefusal = ({ head, number }: ClassMemberHead, line: string): ErLineRefusal => ({
   refusal: number
-    ? `Number "${head}" cannot stand in a class list in erDiagram: a class name in Mermaid cannot begin ` +
-      `with a digit, and it refuses the line, in "${line}"`
-    : `Reserved word "${head}" cannot stand in a class list in erDiagram: Mermaid reads it as a keyword ` +
-      `and refuses the line, in "${line}"`,
+    ? `Number "${head}" cannot stand in a class list in erDiagram: a class name cannot begin ` +
+      `with a digit, so the line is refused; rename the class, in "${line}"`
+    : `Reserved word "${head}" cannot stand in a class list in erDiagram: it is read as a keyword, ` +
+      `so the line is refused; rename the class, in "${line}"`,
 });
 
 /**

@@ -392,7 +392,7 @@ describe("buildFlowchartModel's edge curve", () => {
       {
         severity: "error",
         message:
-          'linkStyle interpolate "cardinal" is a curve Mermaid draws but Siren does not implement yet; the edges it addresses keep their fallback curve.',
+          'linkStyle interpolate "cardinal" is a curve Siren does not draw yet; the edges it addresses keep their fallback curve. Curves: basis, linear, step, stepBefore, stepAfter, rounded.',
         line: 5,
         column: 3,
       },
@@ -415,7 +415,7 @@ describe("buildFlowchartModel's edge curve", () => {
       {
         severity: "warning",
         message:
-          'linkStyle interpolate "Step" names no curve; drawing rounded, as Mermaid does. Curves: basis, linear, step, stepBefore, stepAfter, rounded.',
+          'linkStyle interpolate "Step" names no curve; drawing rounded. Curves: basis, linear, step, stepBefore, stepAfter, rounded.',
         line: 5,
         column: 3,
       },

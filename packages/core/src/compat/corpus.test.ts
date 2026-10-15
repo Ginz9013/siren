@@ -8,6 +8,13 @@
  * what a silent mis-render looks like — reading that as support is how this
  * codebase's first measurement scored 10/39 where the truth was 5/39.
  *
+ * Whatever the status, a case also fails on any diagnostic whose message
+ * names Mermaid (matched case-insensitively): a diagnostic is for someone
+ * fixing their own document, and another tool's name is nothing they can act
+ * on. That is all this checks of the wording — whether a message also says
+ * how to fix the problem is left to each module's own tests. `COMPAT_CASES`
+ * spreads `LABEL_CASES`, so both corpora are held to it.
+ *
  * Every case goes through `render()` rather than through a parser, for the
  * same reason: a wrong picture is only visible in the result.
  */
@@ -49,6 +56,13 @@ const anyCase = (over: Partial<CompatCase>): CompatCase => ({
  * is a comment.
  */
 function violationOf(entry: CompatCase, result: SirenRenderResult): string | null {
+  const namesMermaid = result.diagnostics.find((d) => /mermaid/i.test(d.message));
+  if (namesMermaid !== undefined) {
+    return (
+      `${entry.id} reported a diagnostic that names Mermaid — ` +
+      `${namesMermaid.severity}: ${namesMermaid.message} Reword it without Mermaid's name.`
+    );
+  }
   if (entry.status === "supported") {
     if (entry.assert === undefined) {
       return (
@@ -173,37 +187,37 @@ describe("the runner's verdict on a `supported` entry", () => {
 
   it("passes a `supported` entry whose only diagnostics are the warnings it declares", () => {
     const violation = violationOf(
-      anyCase({ status: "supported", assert: () => {}, warnings: ["Drawn as Mermaid draws it"] }),
-      rendered([{ severity: "warning", message: "Drawn as Mermaid draws it" }]),
+      anyCase({ status: "supported", assert: () => {}, warnings: ["Drawn with the default curve"] }),
+      rendered([{ severity: "warning", message: "Drawn with the default curve" }]),
     );
     expect(violation).toBeNull();
   });
 
   it("fails a `supported` entry whose declared warning was not reported", () => {
     const violation = violationOf(
-      anyCase({ status: "supported", assert: () => {}, warnings: ["Drawn as Mermaid draws it"] }),
+      anyCase({ status: "supported", assert: () => {}, warnings: ["Drawn with the default curve"] }),
       rendered(),
     );
-    expect(violation).toMatch(/Drawn as Mermaid draws it/);
+    expect(violation).toMatch(/Drawn with the default curve/);
   });
 
   it("still fails a `supported` entry on an error, or on a warning it did not declare", () => {
-    const declared = { status: "supported" as const, assert: () => {}, warnings: ["Drawn as Mermaid draws it"] };
+    const declared = { status: "supported" as const, assert: () => {}, warnings: ["Drawn with the default curve"] };
     const error = violationOf(
       anyCase(declared),
       rendered([
-        { severity: "warning", message: "Drawn as Mermaid draws it" },
-        { severity: "error", message: "Drawn as Mermaid draws it" },
+        { severity: "warning", message: "Drawn with the default curve" },
+        { severity: "error", message: "Drawn with the default curve" },
       ]),
     );
     const otherWarning = violationOf(
       anyCase(declared),
       rendered([
-        { severity: "warning", message: "Drawn as Mermaid draws it" },
+        { severity: "warning", message: "Drawn with the default curve" },
         { severity: "warning", message: "Node redeclared" },
       ]),
     );
-    expect(error).toMatch(/error: Drawn as Mermaid draws it/);
+    expect(error).toMatch(/error: Drawn with the default curve/);
     expect(otherWarning).toMatch(/Node redeclared/);
   });
 });
@@ -263,6 +277,29 @@ describe("the runner's verdict on a `silently-wrong` entry", () => {
     );
     expect(violation).toMatch(/expected \["\(DB\)"\], got \["DB"\]/);
   });
+});
+
+describe("the runner's verdict on any entry's diagnostic wording", () => {
+  // A diagnostic states the cause and how to fix it, and never names
+  // Mermaid: the reader is fixing their own document, and another tool's
+  // name is nothing they can act on. Checked whatever the status, so a
+  // `rejected` row's error and a `supported` row's declared warning are held
+  // to it as well.
+  for (const [status, diagnostic] of [
+    ["rejected", { severity: "error", message: "Mermaid does not allow this here" }],
+    ["supported", { severity: "warning", message: "Drawn as mermaid draws it" }],
+  ] as const) {
+    it(`fails a \`${status}\` entry whose diagnostic names Mermaid, quoting that diagnostic`, () => {
+      const violation = violationOf(
+        anyCase({ status, assert: () => {}, warnings: [diagnostic.message] }),
+        rendered([diagnostic]),
+      );
+      expect(violation).toBe(
+        `probe reported a diagnostic that names Mermaid — ${diagnostic.severity}: ${diagnostic.message} ` +
+          "Reword it without Mermaid's name.",
+      );
+    });
+  }
 });
 
 describe("the corpus, case by case", () => {

@@ -80,10 +80,11 @@ export function readFrontmatter(text: string): FrontmatterRead {
   const openingFence = { line: 1, column: match.indent.length + 1 };
   // Where Mermaid throws, it draws nothing; so does this, as a diagnostic
   // rather than a throw, and the document is read no further.
-  const refuse = (why: string): FrontmatterRead => ({
+  // `why` is what is wrong, `until` what would let the document be drawn.
+  const refuse = (why: string, until: string): FrontmatterRead => ({
     source: text,
     config: {},
-    diagnostics: [{ severity: "error", message: `${why}; Mermaid refuses the document too.`, ...openingFence }],
+    diagnostics: [{ severity: "error", message: `${why}; the document is not drawn until ${until}.`, ...openingFence }],
     position: openingFence,
   });
   let loaded: unknown;
@@ -91,7 +92,7 @@ export function readFrontmatter(text: string): FrontmatterRead {
     loaded = load(yamlBody, { schema: JSON_SCHEMA });
   } catch (error) {
     const reason = error instanceof YAMLException ? error.reason : String(error);
-    return refuse(`Frontmatter is not valid YAML (${reason})`);
+    return refuse(`Frontmatter is not valid YAML (${reason})`, "the frontmatter is valid YAML");
   }
   const parsed = asMapping(loaded);
   const config = isMapping(parsed.config) ? parsed.config : {};
@@ -102,10 +103,16 @@ export function readFrontmatter(text: string): FrontmatterRead {
     // takes no property, and Mermaid's assignment to it throws ("Cannot
     // create property 'displayMode' on boolean 'true'", measured on 12.2.0).
     if (isScalar(parsed.config)) {
-      return refuse("Frontmatter displayMode cannot be written into config, which is not a mapping");
+      return refuse(
+        "Frontmatter displayMode cannot be written into config, which is not a mapping",
+        "config is a mapping or displayMode is removed",
+      );
     }
     if (isScalar(config.gantt)) {
-      return refuse("Frontmatter displayMode cannot be written into config.gantt, which is not a mapping");
+      return refuse(
+        "Frontmatter displayMode cannot be written into config.gantt, which is not a mapping",
+        "config.gantt is a mapping or displayMode is removed",
+      );
     }
     const gantt = isMapping(config.gantt) ? config.gantt : {};
     gantt.displayMode = String(parsed.displayMode);
@@ -299,8 +306,8 @@ const MERMAID_DIAGRAM_TYPE: Record<DiagramKind, string> = {
 };
 
 const INIT_NOT_JSON =
-  "Init directive is not valid JSON; Mermaid then ignores every init directive in the document, " +
-  "and so does Siren — the diagram is drawn without them.";
+  "Init directive is not valid JSON, so every init directive in the document is ignored and " +
+  "the diagram is drawn without them; every init directive must be valid JSON for any of them to apply.";
 
 /** Mermaid's `detectInit` type test: a type word holding `init` or `initialize` at a word's end. */
 const INIT_TYPE = /(?:init\b)|(?:initialize\b)/;
@@ -359,7 +366,8 @@ export function readDirectives(text: string): DirectivesRead {
       severity: "error",
       message:
         `Wrap directive cannot be written into the init directive "${String(inits[0]!.args)}", ` +
-        "which is not a mapping; Mermaid refuses the document too.",
+        "which is not a mapping; the document is not drawn until that init directive is a mapping, " +
+        'such as {"theme": "dark"}, or the wrap directive is removed.',
       ...wrap.position,
     };
     return { source, init: undefined, wrap: undefined, positions: new Map(), diagnostics: [refusal] };
@@ -555,10 +563,17 @@ function define(target: object, key: string, value: unknown): void {
 /**
  * The warning for a directive Mermaid finds and removes but takes nothing
  * from: a type it has no reading for, or a wrap directive that ends up saying
- * nothing.
+ * nothing — a lone one whose type is not exactly `wrap`, or any wrap
+ * directive at all once one of them has arguments that are not JSON. That
+ * last case reaches a well-formed `%%{wrap}%%` too, so the fix names the
+ * rule rather than only "remove it", which would be wrong advice there.
  */
 function removedUnread(type: string): string {
-  return `Directive "${type}" is removed unread, as Mermaid removes it; the diagram is drawn without it.`;
+  return (
+    `Directive "${type}" is removed unread; the diagram is drawn without it. ` +
+    "Only init and wrap directives are read, and wrap directives only while every wrap directive's " +
+    "arguments are valid JSON; remove this directive or rewrite it to be read."
+  );
 }
 
 /** `diagnostics` by line and then column, those at one place in the order given. */
