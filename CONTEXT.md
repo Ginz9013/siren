@@ -1179,6 +1179,16 @@ the third sense of that word in this codebase after the class-diagram box and th
 classes — say "the apply-directive" for the statement, and see **Class**), link style (two words —
 `linkStyle` is a directive spelled one way)
 
+**Comment**:
+A whole line whose first non-blank characters are `%%` followed by at least one more character;
+it is removed before any diagram is read and draws nothing. A `%%` anywhere else on a line is not a
+comment by itself: where the line holds text (a label, a message, a description, a member, a
+participant's name) it is part of that text; where the grammar has no room for it the line is
+refused; and only where a diagram kind's own grammar reads one (a state transition, a class
+relationship on the document's last line) is the rest of the line a comment. A line of nothing
+but `%%` is refused in a flowchart or ER diagram ([ADR-0017](docs/adr/0017-a-siren-document-without-its-timeline-is-mermaid.md)).
+_Avoid_: end-of-line comment, trailing comment (Mermaid has no such general construct), remark
+
 **Document config**:
 The settings a Mermaid document carries about itself: its frontmatter (`config`, plus `title` and
 `displayMode`) and its `%%{init}%%` directives, merged as Mermaid merges them, with `init` winning
