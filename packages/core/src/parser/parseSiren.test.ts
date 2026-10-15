@@ -3704,4 +3704,43 @@ describe("a `%%` in the middle of a sequence line", () => {
     expect(commented.diagnostics).toEqual([]);
     expect(commented).toEqual(plain);
   });
+
+  it("refuses a `%%` written right after a one-character name where the lexer reads a name, at its `%%`", () => {
+    // The sequence lexer's `[^\}]%%[^\n]*` rule fires where a name starts:
+    // a name of one character followed at once by `%%` is a comment from that
+    // character on. Measured: `A->>B%% zz: m`, `A->>B%%zz: m`, `A->>+B%%x: m`,
+    // `note over A%%x: n`, `note over A,B%%x: n` are parse errors and
+    // `destroy B%%x` is refused ("The destroyed participant undefined …");
+    // `A%%x->>B: m` is accepted and draws nothing for the line — a wrong
+    // picture with no diagnostic, which Siren refuses (ADR-0001).
+    for (const [body, line, column] of [
+      ["  A->>B%% zz: m", 2, 8],
+      ["  A->>B%%zz: m", 2, 8],
+      ["  A->>+B%%x: m", 2, 9],
+      ["  A%%x->>B: m", 2, 4],
+      ["  A->>B: m\n  note over A%%x: n", 3, 14],
+      ["  A->>B: m\n  note over A,B%%x: n", 3, 16],
+      ["  A->>B: m\n  destroy B%%x\n  A->>B: n", 3, 12],
+    ] as const) {
+      const { document, diagnostics } = parseSiren(`sequenceDiagram\n${body}`);
+
+      expect([body, document]).toEqual([body, null]);
+      expect([body, diagnostics]).toEqual([body, [{ severity: "error", message: NOT_A_COMMENT, line, column }]]);
+    }
+  });
+
+  it("reads a `%%` written right after a longer name, or after a space, as part of the name", () => {
+    // Measured: `A->>BC%% zz: m` sends to "BC%% zz", `AB%%x->>B: m` sends
+    // from "AB%%x", `note over AB%%x: n` stands over "AB%%x", and
+    // `destroy BC%%x` then `A->>BC%%x: n` destroys "BC%%x".
+    const named = (body: string) =>
+      sequenceOk(body).statements.map((s) =>
+        s.kind === "message" || s.kind === "note" ? [s.from, s.to] : s.kind === "destroy" ? [s.id] : [],
+      );
+
+    expect(named("  A->>BC%% zz: m")).toEqual([["A", "BC%% zz"]]);
+    expect(named("  AB%%x->>B: m")).toEqual([["AB%%x", "B"]]);
+    expect(named("  note over AB%%x: n")).toEqual([["AB%%x", "AB%%x"]]);
+    expect(named("  A->>B: m\n  destroy BC%%x\n  A->>BC%%x: n")).toEqual([["A", "B"], ["BC%%x"], ["A", "BC%%x"]]);
+  });
 });

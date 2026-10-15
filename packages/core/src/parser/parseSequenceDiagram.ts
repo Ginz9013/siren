@@ -26,6 +26,7 @@ import { readLabelAt, readTextAt } from "../label/readLabelAt";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
 import { readAccDescrBlock } from "./readAccDescrBlock";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
+import { midLinePercentError } from "./midLinePercent";
 
 /**
  * The header this parser accepts, asked for by kind rather than written out
@@ -73,7 +74,8 @@ const COMMENT_AFTER_KEYWORDS = /\s*%%.*$/;
  * rule of the sequence lexer that reads text — a message's or note's text, a
  * label, a name, a title — stops at a `;`, so a `%%` after one stands where a
  * token ends and is read as a comment by the lexer's own `%%` rules
- * (`A->>B: hi; %% x` records "hi", measured). The `accTitle:` and
+ * (`A->>B: hi; %% x` and `A->>B: hi;%% x` both record "hi", measured — so
+ * any spaces between, `\s*`). The `accTitle:` and
  * `accDescr:` lines are the exception: their rule reads to the line's end,
  * `;` and `%%` included.
  */
@@ -85,11 +87,12 @@ function withoutCommentAfterSemicolon(line: string): string {
 const ACC_LINE_RE = /^acc(?:Title|Descr)\s*:/i;
 /**
  * `participant <id>`, `actor <id>`, either with an `as <alias>`. The id is a
- * word, or a word and a `%%` with everything after it:
- * once `participant` has started a name, Mermaid 12.2.0's lexer reads it to
- * the line's end, `%%` included, so `participant A %% x` declares "A %% x"
- * and `participant A %% x as Al` declares "A %% x as Al" (measured). Only a
- * plain word takes an alias.
+ * word, or a word and a `%%` with everything after it, with or without a
+ * space before the `%%` (`\s*`): once `participant` has started a name,
+ * Mermaid 12.2.0's lexer reads it to the line's end, `%%` included, so
+ * `participant A %% x` declares "A %% x", `participant A%%x` declares
+ * "A%%x", and `participant A %% x as Al` declares "A %% x as Al" (measured).
+ * Only a plain word takes an alias.
  */
 const PARTICIPANT_RE = /^(participant|actor)\s+(\w+(?=\s+as\s)|\w+(?:\s*%%.*)?)(?:\s+as\s+(.+?))?\s*$/di;
 /**
@@ -113,9 +116,10 @@ const ACC_DESCR_RE = /^accDescr\s*:\s*(.+)$/i;
 const ACC_DESCR_BLOCK_RE = /^accDescr\s*\{/i;
 /**
  * `link A: Label @ url` — a navigable link on a participant, Mermaid's own
- * spelling for this diagram kind. A `%%` after the url is part of it:
- * Mermaid 12.2.0 records `link A: D @ https://x.org %% x` as the url
- * "https://x.org %% x" (measured).
+ * spelling for this diagram kind. A `%%` after the url is part of it, after
+ * a space (`\s+`) or run into it (`\S+` holds it): Mermaid 12.2.0 records
+ * `link A: D @ https://x.org %% x` as the url "https://x.org %% x" and
+ * `link A: D @ https://x.org%%x` as "https://x.org%%x" (measured).
  */
 const LINK_RE = /^link\s+(\w+)\s*:\s*(.+?)\s*@\s*(\S+(?:\s+%%.*)?)$/i;
 /**
@@ -126,17 +130,20 @@ const LINK_RE = /^link\s+(\w+)\s*:\s*(.+?)\s*@\s*(\S+(?:\s+%%.*)?)$/i;
 const LINKS_RE = /^links\s+(\w+)\s*:\s*(.*)$/i;
 /**
  * The lone participant id argument of a `destroy` statement: a word, or a
- * word and a `%%` with everything after it — `destroy B %% x` destroys
- * "B %% x", as `participant B %% x` declares it (measured on Mermaid 12.2.0).
+ * word and a `%%` with everything after it, with or without a space before
+ * the `%%` (`\s*`) — `destroy B %% x` destroys "B %% x" and `destroy BC%%x`
+ * destroys "BC%%x" (measured on Mermaid 12.2.0). `destroy B%%x`, a
+ * one-character word run into its `%%`, is a comment to Mermaid's lexer and
+ * is refused (`lexerCommentIn`).
  */
 const DESTROY_ID_RE = /^(\w+(?:\s*%%.*)?)$/;
 
 /**
  * The raw color argument to a `rect` block: `rgb(...)` or `rgba(...)`,
- * unvalidated beyond shape. A `%%` after it is captured to be refused:
- * Mermaid 12.2.0 keeps it in the color (`rect rgb(0,0,0) %% x` fills the
- * block with "rgb(0,0,0) %% x", which is not a color — measured), so the
- * block is not drawn in the color written.
+ * unvalidated beyond shape. A `%%` after it, with or without a space
+ * (`\s*`), is captured to be refused: Mermaid 12.2.0 keeps it in the color
+ * (`rect rgb(0,0,0) %% x` fills the block with "rgb(0,0,0) %% x", which is
+ * not a color — measured), so the block is not drawn in the color written.
  */
 const RECT_COLOR_RE = /^(rgba?\([^()]*\))(\s*%%.*)?$/d;
 
@@ -186,8 +193,11 @@ const ARROW_ALTERNATION = ARROW_TOKENS.map((a) => escapeRegExp(a.token)).join("|
  * `stops`. Mermaid 12.2.0's lexer reads a name there as a run of characters
  * that are not punctuation, `%` and spaces among them, so `A->>B %% x: m`
  * sends to "B %% x" and `note over A %% x: n` stands over "A %% x"
- * (measured). A name without a `%%` is still a word, as it always was here.
- * The match may end in spaces; the statement trims them.
+ * (measured). The `%%` may follow the word with or without a space (`\s*`):
+ * `A->>BC%%x: m` sends to "BC%%x" — except after a one-character word,
+ * where the lexer reads a comment instead, which the statement refuses
+ * (`lexerCommentIn`). A name without a `%%` is still a word, as it always was
+ * here. The match may end in spaces; the statement trims them.
  */
 function nameUpTo(stops: string): string {
   return String.raw`\w+(?:\s*%%[^${stops}]*?)?`;
@@ -225,14 +235,16 @@ const ACTIVATION_MESSAGE_RE = new RegExp(
 );
 /**
  * `activate X` / `deactivate X` — the long form of the same activation bar.
- * A `%%` after the id is captured to be refused (`refuseMidLinePercent`):
- * Mermaid 12.2.0 reads `deactivate B %% x` as deactivating "B %% x" and
- * refuses the document ("Trying to inactivate an inactive participant"),
- * and reads `activate B %% x` as activating "B %% x", which no lane has,
- * and fails to draw the diagram (measured).
+ * Mermaid 12.2.0 reads the id to the line's end, `%%` included, with or
+ * without a space before it (`\s*`): `activate B %% x` and `activate B%%x`
+ * both activate a participant named so (measured). That is a participant
+ * only if one by that name is already known (`ParserState.knownNames`);
+ * otherwise the `%%` is refused (`refuseMidLinePercent`), since Mermaid
+ * refuses `deactivate B %% x` ("Trying to inactivate an inactive
+ * participant") and fails to draw `activate B %% x` (measured).
  */
-const ACTIVATE_RE = /^activate\s+(\w+)(\s*%%.*)?$/di;
-const DEACTIVATE_RE = /^deactivate\s+(\w+)(\s*%%.*)?$/di;
+const ACTIVATE_RE = /^activate\s+(\w+(?:\s*%%.*)?)$/di;
+const DEACTIVATE_RE = /^deactivate\s+(\w+(?:\s*%%.*)?)$/di;
 /**
  * `note over A,B: text` / `note over A: text` / `note right of A: text` /
  * `note left of A: text`. The participant-list group is `[\w,]+` rather
@@ -247,17 +259,8 @@ const NOTE_RE = new RegExp(
 );
 
 /**
- * What a sequence diagram says about a `%%` in the middle of a line where
- * Mermaid has no reading of it that draws: the same words a flowchart says
- * it in (CONTEXT.md **Comment**: only a whole line is a comment).
- */
-const MID_LINE_PERCENT_MESSAGE =
-  'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
-  "If it is a comment, move it to a line of its own.";
-
-/**
- * Refuses the `%%` that `match`'s group `group` begins with (after any
- * spaces), at that `%%`. `column` is where the matched line begins.
+ * Refuses the first `%%` in `match`'s group `group`, at that `%%`. `column`
+ * is where the matched line begins.
  */
 function refuseMidLinePercent(
   state: ParserState,
@@ -266,13 +269,54 @@ function refuseMidLinePercent(
   line: number,
   column: number,
 ): void {
-  state.diagnostics.push({
-    severity: "error",
-    message: MID_LINE_PERCENT_MESSAGE,
-    line,
-    column: column + match.indices![group]![0] + match[group]!.indexOf("%%"),
-  });
+  refuseMidLinePercentAt(state, line, column + match.indices![group]![0] + match[group]!.indexOf("%%"));
+}
+
+/** Refuses a mid-line `%%` at `line`:`column`; the document is not drawn. */
+function refuseMidLinePercentAt(state: ParserState, line: number, column: number): void {
+  state.diagnostics.push(midLinePercentError(line, column));
   state.sawError = true;
+}
+
+/**
+ * Where a name read in the sequence lexer's main state starts a comment
+ * instead: the offset of the `%%` in `name` when `name` is one character
+ * followed at once by `%%`, else `null`. Mermaid 12.2.0's `[^\}]%%[^\n]*`
+ * rule is tried before its name rule wherever a token starts, so `B%%x`
+ * there is a comment from the `B` on, while `BC%%x` and `B %%x` are names
+ * (measured: `A->>B%%x: m`, `note over A%%x: n` and `destroy B%%x` are
+ * refused, `A%%x->>B: m` draws nothing for its line, and `A->>BC%%x: m`
+ * sends to "BC%%x"). Siren refuses each such `%%` (ADR-0017, and ADR-0001
+ * for the line Mermaid drops in silence). It holds for a message's sender
+ * and receiver, a note's participants and `destroy` — not for `participant`,
+ * `actor`, `activate` or `deactivate`, whose names the lexer reads in
+ * another state, `%%` and all.
+ */
+function lexerCommentIn(name: string): number | null {
+  return /^\w%%/.test(name) ? 1 : null;
+}
+
+/**
+ * Refuses the first of `match`'s name groups `groups` that starts a comment
+ * (`lexerCommentIn`), and steps past the line; whether one did. `column` is
+ * where the matched line begins.
+ */
+function refusedNameComment(
+  state: ParserState,
+  match: RegExpExecArray,
+  groups: readonly number[],
+  line: number,
+  column: number,
+): boolean {
+  for (const group of groups) {
+    const at = lexerCommentIn(match[group]!);
+    if (at !== null) {
+      refuseMidLinePercentAt(state, line, column + match.indices![group]![0] + at);
+      state.index++;
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -312,6 +356,12 @@ interface ParserState {
   readonly diagnostics: Diagnostic[];
   readonly participants: SequenceParticipantDecl[];
   readonly participantIds: Set<string>;
+  /**
+   * Every name Mermaid has a participant for so far: declared, created, or
+   * named by a message's end or a note. `activate`/`deactivate` of a name
+   * holding a `%%` is read only for one of these (`ACTIVATE_RE`).
+   */
+  readonly knownNames: Set<string>;
   readonly boxes: SequenceBox[];
   sawError: boolean;
   title: string | null;
@@ -498,6 +548,7 @@ function declareParticipant(
   const label =
     alias !== undefined ? readLabelInto(state, declMatch, 3, matchedAt) : plainLabel(id);
 
+  state.knownNames.add(id);
   if (state.participantIds.has(id)) {
     state.diagnostics.push({
       severity: "warning",
@@ -616,6 +667,12 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
         state.index++;
         continue;
       }
+      const commentAt = lexerCommentIn(idMatch[1]);
+      if (commentAt !== null) {
+        refuseMidLinePercentAt(state, lineNumber, column + destroyMatch.restIndex + commentAt);
+        state.index++;
+        continue;
+      }
       // No check that the id was declared: an undeclared id is a participant
       // created by this mention, which `buildSequenceModel` resolves (ADR-0013).
       statements.push({ kind: "destroy", id: idMatch[1], line: lineNumber, column });
@@ -690,7 +747,9 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
     const messageMatch = MESSAGE_RE.exec(line);
     if (messageMatch !== null) {
       const [, sender, arrowToken, receiver] = messageMatch;
+      if (refusedNameComment(state, messageMatch, [1, 3], lineNumber, column)) continue;
       const [from, to] = [sender.trimEnd(), receiver.trimEnd()];
+      state.knownNames.add(from).add(to);
       const arrowDef = ARROW_TOKENS.find((a) => a.token === arrowToken);
       // arrowDef is always found: arrowToken can only be one of ARROW_TOKENS'
       // own tokens, since it is exactly what the alternation matched.
@@ -710,7 +769,9 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
     const activationMatch = ACTIVATION_MESSAGE_RE.exec(line);
     if (activationMatch !== null) {
       const [, sender, arrowToken, marker, receiver] = activationMatch;
+      if (refusedNameComment(state, activationMatch, [1, 4], lineNumber, column)) continue;
       const [from, to] = [sender.trimEnd(), receiver.trimEnd()];
+      state.knownNames.add(from).add(to);
       const arrowDef = ARROW_TOKENS.find((a) => a.token === arrowToken);
       statements.push({
         kind: "message",
@@ -735,8 +796,8 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
 
     const activateMatch = ACTIVATE_RE.exec(line);
     if (activateMatch !== null) {
-      if (activateMatch[2] !== undefined) {
-        refuseMidLinePercent(state, activateMatch, 2, lineNumber, column);
+      if (activateMatch[1].includes("%%") && !state.knownNames.has(activateMatch[1])) {
+        refuseMidLinePercent(state, activateMatch, 1, lineNumber, column);
       } else {
         statements.push({ kind: "activate", id: activateMatch[1], line: lineNumber, column });
       }
@@ -746,8 +807,8 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
 
     const deactivateMatch = DEACTIVATE_RE.exec(line);
     if (deactivateMatch !== null) {
-      if (deactivateMatch[2] !== undefined) {
-        refuseMidLinePercent(state, deactivateMatch, 2, lineNumber, column);
+      if (deactivateMatch[1].includes("%%") && !state.knownNames.has(deactivateMatch[1])) {
+        refuseMidLinePercent(state, deactivateMatch, 1, lineNumber, column);
       } else {
         statements.push({ kind: "deactivate", id: deactivateMatch[1], line: lineNumber, column });
       }
@@ -758,7 +819,23 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
     const noteMatch = NOTE_RE.exec(line);
     if (noteMatch !== null) {
       const [, keyword, participantList] = noteMatch;
+      let offset = noteMatch.indices![2]![0];
+      let commentAt: number | null = null;
+      for (const name of participantList.split(",")) {
+        const at = lexerCommentIn(name);
+        if (at !== null) {
+          commentAt = offset + at;
+          break;
+        }
+        offset += name.length + 1;
+      }
+      if (commentAt !== null) {
+        refuseMidLinePercentAt(state, lineNumber, column + commentAt);
+        state.index++;
+        continue;
+      }
       const ids = participantList.split(",").map((id) => id.trim());
+      for (const id of ids) state.knownNames.add(id);
       // Mermaid reads the keyword and its position words in any case
       // (`Note LEFT OF A` draws on the left), so the position is lowercased
       // before it is read.
@@ -1123,6 +1200,7 @@ export function parseSequenceDiagram(source: string): DiagramParseResult {
     diagnostics,
     participants: [],
     participantIds: new Set<string>(),
+    knownNames: new Set<string>(),
     boxes: [],
     sawError: false,
     title: null,

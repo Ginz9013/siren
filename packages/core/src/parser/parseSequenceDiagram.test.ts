@@ -1429,4 +1429,25 @@ describe("parseSequenceDiagram — a `%%` in a participant's name", () => {
     ]);
     expect(lifelines("  A->>B: m\n  destroy B %% zz\n  A->>B %% zz: n")).toEqual([["destroy", "B %% zz"]]);
   });
+
+  it("reads `activate` and `deactivate` of a name with a `%%` as that participant, when it is already known", () => {
+    // Measured: after `participant B %% x` (or a message to "B %% x"),
+    // `activate B %% x` and `deactivate B %% x` record the activation on
+    // that lane and Mermaid draws it.
+    const activations = (source: string) =>
+      parseOk(`sequenceDiagram\n${source}`, parseSiren).document.statements.flatMap((s) =>
+        s.kind === "activate" || s.kind === "deactivate" ? [[s.kind, s.id]] : [],
+      );
+
+    expect(
+      activations("  participant B %% x\n  A->>B %% x: m\n  activate B %% x\n  B %% x->>A: r\n  deactivate B %% x"),
+    ).toEqual([
+      ["activate", "B %% x"],
+      ["deactivate", "B %% x"],
+    ]);
+    expect(activations("  A->>B %% x: m\n  activate B %% x\n  deactivate B %% x")).toEqual([
+      ["activate", "B %% x"],
+      ["deactivate", "B %% x"],
+    ]);
+  });
 });

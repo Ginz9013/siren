@@ -25,6 +25,7 @@ import { parseStyleProperties } from "./parseDeclarationList";
 import { readAccDescrBlock } from "./readAccDescrBlock";
 import { listAcceptedHeaders, matchClassDirection, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
+import { MID_LINE_PERCENT_MESSAGE } from "./midLinePercent";
 
 /**
  * The headers this parser accepts — its own kind's and no other's, because
@@ -1131,17 +1132,6 @@ function splitStatements(rawLine: string): { text: string; column: number }[] {
   }
   return statements;
 }
-
-/**
- * What a flowchart says about a `%%` written in the middle of a line where
- * the line holds no text for it to be part of. CONTEXT.md's **Comment**: only
- * a whole line is a comment, and Mermaid 12.2.0's flowchart grammar refuses a
- * `%%` that follows a complete statement (`A --> B %% x` is "Expecting
- * 'SEMI', 'NEWLINE', 'EOF', … got 'NODE_STRING'", measured).
- */
-const MID_LINE_PERCENT_MESSAGE =
-  'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
-  "If it is a comment, move it to a line of its own.";
 
 /**
  * Where in `text` a `%%` stands outside every piece of text the statement

@@ -25,8 +25,9 @@ Breaking for a flowchart document with a `%%` after a statement on the same line
 (`A --> B %% note`), which is now refused (see **Changed**).
 
 Breaking for a sequence document with a `%%` after the participant of an `activate` or
-`deactivate`, or after a `rect`'s color, on the same line (`deactivate B %% note`), which is now
-refused (see **Changed**).
+`deactivate` that names no participant known by then (`deactivate B %% note`), after a `rect`'s
+color, or right after a one-character `destroy` participant (`destroy B%%note`), on the same line,
+which is now refused (see **Changed**).
 
 ### Added
 
@@ -127,11 +128,18 @@ refused (see **Changed**).
   the same way (`A->>B %% x: m` is sent to "B %% x"). A `links` object followed by `%%` is no
   longer JSON, so it adds no link, with a warning, as in Mermaid. A `%%` after the header, after
   `end`, `autonumber` or `autonumber off`, or after a `;` is still a comment, as Mermaid's lexer
-  reads it there. After an `activate` or `deactivate` participant, or after a `rect`'s color, the
-  document is refused with an error at the `%%` saying it is not a comment and, if it is meant as
-  one, to move it to a line of its own: Mermaid refuses `deactivate B %% x` ("Trying to inactivate
-  an inactive participant"), fails to draw `activate B %% x`, and fills `rect rgb(0,0,0) %% x` with
-  a color that is not one. Timeline blocks still cut a line at its first `%%`.
+  reads it there. `activate` and `deactivate` read their participant's name with its `%%` too
+  when a participant of that name is already known (declared, created, or named by an earlier
+  message or note); otherwise the document is refused with an error at the `%%` saying it is not a
+  comment and, if it is meant as one, to move it to a line of its own, as Mermaid refuses
+  `deactivate B %% x` ("Trying to inactivate an inactive participant") and fails to draw
+  `activate B %% x`. The same error refuses a `%%` after a `rect`'s color, which Mermaid fills with a
+  color that is not one, and a `%%` written right after a one-character name where Mermaid's lexer
+  reads it as a comment from that character on: a message's sender or receiver, a note's
+  participant or a `destroy` (`A->>B%%x: m`, `note over A%%x: n` and `destroy B%%x` are refused by
+  Mermaid, and `A%%x->>B: m` draws nothing for its line). A longer name, or a `%%` after a space,
+  is part of the name (`A->>BC%%x: m` is sent to "BC%%x"). Timeline blocks still cut a line at its
+  first `%%`.
 
 - **A sequence `create participant X` draws X's box on its creating message**: the message right
   after it, which must be sent to X (nook `01M4YS7DMG`). X's box is now centred on that message's
