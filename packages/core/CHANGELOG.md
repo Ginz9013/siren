@@ -113,10 +113,14 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
 ### Changed
 
 - **Diagnostic messages no longer mention Mermaid** (nook `01M4ZJZ3FT`). Each says what is wrong
-  and how to fix it. Reworded: a frontmatter refusal now ends "the document is not drawn until the
-  frontmatter is fixed"; a wrap directive that cannot be written into a non-mapping init asks for
-  a mapping or for the wrap directive to be removed; an init that is not valid JSON says every init
-  is ignored and asks for its JSON to be fixed; a removed directive drops "as Mermaid removes it";
+  and how to fix it. Reworded: frontmatter that is not YAML is refused "until the frontmatter is
+  valid YAML", and a `displayMode` that cannot be written into a non-mapping `config` or
+  `config.gantt` is refused until that key is a mapping or `displayMode` is removed; a wrap
+  directive that cannot be written into a non-mapping init asks for a mapping or for the wrap
+  directive to be removed; an init that is not valid JSON says every init is ignored and that every
+  init must be valid JSON for any to apply; a removed directive drops "as Mermaid removes it" and
+  says only init and wrap directives are read, wrap ones only while every wrap directive's
+  arguments are valid JSON, so remove the directive or rewrite it to be read;
   an ER class-list number or reserved word says the line is refused and asks to rename the class;
   an `<img>` in a label points at `A@{ img: "…" }` directly; a `linkStyle interpolate` curve Siren
   does not draw is now "a curve Siren does not draw yet" and lists the curves it does, and an

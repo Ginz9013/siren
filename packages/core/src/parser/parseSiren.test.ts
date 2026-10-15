@@ -2927,7 +2927,7 @@ describe("a document's frontmatter", () => {
             severity: "error",
             message:
               `Frontmatter displayMode cannot be written into ${where}, which is not a mapping; ` +
-              "the document is not drawn until the frontmatter is fixed.",
+              `the document is not drawn until ${where} is a mapping or displayMode is removed.`,
             line: 1,
             column: 1,
           },
@@ -2947,7 +2947,7 @@ describe("a document's frontmatter", () => {
           severity: "error",
           message:
             "Frontmatter is not valid YAML (unexpected end of the stream within a flow collection); " +
-            "the document is not drawn until the frontmatter is fixed.",
+            "the document is not drawn until the frontmatter is valid YAML.",
           line: 1,
           column: 1,
         },
@@ -3213,7 +3213,7 @@ describe("a document's directives", () => {
         severity: "warning",
         message:
           "Init directive is not valid JSON, so every init directive in the document is ignored and " +
-          "the diagram is drawn without them; fix this directive's JSON to apply them.",
+          "the diagram is drawn without them; every init directive must be valid JSON for any of them to apply.",
         line: 2,
         column: 3,
       },
@@ -3253,16 +3253,37 @@ describe("a document's directives", () => {
     expect(diagnostics).toEqual([
       {
         severity: "warning",
-        message: 'Directive "foo" is removed unread; the diagram is drawn without it.',
+        message:
+          'Directive "foo" is removed unread; the diagram is drawn without it. ' +
+          "Only init and wrap directives are read, and wrap directives only while every wrap directive's " +
+          "arguments are valid JSON; remove this directive or rewrite it to be read.",
         line: 1,
         column: 1,
       },
       {
         severity: "warning",
-        message: 'Directive "bar" is removed unread; the diagram is drawn without it.',
+        message:
+          'Directive "bar" is removed unread; the diagram is drawn without it. ' +
+          "Only init and wrap directives are read, and wrap directives only while every wrap directive's " +
+          "arguments are valid JSON; remove this directive or rewrite it to be read.",
         line: 3,
         column: 11,
       },
+    ]);
+  });
+
+  it("removes every wrap directive unread when one's arguments are not JSON, and says how each would be read", () => {
+    // `wrapOf`: one wrap directive whose arguments do not parse leaves the
+    // config without `wrap`, so the readable `%%{wrap}%%` is removed unread
+    // too — the warning has to be true of it as well as of the broken one.
+    const { diagnostics } = parseSiren("%%{wrap}%%\n%%{wrap: {bad}}%%\nflowchart TB\n  A --> B");
+    const unread =
+      'Directive "wrap" is removed unread; the diagram is drawn without it. ' +
+      "Only init and wrap directives are read, and wrap directives only while every wrap directive's " +
+      "arguments are valid JSON; remove this directive or rewrite it to be read.";
+    expect(diagnostics).toEqual([
+      { severity: "warning", message: unread, line: 1, column: 1 },
+      { severity: "warning", message: unread, line: 2, column: 1 },
     ]);
   });
 

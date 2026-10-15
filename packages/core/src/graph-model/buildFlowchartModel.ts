@@ -486,6 +486,9 @@ function resolveCurves(
   return curves;
 }
 
+/** The fix both curve diagnostics end on: the names an `interpolate` can take. */
+const CURVES_SIREN_DRAWS = `Curves: ${CURVES.join(", ")}.`;
+
 /**
  * The curve an `interpolate` clause's name draws, diagnosing the two names
  * that are not one of Siren's `CURVES` differently:
@@ -506,7 +509,7 @@ function drawableCurve(
   if (isMermaidOnlyCurve(name)) {
     diagnostics.push({
       severity: "error",
-      message: `linkStyle interpolate "${name}" is a curve Siren does not draw yet; the edges it addresses keep their fallback curve. Curves: ${CURVES.join(", ")}.`,
+      message: `linkStyle interpolate "${name}" is a curve Siren does not draw yet; the edges it addresses keep their fallback curve. ${CURVES_SIREN_DRAWS}`,
       line,
       column,
     });
@@ -520,7 +523,7 @@ function drawableCurve(
     // so this is a picture Siren *can* match, and only a warning.
     diagnostics.push({
       severity: "warning",
-      message: `linkStyle interpolate "${name}" names no curve; drawing ${FLOWCHART_DEFAULT_CURVE}. Curves: ${CURVES.join(", ")}.`,
+      message: `linkStyle interpolate "${name}" names no curve; drawing ${FLOWCHART_DEFAULT_CURVE}. ${CURVES_SIREN_DRAWS}`,
       line,
       column,
     });
