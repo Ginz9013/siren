@@ -308,6 +308,8 @@ the user it hasn't been validated.
 | `create participant "X" comes after "X" is already used`     | Move the `create` above the first line that names X.                    |
 | `The created participant "X" has no creating message`       | Make the next message after `create participant X` one sent to X (`A->>X: ...`), with nothing in between. |
 | `The destroyed participant "X" has no destroying message`   | Make the next message after `destroy X` one sent by or to X, with nothing in between. |
+| `... has no creating message, so the create draws nothing` (warning) | Add a message sent to X right after `create participant X`, or make it a plain `participant X`. |
+| `... has no destroying message, so the destroy draws nothing` (warning) | Add a message sent by or to X right after `destroy X`, or remove the `destroy`. |
 | `timeline: references unknown id "X"`                       | Check the id against `--ids`. Use the node id, not its label.           |
 | `"highlight" on "X" at step N comes before it becomes visible` | Move the action to or after X's `enter` step.                        |
 | `edge "A-B" remains visible after its endpoint "B" exits`   | Add `exit A-B <effect>` at or before B's exit step.                     |

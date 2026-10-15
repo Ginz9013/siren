@@ -103,7 +103,8 @@ interface ResolutionState {
    * after the declaration, so a declaration with any other record in between
    * is accepted and then not drawn. Only the latest declaration can still be
    * uninterrupted; every earlier one carries what interrupted it. Emptied by
-   * every message.
+   * every message; what is left once the walk is over had no message after
+   * it at all, and is undone (`unpair`).
    */
   pending: PendingDeclaration[];
 }
@@ -164,6 +165,8 @@ interface DeclarationRule {
   addressee: string;
   pairs: (message: { from: string; to: string }, participantId: string) => boolean;
   extent: "createdAt" | "destroyedAt";
+  /** What the warning for a declaration no message came after goes on to say: where the lifeline is drawn instead, and how to pair it. */
+  unpaired: string;
 }
 
 const DECLARATION_RULES: Record<PendingDeclaration["kind"], DeclarationRule> = {
@@ -173,6 +176,7 @@ const DECLARATION_RULES: Record<PendingDeclaration["kind"], DeclarationRule> = {
     addressee: "sent to it",
     pairs: (message, participantId) => message.to === participantId,
     extent: "createdAt",
+    unpaired: "its lifeline starts at the top. A message sent to it right after the create starts it there.",
   },
   destroy: {
     participant: "destroyed",
@@ -180,6 +184,7 @@ const DECLARATION_RULES: Record<PendingDeclaration["kind"], DeclarationRule> = {
     addressee: "sent by or to it",
     pairs: (message, participantId) => message.from === participantId || message.to === participantId,
     extent: "destroyedAt",
+    unpaired: "its lifeline runs to the bottom. A message sent by or to it right after the destroy ends it there.",
   },
 };
 
@@ -220,6 +225,32 @@ function settle(
     column: pending.statement.column,
   });
   return null;
+}
+
+/**
+ * Undoes a `create` or `destroy` that no message came after, once the walk
+ * is over. Measured on Mermaid 12.2.0 (nook 01M4YWYFJ), such a declaration
+ * draws nothing: a `destroy`ed participant is drawn as never destroyed, and
+ * a `create`d one as any other participant is, from the diagram's top —
+ * which is what origin `declared` names.
+ */
+function unpair(declaration: PendingDeclaration, diagnostics: Diagnostic[]): void {
+  const { kind, participant, statement } = declaration;
+  const rule = DECLARATION_RULES[kind];
+  if (kind === "destroy") {
+    participant.destroyedAt = null;
+  } else {
+    participant.origin = "declared";
+    participant.createdAt = 0;
+  }
+  diagnostics.push({
+    severity: "warning",
+    message:
+      `The ${rule.participant} participant "${participant.id}" has no ${rule.message} message, ` +
+      `so the ${kind} draws nothing: ${rule.unpaired}`,
+    line: statement.line,
+    column: statement.column,
+  });
 }
 
 /**
@@ -271,6 +302,7 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
 
   const { statements } = resolveStatements(document.statements, participantsById, state);
   flushLinkMentions(Infinity, participantsById, state);
+  for (const declaration of state.pending) unpair(declaration, diagnostics);
 
   // A `link` targets a participant, not a message or a block — the same
   // narrower set `click`/`callback` resolve against on the other two kinds.
@@ -471,9 +503,11 @@ function resolveStatements(
       mention(statement.id, participantsById, state);
       // A lifeline can only end once: a second `destroy` has no truncation
       // point left to name, so it is an error and is dropped, keeping the
-      // first one's extent.
+      // first one's extent. A `destroy` still waiting for its message has
+      // ended nothing yet: with no message after either, neither draws.
       const participant = participantsById.get(statement.id)!;
-      if (participant.destroyedAt !== null) {
+      const waiting = state.pending.some((p) => p.kind === "destroy" && p.participant === participant);
+      if (participant.destroyedAt !== null && !waiting) {
         state.diagnostics.push({
           severity: "error",
           message: `destroy references participant "${statement.id}", whose lifeline already ended`,
@@ -485,9 +519,9 @@ function resolveStatements(
 
       // The lifeline stops here instead of running to the diagram's bottom —
       // for now. The next message moves the end onto its own row when X
-      // sends or receives it (the destroying message, below); with no
-      // message after it, the end stays where `destroy` is written, which is
-      // what Siren always drew.
+      // sends or receives it (the destroying message, below), or keeps it
+      // here when that message is refused; with no message after it at all,
+      // `unpair` takes the end away again once the walk is over.
       participant.destroyedAt = ++state.position;
       // It interrupts any `create` or `destroy` still waiting: measured on
       // Mermaid 12.2.0, `destroy B`, `destroy C`, `A-xC` ends C on `A-xC`
@@ -552,8 +586,8 @@ function resolveStatements(
       // Mermaid's own pairing would check only the latest declaration, and a
       // `create` before a `destroy`; refusing every interrupted one covers
       // each document Mermaid refuses too. With no message after it, an
-      // interrupted declaration is not refused: it then draws what one at
-      // the end of the document draws. The latest, uninterrupted
+      // interrupted declaration is not refused: like one at the end of the
+      // document, it draws nothing (`unpair`). The latest, uninterrupted
       // declaration is checked against this message as usual.
       const settledHere: Record<PendingDeclaration["kind"], string | null> = { create: null, destroy: null };
       for (const declaration of state.pending) {

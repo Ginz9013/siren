@@ -710,14 +710,18 @@ The dashed vertical line running down a participant's lane, spanning the extent 
 participant comes into existence and where it stops. A `create participant X` statement starts it
 partway down instead of at the top, at its **creating message**; a `destroy X` statement ends it
 early with an X mark instead of at the bottom, at its **destroying message**. A `create` or
-`destroy` with no message after it in the document starts or ends the lifeline where it is written.
+`destroy` with no message after it in the document has nothing to pair with and draws nothing, as
+in Mermaid: the participant is drawn from the top, or to the bottom, as if it were never written,
+and Siren warns about the declaration.
 
 **Creating message**:
 The message right after a `create participant X` statement; it must be sent *to* X. X's box is
 drawn where that message's arrow arrives, which is where X comes into existence. A `create` whose
 next message is not sent to X is refused, as Mermaid refuses it. Nothing may stand between the
 two: a note, an activation, an `autonumber`, a block boundary, or another `create` or `destroy` in
-between is refused too, because Mermaid then draws X as if it were never created.
+between is refused too, because Mermaid then draws X as if it were never created. With no message
+after the `create` at all, X is drawn as any declared participant is — box in the top row and the
+bottom row — and the `create` is warned about.
 _Avoid_: create message, first message (any participant has one), constructor
 
 **Destroying message**:
@@ -725,8 +729,9 @@ The message right after a `destroy X` statement; X must send or receive it. X's 
 its X mark, on that message's row — the message reaches X before X stops, so it is not "past" the
 end. A `destroy` whose next message does not touch X is refused, as Mermaid refuses it, and so is
 one with anything else in between (as for a **Creating message**), because Mermaid then draws X as
-if it were never destroyed. A later message naming X does point past the end, and is warned
-about.
+if it were never destroyed. With no message after the `destroy` at all, X is drawn as never
+destroyed — lifeline to the bottom row, no X mark — and the `destroy` is warned about. A later
+message naming X does point past the end, and is warned about.
 _Avoid_: destroy message, kill message, last message
 _Avoid_: timeline (that is the animation block — a lifeline is structural; it does animate, but
 under its participant's id rather than one of its own), axis

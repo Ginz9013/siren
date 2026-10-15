@@ -143,13 +143,13 @@ const BLOCK_DIVIDER_TOP_GAP = 10;
 const BLOCK_MARGIN_BOTTOM = 20;
 /**
  * Vertical gap above a `create`d participant's box, separating it from the
- * preceding row — only for a `create` with no creating message after it, the
- * one case whose box still sits where `create` is written.
+ * preceding row — only for a `create` whose creating message was refused,
+ * the one case whose box still sits where `create` is written.
  */
 const CREATE_ROW_GAP = 20;
 /**
  * Vertical distance a `destroy` statement's X mark sits below the preceding
- * row — only for a `destroy` with no destroying message after it, the one
+ * row — only for a `destroy` whose destroying message was refused, the one
  * case whose lifeline still ends where `destroy` is written.
  */
 const DESTROY_ROW_HEIGHT = 30;
@@ -176,12 +176,16 @@ interface SequenceLayoutContext {
   /** y-coordinate a `destroy`ed participant's lifeline ends at, keyed by id. */
   destroyedBottomById: Map<string, number>;
   /**
-   * Participants some message destroys (`ResolvedSequenceMessage.destroys`),
-   * collected before the walk: their `destroy` statement takes no row,
-   * because the destroying message's row is the end. A participant is
-   * destroyed at most once, so the id alone says which `destroy` is paired.
+   * Participants whose `destroy` statement takes a row of its own: those
+   * the model ends (`destroyedAt` set) with no message destroying them
+   * (`ResolvedSequenceMessage.destroys`) — a declaration refused for its
+   * missing destroying message. Every other `destroy` takes no row: a paired
+   * one ends on its destroying message's row, and one no message came after
+   * leaves its participant destroyed by nothing and draws nothing, as in
+   * Mermaid 12.2.0 (nook 01M4YWYFJ). A participant is destroyed at most
+   * once, so the id alone says which `destroy` this is.
    */
-  destroyedByMessage: Set<string>;
+  destroyedOnOwnRow: Set<string>;
   /**
    * Participants some message creates (`ResolvedSequenceMessage.creates`),
    * collected before the walk: their `create` statement takes no row,
@@ -485,6 +489,8 @@ function layoutStatements(
       const participant = ctx.participantsById.get(statement.participant.id);
       // Paired with a creating message: that message's row is where the box
       // goes, and `create` itself takes no row, as it takes none in Mermaid.
+      // With no message after it, the model resolved the participant as
+      // `declared`, drawn from the top, so it takes no row either.
       if (participant !== undefined && participant.origin === "created" && !ctx.createdByMessage.has(participant.id)) {
         y += CREATE_ROW_GAP;
         ctx.createdTopById.set(participant.id, y);
@@ -494,9 +500,10 @@ function layoutStatements(
     }
 
     if (statement.kind === "destroy") {
-      // Paired with a destroying message later on: that message's row is the
-      // end, and `destroy` itself takes no row, as it takes none in Mermaid.
-      if (ctx.destroyedByMessage.has(statement.id)) continue;
+      // Paired with a destroying message later on, that message's row is the
+      // end; with no message after it, it ends nothing. Either way `destroy`
+      // itself takes no row, as it takes none in Mermaid.
+      if (!ctx.destroyedOnOwnRow.has(statement.id)) continue;
       y += DESTROY_ROW_HEIGHT;
       ctx.destroyedBottomById.set(statement.id, y);
       elements.push({
@@ -773,9 +780,9 @@ function layoutMessage(
  * Computes participant lane x-positions, each lifeline's y-extent —
  * full-height (ending at the reserved bottom row where a declared,
  * never-destroyed participant's box is drawn again), or truncated to its
- * creating message's row (its `create` row when no message follows the
- * `create`) and its destroying message's row (its `destroy` row when no
- * message follows the `destroy`) — each message's
+ * creating message's row and its destroying message's row (a refused
+ * `create` or `destroy`, with no such message, to its own row) — each
+ * message's
  * y-coordinate and arrow endpoint x-coordinates, every nested control-flow
  * block's bounding box (recursively, so time flows strictly top-to-bottom
  * across the whole diagram regardless of nesting), and every box group's
@@ -791,7 +798,7 @@ export function layoutSequence(
     participantsById: new Map(participants.map((p) => [p.id, p])),
     createdTopById: new Map(),
     destroyedBottomById: new Map(),
-    destroyedByMessage: pairedByMessage(model.statements, "destroys"),
+    destroyedOnOwnRow: destroyedOnOwnRow(model),
     createdByMessage: pairedByMessage(model.statements, "creates"),
     openActivationsByParticipantId: new Map(),
     closedActivations: [],
@@ -904,6 +911,14 @@ function pairedByMessage(
     }
   }
   return ids;
+}
+
+/** `SequenceLayoutContext.destroyedOnOwnRow`: ended by the model, destroyed by no message. */
+function destroyedOnOwnRow(model: SequenceModel): Set<string> {
+  const byMessage = pairedByMessage(model.statements, "destroys");
+  return new Set(
+    model.participants.filter((p) => p.destroyedAt !== null && !byMessage.has(p.id)).map((p) => p.id),
+  );
 }
 
 /** Finds the rightmost frame edge across every block, recursively including nested children. */

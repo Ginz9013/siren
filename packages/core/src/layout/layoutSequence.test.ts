@@ -931,6 +931,36 @@ describe("layoutSequence", () => {
     expect(byId.B.top).toBe(byId.A.top);
   });
 
+  it("draws nothing for a `destroy` whose participant no message destroyed: no mark, no row, the lifeline to the bottom", () => {
+    // `buildSequenceModel` leaves a participant whose `destroy` had no
+    // message after it destroyed by nothing (`destroyedAt: null`), as
+    // Mermaid 12.2.0 draws it (nook 01M4YWYFJ); its `destroy` stays in the
+    // statement tree.
+    const withDestroy = (statements: ResolvedSequenceStatement[]): SequenceModel => ({
+      title: null,
+      accTitle: null,
+      accDescr: null,
+      interactions: [],
+      participants: [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")],
+      boxes: [],
+      statements,
+      timeline: { totalSteps: 0, entries: [] },
+    });
+    const positioned = layoutSequence(
+      withDestroy([messageStatement("m1", "A", "B", "hi"), { kind: "destroy", id: "B" }]),
+      { measureText: fakeMeasurer },
+    );
+    const plain = layoutSequence(withDestroy([messageStatement("m1", "A", "B", "hi")]), {
+      measureText: fakeMeasurer,
+    });
+
+    const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+    expect(destroyMarksOf(positioned)).toEqual([]);
+    expect(byId.B!.bottom).toBe(byId.A!.bottom);
+    expect(positioned.height).toBe(plain.height);
+    expect(positioned.participants).toEqual(plain.participants);
+  });
+
   describe("a destroying message (the message right after `destroy X` that X sends or receives)", () => {
     // Measured against Mermaid 12.2.0 (probe, jsdom layout stubs): the
     // destroyed participant's lifeline ends on the destroying message's own

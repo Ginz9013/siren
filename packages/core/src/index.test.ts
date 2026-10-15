@@ -2579,6 +2579,7 @@ participant A
 participant B
 A->>B: Hello
 destroy B
+A-xB: Bye
 timeline:
   highlight B outline
 `;
@@ -7824,7 +7825,8 @@ ${deactivate} B
 ${off}
 ${create} participant C
 A->>C: three
-${destroy} C`;
+${destroy} C
+C-->>A: four`;
     expectSamePicture(
       doc("ACTIVATE", "Deactivate", "AutoNumber", "AUTONUMBER OFF", "Create", "DESTROY"),
       doc("activate", "deactivate", "autonumber", "autonumber off", "create", "destroy"),
@@ -7976,7 +7978,8 @@ activate Y
 A->>Y: call
 deactivate Y
 A->>X: bye
-destroy X`);
+destroy X
+A-xX: gone`);
 
     expect(result).toMatchObject({ diagnostics: [], lanes: ["A", "Z", "Y", "X"] });
   });

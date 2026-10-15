@@ -98,7 +98,7 @@ refused (see **Changed**).
   `create` no longer takes a row of its own; the next row starts below the box. Measured against
   Mermaid 12.2.0, which reads `create` the same way and centres X's box on that arrow. Nothing may
   stand between the two: a note, an activation or a block boundary in between is refused (see
-  below). A `create` with no message after it still draws X's box where it is written.
+  below). For a `create` with no message after it, see below.
 - **A `create participant X` whose next message is not sent to X is refused** — including one X
   sends — with an error at the `create` line: `The created participant "X" has no creating
   message: the next message must be sent to it.` Siren used to draw such a document in silence;
@@ -111,7 +111,7 @@ refused (see **Changed**).
   past the end of X's lifeline; a later message naming X still is. Measured against Mermaid 12.2.0,
   which reads `destroy X` the same way and ends X's lifeline on that message's row. Nothing may
   stand between the two: a note, an activation or a block boundary in between is refused (see
-  below). A `destroy` with no message after it still ends the lifeline where it is written.
+  below). For a `destroy` with no message after it, see below.
 - **A `destroy X` whose next message X neither sends nor receives is refused** with an error at
   the `destroy` line: `The destroyed participant "X" has no destroying message: the next message
   must be sent by or to it.` Siren used to draw such a document in silence; Mermaid 12.2.0
@@ -140,7 +140,22 @@ refused (see **Changed**).
   them in silence, and with two declarations waiting it checked only the latest (`destroy B`,
   `destroy C`, `A-xC`), or a `create` before a `destroy`, which also warned that a message `B`
   sent right after `create C`, `destroy B` reached past B's end. With no message after them, such
-  declarations are drawn where they are written, as a lone one at the end is, with no diagnostic.
+  declarations are not refused; they draw what a lone one at the end draws (see below).
+- **A `create` or `destroy` with no message after it draws nothing**, as Mermaid 12.2.0 draws it
+  (nook `01M4YWYFJ`). A `destroy X` there used to end X's lifeline with an X mark on a row of its
+  own; X now runs to the bottom row with its box there and no X, and `ResolvedSequenceParticipant`
+  carries `destroyedAt: null`. A `create participant X` (or `create actor X`) there used to put X's
+  box on a row of its own; X is now drawn as any declared participant is, its box in the top row
+  and the bottom row and its lifeline full height, with `origin: "declared"` and `createdAt: 0`.
+  Neither takes a row any more. The same holds when the declaration is followed only by a note, an
+  activation, an `autonumber`, a block boundary or another `create` or `destroy`, and a second
+  `destroy X` while the first is still waiting is no longer refused. Each such declaration is
+  warned about at its line, since it has no effect: `The destroyed participant "X" has no
+  destroying message, so the destroy draws nothing: its lifeline runs to the bottom. A message
+  sent by or to it right after the destroy ends it there.`, and for `create`, `The created
+  participant "X" has no creating message, so the create draws nothing: its lifeline starts at the
+  top. A message sent to it right after the create starts it there.` Measured with the probe and
+  a layout-stubbed render: Mermaid accepts these documents and draws them so, in silence.
 - **A line that is nothing but `%%` is refused in flowcharts and ER diagrams**, with an error at its
   `%%` that says to write `%% text` or leave the line blank (ADR-0017, nook `01M4XSF9S`). Such a
   line used to be stripped as a comment, but Mermaid 12.2.0 does not read it as one: its comment

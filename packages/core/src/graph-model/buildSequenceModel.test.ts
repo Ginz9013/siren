@@ -196,7 +196,7 @@ describe("buildSequenceModel", () => {
     expect(diagnostics).toEqual([]);
   });
 
-  it("creates a participant first named by a destroy, whose lifeline ends there", () => {
+  it("creates a participant first named by a destroy, whose lifeline that `destroy` alone, with no message after it, does not end", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
@@ -215,8 +215,8 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(model.statements.some((s) => s.kind === "destroy")).toBe(true);
-    expect(model.participants.find((p) => p.id === "does-not-exist")?.destroyedAt).not.toBeNull();
-    expect(diagnostics).toEqual([]);
+    expect(model.participants.find((p) => p.id === "does-not-exist")?.destroyedAt).toBeNull();
+    expect(diagnostics.map((d) => d.severity)).toEqual(["warning"]);
   });
 
   it("resolves activate/deactivate into their own statements, minting a generated activation id", () => {
@@ -815,7 +815,7 @@ describe("buildSequenceModel", () => {
     ]);
   });
 
-  it("ends a destroyed participant's lifeline at the destroy statement's position, leaving every other lifeline full-height", () => {
+  it("ends a destroyed participant's lifeline at its destroying message's position, after a block, leaving every other lifeline full-height", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
@@ -829,7 +829,7 @@ describe("buildSequenceModel", () => {
       boxes: [],
       // Resolved-statement positions, 1-based in flattened order:
       //   1 participant A, 2 participant B, 3 loop, 4 message A->B (in the
-      //   loop body), 5 destroy B.
+      //   loop body), 5 destroy B, 6 message B->A — the destroying message.
       statements: [
         { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
         { kind: "participant", id: "B", label: plainLabel("B"), participantKind: "participant", origin: "declared" },
@@ -841,6 +841,7 @@ describe("buildSequenceModel", () => {
           ],
         },
         { kind: "destroy", id: "B" },
+        { kind: "message", from: "B", to: "A", label: plainLabel("bye"), arrow: { line: "solid", head: "filled" } },
       ],
       timeline: null,
     };
@@ -850,12 +851,12 @@ describe("buildSequenceModel", () => {
     expect(diagnostics).toEqual([]);
     expect(model.participants.map((p) => [p.id, p.createdAt, p.destroyedAt])).toEqual([
       ["A", 0, null],
-      ["B", 0, 5],
+      ["B", 0, 6],
     ]);
-    expect(model.statements.at(-1)).toEqual({ kind: "destroy", id: "B" });
+    expect(model.statements.at(-2)).toEqual({ kind: "destroy", id: "B" });
   });
 
-  it("rejects a second destroy of an already-destroyed participant, keeping the first destroy's position", () => {
+  it("rejects a second destroy of an already-destroyed participant, keeping the first one's destroying message", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
@@ -864,11 +865,12 @@ describe("buildSequenceModel", () => {
       interactions: [],
       participants: [{ id: "A", label: plainLabel("A"), participantKind: "participant" }],
       boxes: [],
-      // Positions: 1 participant A, 2 destroy A. The second destroy is
-      // dropped, so it consumes no position.
+      // Positions: 1 participant A, 2 destroy A, 3 A->>A — the destroying
+      // message. The second destroy is dropped, so it consumes no position.
       statements: [
         { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
         { kind: "destroy", id: "A" },
+        { kind: "message", from: "A", to: "A", label: plainLabel("bye"), arrow: { line: "solid", head: "filled" } },
         { kind: "destroy", id: "A", line: 4, column: 1 },
       ],
       timeline: null,
@@ -876,7 +878,7 @@ describe("buildSequenceModel", () => {
 
     const { model, diagnostics } = buildSequenceModel(document);
 
-    expect(model.participants[0]!.destroyedAt).toBe(2);
+    expect(model.participants[0]!.destroyedAt).toBe(3);
     expect(model.statements.filter((s) => s.kind === "destroy")).toHaveLength(1);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]!.severity).toBe("error");
@@ -1028,9 +1030,10 @@ describe("buildSequenceModel", () => {
       participantKind: "participant",
       origin: "declared",
       createdAt: 0,
-      destroyedAt: 3,
+      // No message after the `destroy`: it ends nothing (nook 01M4YWYFJ).
+      destroyedAt: null,
     });
-    expect(diagnostics.map((d) => d.severity)).toEqual(["error"]);
+    expect(diagnostics.map((d) => d.severity)).toEqual(["error", "warning"]);
     expect(diagnostics[0]!.message).toContain("create participant");
   });
 
@@ -1707,20 +1710,6 @@ describe("buildSequenceModel", () => {
       ]);
     });
 
-    it("refuses nothing when no message follows: an interrupted `destroy` or `create` keeps its own row, as one at the end does", () => {
-      // Measured on Mermaid 12.2.0: two `destroy` lines with no message
-      // after them, or one followed by a note or a block's `end`, draw
-      // exactly what a lone `destroy` at the end draws — nothing for a
-      // message to disagree with.
-      // Positions: 1–3 participants, 4 A->>B, 5 A->>C, 6 destroy B, 7 destroy C.
-      const twoAtEnd = build("participant A\nparticipant B\nparticipant C\nA->>B: hi\nA->>C: hi\ndestroy B\ndestroy C");
-      expect(twoAtEnd.diagnostics).toEqual([]);
-      expect(twoAtEnd.destroyedAt).toEqual({ A: null, B: 6, C: 7 });
-
-      expect(build("participant A\nparticipant B\nA->>B: hi\ndestroy B\nnote over A: done").diagnostics).toEqual([]);
-      expect(build("participant A\nloop again\nA->>A: hi\ncreate participant C\nend").diagnostics).toEqual([]);
-    });
-
     it("lets a participant declaration, a link or an activation written on the message itself stand next to the pair", () => {
       // Measured on Mermaid 12.2.0: none of these is a record of its own
       // between the two (`A->>+B` and `B-->>-A` record the message first), so
@@ -1773,14 +1762,6 @@ describe("buildSequenceModel", () => {
       expect(result.createdAt).toEqual({ A: 0, B: 0, C: 3 });
     });
 
-    it("accepts a `create participant X` with no message after it, starting X's lifeline at the `create`", () => {
-      // Positions: 1 participant A, 2 A->>A, 3 create C.
-      const result = build("participant A\nA->>A: x\ncreate participant C");
-
-      expect(result.diagnostics).toEqual([]);
-      expect(result.createdAt).toEqual({ A: 0, C: 3 });
-    });
-
     it("refuses a `create` whose message is past a block boundary, naming the boundary", () => {
       // Measured on Mermaid 12.2.0: accepted, and C's box is drawn at the top.
       const result = build(["participant A", "alt first", "create participant C", "else second", "A->>C: make", "end"].join("\n"));
@@ -1789,6 +1770,74 @@ describe("buildSequenceModel", () => {
         'error 4:1: The created participant "C" has no creating message: the message sent to it must come right after the create, with no "else" in between.',
       ]);
       expect(result.creates).toEqual([["A-C", null]]);
+    });
+  });
+
+  describe("a `create` or `destroy` with no message after it (drawn as Mermaid draws it, nook 01M4YWYFJ)", () => {
+    // Measured on Mermaid 12.2.0 (layout-stubbed render): a declaration with
+    // no message after it pairs with nothing, so it draws nothing — a
+    // `destroy`ed participant's lifeline runs to the bottom row with its box
+    // there and no X; a `create`d participant is drawn like any other, its
+    // box in the top row and the bottom row and its lifeline full height;
+    // and neither takes a row of its own.
+    it("leaves a participant destroyed by nothing when its `destroy` has no message after it", () => {
+      const result = build("participant A\nparticipant B\nA->>B: hi\ndestroy B");
+
+      expect(result.destroyedAt).toEqual({ A: null, B: null });
+      expect(result.model.statements.at(-1)).toEqual({ kind: "destroy", id: "B" });
+    });
+
+    it("resolves a `create`d participant with no message after its `create` as one drawn from the top: origin declared, createdAt 0", () => {
+      const result = build("participant A\nA->>A: think\ncreate actor C");
+
+      expect(result.model.participants.find((p) => p.id === "C")).toMatchObject({
+        participantKind: "actor",
+        origin: "declared",
+        createdAt: 0,
+        destroyedAt: null,
+      });
+      expect(result.lanes).toEqual(["A", "C"]);
+    });
+
+    it("undoes every declaration still waiting at the end, interrupted or not, and refuses none of them", () => {
+      // Measured on Mermaid 12.2.0: `destroy B`, `destroy C` at the end draw
+      // B and C never destroyed; a note after `destroy B`, or a block's `end`
+      // after `create participant C`, draw the same as nothing after it.
+      const twoAtEnd = build("participant A\nparticipant B\nparticipant C\nA->>B: hi\nA->>C: hi\ndestroy B\ndestroy C");
+      expect(twoAtEnd.diagnostics.filter((d) => d.startsWith("error"))).toEqual([]);
+      expect(twoAtEnd.destroyedAt).toEqual({ A: null, B: null, C: null });
+
+      const noteAfter = build("participant A\nparticipant B\nA->>B: hi\ndestroy B\nnote over A: done");
+      expect(noteAfter.diagnostics.filter((d) => d.startsWith("error"))).toEqual([]);
+      expect(noteAfter.destroyedAt).toEqual({ A: null, B: null });
+
+      const endAfter = build("participant A\nloop again\nA->>A: hi\ncreate participant C\nend");
+      expect(endAfter.diagnostics.filter((d) => d.startsWith("error"))).toEqual([]);
+      expect(endAfter.model.participants.find((p) => p.id === "C")).toMatchObject({ origin: "declared", createdAt: 0 });
+
+      const destroyThenCreate = build("participant A\nparticipant B\nA->>B: hi\ndestroy B\ncreate participant C");
+      expect(destroyThenCreate.diagnostics.filter((d) => d.startsWith("error"))).toEqual([]);
+      expect(destroyThenCreate.destroyedAt).toEqual({ A: null, B: null, C: null });
+      expect(destroyThenCreate.createdAt).toEqual({ A: 0, B: 0, C: 0 });
+    });
+
+    it("does not refuse a second `destroy B` while the first is still waiting, and leaves B destroyed by neither", () => {
+      // Measured on Mermaid 12.2.0: accepted, B drawn never destroyed. Only a
+      // `destroy` of a participant some message already destroyed is refused.
+      const result = build("participant A\nparticipant B\nA->>B: hi\ndestroy B\ndestroy B");
+
+      expect(result.diagnostics.filter((d) => d.startsWith("error"))).toEqual([]);
+      expect(result.destroyedAt).toEqual({ A: null, B: null });
+    });
+
+    it("warns at each such declaration that it draws nothing, saying how to pair it, without naming Mermaid", () => {
+      const result = build("participant A\nparticipant B\nA->>B: hi\n  destroy B\ncreate participant C");
+
+      expect(result.diagnostics).toEqual([
+        'warning 5:3: The destroyed participant "B" has no destroying message, so the destroy draws nothing: its lifeline runs to the bottom. A message sent by or to it right after the destroy ends it there.',
+        'warning 6:1: The created participant "C" has no creating message, so the create draws nothing: its lifeline starts at the top. A message sent to it right after the create starts it there.',
+      ]);
+      expect(result.diagnostics.join("\n")).not.toMatch(/mermaid/i);
     });
   });
 });

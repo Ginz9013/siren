@@ -1078,6 +1078,27 @@ function createdBox(result: SirenRenderResult, participantId: string): string {
 }
 
 /**
+ * How a sequence participant is drawn, as positions to compare with another
+ * participant's rather than to hold still: the y of every box drawn for it
+ * (top row, and bottom row when it has one) and its lifeline's span. Two
+ * participants drawn alike — boxes in the same rows, lifelines from the same
+ * top to the same bottom — read the same here.
+ */
+function participantRows(result: SirenRenderResult, participantId: string): string {
+  const svg = svgOf(result);
+  const boxes = Array.from(svg.querySelectorAll(`g.siren-participant[data-siren-id="${participantId}"] rect`)).map(
+    (rect) => rect.getAttribute("y"),
+  );
+  const lifeline = svg.querySelector(`line.siren-lifeline[data-siren-id="${participantId}"]`);
+  return `boxes at y ${boxes.join(", ")}; lifeline ${lifeline?.getAttribute("y1")}..${lifeline?.getAttribute("y2")}`;
+}
+
+/** Where a sequence participant's lifeline ends, as its drawn `y2`. */
+function lifelineBottom(result: SirenRenderResult, participantId: string): string | null {
+  return svgOf(result).querySelector(`line.siren-lifeline[data-siren-id="${participantId}"]`)?.getAttribute("y2") ?? null;
+}
+
+/**
  * Where a created actor's creating message ends, read off the drawn figure:
  * `<message> stops at its left arm tip, <n> short of its lane` (or right),
  * or `<message> ends at x <n>` when the arrow meets no arm tip. The arms
@@ -4542,19 +4563,23 @@ line2\`"]`,
       B-->>A: yes
       destroy B`,
     status: "supported",
+    warnings: [
+      'The destroyed participant "B" has no destroying message, so the destroy draws nothing: its lifeline runs to the bottom. A message sent by or to it right after the destroy ends it there.',
+    ],
     meaning:
-      "`create` starts a lifeline partway down; `destroy` ends it with an X. " +
-      "`A->>B: are you there` is B's creating message, so B's box is drawn " +
-      "on that arrow. " +
-      "Nothing follows the `destroy`, so there is no destroying message and " +
-      "the lifeline ends where `destroy` is written. Measured on 12.2.0: " +
-      "Mermaid accepts this and, with no message for the `destroy` to " +
-      "pair with, draws B as if it were never destroyed.",
+      "`create` starts a lifeline partway down: `A->>B: are you there` is " +
+      "B's creating message, so B's box is drawn on that arrow. Nothing " +
+      "follows the `destroy`, so it has no destroying message to pair with. " +
+      "Measured on 12.2.0: Mermaid accepts this and draws B as if it were " +
+      "never destroyed — no closing box on any arrow, the lifeline running " +
+      "on to the bottom row. Siren draws the same: no X, B's lifeline down " +
+      "to where A's ends, nothing in the `destroy`'s place (nook " +
+      "01M4YWYFJ), and warns that the `destroy` draws nothing.",
     assert: (result) => {
       expectSame("participants", participants(result), ["A", "B"]);
-      expectSame("a destroy mark was drawn", drew(result, "path.siren-destroy-mark"), true);
+      expectSame("no destroy mark was drawn", drew(result, "path.siren-destroy-mark"), false);
       expectSame("B's box is on its creating message", createdBox(result, "B"), "centred on A-B, whose arrow stops at its left edge");
-      expectSame("B ends on a row of its own, under the last message", lifelineEnd(result, "B"), "below B-A, lifeline stops there");
+      expectSame("B's lifeline runs as far down as A's", lifelineBottom(result, "B"), lifelineBottom(result, "A"));
     },
   },
   {
@@ -4641,14 +4666,20 @@ line2\`"]`,
       A->>A: think
       create participant C`,
     status: "supported",
+    warnings: [
+      'The created participant "C" has no creating message, so the create draws nothing: its lifeline starts at the top. A message sent to it right after the create starts it there.',
+    ],
     meaning:
       "A `create` with no message after it has nothing to pair with. " +
-      "Measured on 12.2.0: accepted, with no error. Siren keeps what it " +
-      "always drew: C's box on a row of its own, where `create` is written, " +
-      "below the last message.",
+      "Measured on 12.2.0: accepted, with no error, and C drawn as any " +
+      "declared participant is — its box in the top row and again in the " +
+      "bottom row, its lifeline full height — with no row for the `create`. " +
+      "`create actor C` draws its figure the same way. Siren draws C exactly " +
+      "as it draws A (nook 01M4YWYFJ), and warns that the `create` draws " +
+      "nothing.",
     assert: (result) => {
       expectSame("participants", participants(result), ["A", "C"]);
-      expectSame("C's box is on a row of its own", createdBox(result, "C"), "below A-A");
+      expectSame("C is drawn as A is, top row to bottom row", participantRows(result, "C"), participantRows(result, "A"));
     },
   },
   {
@@ -4746,17 +4777,24 @@ line2\`"]`,
       destroy B
       destroy C`,
     status: "supported",
+    warnings: [
+      'The destroyed participant "B" has no destroying message, so the destroy draws nothing: its lifeline runs to the bottom. A message sent by or to it right after the destroy ends it there.',
+      'The destroyed participant "C" has no destroying message, so the destroy draws nothing: its lifeline runs to the bottom. A message sent by or to it right after the destroy ends it there.',
+    ],
     meaning:
       "Two `destroy` lines with no message after either: neither has a " +
       "destroying message to pair with, the second one first or not. " +
       "Measured on 12.2.0: accepted, and drawn exactly as a lone `destroy` " +
-      "at the end is — B and C as if never destroyed. Siren draws both as " +
-      "it draws a lone one at the end: an X on a row of its own, below the " +
-      "last message, with no diagnostic. A message after the two would " +
-      "refuse the first, which Mermaid would not draw (nook 01M4YS7DV8).",
+      "at the end is — B and C as if never destroyed, boxes in the top and " +
+      "bottom rows, no row for either `destroy`. A note or a block's `end` " +
+      "after a lone `destroy` draws the same. Siren draws B and C exactly " +
+      "as it draws A, with no X (nook 01M4YWYFJ), and warns at each " +
+      "`destroy`. A message after the two would refuse the first, which " +
+      "Mermaid would not draw (nook 01M4YS7DV8).",
     assert: (result) => {
-      expectSame("B ends on a row of its own", lifelineEnd(result, "B"), "below A-C, lifeline stops there");
-      expectSame("C ends on a row of its own", lifelineEnd(result, "C"), "below A-C, lifeline stops there");
+      expectSame("no destroy mark was drawn", drew(result, "path.siren-destroy-mark"), false);
+      expectSame("B is drawn as A is", participantRows(result, "B"), participantRows(result, "A"));
+      expectSame("C is drawn as A is", participantRows(result, "C"), participantRows(result, "A"));
     },
   },
   {
@@ -5268,13 +5306,16 @@ line2\`"]`,
       AUTONUMBER OFF
       Create participant C
       A->>C: three
-      DESTROY C`,
+      DESTROY C
+      C-->>A: four`,
     status: "supported",
     meaning:
       "`box`, `autonumber` (and `autonumber off`), `activate`, `deactivate`, " +
       "`create` and `destroy` are read in any case (measured: `Box … END`, " +
       "`Autonumber`, `AUTONUMBER`, `Activate`, `DEACTIVATE`, `Create " +
-      "participant`, `Destroy`).",
+      "participant`, `Destroy`). `C-->>A: four` is C's destroying message, " +
+      "so `DESTROY C` draws its X (measured on 12.2.0: C's closing box on " +
+      "that arrow); with no message after it, it would draw nothing.",
     assert: (result) => {
       expectSame("the box grouping is drawn", drew(result, 'g.siren-box[data-siren-id="box:1"]'), true);
       expectSame("the two numbered messages", texts(result, "text.siren-autonumber"), ["1", "2"]);

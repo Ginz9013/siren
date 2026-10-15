@@ -232,11 +232,11 @@ from the request.
 - `create participant X` / `create actor X` starts a lifeline mid-diagram, and
   `destroy X` ends it. The message right after `create X` must be sent to X, not by X;
   X's box is drawn on that message's arrow and its lifeline starts there. A `create X`
-  whose next message is not sent to X is refused. With no message after it, X's box sits
-  where `create` is written. The next message after `destroy X` must be sent by or to X;
+  whose next message is not sent to X is refused. With no message after it, the `create`
+  draws nothing (X is drawn from the top) and is warned about. The next message after `destroy X` must be sent by or to X;
   X's lifeline ends on that message's row, and a later message naming X is warned about.
   A `destroy X` whose next message does not touch X is refused. With no message after
-  it, the lifeline ends where `destroy` is written. Nothing may stand between a `create`
+  it, the `destroy` draws nothing (no X mark) and is warned about. Nothing may stand between a `create`
   or `destroy` and its message: a note, `activate`/`deactivate`, `autonumber`, block
   boundary (`else`, `end`, ...) or another `create`/`destroy` in between is refused.
 - `link X: Label @ https://...` adds a link to a participant.
