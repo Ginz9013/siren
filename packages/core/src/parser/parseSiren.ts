@@ -57,10 +57,10 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = 
  * is removed here. A `%%` later on a line is not removed by Mermaid's
  * `cleanupComments` at all; what it means is each kind's grammar's — text
  * inside a label, a refusal after a complete statement, a comment only
- * where a kind's lexer reads one. So `lines` cuts each line at its first
- * `%%` only for the kinds still read that way (`CUTS_MID_LINE_COMMENTS`),
- * and `linesAsRead` keeps every line as Mermaid's grammar is handed it, for
- * the kinds that read their own `%%`.
+ * where a kind's lexer reads one. So `lines` keeps every line as Mermaid's
+ * grammar is handed it, for a kind that reads its own `%%`, and cuts each
+ * line at its first `%%` for a kind still read the old way
+ * (`CUTS_AT_DOUBLE_PERCENT`) and for every timeline block.
  *
  * Except a line that is nothing but `%%` (`bareCommentLines`). Mermaid's
  * `cleanupComments` removes `^\s*%%(?!{)[^\n]+\n?`, so a whole-line
@@ -104,7 +104,8 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = 
  */
 function asMermaidReads(source: string): {
   lines: string[];
-  linesAsRead: string[];
+  header: Header | null;
+  timelineStart: number;
   asWritten: <T>(result: T) => T;
   frontmatter: FrontmatterRead;
   directives: DirectivesRead;
@@ -121,14 +122,23 @@ function asMermaidReads(source: string): {
   );
   const read = styleLines(wholeLinesBlanked.join("\n"));
   const linesAsRead = read.source.split("\n");
-  const lines = linesAsRead.map(endOfLineCommentStripped);
-  return { lines, linesAsRead, asWritten: read.asWritten, frontmatter, directives, bareCommentLines };
+  // The header, and where the timeline blocks start, are found on the lines
+  // cut at their first `%%`, as every kind found them before any kind read
+  // its own `%%`: `flowchart TB %% x` still names a flowchart, whose own
+  // parser then refuses the `%%`. A timeline block is Siren's own syntax,
+  // not Mermaid's (ADR-0017), so its lines keep the cut whatever the kind.
+  const cut = linesAsRead.map(cutAtDoublePercent);
+  const header = headerOf(cut);
+  const timelineStart = header === null ? Infinity : firstTimelineHeader(cut, header.index);
+  const readsItsOwn = header?.kind != null && !CUTS_AT_DOUBLE_PERCENT[header.kind];
+  const lines = linesAsRead.map((line, index) => (readsItsOwn && index < timelineStart ? line : cut[index]!));
+  return { lines, header, timelineStart, asWritten: read.asWritten, frontmatter, directives, bareCommentLines };
 }
 
 /** `line` without everything from its first `%%` on. */
-function endOfLineCommentStripped(line: string): string {
-  const commentStart = line.indexOf("%%");
-  return commentStart === -1 ? line : line.slice(0, commentStart);
+function cutAtDoublePercent(line: string): string {
+  const at = line.indexOf("%%");
+  return at === -1 ? line : line.slice(0, at);
 }
 
 /**
@@ -146,7 +156,7 @@ function endOfLineCommentStripped(line: string): string {
  * A record rather than a switch, as `PARSE_KIND` is, so a new kind cannot
  * arrive without this decision.
  */
-const CUTS_MID_LINE_COMMENTS: Record<DiagramKind, boolean> = {
+const CUTS_AT_DOUBLE_PERCENT: Record<DiagramKind, boolean> = {
   flowchart: false,
   sequence: true,
   class: true,
@@ -195,7 +205,7 @@ function bareCommentMessage(header: Header | null, at: BareCommentLine): string 
  * (`sequenceDiagram` header), after reading the whole document as Mermaid
  * does — tag quotes, frontmatter, directives, `%%` comments and the
  * style-line rule (`asMermaidReads`). A kind that reads its own mid-line
- * `%%` (`CUTS_MID_LINE_COMMENTS`) is handed its lines as Mermaid's grammar
+ * `%%` (`CUTS_AT_DOUBLE_PERCENT`) is handed its lines as Mermaid's grammar
  * is, up to its first timeline header; a timeline block's lines are always
  * cut at their first `%%`.
  * Never throws on malformed input — an unrecognized header is reported as
@@ -216,7 +226,7 @@ function bareCommentMessage(header: Header | null, at: BareCommentLine): string 
  * Mermaid does not read it as a comment there.
  */
 export function parseSiren(source: string): ParseResult {
-  const { lines, linesAsRead, asWritten, frontmatter, directives, bareCommentLines } =
+  const { lines, header, timelineStart, asWritten, frontmatter, directives, bareCommentLines } =
     asMermaidReads(source);
   for (const read of [frontmatter, directives]) {
     if (read.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
@@ -225,13 +235,11 @@ export function parseSiren(source: string): ParseResult {
   }
   // One reading of the header serves both: `dispatch` hands the document to
   // the kind it names, and Mermaid's `detectInit` files an init's `config`
-  // under that kind's diagram type.
-  const header = headerOf(lines);
-  // A timeline block is not Mermaid's to read (ADR-0017: the document
-  // without its timeline blocks is the Mermaid one), so a bare `%%` inside
-  // one stays a comment. The first timeline header after the diagram's
-  // header ends the diagram body, as every kind's parser ends it.
-  const timelineStart = header === null ? Infinity : firstTimelineHeader(lines, header.index);
+  // under that kind's diagram type. A timeline block is not Mermaid's to
+  // read (ADR-0017: the document without its timeline blocks is the Mermaid
+  // one), so a bare `%%` inside one stays a comment. The first timeline
+  // header after the diagram's header ends the diagram body, as every kind's
+  // parser ends it.
   const bareCommentRefusals = bareCommentLines.flatMap((at): Diagnostic[] => {
     if (at.line - 1 >= timelineStart) return [];
     const message = bareCommentMessage(header, at);
@@ -241,15 +249,7 @@ export function parseSiren(source: string): ParseResult {
     return { document: null, diagnostics: bareCommentRefusals, config: {} };
   }
   const documentConfig = documentConfigOf(frontmatter, directives, header?.kind ?? null);
-  // The lines the kind's parser reads: every one as Mermaid hands it to the
-  // grammar, unless the kind still cuts a mid-line `%%` away
-  // (`CUTS_MID_LINE_COMMENTS`). A timeline block is Siren's own syntax, not
-  // Mermaid's, so its lines keep that cut whatever the kind.
-  const linesForKind =
-    header?.kind && !CUTS_MID_LINE_COMMENTS[header.kind]
-      ? linesAsRead.map((line, index) => (index < timelineStart ? line : lines[index]!))
-      : lines;
-  const { document, diagnostics } = asWritten(dispatch(linesForKind, header));
+  const { document, diagnostics } = asWritten(dispatch(lines, header));
   return { document, diagnostics: [...documentConfig.diagnostics, ...diagnostics], config: documentConfig.config };
 }
 
@@ -280,7 +280,7 @@ function firstTimelineHeader(lines: readonly string[], headerIndex: number): num
 
 /**
  * `parseSiren`'s reading of `lines`, the document without its whole-line comments and
- * with Mermaid's style-line rule applied, whose `header` is `headerOf(lines)`:
+ * with Mermaid's style-line rule applied, whose `header` is `asMermaidReads`':
  * every position it finds is in those lines.
  */
 function dispatch(lines: readonly string[], header: Header | null): DiagramParseResult {

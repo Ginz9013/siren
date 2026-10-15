@@ -963,40 +963,47 @@ function separatorAt(text: string, index: number, separator: string | RegExp): s
 }
 
 /**
- * Cuts `text` at every `separator` that lies **outside** a `[...]` label,
- * returning both the pieces and the separators that cut them.
+ * Cuts `text` at every `separator` that lies **outside** the text a
+ * statement holds, returning both the pieces and the separators that cut
+ * them. The one scanner every flowchart reader that cuts a line shares —
+ * at `;`, at `&`, at an arrow and at a `%%` (`midLinePercentAt`) — so no two
+ * of them can disagree about where a label starts and ends.
  *
- * The separators are returned because one of the three callers cares what
- * cut its line: `;` and `&` are single characters that mean one thing, but
- * an arrow is a **pattern**, and `A --> B -.-> C` is cut by two different
- * tokens carrying two different pictures. A cutter that returned only the
- * pieces would leave that caller re-finding the tokens it had already
- * matched.
+ * The separators are returned because one caller cares what cut its line:
+ * `;` and `&` are single characters that mean one thing, but an arrow is a
+ * **pattern**, and `A --> B -.-> C` is cut by two different tokens carrying
+ * two different pictures. A cutter that returned only the pieces would leave
+ * that caller re-finding the tokens it had already matched.
  *
- * The label depth is the whole point. `;`, `&` and `-->` all mean
- * something between statements and nothing inside a label: `A[a;b]`,
- * `A[a&b]` and `A[a-->b]` are ordinary labels in Mermaid, and a splitter
- * that did not know where a label starts would cut them into nonsense —
- * a document Mermaid draws refused as unreadable.
+ * What it steps over is what Mermaid 12.2.0's flowchart lexer reads as text,
+ * each measured with `scripts/mermaid-probe.mjs`:
  *
- * **A brace opens a label as surely as a bracket does, and so does a
- * parenthesis.** Counting only `[`/`]` made three spellings of one idea
- * disagree: `A["a-->b"]` worked while `A{a-->b}` and `A(a-->b)` — a diamond
- * and a round node, both labelled `a-->b` in mermaid 11.17.2, measured with
- * `scripts/mermaid-probe.mjs` — were cut at the arrow and refused. One
- * depth over all three pairs is what makes them agree, and it has to be a
- * depth rather than a flag because `A{{a-->b}}` opens two and `A([a-->b])`
- * opens one of each.
- *
- * Depth alone is not enough once a label may be fenced, which is why the
- * fence is tracked here too: the `]` inside `A["a]b-->c"]` is a character
- * of the label, and a splitter that counted it would come back out to
- * depth 0 and then cut the line at the `-->` that is also part of it.
- *
- * The fence only fences **inside** a bracket, which is where Mermaid's
- * grammar has a string at all. That is what leaves `DECLARATION_LIST_RE`'s
- * divergence untouched: a `"` in `style A fill:"#fdd;x"` is not a fence,
- * so the `;` there still reaches the security gate that refuses it.
+ * - **A label, in any of its brackets.** `;`, `&`, `-->` and `%%` all mean
+ *   something between statements and nothing inside a label: `A[a;b]`,
+ *   `A{a-->b}`, `A(a&b)` and `A[a %% b]` are ordinary labels. A depth
+ *   rather than a flag, because `A{{a}}` opens two and `A([a])` one of
+ *   each. Any closer closes one: Mermaid refuses every label with a closer
+ *   that is not its own (`A[a)b]`, `A{a]b}`, `A(a}b)`, `A>a)b]` — "got
+ *   'PE'", "'SQE'", "'DIAMOND_STOP'", measured), so pairing each closer with
+ *   its opener would only keep such a label whole — `A[a)-->b] --> B` drawn
+ *   as one node rather than refused.
+ * - **An asymmetric node's label**, opened by a `>` written right after an
+ *   id and closed by `]`: `A>a;b]`, `A>a-->b]` and `A>a&b]` are the labels
+ *   "a;b", "a-->b" and "a&b" (measured). Written after a space it opens
+ *   nothing (`A >a]` is a parse error), and an arrow's own `>` never reaches
+ *   this rule, its token being stepped over whole.
+ * - **A quoted string, wherever it stands.** The `]` inside `A["a]b-->c"]` is
+ *   a character of the label, and so is the `;` inside
+ *   `click A "https://x.org/a;b" "t;u"`, which Mermaid accepts with both
+ *   strings whole. A `"` in a declaration list (`style A fill:"#fdd;x"`)
+ *   fences too, which changes nothing there: `splitStatements` hands a
+ *   declaration list the rest of its line as written, and the gate refuses it.
+ * - **An arrow's own label.** The two edge-label spellings put the author's
+ *   text where the grammar reads its punctuation: mermaid 11.17.2 reads
+ *   `A -- a;b --> B` as one edge labelled `a;b`, measured. Stepping over the
+ *   whole run rather than tracking a depth, because an edge label has no
+ *   closing character of its own to count: `-->|a;b|` and `-- a;b -->` are
+ *   each one token, and `ARROW_RE` is the one statement of where they end.
  *
  * Always returns at least one piece, and one fewer separator than pieces,
  * and never trims: a caller that needs a column needs the offsets left
@@ -1009,58 +1016,55 @@ function cutOutsideLabel(
   const parts: string[] = [];
   const separators: string[] = [];
   let depth = 0;
-  let fenced = false;
+  let quoted = false;
   let start = 0;
   for (let i = 0; i < text.length; i++) {
-    if (depth > 0 && text[i] === LABEL_FENCE) {
-      fenced = !fenced;
+    const char = text[i]!;
+    if (char === LABEL_FENCE) {
+      quoted = !quoted;
       continue;
     }
-    if (fenced) {
+    if (quoted) {
       continue;
     }
-    if (text[i] === "[" || text[i] === "{" || text[i] === "(") {
+    if (LABEL_OPENERS.includes(char) || (depth === 0 && char === ASYMMETRIC_OPENER && i > 0 && /\w/.test(text[i - 1]!))) {
       depth++;
       continue;
     }
-    if (text[i] === "]" || text[i] === "}" || text[i] === ")") {
+    if (LABEL_CLOSERS.includes(char)) {
       if (depth > 0) {
         depth--;
       }
       continue;
     }
-    if (depth === 0) {
-      const cut = separatorAt(text, i, separator);
-      if (cut !== null) {
-        parts.push(text.slice(start, i));
-        separators.push(cut);
-        i += cut.length - 1;
-        start = i + 1;
-        continue;
-      }
-      if (separator !== ARROW_RE) {
-        // **An arrow's own label is a label.** The two edge-label spellings
-        // put the author's text where the grammar reads its punctuation,
-        // and a `;` there is a character rather than the end of a
-        // statement: mermaid 11.17.2 reads `A -- a;b --> B` as one edge
-        // labelled `a;b`, measured. Statements are split before arrows are
-        // found, so without this the label is two half-statements and two
-        // diagnostics.
-        //
-        // Stepping over the whole run rather than tracking a depth,
-        // because an edge label has no closing character of its own to
-        // count: `-->|a;b|` and `-- a;b -->` are each one token, and
-        // `ARROW_RE` is the one statement of where they end.
-        const arrow = separatorAt(text, i, ARROW_RE);
-        if (arrow !== null) {
-          i += arrow.length - 1;
-        }
+    if (depth > 0) {
+      continue;
+    }
+    const cut = separatorAt(text, i, separator);
+    if (cut !== null) {
+      parts.push(text.slice(start, i));
+      separators.push(cut);
+      i += cut.length - 1;
+      start = i + 1;
+      continue;
+    }
+    if (separator !== ARROW_RE) {
+      const arrow = separatorAt(text, i, ARROW_RE);
+      if (arrow !== null) {
+        i += arrow.length - 1;
       }
     }
   }
   parts.push(text.slice(start));
   return { parts, separators };
 }
+
+/** What opens and what closes a label's bracket, in any pairing (see `cutOutsideLabel`). */
+const LABEL_OPENERS = "[{(";
+const LABEL_CLOSERS = "]})";
+
+/** What opens an asymmetric node's label, right after its id (`A>a]`). */
+const ASYMMETRIC_OPENER = ">";
 
 /** `cutOutsideLabel` for the two callers whose separator says nothing worth keeping. */
 function splitOutsideLabel(text: string, separator: string): string[] {
@@ -1135,58 +1139,24 @@ function splitStatements(rawLine: string): { text: string; column: number }[] {
  * `%%` that follows a complete statement (`A --> B %% x` is "Expecting
  * 'SEMI', 'NEWLINE', 'EOF', … got 'NODE_STRING'", measured).
  */
-const MID_LINE_COMMENT_MESSAGE =
+const MID_LINE_PERCENT_MESSAGE =
   'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
-  "Move the comment to a line of its own.";
+  "If it is a comment, move it to a line of its own.";
 
 /**
  * Where in `text` a `%%` stands outside every piece of text the statement
- * holds — a bracketed or quoted label, an edge's label in either spelling —
- * or `null` when every `%%` in it is inside one (or there is none).
- *
- * Inside text a `%%` is text: Mermaid 12.2.0 keeps `A[a %% b]`,
- * `A["a %% b"]`, `A -->|a %% b| B` and `A -- a %% b --> B` as written,
- * measured. A `"` opens a string wherever it stands, as Mermaid's lexer
- * reads one (`click A "u" "a %% b"` keeps its tooltip), and an arrow token is
- * stepped over whole, because its inline label is text too.
+ * holds (`cutOutsideLabel`'s), or `null` when every `%%` in it is inside one
+ * (or there is none). Inside text a `%%` is text: Mermaid 12.2.0 keeps
+ * `A[a %% b]`, `A["a %% b"]`, `A -->|a %% b| B`, `A -- a %% b --> B` and
+ * `click A "u" "a %% b"` as written, measured.
  */
-function midLineCommentAt(text: string): number | null {
-  let depth = 0;
-  let quoted = false;
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === LABEL_FENCE) {
-      quoted = !quoted;
-      continue;
-    }
-    if (quoted) {
-      continue;
-    }
-    // An asymmetric node's label opens with a lone `>` and closes with `]`
-    // (`A>a %% b]`): an arrow's `>` never reaches here, its token being
-    // stepped over whole below.
-    if (text[i] === "[" || text[i] === "{" || text[i] === "(" || (depth === 0 && text[i] === ">")) {
-      depth++;
-      continue;
-    }
-    if (text[i] === "]" || text[i] === "}" || text[i] === ")") {
-      if (depth > 0) {
-        depth--;
-      }
-      continue;
-    }
-    if (depth > 0) {
-      continue;
-    }
-    if (text.startsWith("%%", i)) {
-      return i;
-    }
-    const arrow = separatorAt(text, i, ARROW_RE);
-    if (arrow !== null) {
-      i += arrow.length - 1;
-    }
-  }
-  return null;
+function midLinePercentAt(text: string): number | null {
+  const { parts } = cutOutsideLabel(text, MID_LINE_PERCENT);
+  return parts.length === 1 ? null : parts[0]!.length;
 }
+
+/** What `midLinePercentAt` looks for. */
+const MID_LINE_PERCENT = "%%";
 
 /**
  * The opening statement of a `subgraph` block, and everything the author
@@ -1261,11 +1231,20 @@ function readSubgraphTitle(
     // A bare word is the handle and the title at once, and has no tag in it.
     return { name: tail, label: plainLabel(tail), problems: [] };
   }
-  if (COMMENTED_BARE_TITLE_RE.test(tail)) {
+  if (BARE_TITLE_WITH_PERCENTS_RE.test(tail) && !tail.split(/\s+/).includes(SUBGRAPH_END)) {
     // `subgraph S %% zz`: no handle at all, and the whole run is the title.
-    return { name: null, label: plainLabel(tail), problems: [] };
+    return titleWithoutHandle(tail);
   }
   return null;
+}
+
+/**
+ * A subgraph title the author gave no handle for, drawn as the text written:
+ * `readSubgraphTitle`'s reading of `subgraph S %% zz`, and the stand-in a
+ * refused opener still opens its block with, so its `end` closes it.
+ */
+function titleWithoutHandle(text: string): { name: null } & ReadLabelResult {
+  return { name: null, label: plainLabel(text), problems: [] };
 }
 
 /**
@@ -1275,10 +1254,12 @@ function readSubgraphTitle(
  * "S %% zz" under a generated id (measured, `subGraph0`). Only words: a
  * bracket, a quote, a tag or an arrow after the `%%` is a parse error there
  * (measured: `got 'PS'`, `'STR'`, `'TAGSTART'`, `'LINK'`), and so is the
- * diagnostic here; and `end`, which Mermaid reads as the block's own end
- * swallowing the next line, is no word of a title Siren draws.
+ * diagnostic here; and a word that is `end`, which Mermaid reads as the
+ * block's own end swallowing the next line (`subgraph S %% end`), is no word
+ * of a title Siren draws — `readSubgraphTitle` asks that of `SUBGRAPH_END`,
+ * while `%%end` is a word like any other (measured: title "S %% %%end").
  */
-const COMMENTED_BARE_TITLE_RE = new RegExp(String.raw`^${ID_RUN}\s+%%(?!.*\bend\b)[\w%]*(?:\s+[\w%]+)*$`);
+const BARE_TITLE_WITH_PERCENTS_RE = new RegExp(String.raw`^${ID_RUN}\s+%%[\w%]*(?:\s+[\w%]+)*$`);
 
 /**
  * `direction LR` written inside a `subgraph` block — a per-cluster rank
@@ -1900,23 +1881,35 @@ export function parseFlowchart(source: string): DiagramParseResult {
       const line = piece.text;
       const column = piece.column;
       const statement: Statement = { text: line, line: lineNumber, column };
+      // Where a `%%` stands outside the statement's text, read once for every
+      // branch below that asks; and the statement up to it.
+      const percentAt = midLinePercentAt(line);
+      const beforePercent = percentAt === null ? line : line.slice(0, percentAt).trimEnd();
+      const refusePercent = () => {
+        diagnostics.push({
+          severity: "error",
+          message: MID_LINE_PERCENT_MESSAGE,
+          line: lineNumber,
+          column: column + percentAt!,
+        });
+        sawError = true;
+      };
 
       if (mode === "before-header") {
         const headerDirection = matchFlowchartHeader(line);
         if (headerDirection === null) {
           // `flowchart TB %% x`: a header Mermaid refuses for its `%%`
           // (measured, "Expecting 'NEWLINE', got 'NODE_STRING'") is told so.
-          const commentAt = midLineCommentAt(line);
-          diagnostics.push(
-            commentAt === null
-              ? {
-                  severity: "error",
-                  message: `Expected ${FLOWCHART_HEADER_SPELLINGS}, found "${line}"`,
-                  line: lineNumber,
-                  column,
-                }
-              : { severity: "error", message: MID_LINE_COMMENT_MESSAGE, line: lineNumber, column: column + commentAt },
-          );
+          if (percentAt === null) {
+            diagnostics.push({
+              severity: "error",
+              message: `Expected ${FLOWCHART_HEADER_SPELLINGS}, found "${line}"`,
+              line: lineNumber,
+              column,
+            });
+          } else {
+            refusePercent();
+          }
           sawError = true;
           break readLines;
         }
@@ -1949,21 +1942,13 @@ export function parseFlowchart(source: string): DiagramParseResult {
       // block with a punctuated name, not a malformed edge.
       const subgraphOpenMatch = SUBGRAPH_OPEN_RE.exec(line);
       if (subgraphOpenMatch !== null) {
-        const read = readSubgraphTitle(subgraphOpenMatch[1]);
-        const tailCommentAt = read === null ? midLineCommentAt(subgraphOpenMatch[1]) : null;
-        if (tailCommentAt !== null) {
+        let title = readSubgraphTitle(subgraphOpenMatch[1]);
+        if (title === null && percentAt !== null) {
           // Refused for its `%%`, but still a block: its `end` closes it, so
           // the one mistake is reported once rather than again at the `end`.
-          diagnostics.push({
-            severity: "error",
-            message: MID_LINE_COMMENT_MESSAGE,
-            line: lineNumber,
-            column: column + subgraphOpenMatch.indices![1]![0] + tailCommentAt,
-          });
-          sawError = true;
+          refusePercent();
+          title = titleWithoutHandle(subgraphOpenMatch[1]);
         }
-        const title =
-          tailCommentAt === null ? read : { name: null, label: plainLabel(subgraphOpenMatch[1]), problems: [] };
         if (title === null) {
           diagnostics.push({
             severity: "error",
@@ -1995,7 +1980,12 @@ export function parseFlowchart(source: string): DiagramParseResult {
         continue;
       }
 
-      if (line === SUBGRAPH_END && openBlocks.length > 0) {
+      if (beforePercent === SUBGRAPH_END && openBlocks.length > 0) {
+        // `end %% x` is refused for its `%%`, and still ends its block, so
+        // the one mistake is not reported again as an unterminated block.
+        if (percentAt !== null) {
+          refusePercent();
+        }
         openBlocks.pop();
         continue;
       }
@@ -2004,10 +1994,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
         // Read up to a `%%`: Mermaid's direction token is
         // `.*direction\s+LR[^\n]*`, so whatever trails it on the line is
         // taken with it (measured, `direction LR %% x` is `dir: "LR"`).
-        const commentAt = midLineCommentAt(line);
-        const blockDirection = matchClassDirection(
-          commentAt === null ? line : line.slice(0, commentAt).trimEnd(),
-        );
+        const blockDirection = matchClassDirection(beforePercent);
         if (blockDirection !== null) {
           openBlocks[openBlocks.length - 1].subgraph.direction = blockDirection;
           continue;
@@ -2023,26 +2010,13 @@ export function parseFlowchart(source: string): DiagramParseResult {
       // Mermaid does (measured: `style A fill:#f00 %% x` records
       // `fill:#f00 %% x`, `accTitle: t %% x` the title `t %% x`).
       if (
+        percentAt !== null &&
         !DECLARATION_LIST_RE.test(line) &&
         !ACC_TITLE_RE.test(line) &&
         !ACC_DESCR_RE.test(line)
       ) {
-        const commentAt = midLineCommentAt(line);
-        if (commentAt !== null) {
-          diagnostics.push({
-            severity: "error",
-            message: MID_LINE_COMMENT_MESSAGE,
-            line: lineNumber,
-            column: column + commentAt,
-          });
-          sawError = true;
-          // `end %% x` is refused for its `%%`, and still ends its block, so
-          // the one mistake is not reported again as an unterminated block.
-          if (line.slice(0, commentAt).trim() === SUBGRAPH_END && openBlocks.length > 0) {
-            openBlocks.pop();
-          }
-          continue;
-        }
+        refusePercent();
+        continue;
       }
 
       // A declaration list is not a place where an arrow means anything —

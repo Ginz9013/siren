@@ -1215,7 +1215,7 @@ classDiagram
       // of a mid-line `%%` is written.
       const midLine =
         'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
-        "Move the comment to a line of its own.";
+        "If it is a comment, move it to a line of its own.";
       expect(parseSiren("flowchart TB\nA-->B %%\nA-->B %%").diagnostics).toEqual([
         { severity: "error", message: midLine, line: 2, column: 7 },
         { severity: "error", message: midLine, line: 3, column: 7 },
@@ -3353,7 +3353,7 @@ describe("a document's directives", () => {
 describe("a `%%` in the middle of a flowchart line", () => {
   const NOT_A_COMMENT =
     'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
-    "Move the comment to a line of its own.";
+    "If it is a comment, move it to a line of its own.";
 
   it("refuses a `%%` trailing an edge, at its `%%`, where the grammar has no room for it", () => {
     // Measured: `A --> B %% x` is a parse error ("Expecting 'SEMI',
@@ -3392,6 +3392,15 @@ describe("a `%%` in the middle of a flowchart line", () => {
     const swallowed = parseSiren("flowchart TB\n  subgraph S %% end\n    A\n  end");
     expect(swallowed.document).toBeNull();
     expect(swallowed.diagnostics).toEqual([{ severity: "error", message: NOT_A_COMMENT, line: 2, column: 14 }]);
+  });
+
+  it("reads a word that only contains `end` as a word of a subgraph's title", () => {
+    // Measured: `subgraph S %% %%end` records the title "S %% %%end" — only a
+    // word that is `end` ends the block.
+    const { document, diagnostics } = parseFlowchartOk("flowchart TB\n  subgraph S %% %%end\n    A\n  end");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs.map((subgraph) => [subgraph.name, subgraph.label.text])).toEqual([[null, "S %% %%end"]]);
   });
 
   it("reads a block's `direction` with a `%%` after it as that direction — its rule runs to the line's end", () => {

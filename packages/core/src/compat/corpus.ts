@@ -3741,7 +3741,7 @@ line2\`"]`,
       "is a parse error, measured: \"Expecting 'SEMI', 'NEWLINE', 'EOF', " +
       "'AMP', 'START_LINK', 'LINK', 'LINK_ID', got 'NODE_STRING'\". Siren " +
       "refuses it too (ADR-0017), with an error at the `%%` saying a mid-line " +
-      "`%%` is not a comment and to move it to a line of its own. A comment " +
+      "`%%` is not a comment and, if it is one, to move it to a line of its own. A comment " +
       "on its own line renders in both.",
   },
   {

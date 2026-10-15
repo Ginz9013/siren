@@ -904,3 +904,52 @@ describe("a `%%` in the middle of a flowchart line", () => {
     expect(positions("flowchart TB\n  A -->|a %% b| B[c %% d] %% e")).toEqual(["error 2:27"]);
   });
 });
+
+/**
+ * Where a flowchart statement's text runs, for every reader that cuts a
+ * line — at `;`, at `&`, at an arrow, at a `%%` — measured on Mermaid
+ * 12.2.0 with `pnpm --filter siren-core probe`.
+ */
+describe("the text a flowchart line holds, which no separator cuts", () => {
+  it("reads an asymmetric node's label, opened by the `>` right after its id, as one label whatever separator it holds", () => {
+    // Measured: `A>a;b] --> B`, `A>a-->b] --> B` and `A>a&b] --> B` record
+    // the texts "a;b", "a-->b" and "a&b", each with one edge to B.
+    for (const [source, text] of [
+      ["A>a;b] --> B", "a;b"],
+      ["A>a-->b] --> B", "a-->b"],
+      ["A>a&b] --> B", "a&b"],
+    ] as const) {
+      const { document, diagnostics } = parseOk(`flowchart TB\n  ${source}`);
+
+      expect([source, diagnostics]).toEqual([source, []]);
+      expect([source, document.nodes.map((node) => [node.id, node.label.text, node.shape])]).toEqual([
+        source,
+        [
+          ["A", text, "asymmetric"],
+          ["B", "B", "rect"],
+        ],
+      ]);
+      expect([source, document.edges.map((edge) => [edge.from, edge.to])]).toEqual([source, [["A", "B"]]]);
+    }
+  });
+
+  it("lets any closer close a label, so a label holding another bracket's closer is not read whole", () => {
+    // Measured: Mermaid refuses `A[a)-->b] --> B` ("got 'PE'") and
+    // `A>a)-->b] --> B` alike — a closer that is not the label's own is
+    // never a character of it — so neither is read here as one node.
+    for (const source of ["A[a)-->b] --> B", "A>a)-->b] --> B", "A[a}-->b] --> B"]) {
+      expect([source, parseFlowchart(`flowchart TB\n  ${source}`).document]).toEqual([source, null]);
+    }
+  });
+
+  it("reads a quoted string outside any bracket as one piece of text, as a `click`'s link and tooltip are", () => {
+    // Measured: `click A "https://x.org/a;b" "t;u"` is accepted — the `;`
+    // inside each string is a character, not the end of the statement.
+    const { document, diagnostics } = parseOk('flowchart TB\n  A\n  click A "https://x.org/a;b" "t;u"');
+
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions.map(({ action, tooltip }) => [action, tooltip])).toEqual([
+      ["https://x.org/a;b", "t;u"],
+    ]);
+  });
+});
