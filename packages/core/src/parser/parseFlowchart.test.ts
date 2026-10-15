@@ -511,6 +511,112 @@ describe("a flowchart node id's alphabet", () => {
       expect.objectContaining({ interactionKind: "href", targetId: "c.d" }),
     ]);
   });
+
+  it("accepts a `%` anywhere in an id, on a declaration and at an edge endpoint", () => {
+    // Measured on Mermaid 12.2.0: `%` is a node-string character, so
+    // `A%B --> C`, `%A`, `A%`, `A-->B%C`, `A%B[lbl]`, `%-A` and `A.%B` each
+    // record the id as written — and `%` alone is a node.
+    const { document, diagnostics } = parseOk(`flowchart TB
+  A%B --> C
+  %A
+  A%
+  A-->B%C
+  D%E[lbl]
+  %-F
+  G.%H
+  %`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual([
+      "A%B",
+      "C",
+      "%A",
+      "A%",
+      "A",
+      "B%C",
+      "D%E",
+      "%-F",
+      "G.%H",
+      "%",
+    ]);
+    expect(document.nodes.find((node) => node.id === "D%E")?.label.text).toBe("lbl");
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([
+      ["A%B", "C"],
+      ["A", "B%C"],
+    ]);
+  });
+
+  it("accepts a `%` in every statement that names an id: `class`, `style`, `click`, `:::` and a subgraph's handle", () => {
+    // Measured on Mermaid 12.2.0: `class A%B foo`, `style A%B fill:#f00`,
+    // `click A%B "http://x"` and `A%B:::c` reach the node `A%B`, and
+    // `subgraph S%1 [T]` and `subgraph S%%1` record the subgraph ids `S%1`
+    // and `S%%1` — the same with `%%` (`style A%%B …`, `class A%%B foo`).
+    const { document, diagnostics } = parseOk(`flowchart TB
+  subgraph S%1 [T]
+    A%B
+  end
+  subgraph S%%1
+    C%%D
+  end
+  classDef foo fill:#f00
+  class A%B,C%%D foo
+  style A%B fill:#0f0
+  style C%%D fill:#00f
+  A%B:::foo
+  click A%B "https://example.com"
+  click C%%D "https://example.com"`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs.map((subgraph) => [subgraph.name, subgraph.nodeIds])).toEqual([
+      ["S%1", ["A%B"]],
+      ["S%%1", ["C%%D"]],
+    ]);
+    expect(document.styles).toEqual([
+      expect.objectContaining({ styleKind: "classDef", name: "foo" }),
+      expect.objectContaining({ styleKind: "apply", targetIds: ["A%B", "C%%D"], name: "foo" }),
+      expect.objectContaining({ styleKind: "style", targetIds: ["A%B"] }),
+      expect.objectContaining({ styleKind: "style", targetIds: ["C%%D"] }),
+      expect.objectContaining({ styleKind: "apply", targetIds: ["A%B"], name: "foo" }),
+    ]);
+    expect(document.interactions.map((interaction) => interaction.targetId)).toEqual(["A%B", "C%%D"]);
+  });
+
+  it("still names an edge id after an endpoint holding a `%`, and one holding a `%` itself", () => {
+    // Measured on Mermaid 12.2.0: `A%B e1@--> C` records the edge id `e1`
+    // from `A%B`, and `A e%1@--> B` the edge id `e%1`.
+    expect(parseFlowchart("flowchart TB\n  A%B e1@--> C").diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Siren does not support edge ids ("e1@") yet. Leave the id out: A%B --> C',
+        line: 2,
+        column: 7,
+      },
+    ]);
+    expect(parseFlowchart("flowchart TB\n  A%%B e%1@--> C").diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Siren does not support edge ids ("e%1@") yet. Leave the id out: A%%B --> C',
+        line: 2,
+        column: 8,
+      },
+    ]);
+  });
+
+  it("lets a timeline name a node whose id holds a `%`, and the edge from it", () => {
+    // ADR-0009: a target is an id, and a timeline action is split on
+    // whitespace only, so `A%B` and the edge id `A%B-C` are spelled as is.
+    const { document, diagnostics } = parseOk(
+      "flowchart TB\n  A%B --> C\ntimeline:\n  enter A%B fade\n  enter A%B-C fade",
+      parseSiren,
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A%B", "C"]);
+    expect(document.timeline?.entries.map((entry) => [entry.step, entry.targetId])).toEqual([
+      [1, "A%B"],
+      [2, "A%B-C"],
+    ]);
+  });
 });
 
 /**
@@ -1295,6 +1401,53 @@ describe("a `%%` in the middle of a flowchart line", () => {
 
     expect(diagnostics).toEqual([]);
     expect(document.nodes.map((node) => node.label.text)).toEqual(["a %% zz", "b %% c"]);
+  });
+
+  it("reads a `%%` glued to the end of an id as part of the id", () => {
+    // Measured on Mermaid 12.2.0: `A%%B`, `A%%B --> C`, `A-->B%%C`,
+    // `A%%B%%C`, `A%%%B`, `A%%`, `A%%[x]`, `A%%:::c` and `A%% --> B` each
+    // record the id with its `%%` — the flowchart lexer has no `%%` rule, and
+    // only a line that starts with one is a comment.
+    const { document, diagnostics } = parseOk(`flowchart TB
+  A%%B
+  C%%D --> E
+  F-->G%%H
+  I%%J%%K
+  L%%%M
+  N%%
+  O%%[x]
+  P%%:::c
+  Q%% --> R`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual([
+      "A%%B",
+      "C%%D",
+      "E",
+      "F",
+      "G%%H",
+      "I%%J%%K",
+      "L%%%M",
+      "N%%",
+      "O%%",
+      "P%%",
+      "Q%%",
+      "R",
+    ]);
+    expect(document.nodes.find((node) => node.id === "O%%")?.label.text).toBe("x");
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([
+      ["C%%D", "E"],
+      ["F", "G%%H"],
+      ["Q%%", "R"],
+    ]);
+  });
+
+  it("still refuses a `%%` written after a space, at the `%%`", () => {
+    // Measured: `A %% x` and `A %%B` are both "Expecting 'SEMI', 'NEWLINE',
+    // 'EOF', … got 'NODE_STRING'" — two ids in a row, not a comment.
+    expect(positions("flowchart TB\n  A %% x")).toEqual(["error 2:5"]);
+    expect(positions("flowchart TB\n  A %%B")).toEqual(["error 2:5"]);
+    expect(parseFlowchart("flowchart TB\n  A %%B").diagnostics[0]?.message).toMatch(/^A "%%" in the middle of a line/);
   });
 
   it("refuses a `%%` after an edge at the `%%`, read by the flowchart parser itself", () => {

@@ -129,7 +129,15 @@ const PAREN_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^()\[\]{}"])*`;
  * `a-:::x` all name `a-` (measured).
  */
 const ID_DASH = String.raw`-(?=[^>\-.]|$)`;
-const ID_RUN = String.raw`(?:-(?=\w))?\w+(?:\.+-?\w*|${ID_DASH}\w*)*`;
+/**
+ * A word character of an id — and `%`, which Mermaid 12.2.0's node-string
+ * alphabet takes anywhere in an id (01M4ZWT8PR, measured): `A%B --> C`,
+ * `%A`, `A%`, `A-->B%C`, `A%B[lbl]`, `%-A` and `A.%B` each record the id as
+ * written, and `%` alone is a node. Its `%%` is the id's too where it is
+ * glued to the id (`midLinePercentAt`).
+ */
+const ID_CHAR = String.raw`[\w%]`;
+const ID_RUN = String.raw`(?:-(?=${ID_CHAR}))?${ID_CHAR}+(?:\.+-?${ID_CHAR}*|${ID_DASH}${ID_CHAR}*)*`;
 
 /**
  * Every bracket spelling of a node, paired with the shape it names — the
@@ -1356,12 +1364,19 @@ function splitStatements(rawLine: string): { text: string; column: number }[] {
  * `click A "u" "a %% b"` as written, measured.
  */
 function midLinePercentAt(text: string): number | null {
-  const { parts } = cutOutsideLabel(text, MID_LINE_PERCENT);
+  const { parts } = cutOutsideLabel(text, MID_LINE_PERCENT_RE);
   return parts.length === 1 ? null : parts[0]!.length;
 }
 
-/** What `midLinePercentAt` looks for. */
-const MID_LINE_PERCENT = "%%";
+/**
+ * What `midLinePercentAt` looks for: a `%%` that does not continue an id.
+ * `%` is an id character (`ID_CHAR`), so one glued to the end of an id is
+ * the id's own — measured on Mermaid 12.2.0, `A%%B`, `A%%B --> C`,
+ * `A-->B%%C`, `A%%` and `A%% --> B` record the ids `A%%B`, `B%%C` and `A%%`
+ * (01M4ZWT8PR). Written after a space or a bracket it begins no id this
+ * parser reads: `A %% x` and `A %%B` are parse errors there, measured.
+ */
+const MID_LINE_PERCENT_RE = /(?<![\w%.-])%%/y;
 
 /**
  * The opening statement of a `subgraph` block, and everything the author
@@ -1389,8 +1404,9 @@ const SUBGRAPH_TITLED_RE = new RegExp(String.raw`^(${ID_RUN})\s*\[(${LABEL_CONTE
  * A bare authored id and nothing else — `Ingest`, `A`, `a.-b`.
  *
  * `ID_RUN` is this file's own answer to the shape ADR-0010 leans on: neither
- * a `\w` nor a `.` nor the one dash this pattern admits is a colon, which is
- * what still makes a generated id unspellable by an authored one here. Read
+ * a `\w` nor a `%` nor a `.` nor the one dash this pattern admits is a
+ * colon, which is what still makes a generated id unspellable by an
+ * authored one here. Read
  * in two places here, for two different things that are both that shape — a
  * subgraph written with a bare title
  * (mermaid 11.17.2 records it as both id and title) and a node written as
@@ -1822,9 +1838,9 @@ const LINK_STYLE_INTERPOLATE_RE = /^linkStyle\s+([\w,\s]*?[\w,])\s+interpolate\s
  * `class A,B emphasis` without a second pattern. The `.` in that class is
  * this ticket's: `class a.b,c.d hot` is a target list of two dotted ids,
  * matching what `STYLE_RE`'s single target and `NODE_CLASS_RE`'s shorthand
- * already accept.
+ * already accept. So is the `%` (`ID_CHAR`): `class A%B,C%%D hot`.
  */
-const CLASS_APPLY_RE = /^class\s+([\w\s,.]*[\w,.])\s+(\w+)\s*$/;
+const CLASS_APPLY_RE = /^class\s+([\w\s,.%]*[\w,.%])\s+(\w+)\s*$/;
 
 /**
  * Splits the comma-separated target list an apply-directive (`class A,B

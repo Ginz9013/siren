@@ -3977,6 +3977,45 @@ line2\`"]`,
       expectSame("edge A-B's label", edgeLabel(result, "A-B"), "a %% b");
     },
   },
+  {
+    id: "fc-id-percent",
+    kind: "flowchart",
+    source: `flowchart TB
+      A%B --> C
+      %D
+      E% --> F%G[lbl]`,
+    status: "supported",
+    meaning:
+      "A `%` is an id character: Mermaid 12.2.0's node-string alphabet takes " +
+      "it anywhere in an id, so this records the nodes `A%B`, `C`, `%D`, " +
+      "`E%` and `F%G` (labelled `lbl`) and the edges `A%B → C` and " +
+      "`E% → F%G` (measured). Siren used to refuse each line as " +
+      "unrecognized. The ids are the `data-siren-id`s a `timeline:` names " +
+      "(ADR-0009).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A%B[A%B]", "C[C]", "%D[%D]", "E%[E%]", "F%G[lbl]"]);
+      expectSame("edges", edges(result), ["A%B-C", "E%-F%G"]);
+    },
+  },
+  {
+    id: "fc-id-percent-glued",
+    kind: "flowchart",
+    source: `flowchart TB
+      A%%B --> C
+      C-->D%%E`,
+    status: "supported",
+    meaning:
+      "A `%%` glued to the end of an id is the id's, not a comment: only a " +
+      "line that starts with `%%` is one, and the flowchart lexer has no " +
+      "`%%` rule of its own, so Mermaid 12.2.0 records the nodes `A%%B`, `C` " +
+      "and `D%%E` and both edges (measured). Until 01M4ZWT8PR Siren refused " +
+      "each `%%` as a mid-line comment; one written after a space " +
+      "(`A %% x`) still is (`fc-comment-trailing`).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A%%B[A%%B]", "C[C]", "D%%E[D%%E]"]);
+      expectSame("edges", edges(result), ["A%%B-C", "C-D%%E"]);
+    },
+  },
   // -------------------------------------------------------------------------
   // classDiagram
   // -------------------------------------------------------------------------

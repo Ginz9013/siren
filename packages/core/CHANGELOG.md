@@ -74,6 +74,13 @@ between), which is now refused (see **Changed**).
   header's direction, with a warning that the line does nothing and that the direction belongs on
   the header, spelled with the header's own keyword (`flowchart LR`, or `graph LR` under a `graph`
   header). It used to be refused.
+- A `%` in a flowchart id is read as Mermaid 12.2.0 reads it (nook `01M4ZWT8PR`): it is an id
+  character anywhere (`A%B --> C`, `%A`, `A%`, `A-->B%C`, `A%B[lbl]`), in every statement that
+  names an id (`class`, `style`, `click`, `:::`, a subgraph's handle), and a `%%` glued to the end
+  of an id is the id's (`A%%B`, `A%%B --> C`, `A-->B%%C`, `A%%`). Such a line used to be refused,
+  a glued `%%` as a mid-line comment. A `%%` written after a space or a bracket (`A %% x`,
+  `A[x]%%B`) is still refused as one. A timeline names such a node by its id (`enter A%B`), but a
+  timeline line is still cut at its first `%%`, so it cannot name `A%%B` yet.
 - A document may open with a Mermaid frontmatter (`---` … `---`), read as Mermaid 12.2.0 reads it,
   each rule measured with the probe: only at the very top, optionally indented, closed by the first
   `---` at the same indent, and parsed as YAML under the JSON schema (with `js-yaml`, now a
