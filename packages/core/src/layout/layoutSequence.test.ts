@@ -938,7 +938,11 @@ describe("layoutSequence", () => {
     // drawn exactly as tall a row as any other message; `destroy` claims no
     // row of its own. Siren marks the end with its X, so the X sits on the
     // arrow's end at X's lane: its tip when X receives, its tail when X sends.
-    function destroyedBy(destroying: ResolvedSequenceStatement): SequenceModel {
+    function destroyedBy(from: string, to: string): SequenceModel {
+      // `buildSequenceModel` marks the destroying message with the id it
+      // destroys; that mark is the pairing layout reads.
+      const destroying = messageStatement("m2", from, to, "bye");
+      if (destroying.kind === "message") destroying.message.destroys = "B";
       return {
         title: null,
         accTitle: null,
@@ -958,7 +962,7 @@ describe("layoutSequence", () => {
     }
 
     it("puts X's mark on the arrow's tip and ends its lifeline there when X receives it, with no row for `destroy`", () => {
-      const positioned = layoutSequence(destroyedBy(messageStatement("m2", "A", "B", "bye")), {
+      const positioned = layoutSequence(destroyedBy("A", "B"), {
         measureText: fakeMeasurer,
       });
 
@@ -971,7 +975,7 @@ describe("layoutSequence", () => {
     });
 
     it("puts X's mark on the arrow's tail and ends its lifeline there when X sends it", () => {
-      const positioned = layoutSequence(destroyedBy(messageStatement("m2", "B", "A", "bye")), {
+      const positioned = layoutSequence(destroyedBy("B", "A"), {
         measureText: fakeMeasurer,
       });
 
@@ -980,6 +984,66 @@ describe("layoutSequence", () => {
       expect(destroyMarksOf(positioned)).toEqual([{ participantId: "B", x: bye!.fromX, y: bye!.y }]);
       expect(byId.B!.bottom).toBe(bye!.y);
       expect(bye!.y - hi!.y).toBe(ok!.y - bye!.y);
+    });
+
+    it("keeps X's mark on X's own lane, at the arrow's tail, when X sends the destroying message to itself", () => {
+      const positioned = layoutSequence(destroyedBy("B", "B"), { measureText: fakeMeasurer });
+
+      const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+      const [, bye] = messagesOf(positioned);
+      // A self-message's arrow loops out from the lane and back; its tail is
+      // on B's lane, its tip at the loop's far end.
+      expect(bye!.fromX).toBe(byId.B!.x);
+      expect(bye!.toX).not.toBe(byId.B!.x);
+      expect(destroyMarksOf(positioned)).toEqual([{ participantId: "B", x: byId.B!.x, y: bye!.y }]);
+      expect(byId.B!.bottom).toBe(bye!.y);
+    });
+
+    it("pairs a `destroy` at the end of one `alt` branch with the destroying message in the `else` branch", () => {
+      const destroying = messageStatement("B-A", "B", "A", "bye");
+      if (destroying.kind === "message") destroying.message.destroys = "B";
+      const alt: ResolvedSequenceBlock = {
+        id: "alt:1",
+        kind: "alt",
+        touchedParticipantIds: ["A", "B"],
+        color: null,
+        branches: [
+          {
+            label: plainLabel("first"),
+            statements: [messageStatement("A-B", "A", "B", "hi"), { kind: "destroy", id: "B" }],
+          },
+          { label: plainLabel("second"), statements: [destroying] },
+        ],
+      };
+      const model: SequenceModel = {
+        title: null,
+        accTitle: null,
+        accDescr: null,
+        interactions: [],
+        // Positions: 1 alt, 2 A->>B, 3 destroy B, 4 B->>A.
+        participants: [declaredParticipant("A", "Alice"), { ...declaredParticipant("B", "Bob"), destroyedAt: 4 }],
+        boxes: [],
+        statements: [{ kind: "block", block: alt }],
+        timeline: { totalSteps: 0, entries: [] },
+      };
+
+      const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+
+      const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+      const [block] = positioned.elements.filter(
+        (el): el is Extract<PositionedSequenceElement, { kind: "block" }> => el.kind === "block",
+      );
+      const [hi, bye] = messagesOf({ elements: block!.block.children });
+      // One mark, on the `else` branch's arrow (B sends it: its tail) — none
+      // on a row of the `destroy`'s own at the end of the first branch.
+      expect(destroyMarksOf({ elements: block!.block.children })).toEqual([
+        { participantId: "B", x: bye!.fromX, y: bye!.y },
+      ]);
+      expect(byId.B!.bottom).toBe(bye!.y);
+      // The first branch ends right after its message, as it would with no
+      // `destroy` in it: its divider follows `hi` by the same gap as always.
+      expect(block!.block.dividers[0]!.y).toBeLessThan(bye!.y);
+      expect(block!.block.dividers[0]!.y - hi!.y).toBe(10);
     });
   });
 

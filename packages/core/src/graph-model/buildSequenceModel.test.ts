@@ -1520,6 +1520,17 @@ describe("buildSequenceModel", () => {
       expect(result.destroyedAt).toEqual({ A: null, B: 5 });
     });
 
+    it("marks the destroying message with the participant it destroys, and no other message", () => {
+      const result = build("participant A\nparticipant B\nA->>B: hi\ndestroy B\nB->>A: bye\nA->>A: ok");
+
+      const messages = result.model.statements.flatMap((s) => (s.kind === "message" ? [s.message] : []));
+      expect(messages.map((m) => [m.id, m.destroys ?? null])).toEqual([
+        ["A-B", null],
+        ["B-A", "B"],
+        ["A-A", null],
+      ]);
+    });
+
     it("ends X's lifeline at the message X sends right after `destroy X`, with no warning for it", () => {
       const result = build("participant A\nparticipant B\nA->>B: hi\ndestroy B\nB->>A: bye");
 
@@ -1567,10 +1578,11 @@ describe("buildSequenceModel", () => {
       expect(result.diagnostics.join("\n")).not.toMatch(/mermaid/i);
     });
 
-    it("lets a later `destroy` or `create` replace a pending `destroy` before any message: the replaced one ends where it is written, unchecked (T3 decides this case)", () => {
-      // Provisional, pinned only so it is predictable until T3 measures what
-      // Mermaid draws: Mermaid remembers only the latest `destroy`/`create`,
-      // so the earlier `destroy B` is never checked against a message.
+    it("lets a later `destroy` or `create` replace a pending `destroy` before any message: the replaced one ends where it is written, unchecked (what Mermaid draws for it is open, nook 01M4YS7DV8)", () => {
+      // Provisional, pinned only so it is predictable: Mermaid remembers only
+      // the latest `destroy`/`create`, so the earlier `destroy B` is never
+      // checked against a message, and what Mermaid then draws for B is not
+      // measured yet (nook 01M4YS7DV8).
       // Positions: 1–3 participants, 4 destroy B, 5 destroy C, 6 A->>C.
       const twoDestroys = build("participant A\nparticipant B\nparticipant C\ndestroy B\ndestroy C\nA->>C: bye");
       expect(twoDestroys.diagnostics).toEqual([]);

@@ -145,21 +145,13 @@ interface SequenceLayoutContext {
   createdTopById: Map<string, number>;
   /** y-coordinate a `destroy`ed participant's lifeline ends at, keyed by id. */
   destroyedBottomById: Map<string, number>;
-  /** `ResolvedSequenceParticipant.destroyedAt` per participant id, for the ones that have one. */
-  destroyedAtById: Map<string, number>;
   /**
-   * Participants whose `destroy` the walk has passed without ending their
-   * lifeline there, because `destroyedAt` names a later statement: the
-   * destroying message, which ends it on its own row.
+   * Participants some message destroys (`ResolvedSequenceMessage.destroys`),
+   * collected before the walk: their `destroy` statement takes no row,
+   * because the destroying message's row is the end. A participant is
+   * destroyed at most once, so the id alone says which `destroy` is paired.
    */
-  awaitingDestroyingMessage: Set<string>;
-  /**
-   * Position of the statement the walk is at — the same 1-based pre-order
-   * count `buildSequenceModel` gives `createdAt`/`destroyedAt` in (every
-   * resolved statement takes one, a block before its body), recovered here by
-   * walking `model.statements` in the same order.
-   */
-  position: number;
+  destroyedByMessage: Set<string>;
   /** Activations not yet closed, per participant id — a stack, since Mermaid stacks repeat activations rather than merging them. */
   openActivationsByParticipantId: Map<string, OpenActivation[]>;
   /** Every closed bar, in the order it closed — `layoutSequence` sorts nothing further, since draw order does not depend on it. */
@@ -398,8 +390,6 @@ function layoutStatements(
   let y = startY;
 
   for (const statement of statements) {
-    const position = ++ctx.position;
-
     if (statement.kind === "message") {
       // A label's rows stack upward from its arrow, so its last row sits
       // where a one-row label always did and every row above it pushes the
@@ -418,13 +408,12 @@ function layoutStatements(
       // receives the message, its tail when X sends it (a message X sends to
       // itself counts as sent, as Mermaid checks the sender first, so the X
       // stays on X's lane rather than at the self-loop's far end).
-      for (const id of new Set([message.from, message.to])) {
-        if (!ctx.awaitingDestroyingMessage.has(id) || ctx.destroyedAtById.get(id) !== position) continue;
-        ctx.awaitingDestroyingMessage.delete(id);
-        ctx.destroyedBottomById.set(id, y);
+      const destroyed = statement.message.destroys;
+      if (destroyed !== undefined) {
+        ctx.destroyedBottomById.set(destroyed, y);
         elements.push({
           kind: "destroyMark",
-          mark: { participantId: id, x: id === message.from ? message.fromX : message.toX, y },
+          mark: { participantId: destroyed, x: destroyed === message.from ? message.fromX : message.toX, y },
         });
       }
       continue;
@@ -443,10 +432,7 @@ function layoutStatements(
     if (statement.kind === "destroy") {
       // Paired with a destroying message later on: that message's row is the
       // end, and `destroy` itself takes no row, as it takes none in Mermaid.
-      if ((ctx.destroyedAtById.get(statement.id) ?? position) > position) {
-        ctx.awaitingDestroyingMessage.add(statement.id);
-        continue;
-      }
+      if (ctx.destroyedByMessage.has(statement.id)) continue;
       y += DESTROY_ROW_HEIGHT;
       ctx.destroyedBottomById.set(statement.id, y);
       elements.push({
@@ -740,11 +726,7 @@ export function layoutSequence(
     participantsById: new Map(participants.map((p) => [p.id, p])),
     createdTopById: new Map(),
     destroyedBottomById: new Map(),
-    destroyedAtById: new Map(
-      model.participants.flatMap((p) => (p.destroyedAt === null ? [] : [[p.id, p.destroyedAt] as const])),
-    ),
-    awaitingDestroyingMessage: new Set(),
-    position: 0,
+    destroyedByMessage: destroyedByMessage(model.statements),
     openActivationsByParticipantId: new Map(),
     closedActivations: [],
     measureText: options.measureText,
@@ -835,6 +817,21 @@ export function layoutSequence(
     width: extent.width,
     height: extent.height,
   };
+}
+
+/** Every participant a message destroys, anywhere in the statement tree (block bodies included). */
+function destroyedByMessage(statements: readonly ResolvedSequenceStatement[]): Set<string> {
+  const ids = new Set<string>();
+  for (const statement of statements) {
+    if (statement.kind === "message" && statement.message.destroys !== undefined) {
+      ids.add(statement.message.destroys);
+    } else if (statement.kind === "block") {
+      for (const branch of statement.block.branches) {
+        for (const id of destroyedByMessage(branch.statements)) ids.add(id);
+      }
+    }
+  }
+  return ids;
 }
 
 /** Finds the rightmost frame edge across every block, recursively including nested children. */

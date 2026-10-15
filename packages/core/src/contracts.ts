@@ -899,6 +899,15 @@ export interface ResolvedSequenceMessage {
   arrow: SequenceArrow;
   /** Sequential autonumber label, or `null` when autonumbering was off for this message. */
   autonumber: number | null;
+  /**
+   * The id of the participant this message destroys, when it is that
+   * participant's **destroying message** — the first message after its
+   * `destroy` statement, which it sends or receives; absent on every other
+   * message. Its lifeline and destroy mark end on this message's row, so
+   * `layoutSequence` reads the pairing here rather than working it out
+   * again. (A creating message, once paired, is marked the same way.)
+   */
+  destroys?: string;
 }
 
 /** One resolved branch of a block, mirroring `SequenceAltBranch`/`SequenceParBranch`/`SequenceCriticalBranch` post-resolution. */

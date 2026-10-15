@@ -195,6 +195,7 @@ sequenceDiagram
   create participant Receipt
   Web->>Receipt: Build receipt
   destroy Receipt
+  Receipt-->>Web: Receipt ready
   Web-->>Shopper: Done
 ```
 
@@ -229,7 +230,10 @@ from the request.
 - Notes: `note right of X: text`, `note left of X: text`, `note over X,Y: text`.
   The timeline names notes `note:1`, `note:2`, ... in source order.
 - `create participant X` / `create actor X` starts a lifeline mid-diagram, and
-  `destroy X` ends it.
+  `destroy X` ends it. The next message after `destroy X` (notes and other statements
+  do not count) must be sent by or to X; X's lifeline ends on that message's row, and a
+  later message naming X is warned about. A `destroy X` whose next message does not touch
+  X is refused. With no message after it, the lifeline ends where `destroy` is written.
 - `link X: Label @ https://...` adds a link to a participant.
 - `autonumber` and `autonumber off`, `title`, `accTitle`, `accDescr`.
 

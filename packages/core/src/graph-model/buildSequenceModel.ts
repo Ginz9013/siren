@@ -11,6 +11,7 @@ import type {
   SequenceAltStatement,
   SequenceBreakStatement,
   SequenceCriticalStatement,
+  SequenceDestroyStatement,
   SequenceDocument,
   SequenceLoopStatement,
   SequenceModel,
@@ -98,11 +99,10 @@ interface ResolutionState {
    * `lastDestroyed` is checked against the next `addMessage` alone, so a
    * note, an `activate` or a block boundary between the two does not count,
    * and the walk here is the flattened document order those records are
-   * added in). `null` when nothing is waiting. `line`/`column` are the
-   * `destroy` statement's own, where a missing destroying message is
-   * reported.
+   * added in). `null` when nothing is waiting. The `destroy` statement
+   * itself is kept so a missing destroying message is reported at its line.
    */
-  pendingDestroy: { participant: ResolvedSequenceParticipant; line?: number; column?: number } | null;
+  pendingDestroy: { participant: ResolvedSequenceParticipant; statement: SequenceDestroyStatement } | null;
 }
 
 /**
@@ -341,9 +341,10 @@ function resolveStatements(
       // A `create` waits for the next message too, and Mermaid remembers only
       // the latest of the two declarations: `createParticipant` sets
       // `lastCreated`, which `addMessage` checks first, so a `destroy` still
-      // waiting is never checked at all. Until T3 measures what Mermaid then
-      // draws, the replaced `destroy` keeps the end it was written at — the
-      // same as a `destroy` with no message after it — rather than guessing.
+      // waiting is never checked at all. What Mermaid then draws for the
+      // replaced `destroy` is still unmeasured (nook 01M4YS7DV8); until it
+      // is, that `destroy` keeps the end it was written at — the same as a
+      // `destroy` with no message after it — rather than guessing.
       if (statement.origin === "created") state.pendingDestroy = null;
       resolved.push({ kind: "participant", participant: participant! });
       continue;
@@ -373,9 +374,10 @@ function resolveStatements(
       participant.destroyedAt = ++state.position;
       // A `destroy` still waiting for its message is replaced, unchecked:
       // Mermaid's `lastDestroyed` holds one participant, so `destroy B` then
-      // `destroy C` checks only C. The replaced one keeps the end it was
-      // written at until T3 decides this case.
-      state.pendingDestroy = { participant, line: statement.line, column: statement.column };
+      // `destroy C` checks only C. Whether Mermaid then draws B's end at all
+      // is still unmeasured (nook 01M4YS7DV8); the replaced one keeps the end
+      // it was written at meanwhile.
+      state.pendingDestroy = { participant, statement };
       resolved.push({ kind: "destroy", id: statement.id });
       continue;
     }
@@ -426,8 +428,8 @@ function resolveStatements(
             message:
               `The destroyed participant "${destroyed.id}" has no destroying message: ` +
               `the next message must be sent by or to it.`,
-            line: pending.line,
-            column: pending.column,
+            line: pending.statement.line,
+            column: pending.statement.column,
           });
         }
       }
@@ -457,6 +459,7 @@ function resolveStatements(
         label: statement.label,
         arrow: statement.arrow,
         autonumber: state.autonumbering ? state.autonumberCounter : null,
+        ...(destroyedHere === null ? {} : { destroys: destroyedHere }),
       };
       resolved.push({ kind: "message", message });
       touched.add(statement.from);
