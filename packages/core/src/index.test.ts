@@ -849,7 +849,7 @@ end
     expect(result.svg!.querySelectorAll("i")).toHaveLength(0);
   });
 
-  it("renders demos/sequence-diagram.html's comprehensive example (examples/sequence-full.srn) end to end — box grouping, both participant kinds, all ten arrow forms, a self-message, all seven block kinds nested, create inside and outside blocks, and destroy after the last message", () => {
+  it("renders demos/sequence-diagram.html's comprehensive example (examples/sequence-full.srn) end to end — box grouping, both participant kinds, all ten arrow forms, a self-message, all seven block kinds nested, and create/destroy inside and outside blocks", () => {
     const container = document.createElement("div");
 
     const result = render(readExample("sequence-full"), container);
@@ -907,7 +907,7 @@ end
     // All ten arrow forms: two line styles x five arrowheads, each a distinct
     // marker/dash combination on the rendered path.
     const messages = Array.from(svg.querySelectorAll("g.siren-message"));
-    expect(messages).toHaveLength(22);
+    expect(messages).toHaveLength(24);
     const arrowForms = new Set(
       messages.map((g) => {
         const path = g.querySelector("path.siren-message-arrow")!;
@@ -956,8 +956,9 @@ end
     expect(boxes).toHaveLength(1);
     expect(boxes[0]!.querySelector("text.siren-box-label")!.textContent).toBe("Storefront");
 
-    // Destroy marks for the two destroyed lifelines only — `destroy Retry` and
-    // `destroy Ledger`, both at the top level after the last message.
+    // Destroy marks for the two destroyed lifelines only — `destroy Retry`
+    // inside the `alt approved` branch and `destroy Ledger` at the top level,
+    // each followed by its destroying message.
     expect(
       Array.from(svg.querySelectorAll("path.siren-destroy-mark"))
         .map((p) => p.getAttribute("data-siren-id"))
@@ -980,6 +981,14 @@ end
       expect(y2(destroyed)).toBeLessThan(y2("Web"));
     }
     expect(y2("Auditor")).toBe(y2("Web"));
+    // Each lifeline ends on its destroying message's row, where it was
+    // written: Retry's inside the `loop`, before the `opt` block creates
+    // Auditor; Ledger's before the receipt note.
+    expect(y2("Retry")).toBeLessThan(y1("Auditor"));
+    const receiptNoteY = Number(
+      svg.querySelector('[data-siren-id="note:1"] rect')!.getAttribute("y"),
+    );
+    expect(y2("Ledger")).toBeLessThan(receiptNoteY);
   });
 
   it("gives every one of the ten source arrow forms its own line style and arrowhead through render(): dotted forms dash, `<<->>`/`<<-->>` arrow both ends, and filled/cross/open resolve to three distinct <marker> defs", () => {
@@ -2700,7 +2709,8 @@ timeline:
 
     // Zero diagnostics, not merely zero errors: the closing example has to be
     // clean against the advisory message-outlives-its-participant warning too,
-    // which is why `Retry` and the one message touching it exit together.
+    // which is why `Retry` and both messages touching it — its creating
+    // message and its destroying one — exit together.
     expect(result.diagnostics).toEqual([]);
     const controller = result.controller!;
     expect(controller.totalSteps).toBe(8);
@@ -2720,6 +2730,7 @@ timeline:
       "Retry",
       "Shopper-Web",
       "Web-Retry",
+      "Web-Retry#2",
       "box:1",
       "note:1",
     ]);
@@ -2730,6 +2741,7 @@ timeline:
     const loopBlock = result.svg!.querySelector('[data-siren-id="loop:1"]')!;
     const rectBlock = result.svg!.querySelector('[data-siren-id="rect:1"]')!;
     const scheduleRetry = result.svg!.querySelector('g.siren-message[data-siren-id="Web-Retry"]')!;
+    const cancelRetry = result.svg!.querySelector('g.siren-message[data-siren-id="Web-Retry#2"]')!;
     const receiptNote = result.svg!.querySelector('[data-siren-id="note:1"]')!;
     const retryElements = () => Array.from(result.svg!.querySelectorAll('[data-siren-id="Retry"]'));
     expect(retryElements()).toHaveLength(3);
@@ -2762,8 +2774,9 @@ timeline:
       false,
     ]);
     expect(scheduleRetry.classList.contains("siren-enter-slide-bottom")).toBe(true);
+    expect(cancelRetry.classList.contains("siren-enter-slide-bottom")).toBe(true);
 
-    // Step 5: the participant leaves, and the one message touching it leaves
+    // Step 5: the participant leaves, and both messages touching it leave
     // with it — the pairing that keeps this example warning-free.
     controller.next();
     expect(retryElements().map((el) => el.classList.contains("siren-exit-slide-top"))).toEqual([
@@ -2772,6 +2785,7 @@ timeline:
       true,
     ]);
     expect(scheduleRetry.classList.contains("siren-exit-slide-right")).toBe(true);
+    expect(cancelRetry.classList.contains("siren-exit-slide-right")).toBe(true);
 
     // Step 6: the loop's outline lifted, the rect block's raised.
     controller.next();
@@ -2806,6 +2820,7 @@ timeline:
       "Retry",
       "Shopper-Web",
       "Web-Retry",
+      "Web-Retry#2",
       "box:1",
       "note:1",
     ]);
