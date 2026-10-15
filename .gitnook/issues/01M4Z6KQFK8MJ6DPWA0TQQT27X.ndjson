@@ -1,3 +1,5 @@
 {"id":"01M4Z6KQFKXK12QNS2QV4GJM5H","t":1,"a":"83a1","op":"create","title":"sequence-create-destroy/T8 destroy 從未出現的參與者時，Mermaid 不畫其 lane（涉及 ADR-0013）"}
 {"id":"01M4Z6KQFWFVDRQGT09VZ70CJ7","t":2,"a":"83a1","op":"set","k":"description","v":"# T8 `destroy Z`（Z 從未在別處出現）時 Mermaid 不畫 Z 的 lane（review 追加，backlog）\n\n## 背景（T6 實測，Mermaid 12.2.0）\n\nMermaid 的 `destroy` 不會建立參與者，所以 Z 沒有 lane；Siren 依 ADR-0013（參與者在第一次被提到時建立）與\n`parseSequenceDiagram.ts` 的註解為 Z 建立 lane。對齊 Mermaid 需要重新討論 ADR-0013 對 `destroy` 的適用範圍。\n\n## Status\n\nskipped（backlog，需 ADR 決策）"}
 {"id":"01M4Z7TV3D0J80GZ5H0JS8VZA2","t":3,"a":"83a1","op":"comment","body":"由 board mermaid-parity-comments-lanes（spec 01M4Z7TQHTBRTX8T0ZV2M4QGE9）接手處理。"}
+{"id":"01M4ZNMK82TX75W1RA5VNZH74B","t":4,"a":"83a1","op":"comment","body":"已由 board mermaid-parity-comments-lanes 完成（spec 01M4Z7TQH），關閉。"}
+{"id":"01M4ZNMKEV4WVYV5MX5HWYZXYC","t":5,"a":"83a1","op":"set","k":"status","v":"done"}

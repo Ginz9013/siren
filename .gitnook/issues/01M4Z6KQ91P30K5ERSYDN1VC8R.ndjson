@@ -1,3 +1,5 @@
 {"id":"01M4Z6KQ91YGK3DCENGASZ6AWK","t":1,"a":"83a1","op":"create","title":"sequence-create-destroy/T7 建立的參與者：底部方框與水平位置對齊 Mermaid"}
 {"id":"01M4Z6KQ9B5533MZY4B9QT8KT2","t":2,"a":"83a1","op":"set","k":"description","v":"# T7 建立的參與者：底部方框與水平位置對齊 Mermaid（review 追加，backlog）\n\n## 背景（T6 實測，Mermaid 12.2.0）\n\n- 有建立訊息、之後從未被摧毀的參與者，Mermaid 在底部列也畫一個方框；Siren 不畫（`seq-create-destroy` 實測 B 的底部方框在 y 234）。\n- `addActorRenderingData` 對 `createdActors` 中的參與者把位置右移半個寬度（`prevMargin += actor.width / 2`），連沒配對到訊息的 create 也會右移；Siren 沒有這個偏移。\n\n兩者都早於本 board 存在，牽涉 layout／renderer 的底部列規則與 spec 的「SVG conventions」。\n\n## Status\n\nskipped（backlog，待規劃）"}
 {"id":"01M4Z7TTWSETFGHRWWTX49SR3E","t":3,"a":"83a1","op":"comment","body":"由 board mermaid-parity-comments-lanes（spec 01M4Z7TQHTBRTX8T0ZV2M4QGE9）接手處理。"}
+{"id":"01M4ZNMJTPZRRC0RA5PTP1EECM","t":4,"a":"83a1","op":"comment","body":"已由 board mermaid-parity-comments-lanes 完成（spec 01M4Z7TQH），關閉。"}
+{"id":"01M4ZNMK1AGP3YQ7PEMH4ENEEN","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
