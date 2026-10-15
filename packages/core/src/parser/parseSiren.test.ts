@@ -1034,7 +1034,9 @@ flowchart TD
     ]);
   });
 
-  it("ignores whole-line and trailing %% comments in a sequence diagram", () => {
+  it("ignores whole-line %% comments in a sequence diagram, and keeps a %% after a message's colon as its text", () => {
+    // Measured (Mermaid 12.2.0): only the whole line is a comment; the
+    // message text runs on past its `%%`. Siren used to cut it to "Sync call".
     const source = `sequenceDiagram
   %% who is involved
   participant A as Alice
@@ -1050,7 +1052,7 @@ flowchart TD
     expect(sequenceDocument.participants.map((p) => p.id)).toEqual(["A", "B"]);
     const messages = sequenceDocument.statements.filter((s) => s.kind === "message");
     expect(messages).toHaveLength(1);
-    expect(messages[0].kind === "message" && messages[0].label.text).toBe("Sync call");
+    expect(messages[0].kind === "message" && messages[0].label.text).toBe("Sync call %% the important one");
   });
 
   it("ignores whole-line, indented and trailing %% comments in a class diagram", () => {
@@ -1069,10 +1071,11 @@ classDiagram
     expect(classDocument.relationships).toHaveLength(1);
   });
 
-  it("strips %% line-wise, so a %% inside message text starts a comment there too", () => {
-    // Documented decision (see parseSiren.ts): comments are stripped
-    // line-wise before parsing, exactly as Mermaid does, so `%%` starts a
-    // comment even inside quoted text or a label. There is no escape.
+  it("keeps a %% inside a sequence message's text as text — only a whole line is a comment", () => {
+    // Measured (Mermaid 12.2.0): `cleanupComments` removes whole-line
+    // comments only, and the sequence lexer's message-text rule
+    // (`:[^#\n;]*`) reads on past a `%%`, so `A->>B: 50%% done` draws the
+    // message "50%% done". Siren used to cut the line at the `%%` and draw "50".
     const source = `sequenceDiagram
   participant A as Alice
   participant B as Bob
@@ -1083,7 +1086,7 @@ classDiagram
 
     expect(diagnostics).toEqual([]);
     const messages = (document as SequenceDocument).statements.filter((s) => s.kind === "message");
-    expect(messages[0].kind === "message" && messages[0].label.text).toBe("50");
+    expect(messages[0].kind === "message" && messages[0].label.text).toBe("50%% done");
   });
 
   it("reports an error diagnostic, not a throw, for a document that is only comments", () => {
@@ -3514,5 +3517,191 @@ describe("a `%%` in the middle of a flowchart line", () => {
       ["C", "g %% h"],
     ]);
     expect(document.edges.map((edge) => edge.label?.text)).toEqual(["a %% b", "c %% d"]);
+  });
+});
+
+/**
+ * A `%%` in the middle of a sequence line (CONTEXT.md **Comment**). Mermaid
+ * 12.2.0's `cleanupComments` removes whole-line comments only; the sequence
+ * lexer has `%%` rules of its own (`%(?!\{)[^\n]*` and `[^\}]%%[^\n]*`), but
+ * they only fire at a token boundary — the rules that read text (a
+ * message's or note's text after its `:`, a block's label, a participant's
+ * name, a title) read on past a `%%` first. Measured with
+ * `pnpm --filter siren-core probe`; the table is T1's 量測結果 (sequence).
+ */
+describe("a `%%` in the middle of a sequence line", () => {
+  const NOT_A_COMMENT =
+    'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+    "If it is a comment, move it to a line of its own.";
+
+  function sequenceOk(body: string): SequenceDocument {
+    const { document, diagnostics } = parseSiren(`sequenceDiagram\n${body}`);
+    expect([body, diagnostics]).toEqual([body, []]);
+    if (document === null || document.kind !== "sequence") {
+      throw new Error(`expected a sequence document for ${JSON.stringify(body)}`);
+    }
+    return document;
+  }
+
+  it("keeps a `%%` in every piece of text a statement holds, as Mermaid records it", () => {
+    // Measured: each row's text is stored with its `%% zz` — a message's and
+    // a note's text, a block's or branch's label (a label-less `loop %% zz`
+    // has the label "%% zz"), a box's label with or without a color, the
+    // title in both spellings, the accessibility lines, and a participant's
+    // `as` alias, declared or created.
+    const messageText = (document: SequenceDocument) =>
+      document.statements.flatMap((s) => (s.kind === "message" || s.kind === "note" ? [s.label.text] : []));
+    const blockLabels = (document: SequenceDocument) =>
+      document.statements.flatMap((s) =>
+        s.kind === "loop" || s.kind === "opt" || s.kind === "break"
+          ? [s.label?.text ?? null]
+          : s.kind === "alt" || s.kind === "par" || s.kind === "critical"
+            ? s.branches.map((branch) => branch.label?.text ?? null)
+            : [],
+      );
+
+    expect(messageText(sequenceOk("  A->>B: hi %% zz"))).toEqual(["hi %% zz"]);
+    expect(messageText(sequenceOk("  A-->>B: hi %% zz"))).toEqual(["hi %% zz"]);
+    expect(messageText(sequenceOk("  A->>+B: hi %% zz"))).toEqual(["hi %% zz"]);
+    expect(messageText(sequenceOk("  A->>B: m\n  note over A: n %% zz"))).toEqual(["m", "n %% zz"]);
+    expect(messageText(sequenceOk("  A->>B: m\n  note right of A: n %% zz"))).toEqual(["m", "n %% zz"]);
+    expect(messageText(sequenceOk("  A->>B: m\n  note over A,B: n %% zz"))).toEqual(["m", "n %% zz"]);
+
+    expect(blockLabels(sequenceOk("  loop L %% zz\n    A->>B: m\n  end"))).toEqual(["L %% zz"]);
+    expect(blockLabels(sequenceOk("  loop %% zz\n    A->>B: m\n  end"))).toEqual(["%% zz"]);
+    expect(blockLabels(sequenceOk("  opt O %% zz\n    A->>B: m\n  end"))).toEqual(["O %% zz"]);
+    expect(blockLabels(sequenceOk("  break B %% zz\n    A->>B: m\n  end"))).toEqual(["B %% zz"]);
+    expect(blockLabels(sequenceOk("  alt X\n    A->>B: m\n  else Y %% zz\n    A->>B: n\n  end"))).toEqual([
+      "X",
+      "Y %% zz",
+    ]);
+    expect(blockLabels(sequenceOk("  par X\n    A->>B: m\n  and Y %% zz\n    A->>B: n\n  end"))).toEqual([
+      "X",
+      "Y %% zz",
+    ]);
+    expect(
+      blockLabels(sequenceOk("  critical X\n    A->>B: m\n  option Y %% zz\n    A->>B: n\n  end")),
+    ).toEqual(["X", "Y %% zz"]);
+
+    const boxed = sequenceOk("  box aqua G %% zz\n    participant A\n  end\n  A->>B: m");
+    expect(boxed.boxes.map((box) => [box.color, box.label?.text])).toEqual([["aqua", "G %% zz"]]);
+    const plainBox = sequenceOk("  box G %% zz\n    participant A\n  end\n  A->>B: m");
+    expect(plainBox.boxes.map((box) => [box.color, box.label?.text])).toEqual([[null, "G %% zz"]]);
+
+    expect(sequenceOk("  title T %% zz\n  A->>B: m").title).toBe("T %% zz");
+    expect(sequenceOk("  title: T %% zz\n  A->>B: m").title).toBe("T %% zz");
+    expect(sequenceOk("  accTitle: T %% zz\n  A->>B: m").accTitle).toBe("T %% zz");
+    expect(sequenceOk("  accDescr: T %% zz\n  A->>B: m").accDescr).toBe("T %% zz");
+
+    const aliased = sequenceOk("  participant A as Al %% zz\n  A->>B: m");
+    expect(aliased.participants.map((p) => [p.id, p.label.text])).toEqual([["A", "Al %% zz"]]);
+    const createdAlias = sequenceOk("  A->>B: m\n  create participant C as Cee %% zz\n  A->>C: n");
+    expect(createdAlias.participants.map((p) => [p.id, p.label.text])).toEqual([["C", "Cee %% zz"]]);
+  });
+
+  it("reads a `%%` after the header as a comment, as the sequence lexer does after a keyword", () => {
+    // Measured: `sequenceDiagram %% zz` is accepted and nothing stores "zz".
+    const commented = parseSiren("sequenceDiagram %% what this is\n  A->>B: m");
+    const plain = parseSiren("sequenceDiagram\n  A->>B: m");
+
+    expect(commented.diagnostics).toEqual([]);
+    expect(commented).toEqual(plain);
+  });
+
+  it("refuses a `%%` after `activate` or `deactivate` names its participant, at its `%%`", () => {
+    // Measured: `deactivate B %% zz` is refused ("Trying to inactivate an
+    // inactive participant (B %% zz)"); `activate B %% zz` activates a
+    // participant "B %% zz" that no lane has, and Mermaid fails to draw it
+    // ("Cannot read properties of undefined (reading 'x')").
+    for (const [body, line, column] of [
+      ["  A->>B: m\n  activate B %% zz\n  A->>B: n", 3, 14],
+      ["  A->>B: m\n  activate B\n  A->>B: n\n  deactivate B %% zz", 5, 16],
+    ] as const) {
+      const { document, diagnostics } = parseSiren(`sequenceDiagram\n${body}`);
+
+      expect([body, document]).toEqual([body, null]);
+      expect([body, diagnostics]).toEqual([body, [{ severity: "error", message: NOT_A_COMMENT, line, column }]]);
+    }
+  });
+
+  it("refuses a `%%` after a `rect`'s color, at its `%%` — Mermaid fills the block with it as written", () => {
+    // Measured: `rect rgb(0,0,0) %% zz` records the color "rgb(0,0,0) %% zz"
+    // and draws `<rect fill="rgb(0,0,0) %% zz">` — not a color, so the block
+    // is not filled as written: a wrong picture with no diagnostic, which
+    // Siren refuses (ADR-0001).
+    const { document, diagnostics } = parseSiren("sequenceDiagram\n  rect rgb(0,0,0) %% zz\n    A->>B: m\n  end");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: NOT_A_COMMENT, line: 2, column: 19 }]);
+  });
+
+  it("reads a `%%` after `end`, `autonumber` or `autonumber off` as a comment, as the sequence lexer does after a keyword", () => {
+    // Measured: `end %% zz`, `end%%zz`, `autonumber %% zz` and
+    // `autonumber off %% zz` are accepted, and nothing stores "zz".
+    for (const [commented, plain] of [
+      ["  loop L\n    A->>B: m\n  end %% the loop", "  loop L\n    A->>B: m\n  end"],
+      ["  loop L\n    A->>B: m\n  end%%the loop", "  loop L\n    A->>B: m\n  end"],
+      ["  autonumber %% from here\n  A->>B: m", "  autonumber\n  A->>B: m"],
+      ["  autonumber\n  A->>B: m\n  autonumber off %% no more\n  B->>A: n", "  autonumber\n  A->>B: m\n  autonumber off\n  B->>A: n"],
+    ]) {
+      const read = parseSiren(`sequenceDiagram\n${commented}`);
+
+      expect([commented, read.diagnostics]).toEqual([commented, []]);
+      expect([commented, read]).toEqual([commented, parseSiren(`sequenceDiagram\n${plain}`)]);
+    }
+  });
+
+  it("reads a `%%` after a `;` as a comment, as the sequence lexer does once a `;` ends the text", () => {
+    // Measured: `A->>B: hi; %% zz` and `note over A: n; %% zz` are accepted
+    // and nothing stores "zz" — the text rule stops at `;`. What Siren makes
+    // of the `;` itself is unchanged here.
+    for (const [commented, plain] of [
+      ["  A->>B: hi; %% zz", "  A->>B: hi;"],
+      ["  A->>B: hi;%% zz", "  A->>B: hi;"],
+      ["  A->>B: m\n  note over A: n; %% zz", "  A->>B: m\n  note over A: n;"],
+    ]) {
+      const read = parseSiren(`sequenceDiagram\n${commented}`);
+
+      expect([commented, read.diagnostics]).toEqual([commented, []]);
+      expect([commented, read]).toEqual([commented, parseSiren(`sequenceDiagram\n${plain}`)]);
+    }
+  });
+
+  it("keeps a `%%` after a `link`'s url as part of the url, as Mermaid records it", () => {
+    // Measured: `link A: D @ https://x.org %% zz` records the link
+    // {"D": "https://x.org %% zz"}.
+    const document = sequenceOk("  participant A\n  link A: D @ https://x.org %% zz");
+
+    expect(document.interactions.map((link) => [link.targetId, link.tooltip, link.action])).toEqual([
+      ["A", "D", "https://x.org %% zz"],
+    ]);
+  });
+
+  it("reads a `%%` after a `links` object as part of its JSON, so the statement adds no link, as in Mermaid", () => {
+    // Measured: `links A: {"D": "https://x.org"} %% zz` records no link —
+    // the text after the colon, `%%` and all, is not JSON.
+    const { document, diagnostics } = parseSiren(
+      'sequenceDiagram\n  participant A\n  links A: {"D": "https://x.org"} %% zz',
+    );
+
+    expect((document as SequenceDocument).interactions).toEqual([]);
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: "links A: the text after the colon is not JSON; no link is added",
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("still cuts a `%%` in a timeline block to the line's end — that block is Siren's syntax, not Mermaid's", () => {
+    // ADR-0017: the document without its timeline blocks is the Mermaid one,
+    // so a sequence diagram's reading of `%%` stops at its first timeline header.
+    const commented = parseSiren("sequenceDiagram\n  A->>B: m\ntimeline: %% the reveal\n  enter B fade %% last\n");
+    const plain = parseSiren("sequenceDiagram\n  A->>B: m\ntimeline:\n  enter B fade\n");
+
+    expect(commented.diagnostics).toEqual([]);
+    expect(commented).toEqual(plain);
   });
 });

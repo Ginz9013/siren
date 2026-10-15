@@ -48,7 +48,50 @@ const SEQUENCE_HEADER_SPELLINGS = listAcceptedHeaders(["sequence"]);
  * `else`, `and`, `option`) and never includes this.
  */
 const TIMELINE_HEADER_TERMINATOR = "<timeline header>";
-const PARTICIPANT_RE = /^(participant|actor)\s+(\w+)(?:\s+as\s+(.+?))?\s*$/di;
+
+/**
+ * A `%%` after the header, through the line's end: a comment. CONTEXT.md's
+ * **Comment** is a whole line, and Mermaid 12.2.0 cuts nothing mid-line
+ * before the grammar sees it; but the sequence lexer has `%%` rules of its
+ * own (`%(?!\{)[^\n]*`), which read one as a comment wherever a token ends
+ * and no rule that reads text has started — after `sequenceDiagram` and a
+ * space, measured (`sequenceDiagram %% zz` is accepted, and
+ * `sequenceDiagram%%zz` is refused).
+ */
+const COMMENT_AFTER_HEADER = /\s+%%.*$/;
+
+/**
+ * A `%%` after a statement that holds nothing but keywords — `end`,
+ * `autonumber`, `autonumber off` — through the line's end: a comment, by
+ * the same lexer rules as `COMMENT_AFTER_HEADER`, here with or without a
+ * space before it (`end %% x` and `end%%x` are both accepted, measured).
+ */
+const COMMENT_AFTER_KEYWORDS = /\s*%%.*$/;
+
+/**
+ * `line` without a `%%` that follows a `;`, through the line's end. Every
+ * rule of the sequence lexer that reads text — a message's or note's text, a
+ * label, a name, a title — stops at a `;`, so a `%%` after one stands where a
+ * token ends and is read as a comment by the lexer's own `%%` rules
+ * (`A->>B: hi; %% x` records "hi", measured). The `accTitle:` and
+ * `accDescr:` lines are the exception: their rule reads to the line's end,
+ * `;` and `%%` included.
+ */
+function withoutCommentAfterSemicolon(line: string): string {
+  return ACC_LINE_RE.test(line) ? line : line.replace(/(?<=;)\s*%%.*$/, "");
+}
+
+/** The start of an `accTitle:` or `accDescr:` line, whose text runs to the line's end. */
+const ACC_LINE_RE = /^acc(?:Title|Descr)\s*:/i;
+/**
+ * `participant <id>`, `actor <id>`, either with an `as <alias>`. The id is a
+ * word, or a word and a `%%` with everything after it:
+ * once `participant` has started a name, Mermaid 12.2.0's lexer reads it to
+ * the line's end, `%%` included, so `participant A %% x` declares "A %% x"
+ * and `participant A %% x as Al` declares "A %% x as Al" (measured). Only a
+ * plain word takes an alias.
+ */
+const PARTICIPANT_RE = /^(participant|actor)\s+(\w+(?=\s+as\s)|\w+(?:\s*%%.*)?)(?:\s+as\s+(.+?))?\s*$/di;
 /**
  * `title text` or `title: text`. The colon spelling needs whitespace after the
  * colon (Mermaid 12.2.0 rejects `title:Hello`); `title : text` is the plain
@@ -68,19 +111,34 @@ const ACC_DESCR_RE = /^accDescr\s*:\s*(.+)$/i;
  * to the first `}`, on this line or a later one (`readAccDescrBlock`).
  */
 const ACC_DESCR_BLOCK_RE = /^accDescr\s*\{/i;
-/** `link A: Label @ url` — a navigable link on a participant, Mermaid's own spelling for this diagram kind. */
-const LINK_RE = /^link\s+(\w+)\s*:\s*(.+?)\s*@\s*(\S+)$/i;
+/**
+ * `link A: Label @ url` — a navigable link on a participant, Mermaid's own
+ * spelling for this diagram kind. A `%%` after the url is part of it:
+ * Mermaid 12.2.0 records `link A: D @ https://x.org %% x` as the url
+ * "https://x.org %% x" (measured).
+ */
+const LINK_RE = /^link\s+(\w+)\s*:\s*(.+?)\s*@\s*(\S+(?:\s+%%.*)?)$/i;
 /**
  * `links A: {"Label": "url", ...}` — several links on a participant at once,
  * as one JSON object. Mermaid 12.2.0 parses the text after the colon with
  * `JSON.parse`; `readLinksInto` does the same.
  */
 const LINKS_RE = /^links\s+(\w+)\s*:\s*(.*)$/i;
-/** The lone participant id argument of a `destroy` statement. */
-const DESTROY_ID_RE = /^(\w+)$/;
+/**
+ * The lone participant id argument of a `destroy` statement: a word, or a
+ * word and a `%%` with everything after it — `destroy B %% x` destroys
+ * "B %% x", as `participant B %% x` declares it (measured on Mermaid 12.2.0).
+ */
+const DESTROY_ID_RE = /^(\w+(?:\s*%%.*)?)$/;
 
-/** The raw color argument to a `rect` block: `rgb(...)` or `rgba(...)`, unvalidated beyond shape. */
-const RECT_COLOR_RE = /^(rgba?\([^()]*\))$/;
+/**
+ * The raw color argument to a `rect` block: `rgb(...)` or `rgba(...)`,
+ * unvalidated beyond shape. A `%%` after it is captured to be refused:
+ * Mermaid 12.2.0 keeps it in the color (`rect rgb(0,0,0) %% x` fills the
+ * block with "rgb(0,0,0) %% x", which is not a color — measured), so the
+ * block is not drawn in the color written.
+ */
+const RECT_COLOR_RE = /^(rgba?\([^()]*\))(\s*%%.*)?$/d;
 
 /**
  * Splits a `box` header's arguments into its leading token — an
@@ -123,11 +181,27 @@ function escapeRegExp(token: string): string {
 const ARROW_ALTERNATION = ARROW_TOKENS.map((a) => escapeRegExp(a.token)).join("|");
 
 /**
+ * A participant's name where a message or a note names one: a word, and —
+ * when a `%%` follows it — the `%%` and what follows it, up to a character in
+ * `stops`. Mermaid 12.2.0's lexer reads a name there as a run of characters
+ * that are not punctuation, `%` and spaces among them, so `A->>B %% x: m`
+ * sends to "B %% x" and `note over A %% x: n` stands over "A %% x"
+ * (measured). A name without a `%%` is still a word, as it always was here.
+ * The match may end in spaces; the statement trims them.
+ */
+function nameUpTo(stops: string): string {
+  return String.raw`\w+(?:\s*%%[^${stops}]*?)?`;
+}
+
+/** A message's sender or receiver: a name that runs up to the colon (the arrow ends a sender first). */
+const MESSAGE_NAME = nameUpTo(":");
+
+/**
  * A message: sender, arrow, target, `: text`. Nothing may sit between the
  * arrow and the target — in particular not the activation shorthand's
  * `+`/`-`, which `ACTIVATION_MESSAGE_RE` below claims instead.
  */
-const MESSAGE_RE = new RegExp(`^(\\w+)(${ARROW_ALTERNATION})(\\w+)\\s*:\\s*(.*)$`, "d");
+const MESSAGE_RE = new RegExp(`^(${MESSAGE_NAME})(${ARROW_ALTERNATION})(${MESSAGE_NAME})\\s*:\\s*(.*)$`, "d");
 
 /**
  * The same message shape, but with the activation shorthand's `+`/`-`
@@ -146,12 +220,19 @@ const MESSAGE_RE = new RegExp(`^(\\w+)(${ARROW_ALTERNATION})(\\w+)\\s*:\\s*(.*)$
  * one representation regardless of which spelling the author used.
  */
 const ACTIVATION_MESSAGE_RE = new RegExp(
-  `^(\\w+)(${ARROW_ALTERNATION})([+-])(\\w+)\\s*:\\s*(.*)$`,
+  `^(${MESSAGE_NAME})(${ARROW_ALTERNATION})([+-])(${MESSAGE_NAME})\\s*:\\s*(.*)$`,
   "d",
 );
-/** `activate X` / `deactivate X` — the long form of the same activation bar. */
-const ACTIVATE_RE = /^activate\s+(\w+)$/i;
-const DEACTIVATE_RE = /^deactivate\s+(\w+)$/i;
+/**
+ * `activate X` / `deactivate X` — the long form of the same activation bar.
+ * A `%%` after the id is captured to be refused (`refuseMidLinePercent`):
+ * Mermaid 12.2.0 reads `deactivate B %% x` as deactivating "B %% x" and
+ * refuses the document ("Trying to inactivate an inactive participant"),
+ * and reads `activate B %% x` as activating "B %% x", which no lane has,
+ * and fails to draw the diagram (measured).
+ */
+const ACTIVATE_RE = /^activate\s+(\w+)(\s*%%.*)?$/di;
+const DEACTIVATE_RE = /^deactivate\s+(\w+)(\s*%%.*)?$/di;
 /**
  * `note over A,B: text` / `note over A: text` / `note right of A: text` /
  * `note left of A: text`. The participant-list group is `[\w,]+` rather
@@ -159,7 +240,40 @@ const DEACTIVATE_RE = /^deactivate\s+(\w+)$/i;
  * `left of` name exactly one, and splitting on `,` after the match reads
  * either shape without two regexes.
  */
-const NOTE_RE = /^note\s+(over|right of|left of)\s+([\w,]+)\s*:\s*(.*)$/di;
+const NOTE_NAME = nameUpTo(",:");
+const NOTE_RE = new RegExp(
+  `^note\\s+(over|right of|left of)\\s+(${NOTE_NAME}(?:,${NOTE_NAME})*)\\s*:\\s*(.*)$`,
+  "di",
+);
+
+/**
+ * What a sequence diagram says about a `%%` in the middle of a line where
+ * Mermaid has no reading of it that draws: the same words a flowchart says
+ * it in (CONTEXT.md **Comment**: only a whole line is a comment).
+ */
+const MID_LINE_PERCENT_MESSAGE =
+  'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+  "If it is a comment, move it to a line of its own.";
+
+/**
+ * Refuses the `%%` that `match`'s group `group` begins with (after any
+ * spaces), at that `%%`. `column` is where the matched line begins.
+ */
+function refuseMidLinePercent(
+  state: ParserState,
+  match: RegExpExecArray,
+  group: number,
+  line: number,
+  column: number,
+): void {
+  state.diagnostics.push({
+    severity: "error",
+    message: MID_LINE_PERCENT_MESSAGE,
+    line,
+    column: column + match.indices![group]![0] + match[group]!.indexOf("%%"),
+  });
+  state.sawError = true;
+}
 
 /**
  * Reads a braced `accDescr { ... }` opened on the current line, through the
@@ -420,7 +534,7 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
   while (state.index < state.lines.length) {
     const rawLine = state.lines[state.index];
     const lineNumber = state.index + 1;
-    const line = rawLine.trim();
+    const line = withoutCommentAfterSemicolon(rawLine.trim());
     const column = rawLine.length - rawLine.trimStart().length + 1;
 
     if (line.length === 0) {
@@ -438,7 +552,9 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
         }
         continue;
       }
-      const m = matchLeadingKeyword(line, term);
+      // `end` holds no label, so a `%%` after it is a comment; the label of
+      // `else`, `and` or `option` keeps one as text.
+      const m = matchLeadingKeyword(term === "end" ? line.replace(COMMENT_AFTER_KEYWORDS, "") : line, term);
       if (m.matched) {
         matchedTerminator = term;
         terminatorLabel = readKeywordLabel(state, m, { line: lineNumber, column });
@@ -558,13 +674,14 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
     }
 
     // Compared lowercased: Mermaid reads `Autonumber` and `AUTONUMBER OFF` too.
-    if (line.toLowerCase() === "autonumber") {
+    const keywords = line.replace(COMMENT_AFTER_KEYWORDS, "").toLowerCase();
+    if (keywords === "autonumber") {
       statements.push({ kind: "autonumberOn", line: lineNumber, column });
       state.index++;
       continue;
     }
 
-    if (line.toLowerCase() === "autonumber off") {
+    if (keywords === "autonumber off") {
       statements.push({ kind: "autonumberOff", line: lineNumber, column });
       state.index++;
       continue;
@@ -572,7 +689,8 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
 
     const messageMatch = MESSAGE_RE.exec(line);
     if (messageMatch !== null) {
-      const [, from, arrowToken, to] = messageMatch;
+      const [, sender, arrowToken, receiver] = messageMatch;
+      const [from, to] = [sender.trimEnd(), receiver.trimEnd()];
       const arrowDef = ARROW_TOKENS.find((a) => a.token === arrowToken);
       // arrowDef is always found: arrowToken can only be one of ARROW_TOKENS'
       // own tokens, since it is exactly what the alternation matched.
@@ -591,7 +709,8 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
 
     const activationMatch = ACTIVATION_MESSAGE_RE.exec(line);
     if (activationMatch !== null) {
-      const [, from, arrowToken, marker, to] = activationMatch;
+      const [, sender, arrowToken, marker, receiver] = activationMatch;
+      const [from, to] = [sender.trimEnd(), receiver.trimEnd()];
       const arrowDef = ARROW_TOKENS.find((a) => a.token === arrowToken);
       statements.push({
         kind: "message",
@@ -616,14 +735,22 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
 
     const activateMatch = ACTIVATE_RE.exec(line);
     if (activateMatch !== null) {
-      statements.push({ kind: "activate", id: activateMatch[1], line: lineNumber, column });
+      if (activateMatch[2] !== undefined) {
+        refuseMidLinePercent(state, activateMatch, 2, lineNumber, column);
+      } else {
+        statements.push({ kind: "activate", id: activateMatch[1], line: lineNumber, column });
+      }
       state.index++;
       continue;
     }
 
     const deactivateMatch = DEACTIVATE_RE.exec(line);
     if (deactivateMatch !== null) {
-      statements.push({ kind: "deactivate", id: deactivateMatch[1], line: lineNumber, column });
+      if (deactivateMatch[2] !== undefined) {
+        refuseMidLinePercent(state, deactivateMatch, 2, lineNumber, column);
+      } else {
+        statements.push({ kind: "deactivate", id: deactivateMatch[1], line: lineNumber, column });
+      }
       state.index++;
       continue;
     }
@@ -759,6 +886,11 @@ function parseBody(state: ParserState, terminators: readonly string[]): ParseBod
     if (rectMatch.matched) {
       state.index++;
       const colorMatch = RECT_COLOR_RE.exec(rectMatch.rest);
+      if (colorMatch !== null && colorMatch[2] !== undefined) {
+        refuseMidLinePercent(state, colorMatch, 2, lineNumber, column + rectMatch.restIndex);
+        parseBody(state, ["end"]);
+        continue;
+      }
       if (colorMatch === null) {
         state.diagnostics.push({
           severity: "error",
@@ -1009,7 +1141,7 @@ export function parseSequenceDiagram(source: string): DiagramParseResult {
   }
 
   const headerRawLine = lines[state.index];
-  const headerLine = headerRawLine.trim();
+  const headerLine = headerRawLine.replace(COMMENT_AFTER_HEADER, "").trim();
   const headerColumn = headerRawLine.length - headerRawLine.trimStart().length + 1;
   if (matchDiagramHeader(headerLine) !== "sequence") {
     diagnostics.push({

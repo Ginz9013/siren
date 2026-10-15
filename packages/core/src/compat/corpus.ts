@@ -5718,6 +5718,61 @@ line2\`"]`,
       );
     },
   },
+  {
+    id: "seq-comment-mid-line-text",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: 50%% done
+      note over B: a %% b`,
+    status: "supported",
+    meaning:
+      "A `%%` in a message's or a note's text is text, not a comment: " +
+      "Mermaid 12.2.0's `cleanupComments` removes whole-line comments only, " +
+      "and the sequence lexer's text rule reads on past a `%%`, so it " +
+      "records the message `50%% done` and the note `a %% b` (measured). " +
+      "Siren used to cut the line at the first `%%` and drew `50` and `a`.",
+    assert: (result) => {
+      expectSame("messages", messages(result), ["A-B: 50%% done"]);
+      expectSame("the note", texts(result, "g.siren-note text"), ["a %% b"]);
+    },
+  },
+  {
+    id: "seq-comment-in-participant-name",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A %% the caller
+      A->>B: hi`,
+    status: "supported",
+    meaning:
+      "Once `participant` has started a name, Mermaid 12.2.0's lexer reads " +
+      "it to the line's end, `%%` included: this declares a participant " +
+      "named `A %% the caller`, and the `A` of `A->>B` is another one — " +
+      "three lanes, measured. Siren used to cut the line at the `%%` and " +
+      "drew two.",
+    assert: (result) => {
+      expectSame("lanes", laneOrder(result), ["A %% the caller", "A", "B"]);
+      expectSame("messages", messages(result), ["A-B: hi"]);
+    },
+  },
+  {
+    id: "seq-comment-after-deactivate",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: hi
+      activate B
+      B->>A: there
+      deactivate B %% done with B`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** Mermaid 12.2.0 " +
+      "reads `deactivate B %% done with B` as deactivating a participant " +
+      "named `B %% done with B`, which has no activation, and refuses the " +
+      "document (\"Trying to inactivate an inactive participant\", " +
+      "measured). Siren refuses it too (ADR-0017), with an error at the `%%` " +
+      "saying a mid-line `%%` is not a comment and, if it is one, to move it " +
+      "to a line of its own. Siren used to cut the line at the `%%` and draw " +
+      "the deactivation. A comment on its own line renders in both.",
+  },
   // -------------------------------------------------------------------------
   // stateDiagram
   // -------------------------------------------------------------------------

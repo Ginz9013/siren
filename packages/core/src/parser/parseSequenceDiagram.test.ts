@@ -1362,3 +1362,71 @@ describe("parseSequenceDiagram — the `;` Mermaid drops from a style line", () 
     ).toEqual([["warning", 2, 22]]);
   });
 });
+
+/**
+ * A `%%` in a participant's name (CONTEXT.md **Comment**: only a whole line
+ * is a comment). Mermaid 12.2.0's sequence lexer reads a participant's name
+ * to the line's end once `participant`/`actor` has started it, `%%` and
+ * all, and names it so wherever it reads a name: a message's ends, a note's
+ * participants, `create` and `destroy`. Measured with
+ * `pnpm --filter siren-core probe`; the table is T1's 量測結果 (sequence).
+ */
+describe("parseSequenceDiagram — a `%%` in a participant's name", () => {
+  const ids = (source: string) =>
+    parseOk(`sequenceDiagram\n${source}`, parseSiren).document.participants.map((p) => [
+      p.id,
+      p.label.text,
+      p.participantKind,
+    ]);
+
+  it("names a declared participant with its `%%` and everything after it", () => {
+    // Measured: `participant A %% zz` declares "A %% zz", and the `A` of a
+    // later `A->>B` is another participant; `participant A %% zz as Al`
+    // declares "A %% zz as Al" — the `as` after the `%%` is part of the
+    // name; `actor A %% zz` declares the actor "A %% zz".
+    expect(ids("  participant A %% zz\n  A->>B: m")).toEqual([["A %% zz", "A %% zz", "participant"]]);
+    expect(ids("  participant A %% zz as Al\n  A->>B: m")).toEqual([
+      ["A %% zz as Al", "A %% zz as Al", "participant"],
+    ]);
+    expect(ids("  actor A %% zz\n  A->>B: m")).toEqual([["A %% zz", "A %% zz", "actor"]]);
+  });
+
+  it("names a message's sender and receiver, and a note's participants, with a `%%` up to the colon", () => {
+    // Measured: `A->>B %% zz: hi` sends "hi" to "B %% zz"; `A %% zz->>B: m`
+    // sends from "A %% zz"; `A->>+B %% zz: m` sends to and activates
+    // "B %% zz"; `note over A %% zz: n` and `note over A,B %% zz: n` stand
+    // over "A %% zz", and over A and "B %% zz".
+    const statements = (source: string) =>
+      parseOk(`sequenceDiagram\n${source}`, parseSiren).document.statements.map((s) =>
+        s.kind === "message" || s.kind === "note"
+          ? [s.kind, s.from, s.to, s.label.text]
+          : s.kind === "activate" || s.kind === "deactivate"
+            ? [s.kind, s.id]
+            : [s.kind],
+      );
+
+    expect(statements("  A->>B %% zz: hi")).toEqual([["message", "A", "B %% zz", "hi"]]);
+    expect(statements("  A %% zz->>B: m")).toEqual([["message", "A %% zz", "B", "m"]]);
+    expect(statements("  A->>+B %% zz: m")).toEqual([
+      ["message", "A", "B %% zz", "m"],
+      ["activate", "B %% zz"],
+    ]);
+    expect(statements("  note over A %% zz: n")).toEqual([["note", "A %% zz", "A %% zz", "n"]]);
+    expect(statements("  note over A,B %% zz: n")).toEqual([["note", "A", "B %% zz", "n"]]);
+  });
+
+  it("names the participant a `create` or a `destroy` names with its `%%`", () => {
+    // Measured: `create participant C %% zz` then `A->>C %% zz: n` creates
+    // "C %% zz" with that message; `destroy B %% zz` then `A->>B %% zz: n`
+    // destroys "B %% zz" with that one.
+    const lifelines = (source: string) =>
+      parseOk(`sequenceDiagram\n${source}`, parseSiren).document.statements.flatMap((s) =>
+        s.kind === "participant" ? [[s.origin, s.id]] : s.kind === "destroy" ? [["destroy", s.id]] : [],
+      );
+
+    expect(lifelines("  A->>B: m\n  create participant C %% zz\n  A->>C %% zz: n")).toEqual([
+      ["created", "C %% zz"],
+    ]);
+    expect(lifelines("  A->>B: m\n  destroy B %% zz\n  A->>B %% zz: n")).toEqual([["destroy", "B %% zz"]]);
+  });
+});

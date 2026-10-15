@@ -1651,9 +1651,12 @@ click Fish href "https://example.com/fish" "Fish facts"
     expect(fish.querySelector("title")!.textContent).toBe("Fish facts");
   });
 
-  it("ignores `%%` comments in all three diagram kinds — whole-line and indented, and (sequence and class) trailing a line of real syntax — rendering the same diagram as the same document without them", () => {
+  it("ignores `%%` comments in all three diagram kinds — whole-line and indented, and (sequence and class) trailing a line where the kind's lexer reads one — rendering the same diagram as the same document without them", () => {
     // A flowchart refuses a `%%` trailing its statements (Mermaid 12.2.0's
-    // grammar does), so its comments here are whole lines only.
+    // grammar does), so its comments here are whole lines only. A sequence
+    // diagram reads a `%%` after a participant's name or in a message's text
+    // as part of it (measured), so its trailing comment stands after the
+    // header, where its lexer reads one.
     const commented = {
       flowchart: `%% a flowchart that counts
 flowchart TD
@@ -1662,11 +1665,12 @@ flowchart TD
   %% and the edge to it
 `,
       sequence: `%% a sequence that counts
-sequenceDiagram
+sequenceDiagram %% trailing the header
   %% the caller
-  participant Client %% trailing the declaration
+  participant Client
   participant Server
-  Client->>Server: Fetch %% trailing the message
+  %% the message
+  Client->>Server: Fetch
 `,
       class: `%% a class diagram that counts
 classDiagram

@@ -1550,8 +1550,23 @@ const SILENTLY_WRONG = 0;
  * line renders in both. `fc-comment-mid-line-text`, new beside it, is
  * `supported` — a `%%` inside a label is kept as text, where Siren used to
  * cut the label short — and moves nothing. `silently-wrong` does not move.
+ *
+ * **16 → 17: case (2), a refusal written down for the first time.**
+ * `01M4Z7TQZ4` read a mid-line `%%` in a sequence diagram as Mermaid 12.2.0
+ * does: text where its lexer is reading text or a name, a comment only where
+ * its own `%%` rules stand at a token boundary. `deactivate B %% x` is one
+ * place the name reading refuses the document — Mermaid deactivates a
+ * participant named `B %% x`, which has none open ("Trying to inactivate an
+ * inactive participant", measured) — and no row recorded it because nothing
+ * had measured a mid-line `%%` in a sequence. Siren used to cut the line at
+ * the `%%` and draw the deactivation; it refuses it now (ADR-0017), with an
+ * error at the `%%`. `seq-comment-after-deactivate` is that row. No
+ * `supported` row moved: no sequence row had a mid-line `%%`. The two rows
+ * new beside it, `seq-comment-mid-line-text` and
+ * `seq-comment-in-participant-name`, are `supported` and move nothing.
+ * `silently-wrong` does not move.
  */
-const REJECTED = 16;
+const REJECTED = 17;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

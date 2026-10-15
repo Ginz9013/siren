@@ -24,6 +24,10 @@ refused (see **Changed**).
 Breaking for a flowchart document with a `%%` after a statement on the same line
 (`A --> B %% note`), which is now refused (see **Changed**).
 
+Breaking for a sequence document with a `%%` after the participant of an `activate` or
+`deactivate`, or after a `rect`'s color, on the same line (`deactivate B %% note`), which is now
+refused (see **Changed**).
+
 ### Added
 
 - A document may open with a Mermaid frontmatter (`---` … `---`), read as Mermaid 12.2.0 reads it,
@@ -106,10 +110,28 @@ Breaking for a flowchart document with a `%%` after a statement on the same line
   used to be ignored.
   A subgraph's bare name followed by `%%` and words (`subgraph S %% x`) is one title, "S %% x",
   with no handle, and a block's `direction LR %% x` is `direction LR`, both as Mermaid reads them.
-  Timeline blocks, and sequence, class, state and ER diagrams, still cut a line at its first `%%`.
+  Timeline blocks, and class, state and ER diagrams, still cut a line at its first `%%`.
   The flowchart's readers now agree on where text runs: a `;`, `&` or arrow inside an asymmetric
   node's label (`A>a;b] --> B`) or inside a quoted string outside any bracket
   (`click A "https://x.org/a;b" "t;u"`) is text, as in Mermaid 12.2.0; both used to be refused.
+
+- **A `%%` in the middle of a sequence line is no longer a comment** (nook `01M4Z7TQZ4`). Only a
+  whole line is a comment, as in Mermaid 12.2.0; its sequence lexer reads a `%%` as a comment only
+  where a token has ended and no text has started. Text keeps its `%%`: a message's and a note's
+  text (`A->>B: 50%% done` draws "50%% done", where it used to draw "50"), a block's or branch's
+  label (`loop`, `opt`, `alt`/`else`, `par`/`and`, `critical`/`option`, `break`), a box's label,
+  `title`, `accTitle`/`accDescr`, a participant's `as` alias, and a `link`'s url. A participant's
+  name keeps it too: `participant A %% x` declares a participant named "A %% x", so a later
+  `A->>B` draws a second lane `A`; `participant A %% x as Al` is named "A %% x as Al"; and a
+  message's sender or receiver, a note's participants, `create` and `destroy` name participants
+  the same way (`A->>B %% x: m` is sent to "B %% x"). A `links` object followed by `%%` is no
+  longer JSON, so it adds no link, with a warning, as in Mermaid. A `%%` after the header, after
+  `end`, `autonumber` or `autonumber off`, or after a `;` is still a comment, as Mermaid's lexer
+  reads it there. After an `activate` or `deactivate` participant, or after a `rect`'s color, the
+  document is refused with an error at the `%%` saying it is not a comment and, if it is meant as
+  one, to move it to a line of its own: Mermaid refuses `deactivate B %% x` ("Trying to inactivate
+  an inactive participant"), fails to draw `activate B %% x`, and fills `rect rgb(0,0,0) %% x` with
+  a color that is not one. Timeline blocks still cut a line at its first `%%`.
 
 - **A sequence `create participant X` draws X's box on its creating message**: the message right
   after it, which must be sent to X (nook `01M4YS7DMG`). X's box is now centred on that message's
