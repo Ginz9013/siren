@@ -68,6 +68,15 @@ comment there (see **Added**).
 
 ### Added
 
+- More flowchart subgraph headers are read as Mermaid 12.2.0 reads them (nook `01M4ZY2D3D`): a
+  word glued to a quoted title runs on from it (`subgraph "t"zz` is the handle and title `tzz`,
+  `subgraph "t"zz yy` the title `tzz yy` under no handle), and a quoted handle may carry a
+  bracketed title (`subgraph "t" [x]` and `subgraph "t"[x]` are the handle `t` and the title `x`;
+  a handle holding a space, `subgraph "a b" [x]`, is none). Each used to be refused.
+- A flowchart `direction` with text after its value (`direction LR zz`, `direction LRzz`) is read
+  as Mermaid 12.2.0 reads it: inside a subgraph the value lays the block out and the text is
+  ignored with a warning; outside one the whole line is ignored with the warning a top-level
+  `direction` already gives. It used to be refused (nook `01M4ZY2D3D`).
 - A flowchart subgraph title of several words is read as Mermaid 12.2.0 reads it (nook
   `01M4ZWT89B`): a quoted title with words after it (`subgraph "t" zz`) is the title `t zz`, and
   an unquoted run (`subgraph S a & b`, `subgraph S a b c`) is the whole run, both under a generated
@@ -445,6 +454,11 @@ comment there (see **Added**).
 
 ### Fixed
 
+- A flowchart subgraph whose quoted title is one word (`subgraph "t"`) now takes that word as its
+  handle, as Mermaid 12.2.0 records it (id `t`, measured), so an edge naming it (`t --> B`) joins
+  the frame, where Siren used to draw a stray node `t` beside it. A quoted title holding whitespace
+  (`subgraph "Two Words"`) still has no handle. A timeline still reaches the frame by its generated
+  `subgraph:N` (ADR-0010), and a node also named `t` stays a node beside it (nook `01M4ZY2D3D`).
 - An init directive spread over several lines no longer breaks the document. It used to be
   removed one line at a time as a `%%` comment, so its middle lines were read as diagram text and
   refused, where Mermaid removes the whole directive and draws the diagram. Every directive is now

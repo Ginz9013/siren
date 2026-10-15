@@ -2890,6 +2890,118 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "fc-subgraph-title-quoted-word",
+    kind: "flowchart",
+    source: `flowchart TB
+      t[x]
+      subgraph "g"
+        A
+      end
+      subgraph "t"
+        B
+      end
+      g --> t`,
+    status: "supported",
+    meaning:
+      "A quoted subgraph title of one word is the block's handle too, as a " +
+      "bare word is: Mermaid 12.2.0 records `subgraph \"g\"` as id `g` " +
+      "(measured), so `g --> t` joins two frames. A node the author named `t` " +
+      "stays a node beside the frame titled `t` (measured: Mermaid records " +
+      "both) — the frame's own id is generated (ADR-0010), so the two never " +
+      "share one. Siren used to give a quoted title no handle.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["t[x]", "A[A]", "B[B]"]);
+      expectSame("edges", edges(result), ["g-t"]);
+      expectSame("one element is t", elements(result, '[data-siren-id="t"]').length, 1);
+      const g = subgraphBox(result, "g");
+      expectSame("g encloses A", encloses(g, nodeBox(result, "A")), true);
+      const { start } = edgeEnds(result, "g-t");
+      expectSame("the edge leaves the bottom of g's frame", start.y, g.bottom);
+    },
+  },
+  {
+    id: "fc-subgraph-title-quoted-glued",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph "t"zz
+        A
+      end`,
+    status: "supported",
+    meaning:
+      "A word glued to a quoted subgraph title runs on from it: Mermaid " +
+      "12.2.0 records `subgraph \"t\"zz` as id and title `tzz` (measured). " +
+      "Siren used to refuse the line.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]"]);
+      expectSame("tzz encloses A", encloses(subgraphBox(result, "tzz"), nodeBox(result, "A")), true);
+    },
+  },
+  {
+    id: "fc-subgraph-title-quoted-handle-bracket",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph "t" [Title]
+        A
+      end`,
+    status: "supported",
+    meaning:
+      "A quoted handle may carry a bracketed title, as a bare one does: " +
+      "Mermaid 12.2.0 records `subgraph \"t\" [Title]` as id `t`, title " +
+      "`Title` (measured). Siren used to refuse the line.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]"]);
+      expectSame("Title encloses A", encloses(subgraphBox(result, "Title"), nodeBox(result, "A")), true);
+    },
+  },
+  {
+    id: "fc-subgraph-direction-trailing-text",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph one
+        direction LR zz
+        A --> B
+      end`,
+    status: "supported",
+    meaning:
+      "Text after a subgraph's `direction` value is swallowed by Mermaid " +
+      "12.2.0's direction token, which still sets the value: `direction LR " +
+      "zz` lays the block out left-to-right (measured, `dir=\"LR\"`). Siren " +
+      "draws the same and warns that the text is ignored. Siren used to " +
+      "refuse the line.",
+    warnings: ['Text after "direction LR" is ignored: "zz". Remove it.'],
+    assert: (result) => {
+      expectSame("edges", edges(result), ["A-B"]);
+      const from = nodeCenter(result, "A");
+      const to = nodeCenter(result, "B");
+      expectSame("B is drawn to the right of A", to.x > from.x, true);
+      expectSame("and in the same row", to.y === from.y, true);
+    },
+  },
+  {
+    id: "fc-direction-top-level-trailing-text",
+    kind: "flowchart",
+    source: `flowchart TB
+      direction LR zz
+      A --> B`,
+    status: "supported",
+    meaning:
+      "`direction LR zz` outside any subgraph is accepted and ignored, the " +
+      "trailing text with it: Mermaid 12.2.0 keeps the header's `TB` " +
+      "(measured). Siren draws the same and gives `fc-direction-top-level`'s " +
+      "one warning. Siren used to refuse the line.",
+    warnings: [
+      '"direction LR zz" outside a subgraph has no effect. ' +
+        "Set the diagram's direction on its first line instead: flowchart LR",
+    ],
+    assert: (result) => {
+      expectSame("edges", edges(result), ["A-B"]);
+      const from = nodeCenter(result, "A");
+      const to = nodeCenter(result, "B");
+      expectSame("B is drawn below A", to.y > from.y, true);
+      expectSame("and in the same column", to.x === from.x, true);
+    },
+  },
+  {
     id: "fc-subgraph-edge",
     kind: "flowchart",
     source: `flowchart TB

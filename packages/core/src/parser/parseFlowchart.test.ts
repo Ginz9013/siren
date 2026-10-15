@@ -804,11 +804,82 @@ describe("a subgraph title written as more than one word", () => {
 });
 
 /**
+ * The rest of a quoted subgraph header, read as Mermaid 12.2.0 reads it
+ * (measured with `scripts/mermaid-probe.mjs`): the quoted text and any word
+ * glued to it are one run, and that run is the block's id unless it holds
+ * whitespace — `subgraph "t"` is id `t`, `subgraph "a b"` is `subGraph0`.
+ */
+describe("a quoted subgraph header", () => {
+  it("makes a quoted title of one word the block's handle as well, as a bare word is", () => {
+    const { document, diagnostics } = parseOk(`flowchart TB
+  subgraph "t"
+    A
+  end
+  t --> B`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs).toEqual([
+      expect.objectContaining({ name: "t", label: plainLabel("t"), nodeIds: ["A"] }),
+    ]);
+    // The edge names the frame, so `t` is no node — as with `subgraph t`
+    // (measured: Mermaid joins the edge to the cluster `t`).
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B"]);
+  });
+
+  it.each([
+    ['"t"zz', "tzz", "tzz"],
+    ['"t"-z', "t-z", "t-z"],
+    ['"t"zz yy', null, "tzz yy"],
+    ['"a b"zz', null, "a bzz"],
+  ])("reads `subgraph %s` as the quoted text and the word glued to it, one run", (tail, name, title) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  subgraph ${tail}\n    A\n  end`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs).toEqual([
+      expect.objectContaining({ name, label: plainLabel(title), nodeIds: ["A"] }),
+    ]);
+  });
+
+  it.each([
+    ['"t" [x]', "t", "x"],
+    ['"t"[x]', "t", "x"],
+    ['"t" ["x y"]', "t", "x y"],
+    ['"t"zz [x]', "tzz", "x"],
+    ['"a b" [x]', null, "x"],
+    ['"t" zz [x]', null, "x"],
+  ])("reads `subgraph %s` as a handle and a bracketed title", (tail, name, title) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  subgraph ${tail}\n    A\n  end`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs).toEqual([
+      expect.objectContaining({ name, label: plainLabel(title), nodeIds: ["A"] }),
+    ]);
+  });
+});
+
+/**
  * `direction LR` outside any `subgraph` block. Measured: Mermaid 12.2.0
  * accepts it on any line and ignores it — the recorded direction stays the
  * header's (`TB`), whether the line comes first or last.
  */
 describe("a direction written outside any subgraph", () => {
+  it("is ignored with the text after it, with the one warning that the line does nothing", () => {
+    // Measured: `direction LR zz` at the top level is accepted and ignored.
+    const { document, diagnostics } = parseOk("flowchart TB\n  direction LR zz\n  A --> B");
+
+    expect(document.direction).toBe("TB");
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message:
+          '"direction LR zz" outside a subgraph has no effect. ' +
+          "Set the diagram's direction on its first line instead: flowchart LR",
+        line: 2,
+        column: 3,
+      },
+    ]);
+  });
+
   it.each([
     ["first", "flowchart TB\n  direction LR\n  A --> B", 2],
     ["last", "flowchart TB\n  A --> B\n  direction LR", 3],
@@ -889,6 +960,32 @@ describe("a direction written inside a subgraph", () => {
     expect(diagnostics).toEqual([]);
     expect(document.subgraphs).toEqual([
       expect.objectContaining({ name: "one", direction: null }),
+    ]);
+  });
+
+  // Measured: Mermaid's direction token takes the rest of its line, so
+  // `direction LR zz` and `direction LRzz` both set `dir="LR"` on the block.
+  it.each([
+    ["direction LR zz", "zz", 18],
+    ["direction LRzz", "zz", 17],
+    ["direction RL --> B", "--> B", 18],
+  ])("reads `%s` onto the subgraph, with a warning that the text after it is ignored", (statement, ignored, column) => {
+    const { document, diagnostics } = parseOk(`flowchart TB
+  subgraph one
+    ${statement}
+    A
+  end`);
+
+    expect(document.subgraphs).toEqual([
+      expect.objectContaining({ name: "one", direction: statement.slice(10, 12), nodeIds: ["A"] }),
+    ]);
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: `Text after "direction ${statement.slice(10, 12)}" is ignored: "${ignored}". Remove it.`,
+        line: 3,
+        column,
+      },
     ]);
   });
 });

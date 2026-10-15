@@ -1485,6 +1485,11 @@ const AUTHORED_ID_RE = new RegExp(`^${ID_RUN}$`);
  *     subgraph "Two Words"       id="subGraph0" title="Two Words"
  *     subgraph one[Two Words]    id="one"       title="Two Words"
  *
+ * A quoted title is a handle only when it holds no whitespace — Mermaid
+ * 12.2.0 records `subgraph "t"` as id `t` (measured) — and the quoted
+ * spellings Mermaid reads beyond these (`"t"zz`, `"t" [x]`) follow that
+ * rule; see `handleOfQuoted`.
+ *
  * The middle one is why `name` is nullable rather than defaulted to the
  * title: Mermaid mints a handle the author never wrote and could not have
  * predicted, so there is no name here for anything to be addressed by.
@@ -1500,23 +1505,37 @@ function readSubgraphTitle(
       ...readLabelAt({ text: content.text, at: titled.indices![2]![0] + content.at }, { dialect: "html" }),
     };
   }
+  const quotedTitled = QUOTED_HANDLE_TITLED_RE.exec(tail);
+  if (quotedTitled !== null) {
+    // `subgraph "t" [x]`: the quoted run is the handle, the bracket the
+    // title (measured: id `t`, title `x`).
+    const [, quoted, glued = "", spaced = ""] = quotedTitled;
+    const content = labelSpan(quotedTitled[4]);
+    return {
+      name: handleOfQuoted(quoted + glued + spaced),
+      ...readLabelAt(
+        { text: content.text, at: quotedTitled.indices![4]![0] + content.at },
+        { dialect: "html" },
+      ),
+    };
+  }
   const fenced = FENCED_LABEL_RE.exec(tail);
   if (fenced !== null) {
     return {
-      name: null,
+      name: handleOfQuoted(fenced[1]),
       ...readLabelAt({ text: fenced[1], at: LABEL_FENCE.length }, { dialect: "html" }),
     };
   }
   const quotedWithWords = QUOTED_TITLE_WITH_WORDS_RE.exec(tail);
   if (quotedWithWords !== null && !endsWithEnd(tail)) {
     // `subgraph "t" zz`: the quoted text and the words after it are one
-    // title, `t zz`, under no handle (measured, `subGraph0`).
+    // title, `t zz`, under no handle (measured, `subGraph0`); `subgraph
+    // "t"zz` is one word, `tzz`, and so the handle too (measured).
+    const [, quoted, glued = "", spaced = ""] = quotedWithWords;
+    const text = quoted + glued + spaced;
     return {
-      name: null,
-      ...readLabelAt(
-        { text: quotedWithWords[1] + quotedWithWords[2], at: LABEL_FENCE.length },
-        { dialect: "html" },
-      ),
+      name: handleOfQuoted(text),
+      ...readLabelAt({ text, at: LABEL_FENCE.length }, { dialect: "html" }),
     };
   }
   if (AUTHORED_ID_RE.test(tail)) {
@@ -1596,6 +1615,18 @@ function refuseSubgraphTitle(tail: string): { message: string; offset: number } 
 const LEADING_QUOTED_TITLE_RE = /^"[^"]*"(?=\s)/;
 
 /**
+ * The handle a quoted subgraph header gives its block: the text itself, as
+ * Mermaid 12.2.0 records it, unless that text holds whitespace — then
+ * Mermaid mints `subGraph0` and the block has none (measured: `subgraph
+ * "t"` is id `t`, `subgraph "Two Words"` and `subgraph " t "` are
+ * `subGraph0`). Like any handle it is only ever the name an edge reaches the
+ * frame by; the frame's own id stays generated (ADR-0010).
+ */
+function handleOfQuoted(text: string): string | null {
+  return text === "" || /\s/.test(text) ? null : text;
+}
+
+/**
  * Whether a subgraph title's last word is `end`. Mermaid 12.2.0 reads that
  * word as the block's own end, swallowing the next line into the title
  * (measured: `subgraph S a end` records the title "S a end\nA" and leaves
@@ -1658,10 +1689,27 @@ const TITLE_WORD_BREAK_RE = new RegExp(String.raw`${TITLE_WORD_BREAKS}|[^\s${TIT
 const TITLE_WORDS = String.raw`(?:\s+${TITLE_WORD})+`;
 
 /**
- * `subgraph "t" zz` — a quoted title with words after it. Mermaid 12.2.0
- * joins the two into one title, `t zz`, under a generated id (measured).
+ * `subgraph "t" zz`, `subgraph "t"zz` — a quoted title with words after it,
+ * the first of them optionally glued to the closing quote. Mermaid 12.2.0
+ * joins it all into one title, `t zz` or `tzz` (measured). The quoted title
+ * alone is `FENCED_LABEL_RE`'s, asked first.
  */
-const QUOTED_TITLE_WITH_WORDS_RE = new RegExp(String.raw`^"([^"]*)"(${TITLE_WORDS})$`, "u");
+const QUOTED_TITLE_WITH_WORDS_RE = new RegExp(
+  String.raw`^"([^"]*)"(${TITLE_WORD})?(${TITLE_WORDS})?$`,
+  "u",
+);
+
+/**
+ * `subgraph "t" [x]` — `QUOTED_TITLE_WITH_WORDS_RE`'s run followed by a
+ * bracketed title. Mermaid 12.2.0 makes the run the id and the bracket the
+ * title, exactly as for `subgraph t[x]` (measured: `"t" [x]`, `"t"[x]` and
+ * `"t"zz [x]` are ids `t`, `t`, `tzz`; `"a b" [x]` and `"t" zz [x]` are ids
+ * holding a space, which no edge can spell).
+ */
+const QUOTED_HANDLE_TITLED_RE = new RegExp(
+  String.raw`^"([^"]*)"(${TITLE_WORD})?(${TITLE_WORDS})?\s*\[(${LABEL_CONTENT})\]$`,
+  "du",
+);
 
 /**
  * `subgraph S a & b`, `subgraph S a b c` — a title of several words with no
@@ -1686,7 +1734,9 @@ const BARE_TITLE_WORDS_RE = new RegExp(String.raw`^${TITLE_WORD}${TITLE_WORDS}$`
  * Read with `matchClassDirection` rather than a pattern of this file's own —
  * the spelling, the alias (`TD` → `TB`), and the diagnostic-worthy set of
  * five are already settled there for the header, and a second regex here
- * would only give the two a chance to drift.
+ * would only give the two a chance to drift. `DIRECTION_LINE_RE` only cuts
+ * the line after the value, so text trailing it (`direction LR zz`, which
+ * Mermaid 12.2.0 reads as `LR`) is set aside with a warning.
  *
  * Scoped to *inside* a block on purpose. At the top level of a flowchart
  * Mermaid 12.2.0 accepts `direction LR` on any line and ignores it — the
@@ -1694,6 +1744,15 @@ const BARE_TITLE_WORDS_RE = new RegExp(String.raw`^${TITLE_WORD}${TITLE_WORDS}$`
  * Siren draws the same picture and warns that the line does nothing, naming
  * the header that would.
  */
+
+/**
+ * A `direction` statement cut after its two-letter value, and whatever
+ * trails that on the line — the value checked by `matchClassDirection`, the
+ * trailing text ignored with a warning, as Mermaid 12.2.0's lexer swallows
+ * it (measured). Only the cut is this pattern's; which values are directions
+ * stays `matchClassDirection`'s.
+ */
+const DIRECTION_LINE_RE = /^(direction\s+(\S{2}))(.*)$/d;
 
 /** The window target mermaid 11.17.2's grammar accepts as an `href` interaction's fourth argument — see `LinkTarget`. */
 const LINK_TARGETS: readonly LinkTarget[] = ["_blank", "_self", "_top", "_parent"];
@@ -2427,11 +2486,23 @@ export function parseFlowchart(source: string): DiagramParseResult {
 
       // Read up to a `%%`: Mermaid's direction token is
       // `.*direction\s+LR[^\n]*`, so whatever trails it on the line is
-      // taken with it (measured, `direction LR %% x` is `dir: "LR"`).
-      const blockDirection = matchClassDirection(beforePercent);
-      if (blockDirection !== null) {
+      // taken with it (measured, `direction LR %% x` is `dir: "LR"`, and
+      // so are `direction LR zz` and `direction LRzz`).
+      const directionLine = DIRECTION_LINE_RE.exec(beforePercent);
+      const blockDirection = directionLine === null ? null : matchClassDirection(directionLine[1]);
+      if (directionLine !== null && blockDirection !== null) {
         if (openBlocks.length > 0) {
           openBlocks[openBlocks.length - 1].subgraph.direction = blockDirection;
+          const trailing = directionLine[3];
+          const ignored = trailing.trimStart();
+          if (ignored !== "") {
+            diagnostics.push({
+              severity: "warning",
+              message: `Text after "direction ${directionLine[2]}" is ignored: "${ignored}". Remove it.`,
+              line: lineNumber,
+              column: column + directionLine.indices![3]![0] + trailing.length - ignored.length,
+            });
+          }
         } else {
           diagnostics.push({
             severity: "warning",
