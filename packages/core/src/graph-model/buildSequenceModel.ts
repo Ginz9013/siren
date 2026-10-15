@@ -108,29 +108,87 @@ interface ResolutionState {
   pending: PendingDeclaration[];
 }
 
+/** A block kind with later branches, each opened by its own keyword. */
+type BranchingBlockKind = "alt" | "par" | "critical";
+
+/** The keyword that opens each later branch of a block that has branches. */
+const LATER_BRANCH_KEYWORD = {
+  alt: "else",
+  par: "and",
+  critical: "option",
+} as const satisfies Record<BranchingBlockKind, string>;
+
 /**
- * A `create` or `destroy` waiting for the next message, with the statement
- * that declared it, whose line a missing message is reported at.
+ * Every record that is not a message and so may not stand between a
+ * `create` or `destroy` and its message — each a record of its own in
+ * Mermaid 12.2.0's drawing (nook 01M4YS7DV8). The keyword is what the
+ * refusal names. A plain `participant` declaration and a `link` are not
+ * records there, so they are not here.
+ */
+type InterruptingKeyword =
+  | PendingDeclaration["kind"]
+  | "note"
+  | "activate"
+  | "deactivate"
+  | "autonumber"
+  | BlockStatement["kind"]
+  | (typeof LATER_BRANCH_KEYWORD)[BranchingBlockKind]
+  | "end";
+
+/**
+ * A `create` or `destroy` waiting for the message right after it, with the
+ * statement that declared it, whose line a missing message is reported at.
  */
 interface PendingDeclaration {
   kind: "create" | "destroy";
   participant: ResolvedSequenceParticipant;
   statement: SequenceStatement;
   /**
-   * The keyword of the first record written between the declaration and the
-   * next message — `"create"`, `"destroy"`, `"note"`, `"activate"`,
-   * `"deactivate"`, `"autonumber"`, a block's own keyword, `"else"`, `"and"`,
-   * `"option"` or `"end"` — or `null` while nothing has been.
+   * The first record written between the declaration and the next message,
+   * or `null` while nothing has been.
    */
-  interruptedBy: string | null;
+  interruptedBy: InterruptingKeyword | null;
 }
+
+/**
+ * What differs between a `create` and a `destroy` once a message arrives:
+ * the words its refusals use, which messages pair with it, and which end of
+ * the participant's lifeline the pairing moves.
+ */
+interface DeclarationRule {
+  /** `created` / `destroyed`, the participant's adjective. */
+  participant: string;
+  /** `creating` / `destroying`, the message's adjective. */
+  message: string;
+  /** Who the message must be from or to, said of the participant (`sent to it`). */
+  addressee: string;
+  pairs: (message: { from: string; to: string }, participantId: string) => boolean;
+  extent: "createdAt" | "destroyedAt";
+}
+
+const DECLARATION_RULES: Record<PendingDeclaration["kind"], DeclarationRule> = {
+  create: {
+    participant: "created",
+    message: "creating",
+    addressee: "sent to it",
+    pairs: (message, participantId) => message.to === participantId,
+    extent: "createdAt",
+  },
+  destroy: {
+    participant: "destroyed",
+    message: "destroying",
+    addressee: "sent by or to it",
+    pairs: (message, participantId) => message.from === participantId || message.to === participantId,
+    extent: "destroyedAt",
+  },
+};
 
 /**
  * Marks every declaration still waiting as interrupted by `keyword`, a
  * record that is not a message: its message, when one comes, is no longer
  * the record right after it.
  */
-function interrupt(state: ResolutionState, keyword: string): void {
+function interrupt(state: ResolutionState, keyword: InterruptingKeyword): void {
   for (const declaration of state.pending) declaration.interruptedBy ??= keyword;
 }
 
@@ -459,8 +517,8 @@ function resolveStatements(
       // here belongs to an earlier statement.
       //
       // The destroying message is the exception: measured against Mermaid
-      // 12.2.0, the first message after `destroy X` that X sends or receives
-      // is where X's lifeline ends (`adjustCreatedDestroyedData` sets the
+      // 12.2.0, the message right after `destroy X`, which X sends or
+      // receives, is where X's lifeline ends (`adjustCreatedDestroyedData` sets the
       // destroyed actor's `stopy` from that message's own `lineStartY`), so
       // the arrow reaches X before X stops, not after.
       //
@@ -473,7 +531,7 @@ function resolveStatements(
       // tolerance a bad `deactivate` or a late `create` gets.
       const position = ++state.position;
 
-      // The creating message: the first message after `create participant
+      // The creating message: the message right after `create participant
       // X`, sent to X. X's lifeline starts on its row — measured against
       // Mermaid 12.2.0, `adjustCreatedDestroyedData` sets the created actor's
       // `starty` from this message's own `lineStartY`, centring X's box on
@@ -497,44 +555,29 @@ function resolveStatements(
       // interrupted declaration is not refused: it then draws what one at
       // the end of the document draws. The latest, uninterrupted
       // declaration is checked against this message as usual.
-      let createdHere: string | null = null;
-      let destroyedHere: string | null = null;
+      const settledHere: Record<PendingDeclaration["kind"], string | null> = { create: null, destroy: null };
       for (const declaration of state.pending) {
+        const rule = DECLARATION_RULES[declaration.kind];
         const { id: declaredId } = declaration.participant;
-        if (declaration.interruptedBy !== null) {
-          state.diagnostics.push({
-            severity: "error",
-            message:
-              declaration.kind === "create"
-                ? `The created participant "${declaredId}" has no creating message: the message sent to it must come right after the create, with no "${declaration.interruptedBy}" in between.`
-                : `The destroyed participant "${declaredId}" has no destroying message: the message sent by or to it must come right after the destroy, with no "${declaration.interruptedBy}" in between.`,
-            line: declaration.statement.line,
-            column: declaration.statement.column,
-          });
-        } else if (declaration.kind === "create") {
-          createdHere = settle(
-            declaration,
-            statement.to === declaredId,
-            "createdAt",
-            position,
-            `The created participant "${declaredId}" has no creating message: the next message must be sent to it.`,
-            state.diagnostics,
-          );
-        } else {
-          destroyedHere = settle(
-            declaration,
-            statement.from === declaredId || statement.to === declaredId,
-            "destroyedAt",
-            position,
-            `The destroyed participant "${declaredId}" has no destroying message: the next message must be sent by or to it.`,
-            state.diagnostics,
-          );
-        }
+        const { interruptedBy } = declaration;
+        const refusal =
+          `The ${rule.participant} participant "${declaredId}" has no ${rule.message} message: ` +
+          (interruptedBy === null
+            ? `the next message must be ${rule.addressee}.`
+            : `the message ${rule.addressee} must come right after the ${declaration.kind}, with no "${interruptedBy}" in between.`);
+        settledHere[declaration.kind] = settle(
+          declaration,
+          interruptedBy === null && rule.pairs(statement, declaredId),
+          rule.extent,
+          position,
+          refusal,
+          state.diagnostics,
+        );
       }
       state.pending = [];
 
       for (const referencedId of referencedIds) {
-        if (referencedId === destroyedHere) continue;
+        if (referencedId === settledHere.destroy) continue;
         const endsAt = participantsById.get(referencedId)!.destroyedAt;
         if (endsAt === null) continue;
         state.diagnostics.push({
@@ -558,8 +601,8 @@ function resolveStatements(
         label: statement.label,
         arrow: statement.arrow,
         autonumber: state.autonumbering ? state.autonumberCounter : null,
-        ...(destroyedHere === null ? {} : { destroys: destroyedHere }),
-        ...(createdHere === null ? {} : { creates: createdHere }),
+        ...(settledHere.destroy === null ? {} : { destroys: settledHere.destroy }),
+        ...(settledHere.create === null ? {} : { creates: settledHere.create }),
       };
       resolved.push({ kind: "message", message });
       touched.add(statement.from);
@@ -637,13 +680,6 @@ function resolveStatements(
   return { statements: resolved, touchedParticipantIds: [...touched] };
 }
 
-/** The keyword that opens each later branch of a block that has branches. */
-const BRANCH_KEYWORD: Partial<Record<BlockStatement["kind"], string>> = {
-  alt: "else",
-  par: "and",
-  critical: "option",
-};
-
 function resolveBlock(
   statement: BlockStatement,
   participantsById: Map<string, ResolvedSequenceParticipant>,
@@ -667,7 +703,13 @@ function resolveBlock(
   // between a `create` or `destroy` and its message.
   interrupt(state, statement.kind);
 
-  let branchInputs: Array<{ label: Label | null; body: SequenceStatement[] }>;
+  // `opens` is the keyword that starts a later branch, and an interruption
+  // like any other boundary; the first branch opens with the block itself.
+  let branchInputs: Array<{
+    label: Label | null;
+    body: SequenceStatement[];
+    opens: InterruptingKeyword | null;
+  }>;
   switch (statement.kind) {
     case "alt":
     case "par":
@@ -677,24 +719,27 @@ function resolveBlock(
       // (its own nested block-id/participant-reference state is still the
       // shared `state`, since block ids and lane order by first mention are
       // both document-order-wide, not branch-scoped).
-      branchInputs = statement.branches;
+      branchInputs = statement.branches.map((branch, index) => ({
+        ...branch,
+        opens: index === 0 ? null : LATER_BRANCH_KEYWORD[statement.kind],
+      }));
       break;
     case "rect":
       // `rect` isn't a labeled-branch construct like alt/par/critical — it's
       // a single colored-background region with no condition of its own. Its
       // color goes to the block's own `color`, passed through unvalidated
       // (validating it is rendering's concern); its one branch has no label.
-      branchInputs = [{ label: null, body: statement.body }];
+      branchInputs = [{ label: null, body: statement.body, opens: null }];
       break;
     default:
       // loop / opt / break: single implicit branch.
-      branchInputs = [{ label: statement.label, body: statement.body }];
+      branchInputs = [{ label: statement.label, body: statement.body, opens: null }];
       break;
   }
 
   const touched = new Set<string>();
-  const branches: ResolvedSequenceBranch[] = branchInputs.map(({ label, body }, index) => {
-    if (index > 0) interrupt(state, BRANCH_KEYWORD[statement.kind]!);
+  const branches: ResolvedSequenceBranch[] = branchInputs.map(({ label, body, opens }) => {
+    if (opens !== null) interrupt(state, opens);
     const { statements: resolvedBody, touchedParticipantIds } = resolveStatements(
       body,
       participantsById,

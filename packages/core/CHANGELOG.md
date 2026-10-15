@@ -93,25 +93,25 @@ refused (see **Changed**).
 ### Changed
 
 - **A sequence `create participant X` draws X's box on its creating message**: the message right
-  after it, which must be sent to X (nook `01M4YS7DMG`). X's box is now centred on that message's arrow, the arrow stops at the box's near
-  edge, X's lifeline starts at the box's bottom, and `create` no longer takes a row of its own; the
-  next row starts below the box. Measured against Mermaid 12.2.0, which reads `create` the same way
-  and centres X's box on that arrow. Nothing may stand between the two: a note, an activation or a
-  block boundary in between is refused (see below). A `create` with no message after it still draws
-  X's box where it is written.
+  after it, which must be sent to X (nook `01M4YS7DMG`). X's box is now centred on that message's
+  arrow, the arrow stops at the box's near edge, X's lifeline starts at the box's bottom, and
+  `create` no longer takes a row of its own; the next row starts below the box. Measured against
+  Mermaid 12.2.0, which reads `create` the same way and centres X's box on that arrow. Nothing may
+  stand between the two: a note, an activation or a block boundary in between is refused (see
+  below). A `create` with no message after it still draws X's box where it is written.
 - **A `create participant X` whose next message is not sent to X is refused** — including one X
   sends — with an error at the `create` line: `The created participant "X" has no creating
   message: the next message must be sent to it.` Siren used to draw such a document in silence;
   Mermaid 12.2.0 refuses it. As with Siren's other sequence errors, the diagram is still drawn
   beside the error, with X's box where `create` is written.
 - **A sequence `destroy X` ends X's lifeline at its destroying message**: the message right after
-  it, which X must send or receive (nook `01M4YS7DDX`). X's lifeline and X mark now sit on that message's row, on the arrow's tip when X
-  receives it and on its tail when X sends it, and `destroy` no longer takes a row of its own. That
-  message is no longer warned about as reaching past the end of X's lifeline; a later message
-  naming X still is. Measured against Mermaid 12.2.0, which reads `destroy X` the same way and
-  ends X's lifeline on that message's row. Nothing may stand between the two: a note, an activation
-  or a block boundary in between is refused (see below). A `destroy` with no message after it still
-  ends the lifeline where it is written.
+  it, which X must send or receive (nook `01M4YS7DDX`). X's lifeline and X mark now sit on that
+  message's row, on the arrow's tip when X receives it and on its tail when X sends it, and
+  `destroy` no longer takes a row of its own. That message is no longer warned about as reaching
+  past the end of X's lifeline; a later message naming X still is. Measured against Mermaid 12.2.0,
+  which reads `destroy X` the same way and ends X's lifeline on that message's row. Nothing may
+  stand between the two: a note, an activation or a block boundary in between is refused (see
+  below). A `destroy` with no message after it still ends the lifeline where it is written.
 - **A `destroy X` whose next message X neither sends nor receives is refused** with an error at
   the `destroy` line: `The destroyed participant "X" has no destroying message: the next message
   must be sent by or to it.` Siren used to draw such a document in silence; Mermaid 12.2.0

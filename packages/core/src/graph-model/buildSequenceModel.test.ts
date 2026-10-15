@@ -1515,7 +1515,7 @@ describe("buildSequenceModel", () => {
     });
   });
 
-  describe("destroying messages (the first message after `destroy X`, which X sends or receives)", () => {
+  describe("destroying messages (the message right after `destroy X`, which X sends or receives)", () => {
     it("ends X's lifeline at the message X receives right after `destroy X`, with no warning for it", () => {
       // Positions: 1 participant A, 2 participant B, 3 A->>B hi, 4 destroy B,
       // 5 A->>B bye — the destroying message.
@@ -1739,7 +1739,7 @@ describe("buildSequenceModel", () => {
     });
   });
 
-  describe("creating messages (the first message after `create participant X`, which must be sent to X)", () => {
+  describe("creating messages (the message right after `create participant X`, which must be sent to X)", () => {
     it("starts X's lifeline at the message sent to X right after `create participant X`, and marks that message alone", () => {
       // Positions: 1 participant A, 2 create C, 3 A->>C make — the creating
       // message, 4 A->>C again.
