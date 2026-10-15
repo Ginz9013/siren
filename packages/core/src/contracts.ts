@@ -927,7 +927,7 @@ export interface ResolvedSequenceMessage {
    * The id of the participant this message destroys, when it is that
    * participant's **destroying message** — the first message after its
    * `destroy` statement, which it sends or receives; absent on every other
-   * message. Its lifeline and destroy mark end on this message's row, so
+   * message. Its lifeline and closing box end on this message's row, so
    * `layoutSequence` reads the pairing here rather than working it out
    * again. A creating message is marked the same way, with `creates`.
    */
@@ -1061,13 +1061,20 @@ export interface PositionedParticipant {
    * is drawn from here, under the box, so it shows from the box's bottom.
    */
   top: number;
-  /** Lifeline's bottom y-coordinate (diagram bottom, or the destroy mark's y if destroyed). */
+  /**
+   * Lifeline's bottom y-coordinate, where the participant's box is drawn a
+   * second time, ending here: the bottom of the diagram's bottom row, or for
+   * a destroyed participant the bottom of its closing box — centred on its
+   * destroying message's arrow, as Mermaid 12.2.0 draws it, or on the
+   * `destroy` statement's own row when that message is refused. The
+   * lifeline is drawn to here, under the box, as it is under the top one.
+   */
   bottom: number;
   /**
-   * Whether the participant's box is drawn a second time, in the diagram's
-   * bottom row, ending at `bottom`: true for every participant nothing
-   * destroys, declared or `create`d (as Mermaid 12.2.0 draws it), false for
-   * one a destroying message ends, which is drawn only once.
+   * Whether the participant's second box sits in the diagram's shared
+   * bottom row: true for every participant nothing destroys, declared or
+   * `create`d (as Mermaid 12.2.0 draws it), false for a destroyed one, whose
+   * second box is its closing box partway down instead.
    */
   drawnInBottomRow: boolean;
   width: number;
@@ -1135,13 +1142,6 @@ export interface PositionedMessage {
   toX: number;
 }
 
-/** A destroy mark (the X at a lifeline's truncation point) with layout-assigned position. */
-export interface PositionedDestroyMark {
-  participantId: string;
-  x: number;
-  y: number;
-}
-
 /**
  * An activation bar with a layout-assigned span. Not a `PositionedSequenceElement`
  * — unlike a message or a block it occupies no row of its own and can open
@@ -1164,7 +1164,6 @@ export interface PositionedActivation {
 export type PositionedSequenceElement =
   | { kind: "message"; message: PositionedMessage }
   | { kind: "block"; block: PositionedBlock }
-  | { kind: "destroyMark"; mark: PositionedDestroyMark }
   | { kind: "note"; note: PositionedNote };
 
 /**
@@ -1246,7 +1245,7 @@ export interface PositionedBox {
 
 /**
  * The sequence diagram after layout: positioned participants, messages,
- * control-flow blocks, box groupings and destroy marks, ready for
+ * control-flow blocks and box groupings, ready for
  * `renderSequenceToSVG`. No timeline: `render()` takes it from the model.
  */
 export interface PositionedSequenceDiagram {
@@ -1257,7 +1256,7 @@ export interface PositionedSequenceDiagram {
   accDescr: string | null;
   participants: PositionedParticipant[];
   boxes: PositionedBox[];
-  /** Messages, blocks, and destroy marks, in document order. */
+  /** Messages, blocks and notes, in document order. */
   elements: PositionedSequenceElement[];
   /** Every activation bar, independent of block nesting — see `PositionedActivation`. */
   activations: PositionedActivation[];

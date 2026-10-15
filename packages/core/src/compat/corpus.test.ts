@@ -1643,8 +1643,108 @@ const SILENTLY_WRONG = 0;
  * at the `%%`. No `supported` row moved: no ER row had a mid-line `%%`.
  * `er-comment-mid-line-text`, new beside it, is `supported` and moves
  * nothing. `silently-wrong` does not move.
+ *
+ * **21 → 24: case (2), three refusals written down for the first time.**
+ * `01M4ZWT89B` read a flowchart subgraph title as Mermaid 12.2.0 does: a
+ * quoted title with words after it, or several unquoted words, is one
+ * title under a generated id. Two of the new rows are documents Mermaid
+ * refuses: `fc-subgraph-title-bracket-then-words` (words after a bracketed
+ * title, "got 'SPACE'") and `fc-subgraph-title-unquoted-comma` (a `,` in an
+ * unquoted title, "got 'COMMA'"). One is a document Mermaid accepts and
+ * draws as something other than what was written, refused under ADR-0001:
+ * `fc-subgraph-title-trailing-end`, whose last word `end` Mermaid reads as
+ * the block's end, swallowing the next line into the title. Siren refused
+ * all three before with a generic "Unrecognized flowchart line" and no row;
+ * it refuses each now with an error saying how to fix it. No `supported`
+ * row moved. The three rows new beside them,
+ * `fc-subgraph-title-quoted-then-words`, `fc-subgraph-title-bare-words` and
+ * `fc-direction-top-level` (a `direction` outside any subgraph, drawn in
+ * the header's direction with a warning), are `supported` and move
+ * nothing. `silently-wrong` does not move.
+ *
+ * **24 → 27: case (2), three refusals written down for the first time.**
+ * `01M4ZWT8XF` read a class block closed on a member's line
+ * as Mermaid 12.2.0 does: `class A { +int x }` is a whole block, and a `}`
+ * may end the last member's line. No row had recorded the documents around
+ * that `}`, because Siren refused every one-line block as an unrecognized
+ * line until now. Two are ones Mermaid refuses (measured):
+ * `cls-class-block-text-after-brace`, text after the `}` on its line
+ * ("… got 'ALPHA'"), and `cls-class-block-member-after-brace`, a member on
+ * the line below it ("… got 'PLUS'"). One is a document Mermaid accepts and
+ * draws as something other than what was written, refused under ADR-0001:
+ * `cls-class-block-semicolon-members`, members run together with `;`, which
+ * Mermaid draws as one method. Siren refuses each with an error saying what
+ * to change. No `supported` row moved.
+ * `cls-class-block-one-line` and `cls-class-block-closed-on-member-line`,
+ * new beside them, are `supported` and move nothing. `silently-wrong` does
+ * not move.
+  *
+ * **27 → 30: case (2), three refusals written down for the first time.**
+ * `01M4ZWT94S` refused a single `%` in an ER entity's quoted name or alias,
+ * as Mermaid 12.2.0 does: its lexer reads such a string as `WORD`, which no
+ * entity production takes ("got 'WORD'"). Siren drew each before, with no
+ * row to say so; `er-percent-in-alias`, `er-percent-in-quoted-name` and
+ * `er-percent-in-relationship-end` write them down. No `supported` row
+ * moved: no ER row had a `%` in a quoted name. `er-percent-in-label-and-comment`,
+ * new beside them, is `supported` and moves nothing. `silently-wrong` does
+ * not move.
+ *
+ * **30 → 32: case (2), two refusals written down for the first time.**
+ * `01M4ZWT94S`'s review found the same `WORD` in an ER subgraph header:
+ * Mermaid 12.2.0 refuses a `%` in its quoted name or title ("got 'WORD'",
+ * measured), and Siren drew the cluster, with no row to say so;
+ * `er-percent-in-subgraph-name` and `er-percent-in-subgraph-title` write
+ * them down. No `supported` row moved: no ER row had a `%` in a subgraph
+ * header. `silently-wrong` does not move.
+ *
+ * **32 → 33: case (2), a refusal written down for the first time.**
+ * `01M4ZWT8XF`'s review refused a `;` between two class members wherever
+ * it stands outside a method's parentheses and a `~generic~`, not only
+ * where Siren could not read the text: Mermaid 12.2.0 draws
+ * `+int age; int legs` as one attribute and `+run(); +stop()` as one
+ * method (measured), a picture of neither pair of members, refused under
+ * ADR-0001. Siren used to draw each as that one member, as Mermaid does,
+ * with no row to say so; `cls-class-block-semicolon-readable-members`
+ * writes it down. No `supported` row moved: no supported row has a `;`
+ * between members. `silently-wrong` does not move.
+ *
+ * **33 → 36: case (2), three refusals written down for the first time.**
+ * `01M4ZY2DA1` read a namespace block written on one line as Mermaid
+ * 12.2.0 does: the text after its `{` is its first statement, and a `}`
+ * closes it wherever it stands. No row had recorded the documents around
+ * that `}`, because Siren refused every one-line namespace as an
+ * unrecognized line until now. Two are ones Mermaid refuses (measured):
+ * `cls-namespace-empty`, a namespace with no statement ("… got
+ * 'STRUCT_STOP'"; Siren used to accept the multi-line spelling, drawing no
+ * frame), and `cls-namespace-text-after-brace`, text after the `}` on its
+ * line ("… got 'ALPHA'"). One is a document Mermaid accepts and draws as
+ * something other than what was written, refused under ADR-0001:
+ * `cls-namespace-two-classes-one-line`, which Mermaid draws as the one
+ * class `LionclassTiger`. No `supported` row moved.
+ * `cls-namespace-one-line` and `cls-namespace-closed-on-statement-line`,
+ * new beside them, are `supported` and move nothing. `silently-wrong` does
+ * not move.
+ *
+ * **36 → 40: case (2), four refusals written down for the first time.**
+ * `01M4ZWT8G2` refused an unquoted `[ ] { }` and an unpaired `(` or `)` in
+ * a flowchart node label, as Mermaid 12.2.0 does (`fc-text-unquoted-bracket`,
+ * which Siren drew before), and gave three refusals Siren already made an
+ * explanation each: `@{ … }` node data (`fc-node-shape-data`), an edge id
+ * (`fc-edge-id`) and a `linkStyle` word with no `:`
+ * (`fc-linkstyle-not-a-declaration`), none of which had a row. No
+ * `supported` row moved: none held such a label. `silently-wrong` does not
+ * move.
+ *
+ * **40 → 41: case (2), a refusal written down for the first time.**
+ * `01M4ZWT8PR`'s review refused an `&` without a space on each side
+ * (`fc-group-ampersand-unspaced`). Mermaid 12.2.0 reads one glued to an id
+ * as a character of it — `A&B-->C` is the one node `A&B` (measured), a
+ * picture other than the group written, refused under ADR-0001 — and one
+ * spaced on a single side as a parse error. Siren used to draw the group,
+ * with no row to say so. No `supported` row moved: none glued an `&`.
+ * `silently-wrong` does not move.
  */
-const REJECTED = 21;
+const REJECTED = 41;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

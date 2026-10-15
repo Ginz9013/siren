@@ -1377,10 +1377,12 @@ describe("readLabel's refused tags", () => {
     }
   }
 
-  // ADR-0015: `<img>`'s diagnostic points at the image shape, by its syntax.
-  it("points <img> at the image shape, A@{ img: \"…\" }", () => {
+  // `<img>`'s diagnostic used to point at the image shape, `A@{ img: "…" }`
+  // (ADR-0015), a syntax Siren itself refuses (nook 01M4ZWT8G2); it now asks
+  // for what Siren can draw, the image put into words.
+  it("tells <img> to describe the image in the label's text, pointing at no syntax Siren refuses", () => {
     expect(readLabel("<img src='x.png'>", { dialect: "html" }).problems[0]!.message).toBe(
-      `${refusal("img", "images")} Draw an image as a node with A@{ img: "…" } instead.`,
+      `${refusal("img", "images")} Describe the image in the label's text instead.`,
     );
   });
 

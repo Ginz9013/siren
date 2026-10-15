@@ -1427,3 +1427,374 @@ describe("a `%%` in the middle of a class-diagram line", () => {
     expect(diagnostics).toEqual([{ severity: "error", message: NOT_A_COMMENT, line: 3, column: 19 }]);
   });
 });
+
+/**
+ * A class block written on one line, or closed at the end of its last
+ * member's line (T4, measured on Mermaid 12.2.0): its block lexer state
+ * reads members up to a `}` wherever the `}` stands, so `class A { +int x }`
+ * is the class A with the member `+int x`.
+ */
+describe("parseClassDiagram — a class block closed on a member's line", () => {
+  const classOk = (body: string) => parseOk(`classDiagram\n${body}`).document;
+  const membersOf = (document: ClassDocument) =>
+    document.classes.flatMap((declaration) => declaration.members.map(reconstruct));
+
+  it("reads `class A { +int x }` as the class A with that one member", () => {
+    for (const source of ["  class A { +int x }", "  class A {   +int x   }", "  class A { +int x }   "]) {
+      const document = classOk(source);
+      expect([source, document.classes.map((c) => c.id)]).toEqual([source, ["A"]]);
+      expect([source, membersOf(document)]).toEqual([source, ["+int x"]]);
+    }
+    // Measured: Mermaid reads the method `+foo() : int`.
+    expect(membersOf(classOk("  class A { +foo() int }"))).toEqual(["+foo() int"]);
+  });
+
+  it("reads an empty one-line block, `class A {}` or `class A { }`, as a class with no members", () => {
+    for (const source of ["  class A {}", "  class A{}", "  class A { }", "  class A {    }"]) {
+      const document = classOk(source);
+      expect([source, document.classes.map((c) => c.id)]).toEqual([source, ["A"]]);
+      expect([source, membersOf(document)]).toEqual([source, []]);
+    }
+  });
+
+  it("keeps the generic, the label and the `:::` style of a one-line block's class", () => {
+    const generic = classOk("  class A~T~ { +x }");
+    expect(generic.classes.map((c) => [c.id, c.generic])).toEqual([["A", "T"]]);
+    expect(membersOf(generic)).toEqual(["+x"]);
+
+    const labelled = classOk('  class A["Lbl"] { +x }');
+    expect(labelled.classes.map((c) => c.label?.text ?? null)).toEqual(["Lbl"]);
+    expect(membersOf(labelled)).toEqual(["+x"]);
+
+    const styled = classOk("  class A:::c { +x }");
+    expect(membersOf(styled)).toEqual(["+x"]);
+    expect(styled.styles).toEqual(classOk("  class A:::c").styles);
+  });
+
+  it("reads a one-line block's annotation and `%%` text as a multi-line block's", () => {
+    // Measured: `class A { <<interface>> }` is annotated, and the block state
+    // has no comment rule, so `%% c` is a member.
+    expect(classOk("  class A { <<interface>> }").classes.map((c) => c.annotation)).toEqual(["interface", null]);
+    expect(membersOf(classOk("  class A { +int x %% c }"))).toEqual(["+int x %% c"]);
+    expect(membersOf(classOk("  class A { %% c }"))).toEqual(["%% c"]);
+  });
+
+  it("reads a `}` at the end of a member's line as that member, then the block's end", () => {
+    // Measured: `class A { +int x` then `+int y }` records both members.
+    expect(membersOf(classOk("  class A { +int x\n    +int y }"))).toEqual(["+int x", "+int y"]);
+    const document = classOk("  class A {\n    +int x\n    +run(a) int }\n  class B");
+    expect(membersOf(document)).toEqual(["+int x", "+run(a) int"]);
+    expect(document.classes.map((c) => c.id)).toEqual(["A", "B"]);
+    expect(document.classes[0]!.members[1]).toMatchObject({ line: 4, column: 5 });
+  });
+
+  it("refuses text after a block's closing `}` on its line, where the text starts", () => {
+    // Measured: Mermaid refuses each ("Expecting 'NEWLINE', 'EOF',
+    // 'STRUCT_STOP', got 'ALPHA'" for a statement, "… got 'STRUCT_STOP'" for
+    // a second `}`).
+    const textAfter = (text: string) =>
+      `Unexpected text after the "}" that closes class "A": "${text}". ` +
+      "Remove it, or start the next statement on a line of its own.";
+    for (const [body, line, text] of [
+      ["  class A { +int x } class B", 2, "class B"],
+      ["  class A {\n    +int x\n    +int y } class B", 4, "class B"],
+      ["  class A { +x } }", 2, "}"],
+      ["  class A {\n  }}", 3, "}"],
+      ["  class A {\n  } class B", 3, "class B"],
+    ] as const) {
+      const source = `classDiagram\n${body}`;
+      const column = source.split("\n")[line - 1]!.lastIndexOf(text) + 1;
+      const { document, diagnostics } = parseClassDiagram(source);
+      expect([body, document]).toEqual([body, null]);
+      expect([body, diagnostics]).toEqual([body, [{ severity: "error", message: textAfter(text), line, column }]]);
+    }
+  });
+
+  it("refuses a `%%` after a block's `}` on a member's line, at its `%%`", () => {
+    // Measured: `class A { +int x } %% c` is "… got 'PCT'", on the last line too.
+    const notAComment =
+      'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+      "If it is a comment, move it to a line of its own.";
+    for (const [body, line] of [
+      ["  class A { +int x } %% c", 2],
+      ["  class A {\n    +int x } %% c\n  class B", 3],
+    ] as const) {
+      const source = `classDiagram\n${body}`;
+      const column = source.split("\n")[line - 1]!.indexOf("%%") + 1;
+      const { document, diagnostics } = parseSiren(source);
+      expect([body, document]).toEqual([body, null]);
+      expect([body, diagnostics]).toEqual([body, [{ severity: "error", message: notAComment, line, column }]]);
+    }
+  });
+
+  it("refuses a member on the line after a block's `}`, naming the class and the `}` that closed it", () => {
+    // Measured: `class A { +int x }` then `+int y` is "… got 'PLUS'".
+    const outside = (closedOn: number) =>
+      `Member "+int y" is outside class "A": the "}" on line ${closedOn} already closed its block. ` +
+      'Move the "}" below the class\'s last member.';
+    for (const [body, closedOn] of [
+      ["  class A { +int x }\n  +int y", 2],
+      ["  class A {\n    +int x }\n    +int y", 3],
+      ["  class A {\n    +int x\n  }\n\n    +int y", 4],
+    ] as const) {
+      const source = `classDiagram\n${body}`;
+      const lines = source.split("\n");
+      const line = lines.length;
+      const column = lines[line - 1]!.indexOf("+") + 1;
+      const { document, diagnostics } = parseClassDiagram(source);
+      expect([body, document]).toEqual([body, null]);
+      expect([body, diagnostics]).toEqual([body, [{ severity: "error", message: outside(closedOn), line, column }]]);
+    }
+    // Not after a block, the line is unrecognized as before.
+    expect(parseClassDiagram("classDiagram\n  class A\n  +int y").diagnostics).toEqual([
+      { severity: "error", message: 'Unrecognized classDiagram line: "+int y"', line: 3, column: 3 },
+    ]);
+  });
+
+  it("refuses members run together with `;`, which Mermaid draws as one member, saying to write one per line", () => {
+    // Measured: `class A { +int x; +foo() }` records the single method
+    // `+int x; +foo()` — a picture of neither member, with no diagnostic
+    // (ADR-0001); `+a; +b` is the one attribute `+a; +b`. A multi-line
+    // block's `+int x; +foo()` is read the same way.
+    const separated = (text: string) =>
+      `Unrecognized class member: "${text}". A ";" does not separate members: write each member on a line of its own.`;
+    for (const [body, text, line] of [
+      ["  class A { +int x; +foo() }", "+int x; +foo()", 2],
+      ["  class A {\n    +int x; +foo()\n  }", "+int x; +foo()", 3],
+      ["  class A { +a; +b }", "+a; +b", 2],
+    ] as const) {
+      const source = `classDiagram\n${body}`;
+      const column = source.split("\n")[line - 1]!.indexOf(text) + 1;
+      const { document, diagnostics } = parseClassDiagram(source);
+      expect([body, document]).toEqual([body, null]);
+      expect([body, diagnostics]).toEqual([body, [{ severity: "error", message: separated(text), line, column }]]);
+    }
+  });
+
+  it("refuses a `;` between members even where the text reads as one member", () => {
+    // Measured: Mermaid draws `+foo(); +bar()` as the one method
+    // `+foo(); +bar()`, `+int x; int y` and `+int x; y` as one attribute
+    // each, and `+foo() int; x` as the method `+foo() : int; x` — in a
+    // one-line and a multi-line block alike, with no diagnostic. The author
+    // wrote two members, so each is refused (ADR-0001).
+    const separated = (text: string) =>
+      `Unrecognized class member: "${text}". A ";" does not separate members: write each member on a line of its own.`;
+    for (const [body, text, line] of [
+      ["  class A { +foo(); +bar() }", "+foo(); +bar()", 2],
+      ["  class A { +int x; int y }", "+int x; int y", 2],
+      ["  class A {\n    +int x; int y\n  }", "+int x; int y", 3],
+      ["  class A {\n    +int x; y\n  }", "+int x; y", 3],
+      ["  class A {\n    +foo() int; x }", "+foo() int; x", 3],
+    ] as const) {
+      const source = `classDiagram\n${body}`;
+      const column = source.split("\n")[line - 1]!.indexOf(text) + 1;
+      const { document, diagnostics } = parseClassDiagram(source);
+      expect([body, document]).toEqual([body, null]);
+      expect([body, diagnostics]).toEqual([body, [{ severity: "error", message: separated(text), line, column }]]);
+    }
+  });
+
+  it("does not call a `;` ending a member a separator: only one with a member after it", () => {
+    // Measured: Mermaid draws `+int x;` as the one attribute `+int x;`, a
+    // single member as written. Siren cannot read a name ending in `;` and
+    // has refused it since before T4, but nothing follows the `;`, so the
+    // error says only that it is unrecognized.
+    for (const [body, line] of [
+      ["  class A {\n    +int x;\n  }", 3],
+      ["  class A { +int x; }", 2],
+      ["  class A { +int x;   }", 2],
+    ] as const) {
+      const source = `classDiagram\n${body}`;
+      const column = source.split("\n")[line - 1]!.indexOf("+") + 1;
+      expect([body, parseClassDiagram(source).diagnostics]).toEqual([
+        body,
+        [{ severity: "error", message: 'Unrecognized class member: "+int x;"', line, column }],
+      ]);
+    }
+  });
+
+  it("still reads a `;` inside a method's parentheses or a `~generic~`", () => {
+    // Measured: Mermaid reads `+foo(a; b)` as the method foo with the
+    // parameters `a; b`, and `List~int; x~ y` as the attribute
+    // `List<int; x> y` — what was written, so nothing is refused.
+    expect(membersOf(classOk("  class A {\n    +foo(a; b)\n    List~int; x~ y\n  }"))).toEqual([
+      "+foo(a; b)",
+      "List~int; x~ y",
+    ]);
+  });
+
+  it("reads a one-line block inside a namespace, and beside other statements", () => {
+    const document = classOk("  namespace N {\n    class A { +int x }\n  }\n  class B { }\n  A <|-- B");
+    expect(document.namespaces.map((n) => n.classIds)).toEqual([["A"]]);
+    expect(membersOf(document)).toEqual(["+int x"]);
+    expect(document.relationships).toHaveLength(1);
+  });
+});
+
+/**
+ * A `namespace` block written on one line (T8, measured on Mermaid 12.2.0):
+ * the text after its `{` is the body's first statement, and a `}` closes
+ * the namespace wherever it stands — the rule T4 gave a class block.
+ */
+describe("parseClassDiagram — a namespace block written on one line", () => {
+  const classOk = (body: string) => parseOk(`classDiagram\n${body}`).document;
+  const namespacesOf = (document: ClassDocument) => document.namespaces.map((n) => [n.id, n.classIds]);
+  const membersOf = (document: ClassDocument, id: string) =>
+    document.classes.filter((c) => c.id === id).flatMap((c) => c.members.map(reconstruct));
+  const refused = (body: string) => {
+    const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+    expect([body, document]).toEqual([body, null]);
+    return diagnostics;
+  };
+
+  it("reads `namespace N { class A }` as the namespace N holding the class A", () => {
+    // Measured: each spelling draws the cluster N around A.
+    for (const body of [
+      "  namespace N { class A }",
+      "  namespace N {class A}",
+      "  namespace N{ class A }",
+      "  namespace N {   class A   }   ",
+    ]) {
+      const document = classOk(body);
+      expect([body, namespacesOf(document)]).toEqual([body, [["N", ["A"]]]]);
+      expect([body, document.classes.map((c) => [c.id, c.line, c.column])]).toEqual([
+        body,
+        [["A", 2, `classDiagram\n${body}`.split("\n")[1]!.indexOf("class") + 1]],
+      ]);
+    }
+    // The namespace's label and the class's generic, label and `:::` are kept.
+    const labelled = classOk('  namespace N["L"] { class A~T~ }');
+    expect(labelled.namespaces.map((n) => n.label?.text ?? null)).toEqual(["L"]);
+    expect(labelled.classes.map((c) => c.generic)).toEqual(["T"]);
+    expect(classOk('  namespace N { class A["Lbl"] }').classes.map((c) => c.label?.text ?? null)).toEqual(["Lbl"]);
+    const stylesOf = (document: ClassDocument) => document.styles.map((s) => [s.styleKind, s.targetIds, s.name]);
+    expect(stylesOf(classOk("  namespace N { class A:::c }"))).toEqual(stylesOf(classOk("  class A:::c")));
+    // Beside other statements, and twice in a row.
+    const two = classOk("  namespace N { class A }\n  namespace M { class B }\n  class C\n  A <|-- C");
+    expect(namespacesOf(two)).toEqual([["N", ["A"]], ["M", ["B"]]]);
+    expect(two.relationships).toHaveLength(1);
+  });
+
+  it("reads a one-line class block inside a one-line namespace", () => {
+    // Measured: `{ +x } }`, `{ +x }}` and `{}}` each close the class, then the namespace.
+    for (const [body, members] of [
+      ["  namespace N { class A { +x } }", ["+x"]],
+      ["  namespace N { class A { +x }}", ["+x"]],
+      ["  namespace N { class A {} }", []],
+      ["  namespace N { class A {}}", []],
+    ] as const) {
+      const document = classOk(body);
+      expect([body, namespacesOf(document)]).toEqual([body, [["N", ["A"]]]]);
+      expect([body, membersOf(document, "A")]).toEqual([body, members]);
+    }
+  });
+
+  it("closes the namespace at a `}` on a later line, alone or after that line's statement", () => {
+    // Measured: each draws the cluster N around every class named, and a
+    // statement after the namespace stands outside it.
+    for (const [body, ids] of [
+      ["  namespace N { class A\n  }\n  class B", ["A"]],
+      ["  namespace N { class A\n    class B }\n  class C", ["A", "B"]],
+      ["  namespace N {\n    class A }\n  class B", ["A"]],
+      ["  namespace N {\n    class A\n    class B { +x } }", ["A", "B"]],
+      ["  namespace N { class A {\n    +x\n  }\n  }", ["A"]],
+    ] as const) {
+      expect([body, namespacesOf(classOk(body))]).toEqual([body, [["N", ids]]]);
+    }
+  });
+
+  it("reads a `}` after a block's own `}` as closing the namespace around it, nested too", () => {
+    // Measured: each draws A inside M inside N (or inside N alone), the
+    // `}`s after the innermost one closing the namespaces around it in turn.
+    for (const [body, namespaces] of [
+      ["  namespace N { namespace M { class A } }", [["M", ["A"]], ["N", []]]],
+      ["  namespace N { namespace M { class A }}", [["M", ["A"]], ["N", []]]],
+      ["  namespace N { namespace M { class A {}}}", [["M", ["A"]], ["N", []]]],
+      ["  namespace N { class A {\n    +x\n  } }", [["N", ["A"]]]],
+      ["  namespace N { class A {\n    +x }}", [["N", ["A"]]]],
+      ["  namespace N {\n    namespace M {\n      class A\n    } }", [["M", ["A"]], ["N", []]]],
+      ["  namespace N {\n    namespace M { class A {\n      +x } } }\n  class B", [["M", ["A"]], ["N", []]]],
+    ] as const) {
+      const document = classOk(body);
+      expect([body, namespacesOf(document)]).toEqual([body, namespaces]);
+      expect([body, membersOf(document, "A")]).toEqual([body, body.includes("+x") ? ["+x"] : []]);
+    }
+  });
+
+  it("refuses text after a namespace's `}` on its line, where the text starts", () => {
+    // Measured: Mermaid refuses each — a statement ("… got 'ALPHA'"), a `}`
+    // closing nothing (a lexical error) and a `%%` ("… got 'PCT'").
+    const textAfter = (text: string) =>
+      `Unexpected text after the "}" that closes namespace "N": "${text}". ` +
+      "Remove it, or start the next statement on a line of its own.";
+    for (const [body, line, text] of [
+      ["  namespace N { class A } class B", 2, "class B"],
+      ["  namespace N {\n    class A\n  } class B", 4, "class B"],
+      ["  namespace N { class A { +x } } class B", 2, "class B"],
+      ["  namespace N { class A }}", 2, "}"],
+      ["  namespace N {\n    class A\n  }}", 4, "}"],
+    ] as const) {
+      const column = `classDiagram\n${body}`.split("\n")[line - 1]!.lastIndexOf(text) + 1;
+      expect([body, refused(body)]).toEqual([body, [{ severity: "error", message: textAfter(text), line, column }]]);
+    }
+    const notAComment =
+      'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+      "If it is a comment, move it to a line of its own.";
+    for (const body of ["  namespace N { class A } %% c", "  namespace N { class A { +x } } %% c"]) {
+      expect([body, refused(body)]).toEqual([body, [{ severity: "error", message: notAComment, line: 2, column: body.indexOf("%%") + 1 }]]);
+    }
+  });
+
+  it("refuses text after the `}`s closing a block and its namespace, as after the namespace's `}`", () => {
+    // Measured: `class A {` ⏎ `+x` ⏎ `}} class B` is "… got 'ALPHA'",
+    // `}} %% c` "… got 'PCT'" and `+x }}}` a lexical error — each the
+    // one-line namespace's refusal, so each is one error after N's `}`.
+    const textAfter = (text: string) =>
+      `Unexpected text after the "}" that closes namespace "N": "${text}". ` +
+      "Remove it, or start the next statement on a line of its own.";
+    const notAComment =
+      'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+      "If it is a comment, move it to a line of its own.";
+    for (const [body, line, text, message] of [
+      ["  namespace N { class A {\n    +x\n  }} class B", 4, "class B", textAfter("class B")],
+      ["  namespace N { class A {\n    +x }}}", 3, "}", textAfter("}")],
+      ["  namespace N { class A {\n    +x\n  }} %% c", 4, "%%", notAComment],
+    ] as const) {
+      const column = `classDiagram\n${body}`.split("\n")[line - 1]!.lastIndexOf(text) + 1;
+      expect([body, refused(body)]).toEqual([body, [{ severity: "error", message, line, column }]]);
+    }
+  });
+
+  it("refuses a `%%` after the namespace's `{`, at the `%%`", () => {
+    // Measured: `namespace N { %% x` is "… got 'PCT'": no comment there, so
+    // the line opens no namespace for its text to be read in (the
+    // lookahead in `NAMESPACE_OPEN_RE`) and is refused at the `%%`.
+    const notAComment =
+      'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+      "If it is a comment, move it to a line of its own.";
+    expect(refused("  namespace N { %% x\n    class A\n  }")).toEqual([
+      { severity: "error", message: notAComment, line: 2, column: 17 },
+    ]);
+  });
+
+  it("refuses an empty namespace, on one line or two", () => {
+    // Measured: `namespace N {}`, `namespace N { }` and `namespace N {` ⏎ `}`
+    // are each "Expecting 'NEWLINE', 'NAMESPACE', 'CLASS', 'NOTE_FOR',
+    // 'NOTE', got 'STRUCT_STOP'".
+    const empty =
+      'Empty "namespace N" block: a namespace needs at least one statement inside it. ' +
+      "Add a class to it, or remove the namespace.";
+    for (const body of ["  namespace N {}", "  namespace N { }", "  namespace N {\n  }", "  class A\n  namespace N {\n\n  }"]) {
+      const line = `classDiagram\n${body}`.split("\n").findIndex((l) => l.includes("namespace")) + 1;
+      expect([body, refused(body)]).toEqual([body, [{ severity: "error", message: empty, line, column: 3 }]]);
+    }
+  });
+
+  it("refuses two class statements on the namespace's line, as it refuses them on any line", () => {
+    // Measured: Mermaid draws one class `AclassB` for `class A class B`, here
+    // and at the top level alike.
+    expect(refused("  namespace N { class A class B }")).toEqual([
+      { severity: "error", message: 'Unrecognized classDiagram line: "class A class B"', line: 2, column: 17 },
+    ]);
+  });
+});

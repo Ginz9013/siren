@@ -36,8 +36,10 @@ import { MID_LINE_PERCENT_MESSAGE } from "./midLinePercent";
 const FLOWCHART_HEADER_SPELLINGS = listAcceptedHeaders(["flowchart"]);
 
 /**
- * What may lie between the `[` and the `]` of a node: either a fenced run,
- * or a character that is not the `]` ending the bracket.
+ * What may lie inside a node's brackets, in every spelling but the three
+ * round ones — between the `[` and the `]`, and the braces of a diamond or
+ * a hexagon alike: either a fenced run, or a character that is neither a
+ * quote nor a square bracket or brace.
  *
  * The fenced alternative is the whole point of quoting. `]` ends the
  * bracket, so an unquoted label cannot contain one — `A[a]b]` is a parse
@@ -53,10 +55,18 @@ const FLOWCHART_HEADER_SPELLINGS = listAcceptedHeaders(["flowchart"]);
  * alternatives from overlapping, so this pattern cannot backtrack
  * exponentially over a line full of quotes.
  *
+ * Nor may an unquoted `[`, `{` or `}` stand there: Mermaid 12.2.0 refuses
+ * every one of them inside any shape's label (`A[a}b]`, `A[a[b]`,
+ * `A>a{b]`, measured), so they are refused here too (ADR-0017), with the
+ * quoted fix `refuseNodeLabel` offers.
+ *
  * An unquoted `(` or `)` is a label character here, and that is a known,
  * deliberate divergence in Siren's permissive direction: Mermaid 12.2.0
  * reads `P[a (b)]` as a parse error ("got 'PS'") and only accepts the
  * quoted `P["a (b)"]`. Siren draws both as the rect labelled `a (b)`.
+ * Only a balanced pair is that divergence: a parenthesis with no partner
+ * (`A[a)b]`, `A[a(b]`) is refused, as Mermaid refuses it, which a pattern
+ * cannot count and `unpairedParenAt` does.
  * Accepting more than Mermaid breaks no Mermaid document, and refusing it
  * would take the picture away from documents that draw today (nook
  * 01M4R3RVV). It is not a corpus row, because a corpus source must be valid
@@ -65,31 +75,7 @@ const FLOWCHART_HEADER_SPELLINGS = listAcceptedHeaders(["flowchart"]);
  * Written once and shared by both readers below, so that a label means the
  * same thing on a line of its own as it does at an edge endpoint.
  */
-const LABEL_CONTENT = String.raw`(?:"[^"]*"|[^\]"])*`;
-
-/**
- * What may lie between the `{` and the `}` of a diamond: the same two
- * alternatives `LABEL_CONTENT` offers, with the brace pair standing in for
- * the bracket pair.
- *
- * `{` is excluded as well as `}`, and that exclusion is what lets the two
- * brace spellings be told apart at all. Ticket 01 wrote it so a hexagon
- * could not be swallowed as a diamond labelled `{Hexagon}` while a hexagon
- * was undrawn; now that both are drawn it does the same work from the other
- * side — `\{…\}` can never reach across an inner brace, so `A{{Hexagon}}`
- * is only ever read by the hexagon's own pattern and the two can be listed
- * in either order without one eating the other.
- *
- * An **unfenced** brace inside the label is not Mermaid: it reads `A{{a}b}}`
- * as a parse error, so refusing it here is compatibility rather than
- * strictness.
- *
- * A *fenced* brace is still a label character, exactly as a fenced `]` is:
- * mermaid 11.17.2 reads `A{"a}b"}` as the label `a}b`, `A{"x{y"}` as `x{y`
- * and `A{{"a}}b"}}` as the hexagon `a}}b`, measured with
- * `scripts/mermaid-probe.mjs`.
- */
-const BRACE_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^{}"])*`;
+const LABEL_CONTENT = String.raw`(?:"[^"]*"|[^\[\]{}"])*`;
 
 /**
  * What may lie between the `(` and the `)` of a round node: the same two
@@ -143,19 +129,42 @@ const PAREN_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^()\[\]{}"])*`;
  * `a-:::x` all name `a-` (measured).
  */
 const ID_DASH = String.raw`-(?=[^>\-.]|$)`;
-const ID_RUN = String.raw`(?:-(?=\w))?\w+(?:\.+-?\w*|${ID_DASH}\w*)*`;
+/**
+ * A word character of an id — and `%`, which Mermaid 12.2.0's node-string
+ * alphabet takes anywhere in an id (01M4ZWT8PR, measured): `A%B --> C`,
+ * `%A`, `A%`, `A-->B%C`, `A%B[lbl]`, `%-A` and `A.%B` each record the id as
+ * written, and `%` alone is a node. Its `%%` is the id's too where it is
+ * glued to the id (`midLinePercentAt`).
+ */
+const ID_CHAR_SET = String.raw`\w%`;
+const ID_CHAR = `[${ID_CHAR_SET}]`;
+/**
+ * Every character an id may hold anywhere: `ID_CHAR`'s, and the `.` and `-`
+ * `ID_RUN` admits between them — the one alphabet each hand-written id
+ * boundary below is built from, so a character added to an id cannot be
+ * missed at one of them.
+ */
+const ID_ALPHABET_SET = String.raw`${ID_CHAR_SET}.\-`;
+/**
+ * Where an id cannot be continuing: the character before is none of
+ * `ID_ALPHABET_SET`'s. What tells an arrow's `o`/`x` marker, a dotted body's
+ * `.` and a `%%` from the characters of an id they are glued to.
+ */
+const NOT_AFTER_ID = `(?<![${ID_ALPHABET_SET}])`;
+const ID_RUN = String.raw`(?:-(?=${ID_CHAR}))?${ID_CHAR}+(?:\.+-?${ID_CHAR}*|${ID_DASH}${ID_CHAR}*)*`;
 
 /**
  * Every bracket spelling of a node, paired with the shape it names — the
  * one place a spelling and a shape are associated, read by the standalone
  * declaration and by an edge endpoint alike.
  *
- * `bracket` is everything after the id as a pattern, with the label as its
- * single capture group, so the two patterns below can be built from it
- * without either of them learning what punctuation any shape uses. Not
+ * `open` and `close` are what surround the label, as patterns, and
+ * `content` is what the label may hold; `bracketOf` joins the three with the
+ * label as its single capture group, so the patterns below can be built from
+ * them without any of them learning what punctuation any shape uses. Not
  * every spelling is bracketed on both sides — the asymmetric flag opens
- * with a bare `>` — which is the reason this is a pattern rather than an
- * open/close pair. A later ticket adds a row; nothing else here moves.
+ * with a bare `>` — which is the reason these are patterns rather than
+ * characters. A later ticket adds a row; nothing else here moves.
  *
  * Ordered, and read in order: a spelling that is a prefix of another must
  * come after it. That is why the four slanted forms precede `rect` — their
@@ -182,38 +191,56 @@ const ID_RUN = String.raw`(?:-(?=\w))?\w+(?:\.+-?\w*|${ID_DASH}\w*)*`;
  * match `\[/…/\]`, which needs a `/` at each end, so it stays a rectangle
  * labelled `/` — as it is in Mermaid.
  */
-const NODE_SPELLINGS: ReadonlyArray<{ shape: NodeShape; bracket: string }> = [
-  { shape: "parallelogram", bracket: String.raw`\[/(${LABEL_CONTENT})/\]` },
-  { shape: "parallelogram-alt", bracket: String.raw`\[\\(${LABEL_CONTENT})\\\]` },
-  { shape: "trapezoid", bracket: String.raw`\[/(${LABEL_CONTENT})\\\]` },
-  { shape: "trapezoid-alt", bracket: String.raw`\[\\(${LABEL_CONTENT})/\]` },
-  { shape: "subroutine", bracket: String.raw`\[\[(${LABEL_CONTENT})\]\]` },
+interface NodeSpelling {
+  shape: NodeShape;
+  open: string;
+  content: string;
+  close: string;
+}
+
+const NODE_SPELLINGS: ReadonlyArray<NodeSpelling> = [
+  { shape: "parallelogram", open: String.raw`\[/`, content: LABEL_CONTENT, close: String.raw`/\]` },
+  { shape: "parallelogram-alt", open: String.raw`\[\\`, content: LABEL_CONTENT, close: String.raw`\\\]` },
+  { shape: "trapezoid", open: String.raw`\[/`, content: LABEL_CONTENT, close: String.raw`\\\]` },
+  { shape: "trapezoid-alt", open: String.raw`\[\\`, content: LABEL_CONTENT, close: String.raw`/\]` },
+  { shape: "subroutine", open: String.raw`\[\[`, content: LABEL_CONTENT, close: String.raw`\]\]` },
   // The cylinder before `rect`, for the reason the four slanted forms come
   // before it: `LABEL_CONTENT` would read `A[(DB)]` as a rectangle labelled
   // `(DB)`, which is the picture board 4 refused this spelling to stop
-  // Siren drawing. Its label pattern closes the same door a second time —
-  // `PAREN_LABEL_CONTENT` cannot cross a bracket of any kind, so a
-  // rectangle's label can never be mistaken for a cylinder's either.
-  { shape: "cylinder", bracket: String.raw`\[\((${PAREN_LABEL_CONTENT})\)\]` },
-  { shape: "rect", bracket: String.raw`\[(${LABEL_CONTENT})\]` },
-  { shape: "stadium", bracket: String.raw`\(\[(${LABEL_CONTENT})\]\)` },
+  // Siren drawing. Its label is a `[`-family label, `LABEL_CONTENT`, so a
+  // balanced pair of parentheses inside it is the 01M4R3RVV divergence as
+  // it is in a rect's (`A[(f(x))]` is the cylinder `f(x)`), and an unpaired
+  // one is refused (`A[(a)b)]`): `unpairedParenAt` turns the cylinder down,
+  // and the rect that would then read `(a)b)` is turned down the same way.
+  { shape: "cylinder", open: String.raw`\[\(`, content: LABEL_CONTENT, close: String.raw`\)\]` },
+  { shape: "rect", open: String.raw`\[`, content: LABEL_CONTENT, close: String.raw`\]` },
+  { shape: "stadium", open: String.raw`\(\[`, content: LABEL_CONTENT, close: String.raw`\]\)` },
   // Three parenthesised spellings, deepest nesting first, and the label
   // pattern is what makes the order a courtesy rather than a load-bearing
   // rule: `PAREN_LABEL_CONTENT` admits no parenthesis, so a double circle
   // can never be read as a circle labelled `(Double)` nor as a round node
   // labelled `((Double))` whichever way round the three are listed.
-  { shape: "double-circle", bracket: String.raw`\(\(\((${PAREN_LABEL_CONTENT})\)\)\)` },
-  { shape: "circle", bracket: String.raw`\(\((${PAREN_LABEL_CONTENT})\)\)` },
-  { shape: "round", bracket: String.raw`\((${PAREN_LABEL_CONTENT})\)` },
-  { shape: "hexagon", bracket: String.raw`\{\{(${BRACE_LABEL_CONTENT})\}\}` },
+  { shape: "double-circle", open: String.raw`\(\(\(`, content: PAREN_LABEL_CONTENT, close: String.raw`\)\)\)` },
+  { shape: "circle", open: String.raw`\(\(`, content: PAREN_LABEL_CONTENT, close: String.raw`\)\)` },
+  { shape: "round", open: String.raw`\(`, content: PAREN_LABEL_CONTENT, close: String.raw`\)` },
+  // The two brace spellings read `LABEL_CONTENT` too, and its exclusion of
+  // `{` and `}` is what lets them be told apart at all: `\{…\}` can never
+  // reach across an inner brace, so `A{{Hexagon}}` is only ever read by the
+  // hexagon's own pattern, never as a diamond labelled `{Hexagon}`, and the
+  // two can be listed in either order. An unfenced brace inside the label is
+  // not Mermaid either (`A{{a}b}}` is a parse error, as is `A{a]b}`, "got
+  // 'SQE'", measured on 12.2.0), while a fenced one is a label character:
+  // `A{"a}b"}` is the label `a}b` and `A{{"a}}b"}}` the hexagon `a}}b`.
+  { shape: "hexagon", open: String.raw`\{\{`, content: LABEL_CONTENT, close: String.raw`\}\}` },
   // No opening bracket: `A>Flag]`. Its `>` is also the last character of
   // `-->`, and the two never collide because a line is cut into endpoints
   // at its arrows before any of these patterns is asked anything — each
   // sees one endpoint, anchored at both ends. Mermaid 11.17.2 reads
   // `A>a>b]` as the label `a>b`, so a `>` inside the label is ordinary
   // text, which is exactly what `LABEL_CONTENT` already says.
-  { shape: "asymmetric", bracket: String.raw`>(${LABEL_CONTENT})\]` },
-  { shape: "rhombus", bracket: String.raw`\{(${BRACE_LABEL_CONTENT})\}` },
+  { shape: "asymmetric", open: String.raw`>`, content: LABEL_CONTENT, close: String.raw`\]` },
+  // A brace spelling: see the hexagon's row.
+  { shape: "rhombus", open: String.raw`\{`, content: LABEL_CONTENT, close: String.raw`\}` },
 ];
 
 /**
@@ -230,10 +257,19 @@ const NODE_SPELLINGS: ReadonlyArray<{ shape: NodeShape; bracket: string }> = [
  * `parseNodeLabel` is what tells a Markdown label from an ordinary one once
  * the content reaches it.
  */
-const NODE_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
-  shape,
-  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracket}\s*(?::::(\w+))?\s*$`, "d"),
+const NODE_PATTERNS = NODE_SPELLINGS.map((spelling) => ({
+  shape: spelling.shape,
+  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracketOf(spelling)}\s*(?::::(\w+))?\s*$`, "d"),
 }));
+
+/**
+ * Everything after a node's id as a pattern — its spelling's `open`, the
+ * label as the one capture group, its `close` — with the label holding
+ * `content`, or whatever else the caller asks it to hold.
+ */
+function bracketOf({ open, content, close }: NodeSpelling, holding: string = content): string {
+  return `${open}(${holding})${close}`;
+}
 
 /**
  * The quotation mark that fences a label: `A["Quoted, with comma"]`.
@@ -370,10 +406,10 @@ const NODE_CLASS_RE = new RegExp(String.raw`^(${ID_RUN})\s*:::(\w+)\s*$`);
  * quoting works wherever a label can be written — Mermaid takes
  * `A["a]b-->c"] --> B["x, y"]:::hot`, and so does this.
  */
-const ENDPOINT_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
-  shape,
+const ENDPOINT_PATTERNS = NODE_SPELLINGS.map((spelling) => ({
+  shape: spelling.shape,
   // `d` for the label's own index, which `labelAt` is measured from.
-  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracket}(?:\s*:::(\w+))?$`, "d"),
+  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracketOf(spelling)}(?:\s*:::(\w+))?$`, "d"),
 }));
 
 /**
@@ -428,8 +464,9 @@ const PIPE_LABEL = String.raw`(?:\s*\|(${EDGE_LABEL_CONTENT})\|)?`;
 // `a-o-->b` and `a.o-->b` are the nodes `a-o` and `a.o` with plain arrows in
 // mermaid 12.2.0 (measured, 01M2SVAFT), since both `-` and `.` are in its id
 // alphabet. Only `\w` was guarded before, which read `a.o-->b` as `a.` and
-// a circle-headed arrow, silently.
-const FROM_MARKER = String.raw`<|(?<![\w.-])[ox]`;
+// a circle-headed arrow, silently — and so is `%` (`A%x--xB` is the node
+// `A%x`, measured, 01M4ZWT8PR).
+const FROM_MARKER = `<|${NOT_AFTER_ID}[ox]`;
 const TO_MARKER = String.raw`[>ox]`;
 
 /**
@@ -472,7 +509,10 @@ const DOTTED_BODY = String.raw`-?\.+-`;
  * exception restates `FROM_MARKER`'s own condition — a marker, itself not
  * inside an id — rather than simply allowing any `o` or `x`. That is what
  * keeps `Ax.-xB` refused, which is one node id in Mermaid and no edge at
- * all, measured, exactly as `Ax--xB` already was.
+ * all, measured, exactly as `Ax--xB` already was. Both guards are built
+ * from the id alphabet, so a `%` is an id character to them too: `A%.-B`
+ * and `A%x.-xB` are one node each, and `A%.->B` no edge (measured,
+ * 01M4ZWT8PR).
  *
  * **Only a run's start needs it**, which is why there are two constants
  * rather than one guarded body everywhere. An inline label's closer cannot
@@ -482,7 +522,7 @@ const DOTTED_BODY = String.raw`-?\.+-`;
  * closer too refused both, and refused them for the dotted stroke alone,
  * which is a rule no author could predict.
  */
-const RUN_OPENING_DOTTED_BODY = String.raw`(?:-|(?<=(?<![\w.-])[ox])|(?<!\w))\.+-`;
+const RUN_OPENING_DOTTED_BODY = `(?:-|(?<=${NOT_AFTER_ID}[ox])|(?<!${ID_CHAR}))\\.+-`;
 
 /**
  * An arrow written as one run: a marker, a body, a marker.
@@ -665,6 +705,42 @@ const OPENER_LINE: Record<string, EdgeLine> = {
  * line may name at one end of an arrow, as in `A & B --> C`.
  */
 const GROUP_SEPARATOR = "&";
+
+/**
+ * Where in `line` — cut at its arrows as `parts`, starting at `partAt` —
+ * stands each group separator without whitespace on both sides. Mermaid
+ * 12.2.0 joins a group only at a spaced `&`, measured: one glued to an id is
+ * a character of it (`A%&B-->C`, `A&B-->C` and `A & B&C --> D` record the
+ * single ids `A%&B`, `A&B` and `B&C`, drawing no group), and one with a
+ * space on one side only, or after a bracket, is a parse error (`A &B-->C`,
+ * `B& C`, `A[x]&B-->C`). The first is a picture other than the one written,
+ * refused under ADR-0001; the rest are refused as Mermaid refuses them
+ * (ADR-0017). An `&` inside a label is text, and `cutOutsideLabel` never
+ * cuts there.
+ */
+function unspacedGroupSeparators(line: string, parts: readonly string[], partAt: readonly number[]): number[] {
+  return parts.flatMap((part, index) => {
+    const { parts: pieces, separators } = cutOutsideLabel(part, GROUP_SEPARATOR);
+    const pieceAt = offsetsOf(pieces, separators);
+    return separators
+      .map((_, at) => partAt[index]! + pieceAt[at + 1]! - GROUP_SEPARATOR.length)
+      .filter((at) => !/\s/.test(line[at - 1] ?? "") || !/\s/.test(line[at + 1] ?? ""));
+  });
+}
+
+/** `line` with one space on each side of every group separator at `unspaced`. */
+function spacedGroupSeparators(line: string, unspaced: readonly number[]): string {
+  let spaced = "";
+  let from = 0;
+  for (const at of unspaced) {
+    spaced += `${line.slice(from, at).trimEnd()} ${GROUP_SEPARATOR} `;
+    from = at + GROUP_SEPARATOR.length;
+    while (/\s/.test(line[from] ?? "")) {
+      from++;
+    }
+  }
+  return spaced + line.slice(from);
+}
 
 /**
  * What ends a statement written inside a line, so that a line is not
@@ -911,7 +987,7 @@ function readEndpoint(text: string, at: number): EdgeEndpoint | null {
   const lead = text.length - text.trimStart().length;
   for (const { shape, re } of ENDPOINT_PATTERNS) {
     const match = re.exec(trimmed);
-    if (match !== null) {
+    if (match !== null && unpairedParenAt(match[2]) === null) {
       const labelAt = at + lead + match.indices![2]![0];
       return { id: match[1], label: match[2], labelAt, definitionName: match[3], shape };
     }
@@ -933,7 +1009,7 @@ function readEndpoint(text: string, at: number): EdgeEndpoint | null {
 function readNodeDeclaration(line: string): EdgeEndpoint | null {
   for (const { shape, re } of NODE_PATTERNS) {
     const match = re.exec(line);
-    if (match !== null) {
+    if (match !== null && unpairedParenAt(match[2]) === null) {
       return {
         id: match[1],
         label: match[2],
@@ -944,6 +1020,207 @@ function readNodeDeclaration(line: string): EdgeEndpoint | null {
     }
   }
   return null;
+}
+
+/**
+ * Every node spelling once more, its label free to hold anything — never to
+ * draw a node, only to say why `NODE_PATTERNS` refused one: which shape the
+ * author was writing, and where in its label the character is that the
+ * shape's own `content` cannot hold.
+ */
+const ANY_LABEL_PATTERNS = NODE_SPELLINGS.map((spelling) => ({
+  content: new RegExp(`^(?:${spelling.content})$`),
+  // The spelling's own closer with a space after it, which ends the label
+  // there: `A[x] B[y]` is two nodes, not the label `x] B[y` (sticky, asked
+  // at each character).
+  closedThenSpace: new RegExp(String.raw`${spelling.close}\s`, "y"),
+  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracketOf(spelling, ".*")}\s*(?::::(\w+))?\s*$`, "d"),
+}));
+
+/** The characters a bracket spelling is made of, which a label can hold only quoted. */
+const LABEL_BRACKETS = "()[]{}";
+
+/**
+ * Why a node written as `text` — one declaration or one endpoint, trimmed —
+ * was refused, when the reason is an unquoted bracket character in its
+ * label, and where in `text` that character stands; `null` otherwise, left
+ * to the generic "Unrecognized" error.
+ *
+ * Measured on Mermaid 12.2.0: each of `( ) [ ] { }` written unquoted in a
+ * label is a parse error, whichever shape holds it (`A[a]b]` "got 'SQE'",
+ * `A(a)b)`, `A{a]b}` "got 'SQE'", `A[[a)b]]` "got 'PE'"), and the quoted
+ * label is drawn (`A("a)b")`, `A{"a]b"}`, `A[["a]b"]]`). So the fix is the
+ * same for every shape: quote the whole label.
+ */
+function refuseNodeLabel(text: string): { message: string; offset: number } | null {
+  for (const { content, closedThenSpace, re } of ANY_LABEL_PATTERNS) {
+    const match = re.exec(text);
+    if (match === null) {
+      continue;
+    }
+    const [labelStart, labelEnd] = match.indices![2]!;
+    const label = match[2];
+    let refusedAt = unpairedParenAt(label);
+    let twoNodes = false;
+    for (const [i, char] of unquotedCharacters(label)) {
+      closedThenSpace.lastIndex = i;
+      if (closedThenSpace.test(label)) {
+        twoNodes = true;
+        break;
+      }
+      if (i < (refusedAt ?? label.length) && LABEL_BRACKETS.includes(char) && !content.test(char)) {
+        refusedAt = i;
+      }
+    }
+    // Quoting that would join two nodes into one label is no fix; the
+    // generic error says the line cannot be read, which is the truth.
+    if (twoNodes) {
+      return null;
+    }
+    if (refusedAt !== null) {
+      const fixed = `${text.slice(0, labelStart)}"${label.replaceAll(LABEL_FENCE, "")}"${text.slice(labelEnd)}`;
+      return {
+        message: `A node label without quotes cannot hold "${label[refusedAt]}". Put the whole label in quotes: ${fixed}`,
+        offset: labelStart + refusedAt,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * A node written with Mermaid's `@{ … }` data block — `A@{ shape: rect }`,
+ * `A[x]@{ … }` — which Siren does not draw yet. Mermaid 12.2.0 accepts it on
+ * a line of its own and at either end of an edge (measured); its shapes and
+ * keys are a board of their own. The `@` is the group named `at`.
+ *
+ * A bracket before it must be a whole spelling, as `NODE_PATTERNS` reads
+ * one: an `@{` inside a label is a brace there (`A{a@{b}}` is "got
+ * 'DIAMOND_START'", measured), which `refuseNodeLabel` explains.
+ */
+const NODE_DATA_RE = new RegExp(
+  String.raw`^(${ID_RUN})(?:${NODE_SPELLINGS.map((spelling) => bracketOf(spelling)).join("|")})?\s*(?<at>@)\{.*\}$`,
+  "d",
+);
+
+/**
+ * An edge id, `A e1@--> B`: an id and an `@` written right before an arrow,
+ * after a space. Mermaid 12.2.0 accepts one before every arrow spelling
+ * (measured); Siren does not support them yet. Cutting the line at its
+ * arrows leaves the id at the end of the piece before one, so that is where
+ * this looks; the id is the first group.
+ */
+const EDGE_ID_RE = new RegExp(String.raw`^.*\S\s+(${ID_RUN})@$`, "d");
+
+/**
+ * Why an endpoint written as `text` — trimmed — was refused, when the reason
+ * is an edge id ending it (`A e1@` before `--> B`), and where in `text` the
+ * id stands; with the line rewritten without its ids, cut at its arrows as
+ * `parts` and `arrows`, and every id it holds. `null` when `text` ends with
+ * no edge id.
+ *
+ * The ids are read off the piece before each arrow, never the whole line,
+ * so a label's own text (`A["p q@-->r"]`, `A[x y@-z]`) is neither taken for
+ * an id nor cut from the suggestion.
+ */
+function refuseEdgeId(
+  text: string,
+  parts: readonly string[],
+  arrows: readonly string[],
+): { message: string; offset: number; ids: string[] } | null {
+  const edgeId = EDGE_ID_RE.exec(text);
+  if (edgeId === null) {
+    return null;
+  }
+  const ids: string[] = [];
+  const withoutIds = parts.map((part, index) => {
+    const kept = part.trimEnd();
+    const id = index < arrows.length ? EDGE_ID_RE.exec(kept) : null;
+    if (id === null) {
+      return part;
+    }
+    ids.push(id[1]);
+    return kept.slice(0, id.indices![1]![0]) + part.slice(kept.length);
+  });
+  return {
+    message:
+      `Siren does not support edge ids ("${edgeId[1]}@") yet. ` +
+      `Leave the id out: ${withoutIds.map((part, index) => part + (arrows[index] ?? "")).join("")}`,
+    offset: edgeId.indices![1]![0],
+    ids,
+  };
+}
+
+/**
+ * Why a node written as `text` — one declaration or one endpoint, trimmed —
+ * was refused, and where in `text` to point, for the two reasons this
+ * parser can name: an `@{ … }` block, or an unquoted bracket in its label.
+ * `edgeIds` are the edge ids written so far, whose `@{ … }` is an edge's.
+ * `null` leaves it to the generic "Unrecognized" error.
+ */
+function refuseNode(text: string, edgeIds: ReadonlySet<string>): { message: string; offset: number } | null {
+  const data = NODE_DATA_RE.exec(text);
+  if (data !== null) {
+    const id = data[1];
+    // An id an edge was given earlier makes the block that edge's data, as
+    // Mermaid 12.2.0 reads it (measured: `e1@{ animate: true }` after
+    // `A e1@--> B`; with no such edge it is a node `e1`).
+    if (edgeIds.has(id)) {
+      return {
+        message: `Siren does not support "@{ … }" data on the edge "${id}" yet. Leave this line out`,
+        offset: data.indices!.groups!.at![0],
+      };
+    }
+    return {
+      message:
+        `Siren does not support the "@{ … }" node syntax yet. ` +
+        `Write the shape with brackets instead, such as ${id}[text], ${id}((text)) or ${id}{text}`,
+      offset: data.indices!.groups!.at![0],
+    };
+  }
+  return refuseNodeLabel(text);
+}
+
+/**
+ * Where the first unquoted parenthesis with no partner stands in a label's
+ * bracket content, or `null` when every one pairs up — a `)` with no `(`
+ * before it, or else the first `(` never closed.
+ *
+ * Asked of every label a node spelling reads, because a pattern cannot count:
+ * `LABEL_CONTENT` lets a parenthesis in, for the 01M4R3RVV divergence, and
+ * only a balanced pair is that divergence. One with no partner is refused,
+ * as Mermaid 12.2.0 refuses it (`A[a)b]` "got 'PE'", `A{a)b}`, measured) —
+ * and it is what told a cylinder from a rect: `A[(a)b)]` is no cylinder, and
+ * without this it was drawn as the rect `(a)b)`.
+ */
+function unpairedParenAt(label: string): number | null {
+  const opened: number[] = [];
+  for (const [i, char] of unquotedCharacters(label)) {
+    if (char === "(") {
+      opened.push(i);
+    } else if (char === ")" && opened.pop() === undefined) {
+      return i;
+    }
+  }
+  return opened[0] ?? null;
+}
+
+/**
+ * The characters of a label's bracket content that stand outside its quoted
+ * runs, each with its offset — what every rule about unquoted label text
+ * walks, so the rules cannot disagree about where a quote begins and ends.
+ * The fences themselves are not yielded.
+ */
+function* unquotedCharacters(label: string): Generator<[number, string]> {
+  let quoted = false;
+  for (let i = 0; i < label.length; i++) {
+    const char = label[i]!;
+    if (char === LABEL_FENCE) {
+      quoted = !quoted;
+    } else if (!quoted) {
+      yield [i, char];
+    }
+  }
 }
 
 /**
@@ -1028,7 +1305,7 @@ function cutOutsideLabel(
     if (quoted) {
       continue;
     }
-    if (LABEL_OPENERS.includes(char) || (depth === 0 && char === ASYMMETRIC_OPENER && i > 0 && /\w/.test(text[i - 1]!))) {
+    if (LABEL_OPENERS.includes(char) || (depth === 0 && char === ASYMMETRIC_OPENER && i > 0 && ID_CHAR_RE.test(text[i - 1]!))) {
       depth++;
       continue;
     }
@@ -1066,6 +1343,12 @@ const LABEL_CLOSERS = "]})";
 
 /** What opens an asymmetric node's label, right after its id (`A>a]`). */
 const ASYMMETRIC_OPENER = ">";
+
+/**
+ * One id character (`ID_CHAR`), the kind an asymmetric opener must follow:
+ * `A%>a;b]` is the node `A%` labelled "a;b" (measured, 01M4ZWT8PR).
+ */
+const ID_CHAR_RE = new RegExp(ID_CHAR);
 
 /** `cutOutsideLabel` for the two callers whose separator says nothing worth keeping. */
 function splitOutsideLabel(text: string, separator: string): string[] {
@@ -1141,12 +1424,19 @@ function splitStatements(rawLine: string): { text: string; column: number }[] {
  * `click A "u" "a %% b"` as written, measured.
  */
 function midLinePercentAt(text: string): number | null {
-  const { parts } = cutOutsideLabel(text, MID_LINE_PERCENT);
+  const { parts } = cutOutsideLabel(text, MID_LINE_PERCENT_RE);
   return parts.length === 1 ? null : parts[0]!.length;
 }
 
-/** What `midLinePercentAt` looks for. */
-const MID_LINE_PERCENT = "%%";
+/**
+ * What `midLinePercentAt` looks for: a `%%` that does not continue an id.
+ * `%` is an id character (`ID_CHAR`), so one glued to the end of an id is
+ * the id's own — measured on Mermaid 12.2.0, `A%%B`, `A%%B --> C`,
+ * `A-->B%%C`, `A%%` and `A%% --> B` record the ids `A%%B`, `B%%C` and `A%%`
+ * (01M4ZWT8PR). Written after a space or a bracket it begins no id this
+ * parser reads: `A %% x` and `A %%B` are parse errors there, measured.
+ */
+const MID_LINE_PERCENT_RE = new RegExp(`${NOT_AFTER_ID}%%`, "y");
 
 /**
  * The opening statement of a `subgraph` block, and everything the author
@@ -1174,12 +1464,12 @@ const SUBGRAPH_TITLED_RE = new RegExp(String.raw`^(${ID_RUN})\s*\[(${LABEL_CONTE
  * A bare authored id and nothing else — `Ingest`, `A`, `a.-b`.
  *
  * `ID_RUN` is this file's own answer to the shape ADR-0010 leans on: neither
- * a `\w` nor a `.` nor the one dash this pattern admits is a colon, which is
- * what still makes a generated id unspellable by an authored one here. Read
- * in two places here, for two different things that are both that shape — a
- * subgraph written with a bare title
- * (mermaid 11.17.2 records it as both id and title) and a node written as
- * nothing but its id inside a block.
+ * a `\w` nor a `%` nor a `.` nor the one dash this pattern admits is a
+ * colon, which is what still makes a generated id unspellable by an
+ * authored one here. Read in two places here, for two different things that
+ * are both that shape — a subgraph written with a bare title (mermaid
+ * 11.17.2 records it as both id and title) and a node written as nothing but
+ * its id inside a block.
  */
 const AUTHORED_ID_RE = new RegExp(`^${ID_RUN}$`);
 
@@ -1194,6 +1484,11 @@ const AUTHORED_ID_RE = new RegExp(`^${ID_RUN}$`);
  *     subgraph Ingest            id="Ingest"    title="Ingest"
  *     subgraph "Two Words"       id="subGraph0" title="Two Words"
  *     subgraph one[Two Words]    id="one"       title="Two Words"
+ *
+ * A quoted title is a handle only when it holds no whitespace — Mermaid
+ * 12.2.0 records `subgraph "t"` as id `t` (measured) — and the quoted
+ * spellings Mermaid reads beyond these (`"t"zz`, `"t" [x]`) follow that
+ * rule; see `handleOfQuoted`.
  *
  * The middle one is why `name` is nullable rather than defaulted to the
  * title: Mermaid mints a handle the author never wrote and could not have
@@ -1210,11 +1505,35 @@ function readSubgraphTitle(
       ...readLabelAt({ text: content.text, at: titled.indices![2]![0] + content.at }, { dialect: "html" }),
     };
   }
+  const quotedTitled = QUOTED_HANDLE_TITLED_RE.exec(tail);
+  if (quotedTitled !== null) {
+    // `subgraph "t" [x]`: the quoted run is the handle, the bracket the
+    // title (measured: id `t`, title `x`).
+    const content = labelSpan(quotedTitled[4]);
+    return {
+      name: handleOfQuoted(quotedTitleRunText(quotedTitled)),
+      ...readLabelAt(
+        { text: content.text, at: quotedTitled.indices![4]![0] + content.at },
+        { dialect: "html" },
+      ),
+    };
+  }
   const fenced = FENCED_LABEL_RE.exec(tail);
   if (fenced !== null) {
     return {
-      name: null,
+      name: handleOfQuoted(fenced[1]),
       ...readLabelAt({ text: fenced[1], at: LABEL_FENCE.length }, { dialect: "html" }),
+    };
+  }
+  const quotedWithWords = QUOTED_TITLE_WITH_WORDS_RE.exec(tail);
+  if (quotedWithWords !== null && !endsWithEnd(tail)) {
+    // `subgraph "t" zz`: the quoted text and the words after it are one
+    // title, `t zz`, under no handle (measured, `subGraph0`); `subgraph
+    // "t"zz` is one word, `tzz`, and so the handle too (measured).
+    const text = quotedTitleRunText(quotedWithWords);
+    return {
+      name: handleOfQuoted(text),
+      ...readLabelAt({ text, at: LABEL_FENCE.length }, { dialect: "html" }),
     };
   }
   if (AUTHORED_ID_RE.test(tail)) {
@@ -1225,7 +1544,96 @@ function readSubgraphTitle(
     // `subgraph S %% zz`: no handle at all, and the whole run is the title.
     return titleWithoutHandle(tail);
   }
+  if (BARE_TITLE_WORDS_RE.test(tail) && !endsWithEnd(tail)) {
+    // `subgraph S a & b`: several words are one title, the whole run, under
+    // no handle (measured, `subGraph0`).
+    return titleWithoutHandle(tail);
+  }
   return null;
+}
+
+/**
+ * `subgraph s1 ["t"] zz` — a bracketed title with more after it. Mermaid
+ * 12.2.0 refuses it (measured, "Expecting 'SEMI', 'NEWLINE', 'EOF', got
+ * 'SPACE'"): the bracket closes the statement.
+ */
+const SUBGRAPH_TITLED_THEN_MORE_RE = new RegExp(
+  String.raw`^(${ID_RUN})\s*\[(${LABEL_CONTENT})\]\s+(\S.*)$`,
+  "d",
+);
+
+/**
+ * Why a `subgraph` statement's tail that `readSubgraphTitle` cannot read is
+ * refused, and where in the tail to point — or `null` when the tail is
+ * nothing this can explain, left to the generic "Unrecognized" error.
+ */
+function refuseSubgraphTitle(tail: string): { message: string; offset: number } | null {
+  const titledThenMore = SUBGRAPH_TITLED_THEN_MORE_RE.exec(tail);
+  if (titledThenMore !== null) {
+    const [, name, content, more] = titledThenMore;
+    return {
+      message:
+        `Text after a subgraph's bracketed title: "${more}". A title in brackets ends the line; ` +
+        `move the text inside the brackets: subgraph ${name}["${labelSpan(content).text} ${more}"]`,
+      offset: titledThenMore.indices![3]![0],
+    };
+  }
+  if (!/\s/.test(tail)) {
+    return null;
+  }
+  // The fix both refusals below offer: the whole tail as one quoted title,
+  // with the quotes already in it dropped so the suggestion is one string.
+  const quoteTheTitle = `Put the whole title in quotes: subgraph "${tail.replaceAll(LABEL_FENCE, "")}"`;
+  // Past a leading quoted title, which holds anything: `"t" a,b` breaks at
+  // its `,`, not inside the quotes.
+  const wordsAt = LEADING_QUOTED_TITLE_RE.exec(tail)?.[0].length ?? 0;
+  const broken = TITLE_WORD_BREAK_RE.exec(tail.slice(wordsAt));
+  if (broken === null && endsWithEnd(tail)) {
+    return {
+      message:
+        `A subgraph title cannot end with the word "${SUBGRAPH_END}", which closes the block. ` +
+        quoteTheTitle,
+      offset: tail.lastIndexOf(SUBGRAPH_END),
+    };
+  }
+  // A `"` is no break Mermaid makes (`a"b` is text there), so no fix is
+  // offered for it here; the generic error stands.
+  if (broken === null || broken[0] === LABEL_FENCE) {
+    return null;
+  }
+  return {
+    message:
+      `A subgraph title without quotes cannot hold "${broken[0]}". ` +
+      quoteTheTitle,
+    offset: wordsAt + broken.index,
+  };
+}
+
+/** The quoted title a `QUOTED_TITLE_WITH_WORDS_RE` tail starts with. */
+const LEADING_QUOTED_TITLE_RE = /^"[^"]*"(?=\s)/;
+
+/**
+ * The handle a quoted subgraph header gives its block: the text itself, as
+ * Mermaid 12.2.0 records it, unless that text holds whitespace — then
+ * Mermaid mints `subGraph0` and the block has none (measured: `subgraph
+ * "t"` is id `t`, `subgraph "Two Words"` and `subgraph " t "` are
+ * `subGraph0`). Like any handle it is only ever the name an edge reaches the
+ * frame by; the frame's own id stays generated (ADR-0010).
+ */
+function handleOfQuoted(text: string): string | null {
+  return text === "" || /\s/.test(text) ? null : text;
+}
+
+/**
+ * Whether a subgraph title's last word is `end`. Mermaid 12.2.0 reads that
+ * word as the block's own end, swallowing the next line into the title
+ * (measured: `subgraph S a end` records the title "S a end\nA" and leaves
+ * `A` outside the frame) — a picture nobody wrote, so no title Siren draws
+ * ends with it. An `end` anywhere else is an ordinary word (measured:
+ * `subgraph S end b` is the title "S end b").
+ */
+function endsWithEnd(tail: string): boolean {
+  return tail.split(/\s+/).at(-1) === SUBGRAPH_END;
 }
 
 /**
@@ -1251,6 +1659,72 @@ function titleWithoutHandle(text: string): { name: null } & ReadLabelResult {
  */
 const BARE_TITLE_WITH_PERCENTS_RE = new RegExp(String.raw`^${ID_RUN}\s+%%[\w%]*(?:\s+[\w%]+)*$`);
 
+/** The characters a `TITLE_WORD` is made of, as a character-class body. */
+const TITLE_WORD_CHARS = String.raw`\p{L}\p{N}_&.!:?/#*+'$^\\\x60%-`;
+
+/** The spellings no `TITLE_WORD` holds, though each is made of its characters. */
+const TITLE_WORD_BREAKS = String.raw`(?:--|-\.|:::)`;
+
+/**
+ * One word of a subgraph title written without quotes: the characters
+ * Mermaid 12.2.0's `textNoTags` reads into a title, measured one probe per
+ * character — letters and digits in any script, and `_ & . ! : ? / # * + '
+ * $ ^ \ \` % -`. Every other character is a parse error there (`,` `(` `)`
+ * `[` `]` `{` `|` `<` `>` `=` `~` `@`), and so are the link and class
+ * spellings `--`, `-.` and `:::` even inside a word (`got 'EDGE_TEXT'`,
+ * `'STYLE_SEPARATOR'`). A `"` inside a word is left out: Mermaid reads
+ * `a"b` as text, but a quote here is where this file's label fences start.
+ */
+const TITLE_WORD = String.raw`(?!\S*${TITLE_WORD_BREAKS})[${TITLE_WORD_CHARS}]+`;
+
+/**
+ * The first thing in a run of unquoted title words that no `TITLE_WORD`
+ * holds — what `refuseSubgraphTitle` points at.
+ */
+const TITLE_WORD_BREAK_RE = new RegExp(String.raw`${TITLE_WORD_BREAKS}|[^\s${TITLE_WORD_CHARS}]`, "u");
+
+/** One or more `TITLE_WORD`s, each after whitespace. */
+const TITLE_WORDS = String.raw`(?:\s+${TITLE_WORD})+`;
+
+/**
+ * A quoted title and the words after it, the first optionally glued to the
+ * closing quote, from the start of a subgraph's tail: groups 1 to 3 are the
+ * quoted text, the glued word and the spaced words (`quotedTitleRunText`).
+ * The run `QUOTED_TITLE_WITH_WORDS_RE` reads alone and
+ * `QUOTED_HANDLE_TITLED_RE` reads before a bracket.
+ */
+const QUOTED_TITLE_RUN = String.raw`^"([^"]*)"(${TITLE_WORD})?(${TITLE_WORDS})?`;
+
+/** The text a `QUOTED_TITLE_RUN` match spells: `t zz` for `"t" zz`, `tzz` for `"t"zz`. */
+function quotedTitleRunText([, quoted, glued = "", spaced = ""]: RegExpExecArray): string {
+  return quoted + glued + spaced;
+}
+
+/**
+ * `subgraph "t" zz`, `subgraph "t"zz` — a quoted title with words after it,
+ * the first of them optionally glued to the closing quote. Mermaid 12.2.0
+ * joins it all into one title, `t zz` or `tzz` (measured). The quoted title
+ * alone is `FENCED_LABEL_RE`'s, asked first.
+ */
+const QUOTED_TITLE_WITH_WORDS_RE = new RegExp(String.raw`${QUOTED_TITLE_RUN}$`, "u");
+
+/**
+ * `subgraph "t" [x]` — `QUOTED_TITLE_WITH_WORDS_RE`'s run followed by a
+ * bracketed title. Mermaid 12.2.0 makes the run the id and the bracket the
+ * title, exactly as for `subgraph t[x]` (measured: `"t" [x]`, `"t"[x]` and
+ * `"t"zz [x]` are ids `t`, `t`, `tzz`; `"a b" [x]` and `"t" zz [x]` are ids
+ * holding a space, which no edge can spell).
+ */
+const QUOTED_HANDLE_TITLED_RE = new RegExp(String.raw`${QUOTED_TITLE_RUN}\s*\[(${LABEL_CONTENT})\]$`, "du");
+
+/**
+ * `subgraph S a & b`, `subgraph S a b c` — a title of several words with no
+ * quotes. Mermaid 12.2.0 reads the whole run as the title and gives the
+ * block a generated id (measured, `subGraph0`): the first word is no handle
+ * once another word follows it.
+ */
+const BARE_TITLE_WORDS_RE = new RegExp(String.raw`^${TITLE_WORD}${TITLE_WORDS}$`, "u");
+
 /**
  * `direction LR` written inside a `subgraph` block — a per-cluster rank
  * direction, read onto that block alone.
@@ -1263,16 +1737,29 @@ const BARE_TITLE_WITH_PERCENTS_RE = new RegExp(String.raw`^${ID_RUN}\s+%%[\w%]*(
  * long as no edge voids it (the **Boundary-crossing edge** rule; see
  * `voidedDirections`).
  *
- * Read with `matchClassDirection` rather than a pattern of this file's own —
+ * Which values are directions is `matchClassDirection`'s, not this file's:
  * the spelling, the alias (`TD` → `TB`), and the diagnostic-worthy set of
- * five are already settled there for the header, and a second regex here
- * would only give the two a chance to drift.
+ * five are already settled there for the header, and a second list here
+ * would only give the two a chance to drift. This file's own pattern,
+ * `DIRECTION_LINE_RE`, decides no value — it only says where one ends, so
+ * text trailing it (`direction LR zz`, which Mermaid 12.2.0 reads as `LR`)
+ * is set aside with a warning.
  *
  * Scoped to *inside* a block on purpose. At the top level of a flowchart
- * mermaid 11.17.2 accepts `direction LR` and ignores it — the recorded
- * direction stays `TB`, measured — so there is nothing there for Siren to
- * read either, and it stays an unrecognized line.
+ * Mermaid 12.2.0 accepts `direction LR` on any line and ignores it — the
+ * recorded direction stays the header's, measured first line and last — so
+ * Siren draws the same picture and warns that the line does nothing, naming
+ * the header that would.
  */
+
+/**
+ * A `direction` statement cut after its two-letter value, and whatever
+ * trails that on the line — the value checked by `matchClassDirection`, the
+ * trailing text ignored with a warning, as Mermaid 12.2.0's lexer swallows
+ * it (measured). Only the cut is this pattern's; which values are directions
+ * stays `matchClassDirection`'s.
+ */
+const DIRECTION_LINE_RE = /^(direction\s+(\S{2}))(.*)$/d;
 
 /** The window target mermaid 11.17.2's grammar accepts as an `href` interaction's fourth argument — see `LinkTarget`. */
 const LINK_TARGETS: readonly LinkTarget[] = ["_blank", "_self", "_top", "_parent"];
@@ -1470,15 +1957,19 @@ const LINK_STYLE_INTERPOLATE_RE = /^linkStyle\s+([\w,\s]*?[\w,])\s+interpolate\s
  * one `apply` kind here, so no model, renderer or test downstream learns
  * that two spellings exist.
  *
- * The target list is greedy up to the trailing name: `[\w\s,.]` swallows the
+ * The target list is greedy up to the trailing name: its class swallows the
  * whole tail and backtracks until a bare `\w+` is left for the definition
  * name, which is what lets `class A, B emphasis` be read the same as
  * `class A,B emphasis` without a second pattern. The `.` in that class is
  * this ticket's: `class a.b,c.d hot` is a target list of two dotted ids,
  * matching what `STYLE_RE`'s single target and `NODE_CLASS_RE`'s shorthand
- * already accept.
+ * already accept. The whole id alphabet is (`ID_ALPHABET_SET`), so a `%`
+ * and a `-` are too: `class A%B,C%%D hot`, `class a-b,c hot` (measured,
+ * 01M4ZWT8PR).
  */
-const CLASS_APPLY_RE = /^class\s+([\w\s,.]*[\w,.])\s+(\w+)\s*$/;
+const CLASS_APPLY_RE = new RegExp(
+  String.raw`^class\s+([${ID_ALPHABET_SET}\s,]*[${ID_ALPHABET_SET},])\s+(\w+)\s*$`,
+);
 
 /**
  * Splits the comma-separated target list an apply-directive (`class A,B
@@ -1589,6 +2080,12 @@ export function parseFlowchart(source: string): DiagramParseResult {
   const interactions: Interaction[] = [];
   const subgraphs: SirenSubgraph[] = [];
   let direction: Direction | null = null;
+  // The edge ids refused so far (`A e1@--> B`), so a later `e1@{ … }` is
+  // told it is that edge's data rather than a node's.
+  const edgeIds = new Set<string>();
+  // The keyword the header was written with, `flowchart` or `graph`, so a
+  // fix this parser suggests for the header is spelled the author's way.
+  let headerKeyword = "";
   let timeline: SirenTimeline | null = null;
   let namedTimelines: NamedTimeline<SirenTimeline>[] = [];
   let accTitle: string | null = null;
@@ -1645,7 +2142,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
     for (const segment of malformed) {
       diagnostics.push({
         severity: "error",
-        message: `Unrecognized style declaration: "${segment}"`,
+        message: `"${segment}" is not a style declaration. Write each declaration as property:value, such as stroke:#f00`,
         line: lineNumber,
         column,
       });
@@ -1904,6 +2401,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
           break readLines;
         }
         direction = headerDirection;
+        headerKeyword = line.slice(0, line.search(/\s/));
         mode = "flowchart";
         continue;
       }
@@ -1937,6 +2435,19 @@ export function parseFlowchart(source: string): DiagramParseResult {
           // Refused for its `%%`, but still a block: its `end` closes it, so
           // the one mistake is reported once rather than again at the `end`.
           refusePercent();
+          title = titleWithoutHandle(subgraphOpenMatch[1]);
+        }
+        const refusal = title === null ? refuseSubgraphTitle(subgraphOpenMatch[1]) : null;
+        if (refusal !== null) {
+          // Refused, but still a block, as a `%%` above is: its `end` closes
+          // it, so the one mistake is reported once.
+          diagnostics.push({
+            severity: "error",
+            message: refusal.message,
+            line: lineNumber,
+            column: column + subgraphOpenMatch.indices![1]![0] + refusal.offset,
+          });
+          sawError = true;
           title = titleWithoutHandle(subgraphOpenMatch[1]);
         }
         if (title === null) {
@@ -1980,15 +2491,36 @@ export function parseFlowchart(source: string): DiagramParseResult {
         continue;
       }
 
-      if (openBlocks.length > 0) {
-        // Read up to a `%%`: Mermaid's direction token is
-        // `.*direction\s+LR[^\n]*`, so whatever trails it on the line is
-        // taken with it (measured, `direction LR %% x` is `dir: "LR"`).
-        const blockDirection = matchClassDirection(beforePercent);
-        if (blockDirection !== null) {
+      // Read up to a `%%`: Mermaid's direction token is
+      // `.*direction\s+LR[^\n]*`, so whatever trails it on the line is
+      // taken with it (measured, `direction LR %% x` is `dir: "LR"`, and
+      // so are `direction LR zz` and `direction LRzz`).
+      const directionLine = DIRECTION_LINE_RE.exec(beforePercent);
+      const blockDirection = directionLine === null ? null : matchClassDirection(directionLine[1]);
+      if (directionLine !== null && blockDirection !== null) {
+        if (openBlocks.length > 0) {
           openBlocks[openBlocks.length - 1].subgraph.direction = blockDirection;
-          continue;
+          const trailing = directionLine[3];
+          const ignored = trailing.trimStart();
+          if (ignored !== "") {
+            diagnostics.push({
+              severity: "warning",
+              message: `Text after "direction ${directionLine[2]}" is ignored: "${ignored}". Remove it.`,
+              line: lineNumber,
+              column: column + directionLine.indices![3]![0] + trailing.length - ignored.length,
+            });
+          }
+        } else {
+          diagnostics.push({
+            severity: "warning",
+            message:
+              `"${beforePercent}" outside a subgraph has no effect. ` +
+              `Set the diagram's direction on its first line instead: ${headerKeyword} ${blockDirection}`,
+            line: lineNumber,
+            column,
+          });
         }
+        continue;
       }
 
       // A `%%` after a complete statement, with no text around it to belong
@@ -2067,20 +2599,57 @@ export function parseFlowchart(source: string): DiagramParseResult {
         // label's problem is reported at its own column: the pieces and the
         // separators that cut them lie end to end, and add up to the line.
         const partAt = offsetsOf(arrowParts, arrowTokens);
+        const unspaced = unspacedGroupSeparators(line, arrowParts, partAt);
+        if (unspaced.length > 0) {
+          diagnostics.push({
+            severity: "error",
+            message:
+              `An "${GROUP_SEPARATOR}" joins nodes only with a space on each side. ` +
+              `Write: ${spacedGroupSeparators(line, unspaced)}`,
+            line: lineNumber,
+            column: column + unspaced[0]!,
+          });
+          sawError = true;
+          continue;
+        }
+        // Each piece kept beside what it read as, so an unreadable one can be
+        // explained in its own words, at its own column.
+        const pieces: { text: string; at: number }[] = [];
         const groups: (EdgeEndpoint | null)[][] = arrowParts.map((part, index) => {
           const { parts, separators } = cutOutsideLabel(part, GROUP_SEPARATOR);
           const pieceAt = offsetsOf(parts, separators);
-          return parts.map((piece, at) => readEndpoint(piece, partAt[index]! + pieceAt[at]!));
+          return parts.map((piece, at) => {
+            pieces.push({ text: piece, at: partAt[index]! + pieceAt[at]! });
+            return readEndpoint(piece, partAt[index]! + pieceAt[at]!);
+          });
         });
-        if (groups.flat().some((endpoint) => endpoint === null)) {
+        const unreadableAt = groups.flat().findIndex((endpoint) => endpoint === null);
+        if (unreadableAt !== -1) {
           // One unreadable endpoint refuses the whole statement — the rule
           // `ENDPOINT_RE` is anchored for. Nothing has been declared yet, so
           // there is no half-drawn chain to take back.
+          const piece = pieces[unreadableAt]!;
+          const lead = piece.text.length - piece.text.trimStart().length;
+          const edgeIdRefusal = refuseEdgeId(piece.text.trim(), arrowParts, arrowTokens);
+          if (edgeIdRefusal !== null) {
+            for (const id of edgeIdRefusal.ids) {
+              edgeIds.add(id);
+            }
+            diagnostics.push({
+              severity: "error",
+              message: edgeIdRefusal.message,
+              line: lineNumber,
+              column: column + piece.at + lead + edgeIdRefusal.offset,
+            });
+            sawError = true;
+            continue;
+          }
+          const nodeRefusal = refuseNode(piece.text.trim(), edgeIds);
           diagnostics.push({
             severity: "error",
-            message: `Unrecognized flowchart line: "${line}"`,
+            message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${line}"`,
             line: lineNumber,
-            column,
+            column: nodeRefusal === null ? column : column + piece.at + lead + nodeRefusal.offset,
           });
           sawError = true;
           continue;
@@ -2330,11 +2899,12 @@ export function parseFlowchart(source: string): DiagramParseResult {
         continue;
       }
 
+      const nodeRefusal = refuseNode(line, edgeIds);
       diagnostics.push({
         severity: "error",
-        message: `Unrecognized flowchart line: "${line}"`,
+        message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${line}"`,
         line: lineNumber,
-        column,
+        column: column + (nodeRefusal?.offset ?? 0),
       });
       sawError = true;
       continue;

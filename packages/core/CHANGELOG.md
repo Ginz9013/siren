@@ -41,8 +41,63 @@ Breaking for an ER document with a `%%` on the same line after a statement
 `subgraph` line or a `style`/`classDef` declaration list; or inside an attribute block outside a
 quoted comment or a backticked name. Each is now refused (see **Changed**).
 
+Breaking for an ER document with a `%` in a quoted entity name or an alias (`A["50% off"]`,
+`"A % b"`, `A ||--o{ "B % c" : r`) or in a subgraph's quoted name or title (`subgraph "s % t"`,
+`subgraph s1["t % u"]`), which is now refused (see **Changed**).
+
+Breaking for a flowchart document with an unquoted `[`, `]`, `{` or `}` inside a node label that
+is not the shape's own bracket (`A[a}b]`, `A{a]b}`, `A>a{b]`, `A[[a}b]]`), or an unquoted `(` or
+`)` there with no partner (`A[a)b]`, `A[a(b]`, `A{a)b}`, `A[(a)b)]`), which is now refused (see
+**Changed**).
+
+Breaking for code that reads a sequence diagram's SVG or positioned layout: a destroyed participant
+is drawn with a closing box instead of an X mark, the `siren-destroy-mark` path and
+`PositionedDestroyMark` are gone, and the rows after a destroying message move down (see
+**Changed**).
+
+Breaking for a class document with a `;` between two members of a class block where the text
+reads as one member (`+int x; y`, `+foo(); +bar()`), which is now refused (see **Changed**).
+
+Breaking for a class document with an empty namespace (`namespace N {` and `}` with nothing
+between), which is now refused (see **Changed**).
+
+Breaking for a flowchart document with an `&` between nodes that lacks a space on either side
+(`A&B-->C`, `A &B-->C`, `A[x]&B-->C`), which is now refused (see **Changed**).
+
 ### Added
 
+- More flowchart subgraph headers are read as Mermaid 12.2.0 reads them (nook `01M4ZY2D3D`): a
+  word glued to a quoted title runs on from it (`subgraph "t"zz` is the handle and title `tzz`,
+  `subgraph "t"zz yy` the title `tzz yy` under no handle), and a quoted handle may carry a
+  bracketed title (`subgraph "t" [x]` and `subgraph "t"[x]` are the handle `t` and the title `x`;
+  a handle holding a space, `subgraph "a b" [x]`, is none). Each used to be refused.
+- A flowchart `direction` with text after its value (`direction LR zz`, `direction LRzz`) is read
+  as Mermaid 12.2.0 reads it: inside a subgraph the value lays the block out and the text is
+  ignored with a warning; outside one the whole line is ignored with the warning a top-level
+  `direction` already gives. It used to be refused (nook `01M4ZY2D3D`).
+- A flowchart subgraph title of several words is read as Mermaid 12.2.0 reads it (nook
+  `01M4ZWT89B`): a quoted title with words after it (`subgraph "t" zz`) is the title `t zz`, and
+  an unquoted run (`subgraph S a & b`, `subgraph S a b c`) is the whole run, both under a generated
+  id, so the block has no handle of its own and a timeline reaches it by that generated id, as it
+  does any subgraph without one. An unquoted word may hold letters and digits in any script, the
+  punctuation `_&.!:?/#*+'$^\%-` and a backtick, the characters Mermaid reads there. Such a line
+  used to be refused.
+- A flowchart `direction LR` outside any subgraph is drawn as Mermaid 12.2.0 draws it, in the
+  header's direction, with a warning that the line does nothing and that the direction belongs on
+  the header, spelled with the header's own keyword (`flowchart LR`, or `graph LR` under a `graph`
+  header). It used to be refused.
+- A `%` in a flowchart id is read as Mermaid 12.2.0 reads it (nook `01M4ZWT8PR`): it is an id
+  character anywhere (`A%B --> C`, `%A`, `A%`, `A-->B%C`, `A%B[lbl]`), in every statement that names
+  an id (`class`, `style`, `click`, `:::`, a subgraph's handle), and a `%%` glued to the end of an
+  id is the id's (`A%%B`, `A%%B --> C`, `A-->B%%C`, `A%%`). Such a line used to be refused, a glued
+  `%%` as a mid-line comment. A `%%` written after a space or a bracket (`A %% x`, `A[x]%%B`) is
+  still refused as one. An `o`, `x` or `.-` right after a `%` is the id's too (`A%x--xB` is the node
+  `A%x`, `A%.-B` one node), and `A%>a]` is an asymmetric node `A%`. A `class` statement's targets
+  also take a `-` (`class a-b,c hot`), as every other statement naming an id already did. A timeline
+  names such a node by its id: in a flowchart, a `%%` glued to an action's target no longer cuts the
+  line, so `enter A%%B fade` names `A%%B`, where it used to name `A`. A `%%` anywhere else in a
+  timeline line (`enter A fade%% note`), and every `%%` in another kind's timeline, still starts a
+  comment.
 - A document may open with a Mermaid frontmatter (`---` … `---`), read as Mermaid 12.2.0 reads it,
   each rule measured with the probe: only at the very top, optionally indented, closed by the first
   `---` at the same indent, and parsed as YAML under the JSON schema (with `js-yaml`, now a
@@ -69,7 +124,6 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
   directive, as Mermaid refuses it ("Cannot create property 'wrap' on string 'dark'"). A lone
   init holding a list (`%%{init: [1, 2]}%%`) reads as its items under their indexes, as Mermaid's
   merge reads it (nook `01M4XSF9J`).
-
 - Sequence diagrams accept the colon spelling of the title, `title: text`, in any case, as Mermaid
   12.2.0 does. A later colon stays in the title. `title:text` with no space is still rejected,
   because Mermaid rejects it too (nook `01M3NM3BT`).
@@ -109,108 +163,158 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
 - Flowcharts and ER diagrams read the braced `accDescr { ... }` block, as sequence diagrams do, and
   flowcharts read `accTitle : text` and `accDescr : text` with a space before the colon (nook
   `01M4WS1P6`). ER used to refuse the block by name; a flowchart refused it.
+- A class block may open and close on one line — `class A { +int x }`, `class A {}`, with a
+  generic, a label or `:::name` — and its `}` may end its last member's line (`+int y }`), as
+  Mermaid 12.2.0 reads both (nook `01M4ZWT8XF`). Such a block used to be refused as an unrecognized
+  line or member. Text after the `}` on its line, and a member on the line below it, are refused
+  as Mermaid refuses them, each error saying what to move.
+- A namespace block may open and close on one line — `namespace N { class A }`, with a class block
+  inside (`namespace N { class A { +x } }`) or nested (`namespace N { namespace M { class A } }`,
+  though an outer namespace holding only namespaces still draws no frame of its own) — and its `}`
+  may end its last statement's line (`class B }`), as Mermaid 12.2.0 reads each (nook
+  `01M4ZY2DA1`). Such a namespace used to be refused as an unrecognized line. Text after its `}`
+  on its line is refused as Mermaid refuses it, the error saying to move it to a line of its own.
 
 ### Changed
 
-- **Diagnostic messages no longer mention Mermaid** (nook `01M4ZJZ3FT`). Each says what is wrong
-  and how to fix it. Reworded: frontmatter that is not YAML is refused "until the frontmatter is
-  valid YAML", and a `displayMode` that cannot be written into a non-mapping `config` or
-  `config.gantt` is refused until that key is a mapping or `displayMode` is removed; a wrap
-  directive that cannot be written into a non-mapping init asks for a mapping or for the wrap
-  directive to be removed; an init that is not valid JSON says every init is ignored and that every
-  init must be valid JSON for any to apply; a removed directive drops "as Mermaid removes it" and
-  says only init and wrap directives are read, wrap ones only while every wrap directive's
-  arguments are valid JSON, so remove the directive or rewrite it to be read;
-  an ER class-list number or reserved word says the line is refused and asks to rename the class;
-  an `<img>` in a label points at `A@{ img: "…" }` directly; a `linkStyle interpolate` curve Siren
-  does not draw is now "a curve Siren does not draw yet" and lists the curves it does, and an
-  unknown curve name drops "as Mermaid does". Code that matches diagnostic text exactly must be
-  updated.
+- **A flowchart `&` between nodes needs a space on each side** (nook `01M4ZWT8PR`). Mermaid 12.2.0
+  reads an `&` glued to an id as a character of it (`A&B-->C` is the one node `A&B`, `A%&B-->C` the
+  node `A%&B`) and refuses one spaced on a single side or written after a bracket (`A &B-->C`,
+  `B& C`, `A[x]&B-->C`). Siren used to draw each as a group; it now refuses the line at the `&`,
+  with the line rewritten spaced (`A & B-->C`). An `&` inside a label is text, as before.
+- **An unquoted bracket inside a flowchart node label is refused** (nook `01M4ZWT8G2`), as Mermaid
+  12.2.0 refuses every unquoted `( ) [ ] { }` in any shape's label. An `[`, `]`, `{` or `}` that is
+  not the shape's own (`A[a}b]`, `A{a]b}`, `A>a{b]`), and a `(` or `)` with no partner (`A[a)b]`,
+  `A{a)b}`, `A[a (b) (c]`), used to be drawn; each is now an error at the bracket asking to quote
+  the label (`A["a}b"]`), on a line of its own or at an edge endpoint. `A[(a)b)]` used to be drawn
+  as the rect `(a)b)`. A balanced pair of parentheses outside a round shape (`A[f(x)]`, `A{f(x)}`)
+  is still drawn, a recorded divergence (nook `01M4R3RVV`), and so is one inside a cylinder:
+  `A[(f(x))]` is the cylinder `f(x)`, where it used to be drawn as the rect `(f(x))`. A label that
+  was already refused (`A[a]b]`, `A(a)b)`, `A{{a}b}}`, `A{a@{b}}`) now gets the same error instead
+  of "Unrecognized flowchart line". Two nodes written side by side (`A[x] B[y]`) are offered no
+  quoting fix, since quoting would merge them; they keep the generic error.
+- A flowchart refusal that used to read "Unrecognized flowchart line" now says what Siren does not
+  support yet and what to write instead (nook `01M4ZWT8G2`): a node's `@{ … }` data
+  (`A@{ shape: rect }`, on a line of its own or at either end of an edge) is pointed at its `@` and
+  asked to write the shape with brackets (`A[text]`, `A((text))`, `A{text}`); an edge id
+  (`A e1@--> B`) is pointed at and asked to be left out, with the line rewritten without it (a
+  label's own text, such as `A["p q@-->r"]`, is left as written); and an
+  `@{ … }` on an id an edge was given (`e1@{ animate: true }`) is asked to be left out.
+- A flowchart `style`, `classDef` or `linkStyle` declaration with no `:` (`linkStyle 0 zz`,
+  `linkStyle 0 interpolate basis zz`) is still refused, now saying how a declaration is written
+  (`property:value`, such as `stroke:#f00`) instead of "Unrecognized style declaration" (nook
+  `01M4ZWT8G2`). A value holding a space (`stroke:red zz`) is passed on as written, as before.
+- A flowchart subgraph title Siren cannot read is now refused with an error saying how to fix it,
+  instead of "Unrecognized flowchart line", and its `end` no longer reports a second error: words
+  after a bracketed title (`subgraph s1 ["t"] zz`, refused by Mermaid 12.2.0) are pointed at and
+  asked to move inside the brackets; a character an unquoted title cannot hold (`subgraph S a, b`,
+  also `(`, `[`, `{`, `|`, `<`, `=`, `~`, `@`, `--`, `-.`, `:::`, each refused by Mermaid) is
+  pointed at and the title asked to be quoted; and a title whose last word is `end`, which
+  Mermaid reads as the block's end and swallows the next line into the title, is asked to be
+  quoted (nook `01M4ZWT89B`).
+- **A `%` in an ER entity's quoted name or alias is refused** (nook `01M4ZWT94S`), as Mermaid
+  12.2.0 refuses it: its ER lexer reads a quoted string holding a `%` as a word only a
+  relationship's label takes. `A["50% off"]`, `"A % b"` and `"B % c"` at either end of a
+  relationship used to be drawn; each is now an error at the `%`, asking to remove it or spell it
+  out. A subgraph's quoted name or title (`subgraph "s % t"`, `subgraph s1["t % u"]`), which
+  Mermaid refuses the same way, used to be drawn too and gets the same error. A `%%` in any of
+  these quoted strings gets this error as well, at its first `%`, instead of the mid-line `%%`
+  error's advice to move a comment to its own line: inside quotes it is not a comment. A `%` in a
+  relationship's quoted label or an attribute's quoted comment is still text, as in Mermaid.
+- **Diagnostic messages no longer mention Mermaid** (nook `01M4ZJZ3FT`). Each says what is wrong and
+  how to fix it. Reworded: frontmatter that is not YAML is refused "until the frontmatter is valid
+  YAML", and a `displayMode` that cannot be written into a non-mapping `config` or `config.gantt` is
+  refused until that key is a mapping or `displayMode` is removed; a wrap directive that cannot be
+  written into a non-mapping init asks for a mapping or for the wrap directive to be removed; an
+  init that is not valid JSON says every init is ignored and that every init must be valid JSON for
+  any to apply; a removed directive drops "as Mermaid removes it" and says only init and wrap
+  directives are read, wrap ones only while every wrap directive's arguments are valid JSON, so
+  remove the directive or rewrite it to be read; an ER class-list number or reserved word says the
+  line is refused and asks to rename the class; an `<img>` in a label asks for the image to be
+  described in the label's text (it used to point at `A@{ img: "…" }`, which Siren refuses); a
+  `linkStyle interpolate` curve Siren does not draw is now "a curve Siren does not draw yet" and
+  lists the curves it does, and an unknown curve name drops "as Mermaid does". Code that matches
+  diagnostic text exactly must be updated.
 - **A `%%` in the middle of a flowchart line is no longer a comment** (nook `01M4Z7TQRE`). Only a
   whole line whose first non-blank characters are `%%` is a comment, as in Mermaid 12.2.0, whose
   flowchart grammar has no comment of its own. Inside text a `%%` is now kept as text — a node's
   label, an edge's label, a subgraph's title, a `click` tooltip, `accTitle`/`accDescr`, and a
-  `style`/`classDef`/`linkStyle` declaration list (`A[50 %% done]` draws "50 %% done", where it
-  used to be cut short and refused). After a complete statement (`A --> B %% note`, `A[a] %% x`,
+  `style`/`classDef`/`linkStyle` declaration list (`A[50 %% done]` draws "50 %% done", where it used
+  to be cut short and refused). After a complete statement (`A --> B %% note`, `A[a] %% x`,
   `end %% x`, `flowchart TB %% x`) the document is refused, as Mermaid refuses it, with an error at
-  the `%%` saying it is not a comment and, if it is meant as one, to move it to a line of its own; it
-  used to be ignored.
-  A subgraph's bare name followed by `%%` and words (`subgraph S %% x`) is one title, "S %% x",
-  with no handle, and a block's `direction LR %% x` is `direction LR`, both as Mermaid reads them.
-  Timeline blocks still cut a line at its first `%%`.
-  The flowchart's readers now agree on where text runs: a `;`, `&` or arrow inside an asymmetric
-  node's label (`A>a;b] --> B`) or inside a quoted string outside any bracket
-  (`click A "https://x.org/a;b" "t;u"`) is text, as in Mermaid 12.2.0; both used to be refused.
-
+  the `%%` saying it is not a comment and, if it is meant as one, to move it to a line of its own;
+  it used to be ignored. A subgraph's bare name followed by `%%` and words (`subgraph S %% x`) is
+  one title, "S %% x", with no handle, and a block's `direction LR %% x` is `direction LR`, both as
+  Mermaid reads them. Timeline blocks still cut a line at its first `%%` (in a flowchart, not one
+  glued to an action's target). The flowchart's readers now agree on where text runs: a `;`, `&` or
+  arrow inside an asymmetric node's label (`A>a;b] --> B`) or inside a quoted string outside any
+  bracket (`click A "https://x.org/a;b" "t;u"`) is text, as in Mermaid 12.2.0; both used to be
+  refused.
 - **A `%%` in the middle of a sequence line is no longer a comment** (nook `01M4Z7TQZ4`). Only a
   whole line is a comment, as in Mermaid 12.2.0; its sequence lexer reads a `%%` as a comment only
   where a token has ended and no text has started. Text keeps its `%%`: a message's and a note's
   text (`A->>B: 50%% done` draws "50%% done", where it used to draw "50"), a block's or branch's
   label (`loop`, `opt`, `alt`/`else`, `par`/`and`, `critical`/`option`, `break`), a box's label,
   `title`, `accTitle`/`accDescr`, a participant's `as` alias, and a `link`'s url. A participant's
-  name keeps it too: `participant A %% x` declares a participant named "A %% x", so a later
-  `A->>B` draws a second lane `A`; `participant A %% x as Al` is named "A %% x as Al"; and a
-  message's sender or receiver, a note's participants, `create` and `destroy` name participants
-  the same way (`A->>B %% x: m` is sent to "B %% x"). A `links` object followed by `%%` is no
-  longer JSON, so it adds no link, with a warning, as in Mermaid. A `%%` after the header, after
-  `end`, `autonumber` or `autonumber off`, or after a `;` is still a comment, as Mermaid's lexer
-  reads it there. `activate` and `deactivate` read their participant's name with its `%%` too
-  when a participant of that name is already known (declared, created, or named by an earlier
-  message or note); otherwise the document is refused with an error at the `%%` saying it is not a
-  comment and, if it is meant as one, to move it to a line of its own, as Mermaid refuses
-  `deactivate B %% x` ("Trying to inactivate an inactive participant") and fails to draw
-  `activate B %% x`. The same error refuses a `%%` after a `rect`'s color, which Mermaid fills with a
-  color that is not one, and a `%%` written right after a one-character name where Mermaid's lexer
-  reads it as a comment from that character on: a message's sender or receiver, a note's
-  participant or a `destroy` (`A->>B%%x: m`, `note over A%%x: n` and `destroy B%%x` are refused by
-  Mermaid, and `A%%x->>B: m` draws nothing for its line). A longer name, or a `%%` after a space,
-  is part of the name (`A->>BC%%x: m` is sent to "BC%%x"). Timeline blocks still cut a line at its
-  first `%%`.
-
-- **A `%%` in the middle of a class or state line is no longer a comment** (nook `01M4Z7TR5R`).
-  Only a whole line is a comment, as in Mermaid 12.2.0; what a later `%%` means is each lexer's.
-  Text keeps its `%%`: in a class diagram a member or method (in a block or after `Class :`), a
+  name keeps it too: `participant A %% x` declares a participant named "A %% x", so a later `A->>B`
+  draws a second lane `A`; `participant A %% x as Al` is named "A %% x as Al"; and a message's
+  sender or receiver, a note's participants, `create` and `destroy` name participants the same way
+  (`A->>B %% x: m` is sent to "B %% x"). A `links` object followed by `%%` is no longer JSON, so it
+  adds no link, with a warning, as in Mermaid. A `%%` after the header, after `end`, `autonumber` or
+  `autonumber off`, or after a `;` is still a comment, as Mermaid's lexer reads it there. `activate`
+  and `deactivate` read their participant's name with its `%%` too when a participant of that name
+  is already known (declared, created, or named by an earlier message or note); otherwise the
+  document is refused with an error at the `%%` saying it is not a comment and, if it is meant as
+  one, to move it to a line of its own, as Mermaid refuses `deactivate B %% x` ("Trying to
+  inactivate an inactive participant") and fails to draw `activate B %% x`. The same error refuses a
+  `%%` after a `rect`'s color, which Mermaid fills with a color that is not one, and a `%%` written
+  right after a one-character name where Mermaid's lexer reads it as a comment from that character
+  on: a message's sender or receiver, a note's participant or a `destroy` (`A->>B%%x: m`,
+  `note over A%%x: n` and `destroy B%%x` are refused by Mermaid, and `A%%x->>B: m` draws nothing for
+  its line). A longer name, or a `%%` after a space, is part of the name (`A->>BC%%x: m` is sent to
+  "BC%%x"). Timeline blocks still cut a line at its first `%%`.
+- **A `%%` in the middle of a class or state line is no longer a comment** (nook `01M4Z7TR5R`). Only
+  a whole line is a comment, as in Mermaid 12.2.0; what a later `%%` means is each lexer's. Text
+  keeps its `%%`: in a class diagram a member or method (in a block or after `Class :`), a
   relationship's label, a note's quoted text, a class's quoted label, a `style`/`classDef`
-  declaration list and `accTitle`/`accDescr`; in a state diagram a transition's label, a
-  description (`A : desc %% x`, `state "d %% x" as A`), a note's text on one line or in a block, a
-  `style`/`classDef` declaration list and `accTitle`/`accDescr` — each used to be cut at the `%%`.
-  A state block note's opening line keeps what follows a `%%` as the note's first row
-  (`note right of A %% x` opens a note whose first row is "%% x"), as Mermaid records it.
-  A state `class` statement's class names are read one per word, as Mermaid paints them through
-  the drawn node's class attribute: `class A c %% x` paints A with `c`, exactly as `class A c`
-  does, and `class A u extra` paints A with `u`, where it used to be read as one class name and
-  paint nothing. Each name no `classDef` defines draws nothing and is warned about, as before.
-  What follows a class block's `{` on its line is now read as the block's first member, as Mermaid
-  reads it (`class A { %% x` has the member "%% x"; it used to be refused). A class diagram's lexer
-  reads a `%%` after `direction` as a comment, and after a relationship, a note, a `cssClass`, a
-  `click`, `link` or `callback`, or a standalone annotation as a comment that swallows the line
-  break after it, so Siren reads it as a comment only on the document's last line and otherwise
-  refuses it with an error at the `%%` saying it is not a comment and, if it is meant as one, to
-  move it to a line of its own, as Mermaid refuses the document ("Expecting 'NEWLINE', 'EOF' …").
-  The same error refuses a `%%` after a class diagram's header, a class declaration, or a
-  namespace's `{` or a block's closing `}`, which Mermaid refuses on any line, and a `%%` after an
-  annotation inside a class block, which Mermaid draws as a member `<> %% x` instead. A state
-  diagram's lexer reads a `%%` as a comment wherever a token ends and no text has started — after
-  the header and a space, a state's id, a transition, `state "d" as A`, a composite's braces, a
-  stereotype, a `--` divider, `end note`, `[*]` and `direction` — on any line, as before. The
-  error refuses a `%%` run straight into a state diagram's header (`stateDiagram-v2%%x`, refused
-  by Mermaid). Timeline blocks still cut a line at its first `%%`.
-
+  declaration list and `accTitle`/`accDescr`; in a state diagram a transition's label, a description
+  (`A : desc %% x`, `state "d %% x" as A`), a note's text on one line or in a block, a
+  `style`/`classDef` declaration list and `accTitle`/`accDescr` — each used to be cut at the `%%`. A
+  state block note's opening line keeps what follows a `%%` as the note's first row
+  (`note right of A %% x` opens a note whose first row is "%% x"), as Mermaid records it. A state
+  `class` statement's class names are read one per word, as Mermaid paints them through the drawn
+  node's class attribute: `class A c %% x` paints A with `c`, exactly as `class A c` does, and
+  `class A u extra` paints A with `u`, where it used to be read as one class name and paint nothing.
+  Each name no `classDef` defines draws nothing and is warned about, as before. What follows a class
+  block's `{` on its line is now read as the block's first member, as Mermaid reads it
+  (`class A { %% x` has the member "%% x"; it used to be refused). A class diagram's lexer reads a
+  `%%` after `direction` as a comment, and after a relationship, a note, a `cssClass`, a `click`,
+  `link` or `callback`, or a standalone annotation as a comment that swallows the line break after
+  it, so Siren reads it as a comment only on the document's last line and otherwise refuses it with
+  an error at the `%%` saying it is not a comment and, if it is meant as one, to move it to a line
+  of its own, as Mermaid refuses the document ("Expecting 'NEWLINE', 'EOF' …"). The same error
+  refuses a `%%` after a class diagram's header, a class declaration, or a namespace's `{` or a
+  block's closing `}`, which Mermaid refuses on any line, and a `%%` after an annotation inside a
+  class block, which Mermaid draws as a member `<> %% x` instead. A state diagram's lexer reads a
+  `%%` as a comment wherever a token ends and no text has started — after the header and a space, a
+  state's id, a transition, `state "d" as A`, a composite's braces, a stereotype, a `--` divider,
+  `end note`, `[*]` and `direction` — on any line, as before. The error refuses a `%%` run straight
+  into a state diagram's header (`stateDiagram-v2%%x`, refused by Mermaid). Timeline blocks still
+  cut a line at its first `%%`.
 - **A `%%` in the middle of an ER line is no longer a comment** (nook `01M4Z7TRCQ`). Only a whole
   line is a comment, as in Mermaid 12.2.0, and ER is the last kind to stop cutting a line at its
-  first `%%`: every kind's parser now reads its lines as written, whole-line comments removed.
-  The ER lexer has no `%` rule, so a `%%` is text only where it reads a string to its end: a
-  relationship's quoted label (`A ||--o{ B : "r %% x"`), an attribute's quoted comment, a
-  backticked attribute name, a generic type (`list~a %% b~`), `accTitle`/`accDescr` and the
-  braced `accDescr { ... }` — each used to be cut at the `%%`. A line naming a direction is read
-  whole as that direction, `%%` and all (`direction LR %% x`, and `A %% direction LR` as Mermaid's
+  first `%%`: every kind's parser now reads its lines as written, whole-line comments removed. The
+  ER lexer has no `%` rule, so a `%%` is text only where it reads a string to its end: a
+  relationship's quoted label (`A ||--o{ B : "r %% x"`), an attribute's quoted comment, a backticked
+  attribute name, a generic type (`list~a %% b~`), `accTitle`/`accDescr` and the braced
+  `accDescr { ... }` — each used to be cut at the `%%`. A line naming a direction is read whole as
+  that direction, `%%` and all (`direction LR %% x`, and `A %% direction LR` as Mermaid's
   `.*direction\s+LR` rule reads it). Anywhere else the document is refused, as Mermaid refuses it,
   with an error at the `%%` saying it is not a comment and, if it is meant as one, to move it to a
   line of its own: after a statement or the header, in a quoted entity name or an alias (a quoted
   string holding `%` is a word only a relationship's label takes), on a `subgraph` line, in a
   `style`/`classDef` declaration list (quoted or not), and inside an attribute block outside a
   quoted comment or a backticked name. Timeline blocks still cut a line at its first `%%`.
-
 - **A sequence `create participant X` draws X's box on its creating message**: the message right
   after it, which must be sent to X (nook `01M4YS7DMG`). X's box is now centred on that message's
   arrow, the arrow stops at the box's near edge, X's lifeline starts at the box's bottom, and
@@ -224,13 +328,13 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
   Mermaid 12.2.0 refuses it. As with Siren's other sequence errors, the diagram is still drawn
   beside the error, with X's box where `create` is written.
 - **A sequence `destroy X` ends X's lifeline at its destroying message**: the message right after
-  it, which X must send or receive (nook `01M4YS7DDX`). X's lifeline and X mark now sit on that
-  message's row, on the arrow's tip when X receives it and on its tail when X sends it, and
-  `destroy` no longer takes a row of its own. That message is no longer warned about as reaching
-  past the end of X's lifeline; a later message naming X still is. Measured against Mermaid 12.2.0,
-  which reads `destroy X` the same way and ends X's lifeline on that message's row. Nothing may
-  stand between the two: a note, an activation or a block boundary in between is refused (see
-  below). For a `destroy` with no message after it, see below.
+  it, which X must send or receive (nook `01M4YS7DDX`). X's lifeline now ends on that message's row,
+  at X's closing box (see the closing-box entry below), and `destroy` no longer takes a row of its
+  own. That message is no longer warned about as reaching past the end of X's lifeline; a later
+  message naming X still is. Measured against Mermaid 12.2.0, which reads `destroy X` the same way
+  and ends X's lifeline on that message's row. Nothing may stand between the two: a note, an
+  activation or a block boundary in between is refused (see below). For a `destroy` with no message
+  after it, see below.
 - **A `destroy X` whose next message X neither sends nor receives is refused** with an error at
   the `destroy` line: `The destroyed participant "X" has no destroying message: the next message
   must be sent by or to it.` Siren used to draw such a document in silence; Mermaid 12.2.0
@@ -291,7 +395,6 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
   is a **warning** now, not an error, in flowchart, class, state and ER diagrams: the diagram is
   drawn with the target unstyled, as Mermaid 12.2.0 draws it, instead of not at all. A target that
   does not exist is still dropped in silence (nook `01M39FAVK`).
-
 - **A created sequence participant is laid out as Mermaid 12.2.0 lays it out** (nook `01M4Z7TRKD`).
   A participant a `create participant X` / `create actor X` introduces and nothing destroys is now
   drawn in the bottom row as well, level with every declared participant, where it used to be drawn
@@ -302,7 +405,6 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
   `link`, it stays put, as in Mermaid. A `create` with no message after it moves the same way,
   though its participant is drawn from the top. The resolved participant says which: its
   `createdAfterDrawing` is `true` when something drawn comes before its `create`.
-
 - **A sequence `destroy` no longer creates the participant it names** (nook `01M4Z7TRT0`,
   ADR-0013 amended). Every other reference still creates an undeclared participant on first
   mention, but `destroy Z`, as in Mermaid 12.2.0, does not: a `Z` that nothing else names gets no
@@ -312,18 +414,43 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
   Z, where it used to draw A, B, Z, C; Z still ends on `C-xZ`. A `create participant Z` after
   `destroy Z` is no longer refused as naming `Z` a second time; the `destroy`, interrupted by the
   `create`, is refused instead, and `Z` is drawn created and never destroyed, as Mermaid draws it.
+- **A `;` between members in a class block is refused** (`+int x; +foo()`, `+foo(); +bar()`,
+  `+int x; y`), saying that a `;` does not separate members and to write each on a line of its own;
+  Mermaid 12.2.0 draws such text as one member (nook `01M4ZWT8XF`). Where Siren could read the text
+  as one member — `+int x; y`, `+int x; int y`, `+foo(); +bar()` — it used to draw that one member,
+  as Mermaid does, and now refuses it. A `;` inside a method's parentheses (`+foo(a; b)`) or a
+  `~generic~` is kept as written.
+- **An empty namespace is refused** (`namespace N {` and `}` with nothing between), saying to add a
+  class to it or remove it, as Mermaid 12.2.0 refuses it (nook `01M4ZY2DA1`). It used to be accepted
+  and drawn as no frame at all.
+- **A destroyed sequence participant ends with a closing box, not an X mark** (nook decision
+  `01M4ZXTTY3`, superseding the X-mark convention of the sequence-create-destroy board). As in
+  Mermaid 12.2.0, `destroy X` draws X's box (or actor figure) a second time, centred on its
+  destroying message's arrow, whether X sends or receives it; X's lifeline ends there, under the
+  box, and X still gets no box in the bottom row. The arrow stops at the box's near edge (an actor's
+  arm tip), as a creating message's arrow does, whatever the arrowhead. Every row after the
+  destroying message, the bottom row and the diagram's height move down by half the box, and a block
+  around the pair grows with it. The SVG no longer has a `path.siren-destroy-mark`; the closing box
+  is a `g.siren-participant` wearing the participant's `data-siren-id`, so a timeline action on the
+  participant still reaches it. `PositionedDestroyMark` and the `destroyMark` element kind are
+  removed from the positioned layout, and the default theme drops their styles.
 
 ### Fixed
 
+- A flowchart subgraph whose quoted title is one word (`subgraph "t"`) now takes that word as its
+  handle, as Mermaid 12.2.0 records it (id `t`, measured), so an edge naming it (`t --> B`) joins
+  the frame, where Siren used to draw a stray node `t` beside it. A quoted title holding whitespace
+  (`subgraph "Two Words"`) still has no handle. A timeline still reaches the frame by its generated
+  `subgraph:N` (ADR-0010), and a node also named `t` stays a node beside it (nook `01M4ZY2D3D`).
 - An init directive spread over several lines no longer breaks the document. It used to be
   removed one line at a time as a `%%` comment, so its middle lines were read as diagram text and
   refused, where Mermaid removes the whole directive and draws the diagram. Every directive is now
   removed whole before comments are, and blanked in place with spaces, so the line and column of
   every other diagnostic still point at what the author wrote — on the directive's own line too
   (`  %%{wrap}%%  classDiagrm` reports column 15, not 5) (nook `01M4XSF9J`).
-- Flowchart nodes have twice their original positive text padding, without scaling text or changing wrapping;
-  subgraphs use 24px padding, including nested frames and title bands. Other diagram kinds retain
-  their existing geometry (nook `01M4XKQXA`).
+- Flowchart nodes have twice their original positive text padding, without scaling text or changing
+  wrapping; subgraphs use 24px padding, including nested frames and title bands. Other diagram kinds
+  retain their existing geometry (nook `01M4XKQXA`).
 - Flowchart lines paint below subgraph frames and titles, edge labels and nodes, so a crossing
   line cannot paint over their text (nook `01M4XJ8Y0`). Routes, styling and timeline targets stay
   the same; transparent fills can still reveal the lines beneath them.

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { parseFlowchart } from "./parseFlowchart";
 import { parseSiren } from "./parseSiren";
 import type { Diagnostic, DiagramParseResult, FlowchartDocument, SirenNode } from "../contracts";
-import { plainRun } from "../label/label";
+import { plainLabel, plainRun } from "../label/label";
 
 /**
  * Asserts a `parseFlowchart` call (or `parse`'s, when given) produced a
@@ -115,6 +115,227 @@ describe("a flowchart node's label", () => {
 
     expect(diagnostics).toEqual([]);
     expect(document.nodes.map((node) => node.label.text)).toEqual(["padded", "padded"]);
+  });
+});
+
+/**
+ * A bracket character inside an unquoted node label. Measured on Mermaid
+ * 12.2.0: every one of `( ) [ ] { }` written unquoted inside any shape's
+ * label is a parse error (`A[a]b]`, `A(a)b)`, `A{a]b}`, `A[a}b]`,
+ * `A[[a]b]]`, `A>a{b]` …), and the quoted label (`A("a)b")`) is drawn.
+ */
+describe("a bracket character inside an unquoted node label", () => {
+  it.each([
+    ["A(a)b)", ")", 6, 'A("a)b")'],
+    ["A[a]b]", "]", 6, 'A["a]b"]'],
+    ["A{a}b}", "}", 6, 'A{"a}b"}'],
+    ["A((a(b))", "(", 7, 'A(("a(b"))'],
+    // Measured: "got 'DIAMOND_START'" — an `@{` inside a label is a brace
+    // there, not the `@{ … }` node syntax.
+    ["A{a@{b}}", "{", 7, 'A{"a@{b}"}'],
+  ])("refuses %s at the bracket, saying to quote the label", (written, char, column, fixed) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `A node label without quotes cannot hold "${char}". Put the whole label in quotes: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it.each([
+    ["A[a}b]", "}", 6, 'A["a}b"]'],
+    ["A[a{b]", "{", 6, 'A["a{b"]'],
+    ["A[a[b]", "[", 6, 'A["a[b"]'],
+    ["A{a]b}", "]", 6, 'A{"a]b"}'],
+    ["A{a[b}", "[", 6, 'A{"a[b"}'],
+    ["A>a{b]", "{", 6, 'A>"a{b"]'],
+    ["A[[a}b]]", "}", 7, 'A[["a}b"]]'],
+    ["A{{a]b}}", "]", 7, 'A{{"a]b"}}'],
+  ])("refuses %s, a square bracket or brace that is not the shape's own, which used to be drawn", (written, char, column, fixed) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `A node label without quotes cannot hold "${char}". Put the whole label in quotes: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+  /**
+   * Parentheses are the one exception, and only when they pair up: an
+   * unquoted `(` or `)` is refused by Mermaid too, but Siren keeps drawing a
+   * balanced pair in a label (nook 01M4R3RVV), so only one with no partner
+   * is refused here.
+   */
+  it.each([
+    ["A[a)b]", ")", 6, 'A["a)b"]'],
+    ["A[a(b]", "(", 6, 'A["a(b"]'],
+    ["A{a)b}", ")", 6, 'A{"a)b"}'],
+    ["A>a)b]", ")", 6, 'A>"a)b"]'],
+    ["A[a (b) (c]", "(", 11, 'A["a (b) (c"]'],
+    ["A[(a)b)]", ")", 7, 'A[("a)b")]'],
+  ])("refuses %s, a parenthesis with no partner, which used to be drawn", (written, char, column, fixed) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `A node label without quotes cannot hold "${char}". Put the whole label in quotes: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it.each([
+    ["A[f(x)]", "rect"],
+    ["A>f(x)]", "asymmetric"],
+    ["A[[f(x)]]", "subroutine"],
+    ["A([f(x)])", "stadium"],
+    ["A[/f(x)/]", "parallelogram"],
+    ["A{f(x)}", "rhombus"],
+    ["A{{f(x)}}", "hexagon"],
+    // A cylinder is a `[`-family spelling too; this used to be drawn as the
+    // rect `(f(x))`, a shape nobody wrote.
+    ["A[(f(x))]", "cylinder"],
+  ])("still draws %s, whose parentheses pair up", (written, shape) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.label.text, node.shape])).toEqual([["f(x)", shape]]);
+  });
+
+  it.each([
+    ["A[a}b] --> B", "}", 6, 'A["a}b"]'],
+    ["A --> B{a)b}", ")", 12, 'B{"a)b"}'],
+    ["A & B[a]b] --> C", "]", 10, 'B["a]b"]'],
+  ])("refuses %s at an edge endpoint the same way", (written, char, column, fixed) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `A node label without quotes cannot hold "${char}". Put the whole label in quotes: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it.each([["A[x] B[y]"], ["A{x} B{y}"], ["A[x] B[y] --> C"]])(
+    "offers no quoting fix for %s, which would merge two nodes into one label",
+    (written) => {
+      // Measured: Mermaid 12.2.0 refuses `A[x] B[y]` ("got 'NODE_STRING'"):
+      // the first `]` ends `A`'s label, so `B[y]` is a second node written
+      // where none may stand, not text of the first.
+      const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        { severity: "error", message: `Unrecognized flowchart line: "${written}"`, line: 2, column: 3 },
+      ]);
+    },
+  );
+});
+
+/**
+ * The `@{ … }` node syntax, which Siren does not draw yet (its own board).
+ * Measured on Mermaid 12.2.0: `A@{ shape: rect }`, `A[x]@{ shape: rect }`,
+ * and `A@{ … }` at either end of an edge are all accepted.
+ */
+describe("a node written with `@{ … }`", () => {
+  it.each([
+    ["A@{ shape: rect }", "A", 4],
+    ["A[x]@{ shape: rect }", "A", 7],
+    ['A@{ shape: circle, label: "x" } --> B', "A", 4],
+    ["A --> B@{ shape: diam }", "B", 10],
+  ])("refuses %s at the `@`, saying to write the shape with brackets", (written, id, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          `Siren does not support the "@{ … }" node syntax yet. ` +
+          `Write the shape with brackets instead, such as ${id}[text], ${id}((text)) or ${id}{text}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+});
+
+/**
+ * An edge id, `A e1@--> B`, which Siren does not support yet (the same board
+ * as `@{ … }`). Measured on Mermaid 12.2.0: accepted before every arrow
+ * spelling (`e1@==>`, `e1@-- yes -->`, `e1@-->|yes|`), on one link of a
+ * chain each, and after an `&` group, where it names the last link.
+ */
+describe("an edge written with an id", () => {
+  it.each([
+    ["A e1@--> B", "e1", 5, "A --> B"],
+    ["A e1@-->|yes| B", "e1", 5, "A -->|yes| B"],
+    ["A e1@--> B e2@--> C", "e1", 5, "A --> B --> C"],
+    ["A & C e1@==> B", "e1", 9, "A & C ==> B"],
+    // Measured: both labels are valid Mermaid, `p q@-->r` and `x y@-z`; a
+    // label's text is no edge id, and the fix leaves it as written.
+    ['A["p q@-->r"] e1@--> B', "e1", 17, 'A["p q@-->r"] --> B'],
+    ["A[x y@-z] e1@--> B", "e1", 13, "A[x y@-z] --> B"],
+  ])("refuses %s at the id, saying to leave it out", (written, id, column, fixed) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `Siren does not support edge ids ("${id}@") yet. Leave the id out: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it("takes no edge id from a label's text, so a later `@{ … }` on that word is a node's", () => {
+    const { diagnostics } = parseFlowchart("flowchart TB\n  A[x y@-z] e1@--> B\n  y@{ shape: rect }");
+
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Siren does not support edge ids ("e1@") yet. Leave the id out: A[x y@-z] --> B',
+      'Siren does not support the "@{ … }" node syntax yet. ' +
+        "Write the shape with brackets instead, such as y[text], y((text)) or y{text}",
+    ]);
+  });
+
+  it("refuses an `@{ … }` block on that id as edge data, saying to leave the line out", () => {
+    // Measured: after `A e1@--> B`, `e1@{ animate: true }` is the edge's
+    // data; with no edge named `e1`, the same line is a node `e1`.
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  A e1@--> B\n  e1@{ animate: true }");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Siren does not support edge ids ("e1@") yet. Leave the id out: A --> B',
+        line: 2,
+        column: 5,
+      },
+      {
+        severity: "error",
+        message: 'Siren does not support "@{ … }" data on the edge "e1" yet. Leave this line out',
+        line: 3,
+        column: 5,
+      },
+    ]);
   });
 });
 
@@ -290,6 +511,410 @@ describe("a flowchart node id's alphabet", () => {
       expect.objectContaining({ interactionKind: "href", targetId: "c.d" }),
     ]);
   });
+
+  it("accepts a `%` anywhere in an id, on a declaration and at an edge endpoint", () => {
+    // Measured on Mermaid 12.2.0: `%` is a node-string character, so
+    // `A%B --> C`, `%A`, `A%`, `A-->B%C`, `A%B[lbl]`, `%-A` and `A.%B` each
+    // record the id as written — and `%` alone is a node.
+    const { document, diagnostics } = parseOk(`flowchart TB
+  A%B --> C
+  %A
+  A%
+  A-->B%C
+  D%E[lbl]
+  %-F
+  G.%H
+  %`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual([
+      "A%B",
+      "C",
+      "%A",
+      "A%",
+      "A",
+      "B%C",
+      "D%E",
+      "%-F",
+      "G.%H",
+      "%",
+    ]);
+    expect(document.nodes.find((node) => node.id === "D%E")?.label.text).toBe("lbl");
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([
+      ["A%B", "C"],
+      ["A", "B%C"],
+    ]);
+  });
+
+  it("reads an `o` or `x` right after a `%` as the id's, not as an arrow's marker", () => {
+    // Measured on Mermaid 12.2.0: `A%x--xB` is the nodes `A%x` and `B` with
+    // a cross-headed edge, and `A%o-->B` and `A%x-->B` plain arrows from
+    // `A%o` and `A%x`.
+    const { document, diagnostics } = parseOk("flowchart TB\n  A%x--xB\n  C%o-->D\n  E%x-->F");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => [edge.from, edge.fromEnd, edge.toEnd, edge.to])).toEqual([
+      ["A%x", "none", "cross", "B"],
+      ["C%o", "none", "arrow", "D"],
+      ["E%x", "none", "arrow", "F"],
+    ]);
+  });
+
+  it("reads a `.-` right after a `%` as the id's, not as a dotted arrow", () => {
+    // Measured on Mermaid 12.2.0: `A%.-B` and `A%x.-xB` are each one node
+    // with that id, and `A%.->B` is a parse error, no edge at all.
+    const { document, diagnostics } = parseOk("flowchart TB\n  A%.-B\n  C%x.-xD");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A%.-B", "C%x.-xD"]);
+    expect(document.edges).toEqual([]);
+    expect(parseFlowchart("flowchart TB\n  A%.->B").document).toBeNull();
+  });
+
+  it("opens an asymmetric label at a `>` right after a `%`, so no separator inside it cuts the line", () => {
+    // Measured on Mermaid 12.2.0: `A%>a;b] --> B` and `C%>c-->d] --> D` are
+    // asymmetric nodes `A%` and `C%` labelled "a;b" and "c-->d", each with
+    // one edge.
+    const { document, diagnostics } = parseOk("flowchart TB\n  A%>a;b] --> B\n  C%>c-->d] --> D");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label.text, node.shape])).toEqual([
+      ["A%", "a;b", "asymmetric"],
+      ["B", "B", "rect"],
+      ["C%", "c-->d", "asymmetric"],
+      ["D", "D", "rect"],
+    ]);
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([
+      ["A%", "B"],
+      ["C%", "D"],
+    ]);
+  });
+
+  it.each([
+    // Measured on Mermaid 12.2.0: an `&` glued to an id is a character of
+    // it — `A%&B-->C`, `A&B-->C` and `A & B&C --> D` record the single ids
+    // `A%&B`, `A&B` and `B&C`, a picture of no group — and one with a space
+    // on one side only, or after a bracket, is a parse error (`A &B-->C`,
+    // `B& C`, `A[x]&B-->C`, `A --> B[x]&C`).
+    ["A%&B-->C", 5, "A% & B-->C"],
+    ["A&B-->C", 4, "A & B-->C"],
+    ["A & B&C --> D", 8, "A & B & C --> D"],
+    ["A &B-->C", 5, "A & B-->C"],
+    ["A& B-->C", 4, "A & B-->C"],
+    ["A[x]&B-->C", 7, "A[x] & B-->C"],
+    ["A --> B[x]&C", 13, "A --> B[x] & C"],
+  ])("refuses %s at the `&`, which joins nodes only with a space on each side", (written, column, fixed) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `An "&" joins nodes only with a space on each side. Write: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it("accepts a `-` in a `class` statement's targets, as every other statement naming an id does", () => {
+    // Measured on Mermaid 12.2.0: `class a-b,c hot` and `class d.-e hot`
+    // give `a-b`, `c` and `d.-e` the class `hot`.
+    const { document, diagnostics } = parseOk("flowchart TB\n  a-b\n  c\n  d.-e\n  class a-b,c hot\n  class d.-e hot");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles).toEqual([
+      expect.objectContaining({ styleKind: "apply", targetIds: ["a-b", "c"], name: "hot" }),
+      expect.objectContaining({ styleKind: "apply", targetIds: ["d.-e"], name: "hot" }),
+    ]);
+  });
+
+  it("accepts a `%` in every statement that names an id: `class`, `style`, `click`, `:::` and a subgraph's handle", () => {
+    // Measured on Mermaid 12.2.0: `class A%B foo`, `style A%B fill:#f00`,
+    // `click A%B "http://x"` and `A%B:::c` reach the node `A%B`, and
+    // `subgraph S%1 [T]` and `subgraph S%%1` record the subgraph ids `S%1`
+    // and `S%%1` — the same with `%%` (`style A%%B …`, `class A%%B foo`).
+    const { document, diagnostics } = parseOk(`flowchart TB
+  subgraph S%1 [T]
+    A%B
+  end
+  subgraph S%%1
+    C%%D
+  end
+  classDef foo fill:#f00
+  class A%B,C%%D foo
+  style A%B fill:#0f0
+  style C%%D fill:#00f
+  A%B:::foo
+  click A%B "https://example.com"
+  click C%%D "https://example.com"`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs.map((subgraph) => [subgraph.name, subgraph.nodeIds])).toEqual([
+      ["S%1", ["A%B"]],
+      ["S%%1", ["C%%D"]],
+    ]);
+    expect(document.styles).toEqual([
+      expect.objectContaining({ styleKind: "classDef", name: "foo" }),
+      expect.objectContaining({ styleKind: "apply", targetIds: ["A%B", "C%%D"], name: "foo" }),
+      expect.objectContaining({ styleKind: "style", targetIds: ["A%B"] }),
+      expect.objectContaining({ styleKind: "style", targetIds: ["C%%D"] }),
+      expect.objectContaining({ styleKind: "apply", targetIds: ["A%B"], name: "foo" }),
+    ]);
+    expect(document.interactions.map((interaction) => interaction.targetId)).toEqual(["A%B", "C%%D"]);
+  });
+
+  it("still names an edge id after an endpoint holding a `%`, and one holding a `%` itself", () => {
+    // Measured on Mermaid 12.2.0: `A%B e1@--> C` records the edge id `e1`
+    // from `A%B`, and `A e%1@--> B` the edge id `e%1`.
+    expect(parseFlowchart("flowchart TB\n  A%B e1@--> C").diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Siren does not support edge ids ("e1@") yet. Leave the id out: A%B --> C',
+        line: 2,
+        column: 7,
+      },
+    ]);
+    expect(parseFlowchart("flowchart TB\n  A%%B e%1@--> C").diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Siren does not support edge ids ("e%1@") yet. Leave the id out: A%%B --> C',
+        line: 2,
+        column: 8,
+      },
+    ]);
+  });
+
+  it("lets a timeline name a node whose id holds a `%`, and the edge from it", () => {
+    // ADR-0009: a target is an id, and a timeline action is split on
+    // whitespace only, so `A%B` and the edge id `A%B-C` are spelled as is.
+    const { document, diagnostics } = parseOk(
+      "flowchart TB\n  A%B --> C\ntimeline:\n  enter A%B fade\n  enter A%B-C fade",
+      parseSiren,
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A%B", "C"]);
+    expect(document.timeline?.entries.map((entry) => [entry.step, entry.targetId])).toEqual([
+      [1, "A%B"],
+      [2, "A%B-C"],
+    ]);
+  });
+});
+
+/**
+ * A subgraph title written as more than one word, read the way Mermaid
+ * 12.2.0 reads it (measured with `scripts/mermaid-probe.mjs`): the whole
+ * run after `subgraph` is the title, and the block gets no handle of its
+ * own — Mermaid records it under a generated `subGraph0`.
+ */
+describe("a subgraph title written as more than one word", () => {
+  it("joins a quoted title and the words after it into one title, with no handle", () => {
+    const source = `flowchart TB
+  subgraph "t" zz
+    A
+  end`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs).toEqual([
+      expect.objectContaining({ name: null, label: plainLabel("t zz"), nodeIds: ["A"] }),
+    ]);
+  });
+
+  it.each(["S a & b", "S a b c", "S a. b! c?", "S 日本 語"])(
+    "reads `subgraph %s` as one title, the whole run, with no handle",
+    (title) => {
+      const source = `flowchart TB
+  subgraph ${title}
+    A
+  end`;
+
+      const { document, diagnostics } = parseOk(source);
+
+      expect(diagnostics).toEqual([]);
+      expect(document.subgraphs).toEqual([
+        expect.objectContaining({ name: null, label: plainLabel(title), nodeIds: ["A"] }),
+      ]);
+    },
+  );
+
+  it("refuses words after a bracketed title, at the words, saying to move them inside the brackets", () => {
+    // Measured: `subgraph s1 ["t"] zz` is "Expecting 'SEMI', 'NEWLINE', 'EOF', got 'SPACE'".
+    const { document, diagnostics } = parseFlowchart('flowchart TB\n  subgraph s1 ["t"] zz\n    A\n  end');
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'Text after a subgraph\'s bracketed title: "zz". A title in brackets ends the line; ' +
+          'move the text inside the brackets: subgraph s1["t zz"]',
+        line: 2,
+        column: 21,
+      },
+    ]);
+  });
+
+  // Measured: each is a parse error — `got 'COMMA'`, `'COMMA'`, `'LINK'`.
+  it.each([
+    ["S a, b. c!", ",", 15],
+    ['"t" a,b', ",", 17],
+    ["S a --> b", "--", 16],
+  ])("refuses `subgraph %s` at its %j, saying to quote the title", (tail, character, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  subgraph ${tail}\n    A\n  end`);
+
+    const title = tail.replaceAll('"', "");
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          `A subgraph title without quotes cannot hold "${character}". ` +
+          `Put the whole title in quotes: subgraph "${title}"`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  // Measured: Mermaid reads a last word `end` as the block's own end and
+  // swallows the next line into the title — `subgraph S a end` records the
+  // title "S a end\nA" and leaves `A` outside the frame, with no error.
+  it.each([
+    ["S a end", 16],
+    ['"t" end', 16],
+  ])("refuses `subgraph %s` at its last word `end`, saying to quote the title", (tail, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  subgraph ${tail}\n    A\n  end`);
+
+    const title = tail.replaceAll('"', "");
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'A subgraph title cannot end with the word "end", which closes the block. ' +
+          `Put the whole title in quotes: subgraph "${title}"`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+});
+
+/**
+ * The rest of a quoted subgraph header, read as Mermaid 12.2.0 reads it
+ * (measured with `scripts/mermaid-probe.mjs`): the quoted text and any word
+ * glued to it are one run, and that run is the block's id unless it holds
+ * whitespace — `subgraph "t"` is id `t`, `subgraph "a b"` is `subGraph0`.
+ */
+describe("a quoted subgraph header", () => {
+  it("makes a quoted title of one word the block's handle as well, as a bare word is", () => {
+    const { document, diagnostics } = parseOk(`flowchart TB
+  subgraph "t"
+    A
+  end
+  t --> B`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs).toEqual([
+      expect.objectContaining({ name: "t", label: plainLabel("t"), nodeIds: ["A"] }),
+    ]);
+    // The edge names the frame, so `t` is no node — as with `subgraph t`
+    // (measured: Mermaid joins the edge to the cluster `t`).
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B"]);
+  });
+
+  it.each([
+    ['"t"zz', "tzz", "tzz"],
+    ['"t"-z', "t-z", "t-z"],
+    ['"t"zz yy', null, "tzz yy"],
+    ['"a b"zz', null, "a bzz"],
+  ])("reads `subgraph %s` as the quoted text and the word glued to it, one run", (tail, name, title) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  subgraph ${tail}\n    A\n  end`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs).toEqual([
+      expect.objectContaining({ name, label: plainLabel(title), nodeIds: ["A"] }),
+    ]);
+  });
+
+  it.each([
+    ['"t" [x]', "t", "x"],
+    ['"t"[x]', "t", "x"],
+    ['"t" ["x y"]', "t", "x y"],
+    ['"t"zz [x]', "tzz", "x"],
+    ['"a b" [x]', null, "x"],
+    ['"t" zz [x]', null, "x"],
+  ])("reads `subgraph %s` as a handle and a bracketed title", (tail, name, title) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  subgraph ${tail}\n    A\n  end`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs).toEqual([
+      expect.objectContaining({ name, label: plainLabel(title), nodeIds: ["A"] }),
+    ]);
+  });
+});
+
+/**
+ * `direction LR` outside any `subgraph` block. Measured: Mermaid 12.2.0
+ * accepts it on any line and ignores it — the recorded direction stays the
+ * header's (`TB`), whether the line comes first or last.
+ */
+describe("a direction written outside any subgraph", () => {
+  it("is ignored with the text after it, with the one warning that the line does nothing", () => {
+    // Measured: `direction LR zz` at the top level is accepted and ignored.
+    const { document, diagnostics } = parseOk("flowchart TB\n  direction LR zz\n  A --> B");
+
+    expect(document.direction).toBe("TB");
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message:
+          '"direction LR zz" outside a subgraph has no effect. ' +
+          "Set the diagram's direction on its first line instead: flowchart LR",
+        line: 2,
+        column: 3,
+      },
+    ]);
+  });
+
+  it.each([
+    ["first", "flowchart TB\n  direction LR\n  A --> B", 2],
+    ["last", "flowchart TB\n  A --> B\n  direction LR", 3],
+  ])("is drawn in the header's direction when it is the %s line, with a warning that it does nothing", (_, source, line) => {
+    const { document, diagnostics } = parseOk(source);
+
+    expect(document.direction).toBe("TB");
+    expect(document.edges).toHaveLength(1);
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message:
+          '"direction LR" outside a subgraph has no effect. ' +
+          "Set the diagram's direction on its first line instead: flowchart LR",
+        line,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("suggests the header keyword the author wrote, so a `graph` document is told to write `graph LR`", () => {
+    const { document, diagnostics } = parseOk("graph TD\n  direction LR\n  A --> B");
+
+    expect(document.direction).toBe("TB");
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message:
+          '"direction LR" outside a subgraph has no effect. ' +
+          "Set the diagram's direction on its first line instead: graph LR",
+        line: 2,
+        column: 3,
+      },
+    ]);
+  });
 });
 
 describe("a direction written inside a subgraph", () => {
@@ -335,6 +960,32 @@ describe("a direction written inside a subgraph", () => {
     expect(diagnostics).toEqual([]);
     expect(document.subgraphs).toEqual([
       expect.objectContaining({ name: "one", direction: null }),
+    ]);
+  });
+
+  // Measured: Mermaid's direction token takes the rest of its line, so
+  // `direction LR zz` and `direction LRzz` both set `dir="LR"` on the block.
+  it.each([
+    ["direction LR zz", "zz", 18],
+    ["direction LRzz", "zz", 17],
+    ["direction RL --> B", "--> B", 18],
+  ])("reads `%s` onto the subgraph, with a warning that the text after it is ignored", (statement, ignored, column) => {
+    const { document, diagnostics } = parseOk(`flowchart TB
+  subgraph one
+    ${statement}
+    A
+  end`);
+
+    expect(document.subgraphs).toEqual([
+      expect.objectContaining({ name: "one", direction: statement.slice(10, 12), nodeIds: ["A"] }),
+    ]);
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: `Text after "direction ${statement.slice(10, 12)}" is ignored: "${ignored}". Remove it.`,
+        line: 3,
+        column,
+      },
     ]);
   });
 });
@@ -874,6 +1525,40 @@ describe("a flowchart's `linkStyle … interpolate` statement", () => {
 });
 
 /**
+ * A `linkStyle` declaration with no `:`. Measured on Mermaid 12.2.0:
+ * `linkStyle 0 zz` and `linkStyle 0 interpolate basis zz` are accepted, `zz`
+ * written out as a style nothing reads; Siren keeps refusing them (spec
+ * decision 2), and says what a declaration looks like. A value holding a
+ * space (`stroke:red zz`) is still a `property:value` pair and is passed on
+ * as written, as Mermaid does: CSS values hold spaces (`stroke-dasharray: 5 5`).
+ */
+describe("a flowchart `linkStyle` declaration that is not property:value", () => {
+  it.each([["linkStyle 0 zz"], ["linkStyle 0 interpolate basis zz"]])(
+    "refuses %s, saying how a declaration is written",
+    (statement) => {
+      const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> B\n  ${statement}`);
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message: '"zz" is not a style declaration. Write each declaration as property:value, such as stroke:#f00',
+          line: 3,
+          column: 3,
+        },
+      ]);
+    },
+  );
+
+  it("passes a value holding a space through as written", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  A --> B\n  linkStyle 0 stroke:red zz");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.linkStyles.map((style) => style.properties)).toEqual([[{ property: "stroke", value: "red zz" }]]);
+  });
+});
+
+/**
  * A `%%` in the middle of a flowchart line (CONTEXT.md **Comment**): text
  * inside text, a refusal after a complete statement — measured on Mermaid
  * 12.2.0, whose flowchart lexer has no `%%` rule of its own.
@@ -896,6 +1581,53 @@ describe("a `%%` in the middle of a flowchart line", () => {
 
     expect(diagnostics).toEqual([]);
     expect(document.nodes.map((node) => node.label.text)).toEqual(["a %% zz", "b %% c"]);
+  });
+
+  it("reads a `%%` glued to the end of an id as part of the id", () => {
+    // Measured on Mermaid 12.2.0: `A%%B`, `A%%B --> C`, `A-->B%%C`,
+    // `A%%B%%C`, `A%%%B`, `A%%`, `A%%[x]`, `A%%:::c` and `A%% --> B` each
+    // record the id with its `%%` — the flowchart lexer has no `%%` rule, and
+    // only a line that starts with one is a comment.
+    const { document, diagnostics } = parseOk(`flowchart TB
+  A%%B
+  C%%D --> E
+  F-->G%%H
+  I%%J%%K
+  L%%%M
+  N%%
+  O%%[x]
+  P%%:::c
+  Q%% --> R`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual([
+      "A%%B",
+      "C%%D",
+      "E",
+      "F",
+      "G%%H",
+      "I%%J%%K",
+      "L%%%M",
+      "N%%",
+      "O%%",
+      "P%%",
+      "Q%%",
+      "R",
+    ]);
+    expect(document.nodes.find((node) => node.id === "O%%")?.label.text).toBe("x");
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([
+      ["C%%D", "E"],
+      ["F", "G%%H"],
+      ["Q%%", "R"],
+    ]);
+  });
+
+  it("still refuses a `%%` written after a space, at the `%%`", () => {
+    // Measured: `A %% x` and `A %%B` are both "Expecting 'SEMI', 'NEWLINE',
+    // 'EOF', … got 'NODE_STRING'" — two ids in a row, not a comment.
+    expect(positions("flowchart TB\n  A %% x")).toEqual(["error 2:5"]);
+    expect(positions("flowchart TB\n  A %%B")).toEqual(["error 2:5"]);
+    expect(parseFlowchart("flowchart TB\n  A %%B").diagnostics[0]?.message).toMatch(/^A "%%" in the middle of a line/);
   });
 
   it("refuses a `%%` after an edge at the `%%`, read by the flowchart parser itself", () => {

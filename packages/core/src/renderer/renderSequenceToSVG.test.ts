@@ -7,7 +7,6 @@ import type {
   PositionedMessage,
   PositionedBlock,
   PositionedBox,
-  PositionedDestroyMark,
   PositionedSequenceElement,
   SequenceArrow,
   SequenceArrowLine,
@@ -889,57 +888,6 @@ describe("renderSequenceToSVG", () => {
     expect(outerFrame.getAttribute("fill")).toBe("none");
   });
 
-  it("renders a destroy mark as a siren-destroy-mark path whose two strokes cross at the lifeline's truncation point", () => {
-    const mark: PositionedDestroyMark = { participantId: "Bob", x: 220, y: 180 };
-    const diagram: PositionedSequenceDiagram = {
-      ...buildParticipantsFixture(),
-      elements: [{ kind: "destroyMark", mark }],
-    };
-
-    const svg = renderSequenceToSVG(diagram);
-
-    const marks = svg.querySelectorAll("path.siren-destroy-mark");
-    expect(marks).toHaveLength(1);
-
-    const path = svg.querySelector('path.siren-destroy-mark[data-siren-id="Bob"]')!;
-    expect(path).not.toBeNull();
-    // An X: two separate strokes (two subpaths), four endpoints, centered on
-    // the truncation point — never a filled quad.
-    expect(path.getAttribute("fill")).toBe("none");
-    const d = path.getAttribute("d")!;
-    expect(d.match(/M/g)).toHaveLength(2);
-
-    const points = extractPathPoints(d);
-    expect(points).toHaveLength(4);
-    const xs = points.map((point) => point.x);
-    const ys = points.map((point) => point.y);
-    expect(Math.min(...xs)).toBeLessThan(mark.x);
-    expect(Math.max(...xs)).toBeGreaterThan(mark.x);
-    expect((Math.min(...xs) + Math.max(...xs)) / 2).toBe(mark.x);
-    expect((Math.min(...ys) + Math.max(...ys)) / 2).toBe(mark.y);
-  });
-
-  it("renders a destroy mark that sits inside a block as a mark nested in that block's group", () => {
-    const mark: PositionedDestroyMark = { participantId: "Bob", x: 220, y: 120 };
-    const block: PositionedBlock = {
-      id: "loop:1",
-      kind: "loop",
-      label: { label: plainLabel("retrying"), labelBox: boxOf("retrying"), anchor: headerAnchor(boxOf("retrying"), 40, 60) },
-      color: null,
-      x: 40,
-      y: 60,
-      width: 220,
-      height: 120,
-      dividers: [],
-      children: [{ kind: "destroyMark", mark }],
-    };
-    const svg = renderSequenceToSVG(buildBlockFixture(block));
-
-    expect(svg.querySelectorAll("path.siren-destroy-mark")).toHaveLength(1);
-    const group = svg.querySelector('g.siren-block[data-siren-id="loop:1"]')!;
-    expect(group.querySelector('path.siren-destroy-mark[data-siren-id="Bob"]')).not.toBeNull();
-  });
-
   it("renders a box as a siren-box group with a background rect at its bounding box, painted before every participant, lifeline and message it groups", () => {
     const box: PositionedBox = {
       id: "box:1",
@@ -1037,61 +985,28 @@ describe("renderSequenceToSVG", () => {
     expect(unlabelledGroup.querySelectorAll("text")).toHaveLength(0);
   });
 
-  it("renders a destroyed participant with a truncated lifeline, an X at the truncation point, and no second participant group at the bottom", () => {
+  it("draws a destroyed participant's closing box a second time, ending at its truncated lifeline's bottom, with no destroy mark", () => {
     const diagram = buildParticipantsFixture();
-    // Alice is destroyed at y=180: her lifeline stops there and the mark sits
-    // at the truncation point, and layout leaves her out of the bottom row.
-    diagram.participants[0]!.bottom = 180;
+    // Alice is destroyed partway down: layout ends her lifeline at the bottom
+    // of her closing box, centred on her destroying message's arrow (y 180),
+    // and leaves her out of the shared bottom row.
+    diagram.participants[0]!.bottom = 200;
     diagram.participants[0]!.drawnInBottomRow = false;
-    diagram.elements = [{ kind: "destroyMark", mark: { participantId: "Alice", x: 60, y: 180 } }];
 
     const svg = renderSequenceToSVG(diagram);
 
     const groups = svg.querySelectorAll('g.siren-participant[data-siren-id="Alice"]');
-    expect(groups).toHaveLength(1);
-    // The one group is the top one; nothing is drawn at the truncated end.
+    expect(groups).toHaveLength(2);
     expect(groups[0]!.querySelector("rect")!.getAttribute("y")).toBe("0");
+    // The closing box: her box again, its bottom edge on the lifeline's end.
+    const closing = groups[1]!.querySelector("rect")!;
+    expect(Number(closing.getAttribute("y")) + Number(closing.getAttribute("height"))).toBe(200);
 
     const lifeline = svg.querySelector('line.siren-lifeline[data-siren-id="Alice"]')!;
-    expect(lifeline.getAttribute("y2")).toBe("180");
+    expect(lifeline.getAttribute("y2")).toBe("200");
+    expect(svg.querySelectorAll(".siren-destroy-mark")).toHaveLength(0);
 
-    const mark = svg.querySelector('path.siren-destroy-mark[data-siren-id="Alice"]')!;
-    expect(mark).not.toBeNull();
-    const points = extractPathPoints(mark.getAttribute("d")!);
-    const xs = points.map((point) => point.x);
-    const ys = points.map((point) => point.y);
-    expect((Math.min(...xs) + Math.max(...xs)) / 2).toBe(60);
-    expect((Math.min(...ys) + Math.max(...ys)) / 2).toBe(180);
-  });
-
-  it("gives no bottom box to a participant destroyed inside a block, whose destroy mark is nested rather than top-level", () => {
-    const diagram = buildParticipantsFixture();
-    // Alice is destroyed inside a loop, so her mark is a child of the block
-    // element rather than a top-level one; layout leaves her out of the
-    // bottom row all the same.
-    diagram.participants[0]!.bottom = 180;
-    diagram.participants[0]!.drawnInBottomRow = false;
-    const block: PositionedBlock = {
-      id: "loop:1",
-      kind: "loop",
-      label: { label: plainLabel("each retry"), labelBox: boxOf("each retry"), anchor: headerAnchor(boxOf("each retry"), 20, 60) },
-      color: null,
-      x: 20,
-      y: 60,
-      width: 240,
-      height: 160,
-      dividers: [],
-      children: [{ kind: "destroyMark", mark: { participantId: "Alice", x: 60, y: 180 } }],
-    };
-    diagram.elements = [{ kind: "block", block }];
-
-    const svg = renderSequenceToSVG(diagram);
-
-    const aliceGroups = svg.querySelectorAll('g.siren-participant[data-siren-id="Alice"]');
-    expect(aliceGroups).toHaveLength(1);
-    expect(aliceGroups[0]!.querySelector("rect")!.getAttribute("y")).toBe("0");
-
-    // Bob survives, so he still gets his bottom box.
+    // Bob survives, so he gets his box in the bottom row as before.
     expect(svg.querySelectorAll('g.siren-participant[data-siren-id="Bob"]')).toHaveLength(2);
   });
 

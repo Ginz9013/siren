@@ -91,9 +91,12 @@ const CLASS_DECL_RE = new RegExp(
  * line is the block's first member line (the last capture): Mermaid 12.2.0
  * reads `class A { +int x` with the member `+int x`, and `class A { %% x`
  * with the member "%% x" — its block state has no comment rule (measured).
+ * A `}` on the line closes the block there, its text after it the sixth
+ * capture: `class A { +int x }` and `class A {}` are whole blocks to
+ * Mermaid, which reads members up to a `}` wherever it stands (measured).
  */
 const CLASS_BLOCK_OPEN_RE = new RegExp(
-  String.raw`^class\s+(\w+)(?:~(.+)~)?\s*${BRACKETED_LABEL}${STYLE_SHORTHAND}\s*\{([^}]*)$`,
+  String.raw`^class\s+(\w+)(?:~(.+)~)?\s*${BRACKETED_LABEL}${STYLE_SHORTHAND}\s*\{([^}]*)(?:\}(.*))?$`,
   "d",
 );
 /**
@@ -130,8 +133,40 @@ const STANDALONE_ANNOTATION_RE = /^<<(.+)>>\s+(\w+)$/;
  * and bounded exactly as a class's (`CLASS_DECL_RE`), all of it measured
  * the same way: a space may stand before the `[`, and `[""]` is a parse
  * error in Mermaid.
+ *
+ * What follows the `{` on its line is the body's first statement (the
+ * third capture): Mermaid 12.2.0 reads `namespace N { class A }` as N
+ * holding A, its `}` closing the namespace wherever it stands (measured).
+ * A `%%` there is no statement — `namespace N { %% x` is refused at it —
+ * so a line with one does not open a namespace here.
  */
-const NAMESPACE_OPEN_RE = new RegExp(String.raw`^namespace\s+(\w+)\s*${BRACKETED_LABEL}\s*\{$`, "d");
+const NAMESPACE_OPEN_RE = new RegExp(
+  String.raw`^namespace\s+(\w+)\s*${BRACKETED_LABEL}\s*\{(?!\s*%%)(.*)$`,
+  "d",
+);
+
+/**
+ * The index of the first `}` in `text` that closes no `{` opened before it
+ * on the same text, outside double quotes, or -1. On a namespace's line it
+ * is the namespace's own `}`: `class A { +x } }` closes the class block,
+ * then the namespace, and `class A["a}"] }` keeps its label's `}`
+ * (measured on Mermaid 12.2.0).
+ */
+function unmatchedClosingBrace(text: string): number {
+  let depth = 0;
+  let quoted = false;
+  for (let at = 0; at < text.length; at++) {
+    const char = text[at];
+    if (char === '"') quoted = !quoted;
+    else if (quoted) continue;
+    else if (char === "{") depth++;
+    else if (char === "}") {
+      if (depth === 0) return at;
+      depth--;
+    }
+  }
+  return -1;
+}
 
 /**
  * A free note, `note "text"`. Its text is quoted, as Mermaid requires, and
@@ -519,6 +554,23 @@ export function parseClassDiagram(source: string): DiagramParseResult {
    * next stage.
    */
   let sawError = false;
+  /**
+   * The class block closed last, and the index of the line its `}` stands
+   * on — so a member on the next line can be refused as the misplaced `}`
+   * it most likely is, rather than as an unrecognized line.
+   */
+  let lastClosedBlock: { id: string; closedAt: number } | null = null;
+  /** How many `namespace` blocks enclose the statement being parsed. */
+  let namespaceDepth = 0;
+  /**
+   * The `}`s written after a block's own `}` on its line, each closing one
+   * of the namespaces around it in turn — `class A {` ⏎ `+x }}` closes A,
+   * then its namespace, as Mermaid 12.2.0 reads it (measured). Each
+   * namespace the block stands in takes one as it returns, and the one
+   * taking the last refuses the text after them (`after`, starting at
+   * `line`:`column`) as text after its own `}`.
+   */
+  let pendingNamespaceCloses: { count: number; after: string; line: number; column: number } | null = null;
   let accTitle: string | null = null;
   let accDescr: string | null = null;
   /**
@@ -656,17 +708,68 @@ export function parseClassDiagram(source: string): DiagramParseResult {
   };
 
   /**
-   * Whether `rawLine`, at `lineIndex`, is a block's closing `}` with a `%%`
-   * after it — refused at that `%%` here, the block still closed by it.
-   * Measured: `} %% x` closing a class block or a namespace is "Expecting
-   * 'NEWLINE', 'EOF', 'STRUCT_STOP', got 'PCT'", on the last line too.
+   * Reads `after`, the text after the `}` closing `owner` `id`'s block on
+   * its line, starting at `line`:`column`. The `}`s it opens with, up to
+   * one for each of the `enclosing` namespaces around that block, close
+   * those namespaces (`pendingNamespaceCloses`), and what follows them is
+   * refused by the outermost one closed; with no such `}`, all of `after`
+   * is refused here as the block's own (`refuseTextAfterBrace`).
    */
-  const refusedAfterClosingBrace = (rawLine: string, lineIndex: number): boolean => {
-    const match = /^(\s*\}\s*)%%/.exec(rawLine);
-    if (match === null) return false;
-    diagnostics.push(midLinePercentError(lineIndex + 1, match[1].length + 1));
+  const readAfterClosingBrace = (
+    owner: "class" | "namespace",
+    id: string,
+    after: string,
+    enclosing: number,
+    line: number,
+    column: number,
+  ): void => {
+    let consumed = 0;
+    let count = 0;
+    while (count < enclosing) {
+      const brace = /^\s*\}/.exec(after.slice(consumed));
+      if (brace === null) break;
+      consumed += brace[0].length;
+      count++;
+    }
+    if (count === 0) {
+      refuseTextAfterBrace(owner, id, after, line, column);
+      return;
+    }
+    pendingNamespaceCloses = { count, after: after.slice(consumed), line, column: column + consumed };
+  };
+
+  /**
+   * Refuses what follows the `}` closing `owner` `id`'s block on its line —
+   * `after`, starting at `line`:`column` — unless it is only whitespace.
+   * Mermaid 12.2.0 refuses a statement there ("… got 'ALPHA'"), a second
+   * `}` ("… got 'STRUCT_STOP'") and a `%%` ("… got 'PCT'"), on the last
+   * line too (measured), so each is an error (ADR-0017): a `%%` at the
+   * `%%`, as everywhere a mid-line one is refused, anything else at the text.
+   * A namespace's `}` is measured the same way.
+   */
+  const refuseTextAfterBrace = (
+    owner: "class" | "namespace",
+    id: string,
+    after: string,
+    line: number,
+    column: number,
+  ): void => {
+    const text = after.trim();
+    if (text.length === 0) return;
+    const at = column + after.length - after.trimStart().length;
+    diagnostics.push(
+      text.startsWith("%%")
+        ? midLinePercentError(line, at)
+        : {
+            severity: "error",
+            message:
+              `Unexpected text after the "}" that closes ${owner} "${id}": "${text}". ` +
+              "Remove it, or start the next statement on a line of its own.",
+            line,
+            column: at,
+          },
+    );
     sawError = true;
-    return true;
   };
 
   /**
@@ -736,22 +839,82 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     if (namespaceOpenMatch !== null) {
       const classIds: string[] = [];
       let closed = false;
+      let heldStatement = false;
       let bodyIndex = startIndex + 1;
+      namespaceDepth++;
 
-      for (; bodyIndex < lines.length; bodyIndex++) {
-        const bodyLine = lines[bodyIndex].trim();
-        if (bodyLine.length === 0) {
-          continue;
-        }
-        if (bodyLine === "}" || refusedAfterClosingBrace(lines[bodyIndex], bodyIndex)) {
-          closed = true;
-          break;
-        }
+      /**
+       * Reads `text`, standing at `offset` on line `index`, as one of the
+       * namespace's statements, up to a `}` closing nothing opened before it
+       * on that text — the namespace's own, which Mermaid 12.2.0 reads
+       * wherever it stands (`class B }`, measured). The text is read in
+       * place, its columns kept. Returns the index of the last line read.
+       */
+      const readBodyText = (index: number, text: string, offset: number): number => {
+        const brace = unmatchedClosingBrace(text);
+        lines[index] = " ".repeat(offset) + (brace === -1 ? text : text.slice(0, brace));
         // The body is parsed by the same statement parser as the top
         // level, which is what lets a namespace hold block-form classes:
         // the inner call consumes that class's own `}`, so it is never
         // mistaken for the namespace's.
-        bodyIndex = parseStatement(bodyIndex, classIds);
+        const holdsStatement = lines[index].trim().length > 0;
+        heldStatement ||= holdsStatement;
+        const lastIndex = holdsStatement ? parseStatement(index, classIds) : index;
+        if (pendingNamespaceCloses !== null) {
+          const pending = pendingNamespaceCloses;
+          pending.count--;
+          if (pending.count === 0) {
+            pendingNamespaceCloses = null;
+            refuseTextAfterBrace("namespace", namespaceOpenMatch[1], pending.after, pending.line, pending.column);
+          }
+          closed = true;
+          return lastIndex;
+        }
+        if (brace === -1) return lastIndex;
+        readAfterClosingBrace(
+          "namespace",
+          namespaceOpenMatch[1],
+          text.slice(brace + 1),
+          namespaceDepth - 1,
+          index + 1,
+          offset + brace + 2,
+        );
+        closed = true;
+        return index;
+      };
+
+      // Text after the `{` is the body's first statement.
+      const firstStatement = namespaceOpenMatch[3];
+      if (firstStatement.trim().length > 0) {
+        bodyIndex = readBodyText(startIndex, firstStatement, column - 1 + namespaceOpenMatch.indices![3]![0]);
+        if (!closed) bodyIndex++;
+      }
+
+      for (; !closed && bodyIndex < lines.length; bodyIndex++) {
+        const bodyRawLine = lines[bodyIndex];
+        const bodyLine = bodyRawLine.trim();
+        if (bodyLine.length === 0) {
+          continue;
+        }
+        // A line opening with `}` closes the namespace, any text after it
+        // refused (`} %% x` at its `%%`, measured "… got 'PCT'").
+        bodyIndex = readBodyText(bodyIndex, bodyLine, bodyRawLine.length - bodyRawLine.trimStart().length);
+        if (closed) break;
+      }
+
+      if (closed && !heldStatement) {
+        // Measured: Mermaid 12.2.0 refuses `namespace N {}` and a body of
+        // blank lines alike ("… got 'STRUCT_STOP'"), and an empty cluster
+        // has no use, so it is refused (ADR-0017).
+        diagnostics.push({
+          severity: "error",
+          message:
+            `Empty "namespace ${namespaceOpenMatch[1]}" block: a namespace needs at least one statement inside it. ` +
+            "Add a class to it, or remove the namespace.",
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
       }
 
       if (!closed) {
@@ -774,6 +937,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
+      namespaceDepth--;
       return bodyIndex;
     }
 
@@ -1034,11 +1198,26 @@ export function parseClassDiagram(source: string): DiagramParseResult {
           return;
         }
 
-        const member = parseMember(text, memberLine, memberColumn);
+        // A `;` outside a method's parentheses and a `~generic~` is two
+        // members run together, which Mermaid 12.2.0 draws as one:
+        // `+int x; +foo()` is the single method `+int x; +foo()`, and
+        // `+int x; y` the single attribute `+int x; y` (measured) — so it is
+        // refused even where Siren could read the text as one member, and
+        // the error says how to write two (ADR-0001). Inside `(…)` or `~…~`
+        // it is what was written: `+foo(a; b)` keeps the parameters `a; b`.
+        // A `;` ending the member separates nothing: `+int x;` is one
+        // attribute to Mermaid as written, refused only as unrecognized.
+        const separated = text
+          .replace(/\([^)]*\)|~[^~]*~/g, "")
+          .replace(/;\s*$/, "")
+          .includes(";")
+          ? '. A ";" does not separate members: write each member on a line of its own.'
+          : "";
+        const member = separated === "" ? parseMember(text, memberLine, memberColumn) : null;
         if (member === null) {
           diagnostics.push({
             severity: "error",
-            message: `Unrecognized class member: "${text}"`,
+            message: `Unrecognized class member: "${text}"${separated}`,
             line: memberLine,
             column: memberColumn,
           });
@@ -1054,20 +1233,52 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         readMemberLine(firstMember.trim(), lineNumber, column + offset);
       }
 
-      for (; bodyIndex < lines.length; bodyIndex++) {
+      // A block closed on its own opening line consumes no line after it.
+      if (blockOpenMatch[6] !== undefined) {
+        readAfterClosingBrace(
+          "class",
+          blockOpenMatch[1],
+          blockOpenMatch[6],
+          namespaceDepth,
+          lineNumber,
+          column + blockOpenMatch.indices![6]![0],
+        );
+        closed = true;
+        bodyIndex = startIndex;
+      }
+
+      for (; !closed && bodyIndex < lines.length; bodyIndex++) {
         const bodyRawLine = lines[bodyIndex];
         const bodyLine = bodyRawLine.trim();
         if (bodyLine.length === 0) {
           continue;
         }
-        if (bodyLine === "}" || refusedAfterClosingBrace(bodyRawLine, bodyIndex)) {
+        const bodyColumn = bodyRawLine.length - bodyRawLine.trimStart().length + 1;
+        // A `}` closes the block wherever it stands, after a member on that
+        // member's line too, as Mermaid 12.2.0 reads `+int y }` (measured).
+        const brace = bodyLine.indexOf("}");
+        if (brace !== -1) {
+          const member = bodyLine.slice(0, brace).trimEnd();
+          if (member.length > 0) {
+            readMemberLine(member, bodyIndex + 1, bodyColumn);
+          }
+          readAfterClosingBrace(
+            "class",
+            blockOpenMatch[1],
+            bodyLine.slice(brace + 1),
+            namespaceDepth,
+            bodyIndex + 1,
+            bodyColumn + brace + 1,
+          );
           closed = true;
           break;
         }
-        readMemberLine(bodyLine, bodyIndex + 1, bodyRawLine.length - bodyRawLine.trimStart().length + 1);
+        readMemberLine(bodyLine, bodyIndex + 1, bodyColumn);
       }
 
-      if (!closed) {
+      if (closed) {
+        lastClosedBlock = { id: blockOpenMatch[1], closedAt: bodyIndex };
+      } else {
         diagnostics.push({
           severity: "error",
           message: `Unterminated "class ${blockOpenMatch[1]}" block: missing matching "}"`,
@@ -1176,6 +1387,28 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         lines[startIndex] = rawLine.slice(0, column - 1) + before;
         return parseStatement(startIndex, namespaceMembers);
       }
+    }
+
+    // A member on the line after a class block's `}` (blank lines aside) is
+    // most likely a `}` written too early — Mermaid 12.2.0 refuses it
+    // ("… got 'PLUS'", measured) — so the error says which `}` to move.
+    let previous = startIndex - 1;
+    while (previous >= 0 && lines[previous].trim().length === 0) previous--;
+    if (
+      lastClosedBlock !== null &&
+      lastClosedBlock.closedAt === previous &&
+      parseMember(line, lineNumber, column) !== null
+    ) {
+      diagnostics.push({
+        severity: "error",
+        message:
+          `Member "${line}" is outside class "${lastClosedBlock.id}": the "}" on line ${previous + 1} already closed its block. ` +
+          'Move the "}" below the class\'s last member.',
+        line: lineNumber,
+        column,
+      });
+      sawError = true;
+      return startIndex;
     }
 
     diagnostics.push({

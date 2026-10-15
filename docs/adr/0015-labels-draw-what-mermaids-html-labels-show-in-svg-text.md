@@ -4,6 +4,9 @@ status: accepted
 
 # Labels draw what Mermaid's HTML labels show, and draw it in SVG text
 
+> Amended by decision `01M50C44FE`: `<img>`'s diagnostic no longer names `A@{ img: "…" }`, which
+> Siren refuses as not yet supported; it asks for the image to be described in the label's text.
+
 A label's **picture** is held to what Mermaid shows a reader under its own default,
 `htmlLabels: true`, where a label is HTML inside a `<foreignObject>` passed through DOMPurify. A
 label's **drawing** stays SVG `<text>` and `<tspan>`, and author text still reaches the DOM through

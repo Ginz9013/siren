@@ -506,11 +506,6 @@
   fill: var(--siren-node-text);
 }
 
-.siren-destroy-mark {
-  stroke: var(--siren-edge-stroke);
-  stroke-width: var(--siren-stroke-width);
-}
-
 .siren-title {
   font-family: var(--siren-font-family);
   font-size: var(--siren-title-font-size);
@@ -1450,11 +1445,12 @@
 
 /*
  * The sequence diagram's own `outline` rules. A participant is one target
- * drawn several times under one id (ADR-0009) — a box or actor figure in each
- * participant row, the lifeline, and the destroy mark — so every one of them
- * is outlined together. The row's shapes carry no class of their own, which
- * is why they are selected by element inside `.siren-participant`. The
- * lifeline keeps its dash: only its color and width change.
+ * drawn several times under one id (ADR-0009) — a box or actor figure at each
+ * end of the lifeline (a participant row, or a destroyed one's closing box)
+ * and the lifeline itself — so every one of them is outlined together. The
+ * row's shapes carry no class of their own, which is why they are selected
+ * by element inside `.siren-participant`. The lifeline keeps its dash: only
+ * its color and width change.
  *
  * A message outlines its line and not its arrowhead: the markers live in
  * `<defs>`, shared by every message, where the highlight class on one
@@ -1470,7 +1466,6 @@
 .siren-participant.siren-highlight-outline circle,
 .siren-participant.siren-highlight-outline line,
 .siren-lifeline.siren-highlight-outline,
-.siren-destroy-mark.siren-highlight-outline,
 .siren-message.siren-highlight-outline .siren-message-arrow,
 .siren-block.siren-highlight-outline > .siren-block-frame,
 .siren-block.siren-highlight-outline > .siren-block-divider,
@@ -1545,7 +1540,6 @@
 .siren-participant.siren-highlight-glow circle,
 .siren-participant.siren-highlight-glow line,
 .siren-lifeline.siren-highlight-glow,
-.siren-destroy-mark.siren-highlight-glow,
 .siren-message.siren-highlight-glow .siren-message-arrow,
 .siren-block.siren-highlight-glow > .siren-block-frame,
 .siren-block.siren-highlight-glow > .siren-block-divider,

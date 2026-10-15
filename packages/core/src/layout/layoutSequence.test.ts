@@ -9,7 +9,7 @@ import type {
   SequenceModel,
   TextMeasurer,
 } from "../contracts";
-import { layoutSequence } from "./layoutSequence";
+import { ACTOR_FIGURE_HALF_WIDTH, layoutSequence } from "./layoutSequence";
 
 /** Deterministic fake measurer, same fixture pattern as layoutGraph.test.ts. */
 const fakeMeasurer: TextMeasurer = {
@@ -123,14 +123,6 @@ function messagesOf(positioned: { elements: PositionedSequenceElement[] }) {
       el.kind === "message",
     )
     .map((el) => el.message);
-}
-
-function destroyMarksOf(positioned: { elements: PositionedSequenceElement[] }) {
-  return positioned.elements
-    .filter((el): el is Extract<PositionedSequenceElement, { kind: "destroyMark" }> =>
-      el.kind === "destroyMark",
-    )
-    .map((el) => el.mark);
 }
 
 function notesOf(positioned: { elements: PositionedSequenceElement[] }) {
@@ -899,7 +891,7 @@ describe("layoutSequence", () => {
     expect(byId.C.bottom).toBe(byId.A.bottom);
   });
 
-  it("ends a destroyed participant's lifeline at its destroy statement's y and emits a destroy mark there", () => {
+  it("draws a destroyed participant's closing box on its destroy statement's own row when no message destroys it, with no mark", () => {
     const model: SequenceModel = {
       title: null,
       accTitle: null,
@@ -922,23 +914,21 @@ describe("layoutSequence", () => {
 
     const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
     const [goodbye, carryOn] = messagesOf(positioned);
-    const marks = destroyMarksOf(positioned);
 
-    expect(marks).toHaveLength(1);
-    expect(marks[0].participantId).toBe("B");
-    expect(marks[0].x).toBe(byId.B.x);
+    // A `destroy` refused for its missing destroying message: Bob's closing
+    // box (drawn a second time, ending at his lifeline's bottom) takes the
+    // statement's own row, between the two messages, as a refused `create`'s
+    // box takes its own.
+    expect(positioned.elements.map((el) => el.kind as string)).not.toContain("destroyMark");
+    expect(byId.B.bottom - byId.B.height).toBeGreaterThan(goodbye.y);
+    expect(byId.B.bottom).toBeLessThan(carryOn.y);
 
-    // The mark sits at the destroy statement's row, between the two messages.
-    expect(marks[0].y).toBeGreaterThan(goodbye.y);
-    expect(marks[0].y).toBeLessThan(carryOn.y);
-
-    // Bob's lifeline stops there; Alice's still reaches the diagram's bottom.
-    expect(byId.B.bottom).toBe(marks[0].y);
+    // Alice's still reaches the diagram's bottom.
     expect(byId.B.bottom).toBeLessThan(byId.A.bottom);
     expect(byId.B.top).toBe(byId.A.top);
   });
 
-  it("draws nothing for a `destroy` whose participant no message destroyed: no mark, no row, the lifeline to the bottom", () => {
+  it("draws nothing for a `destroy` whose participant no message destroyed: no row, the lifeline to the bottom", () => {
     // `buildSequenceModel` leaves a participant whose `destroy` had no
     // message after it destroyed by nothing (`destroyedAt: null`), as
     // Mermaid 12.2.0 draws it (nook 01M4YWYFJ); its `destroy` stays in the
@@ -962,7 +952,7 @@ describe("layoutSequence", () => {
     });
 
     const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
-    expect(destroyMarksOf(positioned)).toEqual([]);
+    expect(positioned.elements).toEqual(plain.elements);
     expect(byId.B!.bottom).toBe(byId.A!.bottom);
     expect(positioned.height).toBe(plain.height);
     expect(positioned.participants).toEqual(plain.participants);
@@ -973,8 +963,8 @@ describe("layoutSequence", () => {
     // destroyed participant's lifeline ends on the destroying message's own
     // row — Mermaid centres X's closing box on that arrow — and the arrow is
     // drawn exactly as tall a row as any other message; `destroy` claims no
-    // row of its own. Siren marks the end with its X, so the X sits on the
-    // arrow's end at X's lane: its tip when X receives, its tail when X sends.
+    // row of its own. Siren draws that closing box too, centred on the
+    // arrow whether X receives it or sends it.
     function destroyedBy(from: string, to: string): SequenceModel {
       // `buildSequenceModel` marks the destroying message with the id it
       // destroys; that mark is the pairing layout reads.
@@ -998,42 +988,142 @@ describe("layoutSequence", () => {
       };
     }
 
-    it("puts X's mark on the arrow's tip and ends its lifeline there when X receives it, with no row for `destroy`", () => {
+    // X's closing box: the participant's box, drawn a second time ending at
+    // its lifeline's bottom (`PositionedParticipant.bottom`), as every
+    // bottom-row box is.
+    const closingBoxCentre = (p: { bottom: number; height: number }) => p.bottom - p.height / 2;
+
+    it("centres X's closing box on the arrow and ends its lifeline there when X receives it, emitting no mark", () => {
       const positioned = layoutSequence(destroyedBy("A", "B"), {
         measureText: fakeMeasurer,
       });
 
       const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
-      const [hi, bye, ok] = messagesOf(positioned);
-      expect(destroyMarksOf(positioned)).toEqual([{ participantId: "B", x: bye!.toX, y: bye!.y }]);
-      expect(byId.B!.bottom).toBe(bye!.y);
-      // Every row is a plain message row: `destroy` added nothing between them.
-      expect(bye!.y - hi!.y).toBe(ok!.y - bye!.y);
+      const [, bye] = messagesOf(positioned);
+      expect(closingBoxCentre(byId.B!)).toBe(bye!.y);
+      expect(positioned.elements.map((el) => el.kind as string)).not.toContain("destroyMark");
     });
 
-    it("puts X's mark on the arrow's tail and ends its lifeline there when X sends it", () => {
+    it("centres X's closing box on the arrow when X sends it", () => {
       const positioned = layoutSequence(destroyedBy("B", "A"), {
         measureText: fakeMeasurer,
       });
 
       const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
-      const [hi, bye, ok] = messagesOf(positioned);
-      expect(destroyMarksOf(positioned)).toEqual([{ participantId: "B", x: bye!.fromX, y: bye!.y }]);
-      expect(byId.B!.bottom).toBe(bye!.y);
-      expect(bye!.y - hi!.y).toBe(ok!.y - bye!.y);
+      const [, bye] = messagesOf(positioned);
+      expect(closingBoxCentre(byId.B!)).toBe(bye!.y);
+      expect(positioned.elements.map((el) => el.kind as string)).not.toContain("destroyMark");
     });
 
-    it("keeps X's mark on X's own lane, at the arrow's tail, when X sends the destroying message to itself", () => {
+    it("centres X's closing box on the arrow's row when X sends the destroying message to itself", () => {
       const positioned = layoutSequence(destroyedBy("B", "B"), { measureText: fakeMeasurer });
 
       const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
       const [, bye] = messagesOf(positioned);
-      // A self-message's arrow loops out from the lane and back; its tail is
-      // on B's lane, its tip at the loop's far end.
-      expect(bye!.fromX).toBe(byId.B!.x);
-      expect(bye!.toX).not.toBe(byId.B!.x);
-      expect(destroyMarksOf(positioned)).toEqual([{ participantId: "B", x: byId.B!.x, y: bye!.y }]);
-      expect(byId.B!.bottom).toBe(bye!.y);
+      expect(closingBoxCentre(byId.B!)).toBe(bye!.y);
+      expect(positioned.elements.map((el) => el.kind as string)).not.toContain("destroyMark");
+    });
+
+    it("stops the destroying arrow at the closing box's near edge, at whichever end X is", () => {
+      // Measured: `A-xB` and `B->>A` both meet B's closing box at its left
+      // edge rather than its lane (Mermaid's `receiverAdjustment` /
+      // `senderAdjustment`), as a creating arrow meets the created box.
+      const received = layoutSequence(destroyedBy("A", "B"), { measureText: fakeMeasurer });
+      const receivedB = received.participants.find((p) => p.id === "B")!;
+      expect(messagesOf(received)[1]!.toX).toBe(receivedB.x - receivedB.width / 2);
+
+      const sent = layoutSequence(destroyedBy("B", "A"), { measureText: fakeMeasurer });
+      const sentB = sent.participants.find((p) => p.id === "B")!;
+      const sentBye = messagesOf(sent)[1]!;
+      expect(sentBye.fromX).toBe(sentB.x - sentB.width / 2);
+      expect(sentBye.toX).toBe(sent.participants.find((p) => p.id === "A")!.x);
+    });
+
+    it("stops the destroying arrow at an actor's arm tip, and leaves a message X sends itself on its lane", () => {
+      // Measured: `A-xB` to a destroyed `actor B` ends 18 short of B's lane
+      // plus the 3 and the marker (`ACTOR_TYPE_WIDTH / 2 + 3`), as a creating
+      // arrow does; Siren stops it at the arm tip, as it does that one.
+      const actorModel = destroyedBy("A", "B");
+      actorModel.participants[1] = { ...actorModel.participants[1]!, participantKind: "actor" };
+      const positioned = layoutSequence(actorModel, { measureText: fakeMeasurer });
+      const b = positioned.participants.find((p) => p.id === "B")!;
+      expect(messagesOf(positioned)[1]!.toX).toBe(b.x - ACTOR_FIGURE_HALF_WIDTH);
+
+      const self = layoutSequence(destroyedBy("B", "B"), { measureText: fakeMeasurer });
+      const selfB = self.participants.find((p) => p.id === "B")!;
+      expect(messagesOf(self)[1]!.fromX).toBe(selfB.x);
+    });
+
+    it("moves every row after the destroying message down by half X's box, and the diagram with them", () => {
+      // Measured: `A->>A: after` is 38 lower than with no `destroy` (76px
+      // boxes), and the diagram 38 taller.
+      const positioned = layoutSequence(destroyedBy("A", "B"), { measureText: fakeMeasurer });
+      const plainModel = destroyedBy("A", "B");
+      plainModel.participants = [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")];
+      plainModel.statements = [
+        messageStatement("m1", "A", "B", "hi"),
+        messageStatement("m2", "A", "B", "bye"),
+        messageStatement("m3", "A", "A", "ok"),
+      ];
+      const plain = layoutSequence(plainModel, { measureText: fakeMeasurer });
+
+      const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+      const [, bye, ok] = messagesOf(positioned);
+      const [, plainBye, plainOk] = messagesOf(plain);
+      const half = byId.B!.height / 2;
+      expect(bye!.y).toBe(plainBye!.y);
+      expect(ok!.y - plainOk!.y).toBe(half);
+      expect(positioned.height - plain.height).toBe(half);
+      // The next row starts below the closing box.
+      expect(byId.B!.bottom).toBeLessThan(ok!.y);
+    });
+
+    it("draws X's closing box inside a `loop` it is destroyed in, the loop's frame growing by half the box", () => {
+      // Measured: with `destroy B` and its destroying message inside a
+      // `loop`, Mermaid 12.2.0 draws the closing box inside the loop's frame,
+      // which grows 38 taller (76px boxes) than with no `destroy`.
+      const inLoop = (model: SequenceModel): SequenceModel => ({
+        ...model,
+        statements: [
+          {
+            kind: "block",
+            block: {
+              id: "loop:1",
+              kind: "loop",
+              touchedParticipantIds: ["A", "B"],
+              color: null,
+              branches: [{ label: plainLabel("each"), statements: model.statements }],
+            },
+          },
+        ],
+      });
+      const plainModel = destroyedBy("A", "B");
+      plainModel.participants = [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")];
+      plainModel.statements = [
+        messageStatement("m1", "A", "B", "hi"),
+        messageStatement("m2", "A", "B", "bye"),
+        messageStatement("m3", "A", "A", "ok"),
+      ];
+      const loopOf = (positioned: { elements: PositionedSequenceElement[] }) => {
+        const el = positioned.elements[0]!;
+        if (el.kind !== "block") throw new Error("expected the loop block");
+        return el.block;
+      };
+
+      const positioned = layoutSequence(inLoop(destroyedBy("A", "B")), { measureText: fakeMeasurer });
+      const plain = layoutSequence(inLoop(plainModel), { measureText: fakeMeasurer });
+
+      const loop = loopOf(positioned);
+      const b = positioned.participants.find((p) => p.id === "B")!;
+      const closingTop = b.bottom - b.height;
+      expect(closingTop).toBeGreaterThan(loop.y);
+      expect(b.bottom).toBeLessThan(loop.y + loop.height);
+      expect(b.x - b.width / 2).toBeGreaterThanOrEqual(loop.x);
+      expect(b.x + b.width / 2).toBeLessThanOrEqual(loop.x + loop.width);
+
+      const plainLoop = loopOf(plain);
+      expect(loop.y).toBe(plainLoop.y);
+      expect(loop.height - plainLoop.height).toBe(b.height / 2);
     });
 
     it("leaves X out of the bottom row, at top level or inside a block, and keeps every participant nothing destroys in it", () => {
@@ -1106,14 +1196,15 @@ describe("layoutSequence", () => {
       const block = blockOf(positioned);
       const [hi, bye] = messagesOf({ elements: block.children });
       const [plainHi, plainBye] = messagesOf({ elements: blockOf(plain).children });
-      // One mark, on the destroying message's tail (B sends it), and B's
-      // lifeline stops there.
-      expect(destroyMarksOf({ elements: block.children })).toEqual([{ participantId: "B", x: bye!.fromX, y: bye!.y }]);
-      expect(byId.B!.bottom).toBe(bye!.y);
-      // `destroy` takes no row: the two messages and the branch's end sit
-      // exactly where they do with no `destroy` in the branch.
+      // B's closing box is centred on the destroying message, which B sends.
+      expect(closingBoxCentre(byId.B!)).toBe(bye!.y);
+      // `destroy` takes no row: the two messages sit exactly where they do
+      // with no `destroy` in the branch. The box's lower half pushes the
+      // branch's end down by half the box, so the box stays inside its branch
+      // (measured: a `loop` around the pair grows by half the box).
       expect(bye!.y - hi!.y).toBe(plainBye!.y - plainHi!.y);
-      expect(block.dividers[0]!.y).toBe(blockOf(plain).dividers[0]!.y);
+      expect(block.dividers[0]!.y - blockOf(plain).dividers[0]!.y).toBe(byId.B!.height / 2);
+      expect(byId.B!.bottom).toBeLessThanOrEqual(block.dividers[0]!.y);
     });
   });
 
@@ -1493,13 +1584,12 @@ describe("layoutSequence", () => {
     if (blockElement.kind !== "block") throw new Error("expected block element");
 
     const [work] = messagesOf({ elements: blockElement.block.children });
-    const [mark] = destroyMarksOf({ elements: blockElement.block.children });
 
-    // Both ends of the span come from the nested statements, not the diagram edges.
+    // Both ends of the span come from the nested statements, not the diagram
+    // edges: the closing box sits on the `destroy`'s own row, below `work`.
     expect(byId.C.top).toBeGreaterThan(byId.A.top);
     expect(byId.C.top).toBeLessThan(work.y);
-    expect(byId.C.bottom).toBe(mark.y);
-    expect(mark.y).toBeGreaterThan(work.y);
+    expect(byId.C.bottom - byId.C.height).toBeGreaterThan(work.y);
     expect(byId.C.bottom).toBeLessThan(byId.A.bottom);
 
     // The enclosing block still contains the whole truncated lifeline.
@@ -1558,11 +1648,12 @@ describe("layoutSequence", () => {
     };
 
     const bare = layoutSequence(withoutBottomRow, { measureText: fakeMeasurer });
-    const lastMarkY = Math.max(...destroyMarksOf(bare).map((mark) => mark.y));
+    // Each closing box ends its lifeline; the diagram ends just below the last.
+    const lastClosingBoxBottom = Math.max(...bare.participants.map((p) => p.bottom));
     const shortestParticipant = Math.min(...bare.participants.map((p) => p.height));
 
-    expect(lastMarkY).toBeLessThanOrEqual(bare.height);
-    expect(bare.height - lastMarkY).toBeLessThan(shortestParticipant);
+    expect(lastClosingBoxBottom).toBeLessThanOrEqual(bare.height);
+    expect(bare.height - lastClosingBoxBottom).toBeLessThan(shortestParticipant);
   });
 
   it("gives a box a background rect spanning its member lanes only, over the diagram's full height", () => {
@@ -1656,11 +1747,10 @@ describe("layoutSequence", () => {
     expect(box.y + box.height).toBeLessThanOrEqual(positionedWith.height);
 
     const byId = Object.fromEntries(positionedWith.participants.map((p) => [p.id, p]));
-    const [mark] = destroyMarksOf(positionedWith);
 
-    // The created participant's box and the destroy mark both fit inside the height.
+    // The created participant's box and its closing box (ending at its
+    // lifeline's bottom, checked below) both fit inside the height.
     expect(byId.C.top + byId.C.height).toBeLessThanOrEqual(positionedWith.height);
-    expect(mark.y).toBeLessThanOrEqual(positionedWith.height);
     for (const participant of positionedWith.participants) {
       expect(participant.bottom).toBeLessThanOrEqual(positionedWith.height);
     }

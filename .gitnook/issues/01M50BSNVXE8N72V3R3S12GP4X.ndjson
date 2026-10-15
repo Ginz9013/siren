@@ -1,0 +1,2 @@
+{"id":"01M50BSNVXANTJWFHMFZJTVFAH","t":1,"a":"83a1","op":"create","title":"class：巢狀 namespace 沒畫外框（Mermaid 畫 N 包住 M）"}
+{"id":"01M50BSNW8Q7MS96T1DARVPZ45","t":2,"a":"83a1","op":"set","k":"description","v":"由 board mermaid-parity-backlog T8（`01M4ZY2DA1MY0V5GS3RDP3XTEQ`）實作時發現。\n\nMermaid 12.2.0：`namespace N { namespace M { class A } }`（單行與多行皆然）畫出 N 包住 M、A 在 M 內。\nSiren：parser 讀得出巢狀，但 layout（`layoutClassDiagram.ts`）會略過沒有直接 class 成員的 namespace，也沒有 cluster 巢狀，所以 N 的框不見——屬於默默畫錯（ADR-0001）。\n\n待規劃：cluster 巢狀的 layout；同時決定在支援前是否該先警告或拒絕。"}

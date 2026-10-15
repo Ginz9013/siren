@@ -264,7 +264,7 @@ timeline:
     const bare = parseSiren(unquoted);
     expect(bare.document).toBeNull();
     expect(bare.diagnostics.map((d) => d.message)).toEqual([
-      'Unrecognized flowchart line: "A[a]b]"',
+      'A node label without quotes cannot hold "]". Put the whole label in quotes: A["a]b"]',
     ]);
   });
 
@@ -460,8 +460,9 @@ timeline:
   });
 
   it("reads `A{{text}}` as a hexagon, not as a diamond labelled `{text}`", () => {
-    // Ticket 01 excluded `{` from `BRACE_LABEL_CONTENT` precisely so this
-    // spelling could not be swallowed as a rhombus labelled `{Hexagon}`.
+    // Ticket 01 excluded `{` from the brace label content (now
+    // `LABEL_CONTENT`) so this spelling could not be swallowed as a rhombus
+    // labelled `{Hexagon}`.
     // Now that a hexagon is drawn, the exclusion earns its keep the other
     // way round: it is what lets the two brace spellings be told apart at
     // all, since `\{…\}` can never reach across an inner brace.
@@ -506,7 +507,7 @@ timeline:
     const refused = parseSiren(`flowchart TB\n  A{{a}b}}\n`);
     expect(refused.document).toBeNull();
     expect(refused.diagnostics.map((d) => d.message)).toEqual([
-      'Unrecognized flowchart line: "A{{a}b}}"',
+      'A node label without quotes cannot hold "}". Put the whole label in quotes: A{{"a}b"}}',
     ]);
   });
 
@@ -1371,7 +1372,7 @@ timeline:
     expect(diagnostics).toEqual([
       {
         severity: "error",
-        message: 'Unrecognized style declaration: "oops"',
+        message: '"oops" is not a style declaration. Write each declaration as property:value, such as stroke:#f00',
         line: 3,
         column: 3,
       },
@@ -1927,7 +1928,7 @@ timeline:
     expect(diagnostics).toEqual([
       {
         severity: "error",
-        message: 'Unrecognized style declaration: "oops"',
+        message: '"oops" is not a style declaration. Write each declaration as property:value, such as stroke:#f00',
         line: 3,
         column: 3,
       },
@@ -3519,6 +3520,58 @@ describe("a `%%` in the middle of a flowchart line", () => {
 
     expect(commented.diagnostics).toEqual([]);
     expect(commented).toEqual(plain);
+  });
+
+  it("reads a `%%` glued to the end of a timeline target as the target's, as the flowchart reads the id", () => {
+    // `A%%x` is one node id (measured on Mermaid 12.2.0), so a timeline
+    // must be able to name it; cutting the line at its `%%` used to aim
+    // every action at `A` instead, silently.
+    const { document, diagnostics } = parseSiren(
+      "flowchart TB\n  A --> A%%x\ntimeline:\n  enter A%%x fade\n  highlight A%%x glow\n  unhighlight A%%x %% back\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document?.timeline?.entries.map((entry) => [entry.kind, entry.targetId])).toEqual([
+      ["enter", "A%%x"],
+      ["highlight", "A%%x"],
+      ["unhighlight", "A%%x"],
+    ]);
+  });
+
+  it("still cuts a `%%` glued to a timeline target in every other kind, whose ids hold no `%`", () => {
+    for (const [header, body] of [
+      ["sequenceDiagram", "  A->>B: m"],
+      ["classDiagram", "  class A"],
+      ["stateDiagram-v2", "  A --> B"],
+      ["erDiagram", "  A ||--o{ B : r"],
+    ] as const) {
+      expect([header, parseSiren(`${header}\n${body}\ntimeline:\n  enter A%%x fade\n  unhighlight A%%x\n`)]).toEqual([
+        header,
+        parseSiren(`${header}\n${body}\ntimeline:\n  enter A\n  unhighlight A\n`),
+      ]);
+    }
+  });
+
+  it("reads a `%%` glued to a timeline line's verb or effect as a comment, as it always has", () => {
+    // Only the target slot names a diagram id; a `%%` glued to anything
+    // else in a timeline line opens its comment, as a spaced one does.
+    for (const [header, body] of [
+      ["flowchart TB", "  A --> B"],
+      ["sequenceDiagram", "  A->>B: m"],
+    ] as const) {
+      for (const [commented, plain] of [
+        ["  enter A fade%% note", "  enter A fade"],
+        ["  highlight A glow%%x", "  highlight A glow"],
+        ["  enter A fade, enter B fade%%x", "  enter A fade, enter B fade"],
+        ["  enter%% note", "  enter"],
+      ] as const) {
+        expect([header, commented, parseSiren(`${header}\n${body}\ntimeline:\n${commented}\n`)]).toEqual([
+          header,
+          commented,
+          parseSiren(`${header}\n${body}\ntimeline:\n${plain}\n`),
+        ]);
+      }
+    }
   });
 
   it("refuses a `%%` trailing the header, at its `%%`", () => {

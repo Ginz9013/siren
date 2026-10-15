@@ -39,10 +39,9 @@ function splitDeclarations(text: string): string[] {
  * property from value, so a value containing a colon survives intact.
  *
  * A segment with no `:` at all has no readable shape, so it is returned in
- * `malformed` for the caller to diagnose. Both callers spell that
- * diagnostic `Unrecognized style declaration: "<segment>"` on the
- * statement's own line; the split is shared, the sentence is not, because
- * only the caller knows where the statement sits.
+ * `malformed` for the caller to diagnose, on the statement's own line; the
+ * split is shared, the sentence is not, because only the caller knows where
+ * the statement sits and what its declarations look like.
  *
  * The values themselves are not inspected here. Rejecting `url(` and
  * `expression(` is `resolveStyles`' job, and it is the only place that

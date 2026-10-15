@@ -5,7 +5,6 @@ import type {
   PositionedActivation,
   PositionedBlock,
   PositionedBox,
-  PositionedDestroyMark,
   PositionedMessage,
   PositionedNote,
   PositionedParticipant,
@@ -55,13 +54,6 @@ const BLOCK_LABEL_PADDING_Y = 14;
 const BLOCK_KEYWORD_WIDTH = 64;
 
 /**
- * Half-diagonal of a destroy mark's X, in user units: each of its two
- * strokes runs from `-arm` to `+arm` on both axes around the lifeline's
- * truncation point.
- */
-const DESTROY_MARK_ARM = 7;
-
-/**
  * The `<marker>` shapes an arrowhead can take. `filled` and
  * `bidirectionalFilled` are one shape, not two:
  * `orient="auto-start-reverse"` on the def makes the single marker point
@@ -96,15 +88,14 @@ const HEAD_MARKER_NAME: Record<SequenceArrowHead, string | null> = {
  * Builds a real `SVGSVGElement` from a `PositionedSequenceDiagram`: a
  * `<g class="siren-participant">` per participant at the top of its lifeline
  * (box for `participant`, stick figure for `actor`) plus a second one at the
- * diagram's bottom row for each participant `drawnInBottomRow`, one
+ * far end of its lifeline — the diagram's bottom row, or a destroyed
+ * participant's closing box on its destroying message — one
  * `<line class="siren-lifeline">` per participant, one
  * `<g class="siren-message">` per message (all ten
  * arrow-marker/dash combinations), a `<g class="siren-block">` per
  * control-flow block (frame/fill, header/branch labels, dividers — see
  * `buildBlock`), a `<g class="siren-box">` background per participant
- * grouping, a `<path class="siren-destroy-mark">` per destroyed
- * participant's lifeline truncation point, and a `<text class="siren-title">`
- * when a title is present.
+ * grouping, and a `<text class="siren-title">` when a title is present.
  */
 export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
@@ -174,12 +165,10 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
     );
   }
 
-  // A participant layout put in the bottom row (Mermaid's own) is drawn a
-  // second time, at the far end of its lifeline; any other only once.
+  // Every participant is drawn a second time, at the far end of its
+  // lifeline: in the bottom row, or — destroyed — as its closing box where
+  // its destroying message ends it (Mermaid 12.2.0 draws no X there).
   for (const participant of diagram.participants) {
-    if (!participant.drawnInBottomRow) {
-      continue;
-    }
     svg.appendChild(
       wrapInteraction(
         buildParticipant(participant, participant.bottom - participant.height),
@@ -256,8 +245,6 @@ function buildSequenceElement(
       return buildMessage(element.message, scope);
     case "block":
       return buildBlock(element.block, scope);
-    case "destroyMark":
-      return buildDestroyMark(element.mark);
     case "note":
       return buildNote(element.note);
   }
@@ -295,27 +282,6 @@ function buildNote(note: PositionedNote): SVGGElement {
   );
 
   return g;
-}
-
-/**
- * Builds the `<path class="siren-destroy-mark">` X at a destroyed
- * participant's lifeline truncation point: two crossing strokes as two
- * subpaths of one path, centered on the mark, with `fill="none"` so the
- * two subpaths are never closed into a filled quad however this element is
- * themed (same explicit-`fill="none"` precedent as `buildOpenMarker`).
- */
-function buildDestroyMark(mark: PositionedDestroyMark): SVGPathElement {
-  const path = document.createElementNS(SVG_NS, "path") as SVGPathElement;
-  path.setAttribute("class", "siren-destroy-mark");
-  path.setAttribute("data-siren-id", mark.participantId);
-
-  const left = mark.x - DESTROY_MARK_ARM;
-  const right = mark.x + DESTROY_MARK_ARM;
-  const top = mark.y - DESTROY_MARK_ARM;
-  const bottom = mark.y + DESTROY_MARK_ARM;
-  path.setAttribute("d", `M${left},${top} L${right},${bottom} M${right},${top} L${left},${bottom}`);
-  path.setAttribute("fill", "none");
-  return path;
 }
 
 /**

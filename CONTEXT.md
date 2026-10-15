@@ -161,12 +161,13 @@ box grouping, activation bar or note in a sequence diagram; a **state**, **trans
 which is how the animation controller finds it — so a diagram kind gains animation by tagging its
 drawn elements with the ids the timeline uses, not by teaching the controller anything new.
 A target is the *authored thing*, not one drawn element: an id may be worn by several elements
-(a sequence participant is drawn in both participant rows, alongside its lifeline, and its
-destroy mark carries that same id; a labelled flowchart **edge** is a `<path>` and a `<text>`
-side by side, both wearing the edge's id) and they all animate together — see
-[ADR-0009](docs/adr/0009-a-timeline-target-is-an-id-not-an-element.md). A destroy mark is
-therefore not a fifth sequence target: it animates when its participant does, and there is no id
-that names it alone.
+(a sequence participant is drawn at both ends of its lifeline — in both participant rows, or for a
+destroyed one in the top row and as its closing box — alongside the lifeline itself; a labelled
+flowchart **edge** is a `<path>` and a `<text>` side by side, both wearing the edge's id) and they
+all animate together — see
+[ADR-0009](docs/adr/0009-a-timeline-target-is-an-id-not-an-element.md). A destroyed participant's
+closing box is therefore not a target of its own: it is the participant's box drawn again, it
+animates when its participant does, and there is no id that names it alone.
 A state diagram's three are worth stating against the two kinds they most resemble, because the id
 a timeline names comes from a different place in each. A **state**'s is the author's own name, as a
 class's and a participant's are. A **transition**'s is `${from}-${to}` with `#2` for a repeat pair,
@@ -450,8 +451,8 @@ browser does not show (`title`, `template`, a closed `dialog`, `datalist`, `rp`,
 everything after it. The 21 **refused** tags — `table`, `ruby` and `rt`, the 16 embedded, form,
 media and interactive ones, and `svg` and `math`, which DOMPurify's SVG and MathML profiles keep —
 and an open `dialog` are an error-severity diagnostic at the label's first one, saying what kind of
-HTML SVG text does not draw; `<img>`'s points at the image shape, `A@{ img: "…" }`. One per
-label, because the first already refuses the document. The 34 **block** tags (`p`, `div`,
+HTML SVG text does not draw; `<img>`'s asks for the image to be described in the label's text.
+One per label, because the first already refuses the document. The 34 **block** tags (`p`, `div`,
 `h1`–`h6`, `pre`, `ul`, `ol`, `li`, `hr`, `marquee` and the rest) are the one approximation: each
 begins and ends a row, block edges that meet end it once (no empty row between blocks or at either
 end of the label), a block keeps its font (a heading bold and sized, `pre` monospace with its spaces
@@ -710,7 +711,9 @@ node
 The dashed vertical line running down a participant's lane, spanning the extent between where the
 participant comes into existence and where it stops. A `create participant X` statement starts it
 partway down instead of at the top, at its **creating message**; a `destroy X` statement ends it
-early with an X mark instead of at the bottom, at its **destroying message**. A `create` or
+early instead of at the bottom, at its **destroying message**, with X's box drawn a second time
+there as its closing box — no X mark, as in Mermaid. The lifeline runs under the box at either
+end, so it shows from the top box's bottom to the closing box's top. A `create` or
 `destroy` with no message after it in the document has nothing to pair with and draws nothing, as
 in Mermaid: the participant is drawn from the top, or to the bottom, as if it were never written,
 and Siren warns about the declaration.
@@ -728,13 +731,16 @@ top row and the bottom row — and the `create` is warned about.
 _Avoid_: create message, first message (any participant has one), constructor
 
 **Destroying message**:
-The message right after a `destroy X` statement; X must send or receive it. X's lifeline ends, with
-its X mark, on that message's row — the message reaches X before X stops, so it is not "past" the
-end. A `destroy` whose next message does not touch X is refused, as Mermaid refuses it, and so is
+The message right after a `destroy X` statement; X must send or receive it. X's lifeline ends on
+that message's row, where X's closing box — its box or actor figure drawn a second time — is centred
+on the arrow, whichever end X is; the arrow stops at the box's near edge, as a creating message's
+does, and every row after it moves down by half the box, as after a creating message. The message
+reaches X before X stops, so it is not "past" the end. X gets no box in the bottom row. A
+`destroy` whose next message does not touch X is refused, as Mermaid refuses it, and so is
 one with anything else in between (as for a **Creating message**), because Mermaid then draws X as
 if it were never destroyed. With no message after the `destroy` at all, the `destroy` is warned
 about and draws nothing: if another statement names X, X is drawn as never destroyed — lifeline to
-the bottom row, no X mark — and if nothing else does, X has no lane. A later message naming X does
+the bottom row, no closing box — and if nothing else does, X has no lane. A later message naming X does
 point past the end, and is warned about.
 _Avoid_: destroy message, kill message, last message
 _Avoid_: timeline (that is the animation block — a lifeline is structural; it does animate, but
@@ -743,7 +749,8 @@ under its participant's id rather than one of its own), axis
 **Participant row**:
 The horizontal band at the top of a sequence diagram holding every participant's box or icon, and
 its mirror at the bottom. A preamble-declared, never-destroyed participant appears in both rows; a
-`create`d or destroyed one appears once.
+`create`d one appears once, in the bottom row; a destroyed one appears once, in the top row, and
+again as its closing box at its destroying message (one both `create`d and destroyed, in neither).
 _Avoid_: header, top box (ambiguous with a box grouping)
 
 **Message**:

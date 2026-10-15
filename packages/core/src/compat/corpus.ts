@@ -938,6 +938,18 @@ function classBox(result: SirenRenderResult, id: string): Point {
   return { x: Number(frame.getAttribute("x")), y: Number(frame.getAttribute("y")) };
 }
 
+/** Whether the class `id`'s box is drawn inside the frame of the namespace labelled `label`. */
+function insideNamespace(result: SirenRenderResult, id: string, label: string): boolean {
+  const namespace = Array.from(svgOf(result).querySelectorAll("g.siren-namespace")).find(
+    (g) => g.querySelector("text.siren-namespace-label")?.textContent === label,
+  );
+  const frame = namespace?.querySelector("rect.siren-namespace-frame") ?? null;
+  if (frame === null) return false;
+  const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(frame.getAttribute(name)));
+  const box = classBox(result, id);
+  return box.x >= x && box.x <= x + width && box.y >= y && box.y <= y + height;
+}
+
 /** Every member line drawn inside the class `id`, in draw order. */
 function members(result: SirenRenderResult, id: string): string[] {
   const box = svgOf(result).querySelector(`g.siren-class[data-siren-id="${id}"]`);
@@ -1022,30 +1034,44 @@ function belowArrow(arrows: readonly DrawnArrow[], y: number): string {
 }
 
 /**
- * Where a destroyed participant's lifeline ends, read off the drawn picture:
- * `tip of <message>` or `tail of <message>` when its X mark sits on that end
- * of a message's arrow, `below <message>` when it sits on no arrow (on a row
- * of its own, under the last arrow above it), each followed by
- * `, lifeline stops there` when the lifeline's bottom is the mark's centre.
- * The words name the relation a reader sees — the X on the arrow the
- * participant receives or sends — rather than coordinates no assert could
- * hold still.
+ * Where a destroyed participant's closing box is drawn, read off the picture:
+ * its box drawn a second time, after its top one. `centred on <message>,
+ * whose tip stops at its left edge` (or `tail starts`, or `right edge`, or
+ * `runs to its lane` when the arrow does not stop short) when the box's
+ * centre is on that message's arrow and the arrow's end at the participant
+ * meets the box, `below <message>` when it sits on no arrow (on a row of its
+ * own, under the last arrow above it), each followed by `, lifeline ends
+ * under it` when the lifeline's bottom is the box's bottom edge. Read off
+ * `rect`s, so for a `participant` and not an `actor`. The words name what a
+ * reader sees — the closing box on the arrow the participant receives or
+ * sends — rather than coordinates no assert could hold still.
  */
-function lifelineEnd(result: SirenRenderResult, participantId: string): string {
-  const mark = svgOf(result).querySelector(`path.siren-destroy-mark[data-siren-id="${participantId}"]`);
-  if (mark === null) return "no destroy mark";
-  const [left, top, right, bottom] = [...(mark.getAttribute("d") ?? "").matchAll(/-?[\d.]+/g)].map(Number);
-  const centre = { x: (left! + right!) / 2, y: (top! + bottom!) / 2 };
-  const lifeline = svgOf(result).querySelector(`line.siren-lifeline[data-siren-id="${participantId}"]`);
-  const stops = Number(lifeline?.getAttribute("y2")) === centre.y ? ", lifeline stops there" : "";
+function closingBox(result: SirenRenderResult, participantId: string): string {
+  const rect = participantRects(result, participantId)[1];
+  if (rect === undefined) return "no closing box";
+  const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(rect.getAttribute(name)));
+  const centre = { x: x! + width! / 2, y: y! + height! / 2 };
+  const under = Number(lifelineBottom(result, participantId)) === y! + height! ? ", lifeline ends under it" : "";
 
+  const edges: [number, string][] = [
+    [x!, "at its left edge"],
+    [x! + width!, "at its right edge"],
+  ];
   const arrows = messageArrows(result);
   for (const arrow of arrows) {
     if (arrow.y !== centre.y) continue;
-    if (arrow.toX === centre.x) return `tip of ${arrow.id}${stops}`;
-    if (arrow.fromX === centre.x) return `tail of ${arrow.id}${stops}`;
+    for (const [end, verb] of [[arrow.toX, "tip stops"], [arrow.fromX, "tail starts"]] as const) {
+      const edge = edges.find(([at]) => at === end)?.[1];
+      if (edge !== undefined) return `centred on ${arrow.id}, whose ${verb} ${edge}${under}`;
+    }
+    return `centred on ${arrow.id}, whose arrow runs to its lane${under}`;
   }
-  return `${belowArrow(arrows, centre.y)}${stops}`;
+  return `${belowArrow(arrows, centre.y)}${under}`;
+}
+
+/** The y of each drawn message's arrow, by message id. */
+function arrowRows(result: SirenRenderResult): Record<string, number> {
+  return Object.fromEntries(messageArrows(result).map((arrow) => [arrow.id, arrow.y]));
 }
 
 /**
@@ -2759,6 +2785,223 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "fc-subgraph-title-quoted-then-words",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph "t" zz
+        A
+      end`,
+    status: "supported",
+    meaning:
+      "A quoted subgraph title with words after it is one title: Mermaid " +
+      "12.2.0 joins the two into `t zz` and gives the block a generated id " +
+      "(measured, `subGraph0`). Siren used to refuse the line.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]"]);
+      expectSame("t zz encloses A", encloses(subgraphBox(result, "t zz"), nodeBox(result, "A")), true);
+    },
+  },
+  {
+    id: "fc-subgraph-title-bare-words",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph S a & b
+        A
+      end`,
+    status: "supported",
+    meaning:
+      "An unquoted subgraph title of several words, punctuation among them, " +
+      "is one title, the whole run: Mermaid 12.2.0 records `S a & b` under a " +
+      "generated id (measured, `subGraph0`), so `S` is no handle. Siren used " +
+      "to refuse the line.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]"]);
+      expectSame("S a & b encloses A", encloses(subgraphBox(result, "S a & b"), nodeBox(result, "A")), true);
+    },
+  },
+  {
+    id: "fc-subgraph-title-bracket-then-words",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph s1 ["t"] zz
+        A
+      end`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A bracketed " +
+      "title ends the statement: Mermaid 12.2.0 refuses the words after it " +
+      "(\"Expecting 'SEMI', 'NEWLINE', 'EOF', got 'SPACE'\", measured). " +
+      "Siren refuses it too (ADR-0017), at the words, saying to move them " +
+      "inside the brackets.",
+  },
+  {
+    id: "fc-subgraph-title-unquoted-comma",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph S a, b. c!
+        A
+      end`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** An unquoted " +
+      "title cannot hold a `,`: Mermaid 12.2.0 refuses it (\"got 'COMMA'\", " +
+      "measured), as it does `(`, `[`, `{`, `|`, `<`, `=`, `~`, `@` and a " +
+      "`--`. Siren refuses it too (ADR-0017), at the `,`, saying to quote " +
+      "the title.",
+  },
+  {
+    id: "fc-subgraph-title-trailing-end",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph S a end
+        A
+      end`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A title's last " +
+      "word `end` is read as the block's own end: Mermaid 12.2.0 records the " +
+      "title `S a end\\nA` and leaves `A` outside the frame (measured), with " +
+      "no diagnostic. Siren refuses it (ADR-0001), at the `end`, saying to " +
+      "quote the title. An `end` anywhere else in a title is an ordinary " +
+      "word in both.",
+  },
+  {
+    id: "fc-direction-top-level",
+    kind: "flowchart",
+    source: `flowchart TB
+      direction LR
+      A --> B`,
+    status: "supported",
+    meaning:
+      "`direction LR` outside any subgraph is accepted and ignored: Mermaid " +
+      "12.2.0 keeps the header's `TB` (measured, whether the line comes " +
+      "first or last). Siren draws the same top-to-bottom picture and warns " +
+      "that the line does nothing. Siren used to refuse the line.",
+    warnings: [
+      '"direction LR" outside a subgraph has no effect. ' +
+        "Set the diagram's direction on its first line instead: flowchart LR",
+    ],
+    assert: (result) => {
+      expectSame("edges", edges(result), ["A-B"]);
+      const from = nodeCenter(result, "A");
+      const to = nodeCenter(result, "B");
+      expectSame("B is drawn below A", to.y > from.y, true);
+      expectSame("and in the same column", to.x === from.x, true);
+    },
+  },
+  {
+    id: "fc-subgraph-title-quoted-word",
+    kind: "flowchart",
+    source: `flowchart TB
+      t[x]
+      subgraph "g"
+        A
+      end
+      subgraph "t"
+        B
+      end
+      g --> t`,
+    status: "supported",
+    meaning:
+      "A quoted subgraph title of one word is the block's handle too, as a " +
+      "bare word is: Mermaid 12.2.0 records `subgraph \"g\"` as id `g` " +
+      "(measured), so `g --> t` joins two frames. A node the author named `t` " +
+      "stays a node beside the frame titled `t` (measured: Mermaid records " +
+      "both) — the frame's own id is generated (ADR-0010), so the two never " +
+      "share one. Siren used to give a quoted title no handle.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["t[x]", "A[A]", "B[B]"]);
+      expectSame("edges", edges(result), ["g-t"]);
+      expectSame("one element is t", elements(result, '[data-siren-id="t"]').length, 1);
+      const g = subgraphBox(result, "g");
+      expectSame("g encloses A", encloses(g, nodeBox(result, "A")), true);
+      const { start } = edgeEnds(result, "g-t");
+      expectSame("the edge leaves the bottom of g's frame", start.y, g.bottom);
+    },
+  },
+  {
+    id: "fc-subgraph-title-quoted-glued",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph "t"zz
+        A
+      end`,
+    status: "supported",
+    meaning:
+      "A word glued to a quoted subgraph title runs on from it: Mermaid " +
+      "12.2.0 records `subgraph \"t\"zz` as id and title `tzz` (measured). " +
+      "Siren used to refuse the line.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]"]);
+      expectSame("tzz encloses A", encloses(subgraphBox(result, "tzz"), nodeBox(result, "A")), true);
+    },
+  },
+  {
+    id: "fc-subgraph-title-quoted-handle-bracket",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph "t" [Title]
+        A
+      end`,
+    status: "supported",
+    meaning:
+      "A quoted handle may carry a bracketed title, as a bare one does: " +
+      "Mermaid 12.2.0 records `subgraph \"t\" [Title]` as id `t`, title " +
+      "`Title` (measured). Siren used to refuse the line.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]"]);
+      expectSame("Title encloses A", encloses(subgraphBox(result, "Title"), nodeBox(result, "A")), true);
+    },
+  },
+  {
+    id: "fc-subgraph-direction-trailing-text",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph one
+        direction LR zz
+        A --> B
+      end`,
+    status: "supported",
+    meaning:
+      "Text after a subgraph's `direction` value is swallowed by Mermaid " +
+      "12.2.0's direction token, which still sets the value: `direction LR " +
+      "zz` lays the block out left-to-right (measured, `dir=\"LR\"`). Siren " +
+      "draws the same and warns that the text is ignored. Siren used to " +
+      "refuse the line.",
+    warnings: ['Text after "direction LR" is ignored: "zz". Remove it.'],
+    assert: (result) => {
+      expectSame("edges", edges(result), ["A-B"]);
+      const from = nodeCenter(result, "A");
+      const to = nodeCenter(result, "B");
+      expectSame("B is drawn to the right of A", to.x > from.x, true);
+      expectSame("and in the same row", to.y === from.y, true);
+    },
+  },
+  {
+    id: "fc-direction-top-level-trailing-text",
+    kind: "flowchart",
+    source: `flowchart TB
+      direction LR zz
+      A --> B`,
+    status: "supported",
+    meaning:
+      "`direction LR zz` outside any subgraph is accepted and ignored, the " +
+      "trailing text with it: Mermaid 12.2.0 keeps the header's `TB` " +
+      "(measured). Siren draws the same and gives `fc-direction-top-level`'s " +
+      "one warning. Siren used to refuse the line.",
+    warnings: [
+      '"direction LR zz" outside a subgraph has no effect. ' +
+        "Set the diagram's direction on its first line instead: flowchart LR",
+    ],
+    assert: (result) => {
+      expectSame("edges", edges(result), ["A-B"]);
+      const from = nodeCenter(result, "A");
+      const to = nodeCenter(result, "B");
+      expectSame("B is drawn below A", to.y > from.y, true);
+      expectSame("and in the same column", to.x === from.x, true);
+    },
+  },
+  {
     id: "fc-subgraph-edge",
     kind: "flowchart",
     source: `flowchart TB
@@ -2930,6 +3173,49 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       // parser's label reader, not a quoting-specific fix.
       expectSame("nodes", nodes(result), ["A[padded]", "B[padded]"]);
     },
+  },
+  {
+    id: "fc-text-unquoted-bracket",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[a}b] --> B{a)b}`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** Mermaid 12.2.0 " +
+      "refuses every unquoted `( ) [ ] { }` inside any shape's label " +
+      "(`A[a}b]` \"got 'DIAMOND_STOP'\", `A{a)b}` \"got 'PE'\", measured " +
+      "across all fourteen spellings) and draws the quoted `A[\"a}b\"]`. " +
+      "Siren drew both before; it refuses them now (ADR-0017), at the " +
+      "bracket, saying to quote the label. A balanced pair of parentheses " +
+      "outside a round shape (`A[f(x)]`, `A{f(x)}`) is still drawn: Mermaid " +
+      "refuses that too, and Siren keeps it as a recorded divergence " +
+      "(nook 01M4R3RVV).",
+  },
+  {
+    id: "fc-node-shape-data",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ shape: circle, label: "x" } --> B`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0's `@{ … }` node data gives `A` the shape `circle` and " +
+      "the label `x` (measured). Siren does not read `@{ … }` yet (its own " +
+      "board): refused at the `@`, saying to write the shape with brackets " +
+      "(`A((x))`).",
+  },
+  {
+    id: "fc-edge-id",
+    kind: "flowchart",
+    source: `flowchart TB
+      A e1@--> B
+      e1@{ animate: true }`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 names the edge `e1` and reads the `@{ … }` after it as " +
+      "that edge's data (measured; with no edge `e1` the same line is a " +
+      "node). Siren does not support edge ids yet (the `@{ … }` board): " +
+      "refused at the id, saying to leave it out, and the data line is told " +
+      "to go with it.",
   },
   {
     id: "fc-text-markdown",
@@ -3492,6 +3778,20 @@ line2\`"]`,
       expectSame("edge A-C's line", edgeCurve(result, "A-C"), "axis-aligned steps");
     },
   },
+  {
+    id: "fc-linkstyle-not-a-declaration",
+    kind: "flowchart",
+    source: `flowchart TD
+      A --> B
+      linkStyle 0 interpolate basis zz`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 accepts a `linkStyle` word with no `:` (`linkStyle 0 " +
+      "zz`, `interpolate basis zz`) and writes it out as a style nothing " +
+      "reads (measured). Siren refuses it, saying a declaration is written " +
+      "`property:value`; a value holding a space (`stroke:red zz`) is " +
+      "passed on as written, as Mermaid does.",
+  },
 
   // -------------------------------------------------------------------------
   // flowchart — interaction and accessibility
@@ -3789,6 +4089,78 @@ line2\`"]`,
       expectSame("edge A-B's label", edgeLabel(result, "A-B"), "a %% b");
     },
   },
+  {
+    id: "fc-id-percent",
+    kind: "flowchart",
+    source: `flowchart TB
+      A%B --> C
+      %D
+      E% --> F%G[lbl]`,
+    status: "supported",
+    meaning:
+      "A `%` is an id character: Mermaid 12.2.0's node-string alphabet takes " +
+      "it anywhere in an id, so this records the nodes `A%B`, `C`, `%D`, " +
+      "`E%` and `F%G` (labelled `lbl`) and the edges `A%B → C` and " +
+      "`E% → F%G` (measured). Siren used to refuse each line as " +
+      "unrecognized. The ids are the `data-siren-id`s a `timeline:` names " +
+      "(ADR-0009).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A%B[A%B]", "C[C]", "%D[%D]", "E%[E%]", "F%G[lbl]"]);
+      expectSame("edges", edges(result), ["A%B-C", "E%-F%G"]);
+    },
+  },
+  {
+    id: "fc-id-percent-glued",
+    kind: "flowchart",
+    source: `flowchart TB
+      A%%B --> C
+      C-->D%%E`,
+    status: "supported",
+    meaning:
+      "A `%%` glued to the end of an id is the id's, not a comment: only a " +
+      "line that starts with `%%` is one, and the flowchart lexer has no " +
+      "`%%` rule of its own, so Mermaid 12.2.0 records the nodes `A%%B`, `C` " +
+      "and `D%%E` and both edges (measured). Until 01M4ZWT8PR Siren refused " +
+      "each `%%` as a mid-line comment; one written after a space " +
+      "(`A %% x`) still is (`fc-comment-trailing`).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A%%B[A%%B]", "C[C]", "D%%E[D%%E]"]);
+      expectSame("edges", edges(result), ["A%%B-C", "C-D%%E"]);
+    },
+  },
+  {
+    id: "fc-id-percent-marker",
+    kind: "flowchart",
+    source: `flowchart TB
+      A%x--xB`,
+    status: "supported",
+    meaning:
+      "An `x` right after a `%` is the id's, not a cross marker on the " +
+      "line's from-end: Mermaid 12.2.0 records the nodes `A%x` and `B` and " +
+      "one solid edge with a cross at `B` (measured). Before 01M4ZWT8PR's " +
+      "review Siren drew it as the node `A%` with a cross at both ends, " +
+      "silently.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A%x[A%x]", "B[B]"]);
+      expectSame("edge", edgeDrawing(result, "A%x-B"), "solid none cross");
+    },
+  },
+  {
+    id: "fc-group-ampersand-unspaced",
+    kind: "flowchart",
+    source: `flowchart TB
+      A&B-->C`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid draws this, and not as written**: an `&` glued to an id " +
+      "is a character of it, so Mermaid 12.2.0 records the single node " +
+      "`A&B` and one edge to `C` (measured; `A%&B-->C` is the node `A%&B`), " +
+      "where the `&` reads as joining `A` and `B`. One spaced on a single " +
+      "side (`A &B-->C`, `B& C`) or written after a bracket (`A[x]&B-->C`) " +
+      "is a parse error there. Siren used to draw the group `A & B --> C`; " +
+      "it now refuses the line (ADR-0001), at the `&`, saying an `&` joins " +
+      "nodes only with a space on each side and showing the line spaced.",
+  },
   // -------------------------------------------------------------------------
   // classDiagram
   // -------------------------------------------------------------------------
@@ -3844,6 +4216,108 @@ line2\`"]`,
       expectSame("classes", classes(result), ["Animal"]);
       expectSame("Animal's members", members(result, "Animal"), ["+int age", "+bark() bool"]);
     },
+  },
+  {
+    id: "cls-class-block-one-line",
+    kind: "class",
+    source: `classDiagram
+      class Animal { +int age }
+      class Cage~T~ { }
+      class Duck:::bird {}
+      classDef bird fill:#ffd`,
+    status: "supported",
+    meaning:
+      "A class block may open and close on one line, empty or holding one " +
+      "member: Mermaid 12.2.0's block lexer reads members up to the `}` " +
+      "wherever it stands (measured: Animal with the member `+int age`, Cage " +
+      "with the generic `T` and Duck with the class `bird`, both empty).",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Animal", "Cage", "Duck"]);
+      expectSame("Animal's members", members(result, "Animal"), ["+int age"]);
+      expectSame("Cage's members", members(result, "Cage"), []);
+      expectSame("Duck's members", members(result, "Duck"), []);
+    },
+  },
+  {
+    id: "cls-class-block-closed-on-member-line",
+    kind: "class",
+    source: `classDiagram
+      class Animal {
+        +int age
+        +bark() bool }`,
+    status: "supported",
+    meaning:
+      "A class block's `}` may end its last member's line: Mermaid 12.2.0 " +
+      "reads the member before it and closes the block (measured: the " +
+      "members `+int age` and `+bark() : bool`).",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Animal"]);
+      expectSame("Animal's members", members(result, "Animal"), ["+int age", "+bark() bool"]);
+    },
+  },
+  {
+    id: "cls-class-block-text-after-brace",
+    kind: "class",
+    source: `classDiagram
+      class Animal { +int age } class Dog`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A class block's " +
+      "`}` ends the statement, so Mermaid 12.2.0 refuses anything after it " +
+      "on its line (\"Expecting 'NEWLINE', 'EOF', 'STRUCT_STOP', got " +
+      "'ALPHA'\", measured). Siren refuses it too (ADR-0017), with an error " +
+      "at the text saying to start the next statement on a line of its own. " +
+      "Siren used to refuse the whole line as unrecognized. `class Dog` on " +
+      "its own line renders in both.",
+  },
+  {
+    id: "cls-class-block-member-after-brace",
+    kind: "class",
+    source: `classDiagram
+      class Animal { +int age }
+      +bark() bool`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** The `}` closed " +
+      "Animal's block on its first line, so the member below it stands " +
+      "outside any class and Mermaid 12.2.0 refuses the document (\"… got " +
+      "'PLUS'\", measured). Siren refuses it too (ADR-0017), with an error " +
+      "naming the class and the line of the `}` that closed it, and saying to " +
+      "move the `}` below the class's last member. That spelling renders in both.",
+  },
+  {
+    id: "cls-class-block-semicolon-members",
+    kind: "class",
+    source: `classDiagram
+      class Animal { +int age; +bark() bool }`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A `;` does not " +
+      "separate class members: Mermaid 12.2.0 reads the whole text as one " +
+      "method, `+int age; +bark() : bool` (measured) — a picture of neither " +
+      "member, with no diagnostic. Siren refuses it (ADR-0001), with an " +
+      "error at the member saying to write each member on a line of its own. " +
+      "One member per line renders in both.",
+  },
+  {
+    id: "cls-class-block-semicolon-readable-members",
+    kind: "class",
+    source: `classDiagram
+      class Animal {
+        +int age; int legs
+        +run(); +stop()
+      }`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** Each line is " +
+      "two members run together with `;`, and Mermaid 12.2.0 draws each as " +
+      "one: the attribute `+int age; int legs` and the method " +
+      "`+run(); +stop()` (measured) — in a multi-line block as in a one-line " +
+      "one, with no diagnostic. Siren used to draw them the same way, since " +
+      "it could read each line as one member. It refuses each now (ADR-0001), " +
+      "with an error at the member saying to write each member on a line of " +
+      "its own. A `;` inside a method's parentheses or a `~generic~` is " +
+      "kept as written. One member per line renders in both.",
   },
   {
     id: "cls-inline-member",
@@ -3951,6 +4425,94 @@ line2\`"]`,
       expectSame("namespace ids", texts(result, "text.siren-namespace-label"), ["Zoo"]);
       expectSame("a namespace frame was drawn", drew(result, "g.siren-namespace"), true);
     },
+  },
+  {
+    id: "cls-namespace-one-line",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo { class Lion }
+      namespace Farm { class Cow { +int legs } }
+      class Keeper`,
+    status: "supported",
+    meaning:
+      "A namespace block may open and close on one line: Mermaid 12.2.0 " +
+      "reads the text after its `{` as its first statement, and a `}` after " +
+      "it, a class block's own `}` aside, as the namespace's end (measured: " +
+      "the clusters Zoo around Lion and Farm around Cow, with the member " +
+      "`+int legs`).",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Lion", "Cow", "Keeper"]);
+      expectSame("namespace ids", texts(result, "text.siren-namespace-label"), ["Zoo", "Farm"]);
+      expectSame("Lion is inside Zoo", insideNamespace(result, "Lion", "Zoo"), true);
+      expectSame("Cow is inside Farm", insideNamespace(result, "Cow", "Farm"), true);
+      expectSame("Keeper is outside Zoo", insideNamespace(result, "Keeper", "Zoo"), false);
+      expectSame("Cow's members", members(result, "Cow"), ["+int legs"]);
+    },
+  },
+  {
+    id: "cls-namespace-closed-on-statement-line",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo { class Lion
+        class Tiger }
+      class Keeper`,
+    status: "supported",
+    meaning:
+      "A namespace's `}` may end its last statement's line, its first " +
+      "statement on its opening line: Mermaid 12.2.0 reads `class Tiger }` " +
+      "as Tiger, then the namespace's end (measured: the cluster Zoo around " +
+      "Lion and Tiger).",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Lion", "Tiger", "Keeper"]);
+      expectSame("Lion is inside Zoo", insideNamespace(result, "Lion", "Zoo"), true);
+      expectSame("Tiger is inside Zoo", insideNamespace(result, "Tiger", "Zoo"), true);
+      expectSame("Keeper is outside Zoo", insideNamespace(result, "Keeper", "Zoo"), false);
+    },
+  },
+  {
+    id: "cls-namespace-empty",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo {}
+      class Lion`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A namespace must " +
+      "hold a statement: Mermaid 12.2.0 refuses `namespace Zoo {}` and a " +
+      "namespace of blank lines alike (\"Expecting 'NEWLINE', 'NAMESPACE', " +
+      "'CLASS', 'NOTE_FOR', 'NOTE', got 'STRUCT_STOP'\", measured). Siren " +
+      "refuses it too (ADR-0017), with an error at the namespace saying to " +
+      "add a class to it or remove it. Siren used to refuse the one-line " +
+      "form as an unrecognized line, and to accept the multi-line one, " +
+      "drawing no frame for it.",
+  },
+  {
+    id: "cls-namespace-text-after-brace",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo { class Lion } class Keeper`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A namespace's `}` " +
+      "ends the statement, so Mermaid 12.2.0 refuses anything after it on " +
+      "its line (\"Expecting 'NEWLINE', 'EOF', 'STRUCT_STOP', got 'ALPHA'\", " +
+      "measured). Siren refuses it too (ADR-0017), with an error at the " +
+      "text saying to start the next statement on a line of its own. " +
+      "`class Keeper` on its own line renders in both.",
+  },
+  {
+    id: "cls-namespace-two-classes-one-line",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo { class Lion class Tiger }`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** Two `class` " +
+      "statements on the namespace's line are one to Mermaid 12.2.0, which " +
+      "draws the single class `LionclassTiger` (measured, as it does for " +
+      "`class Lion class Tiger` on any line) — a picture of neither class, " +
+      "with no diagnostic. Siren refuses the line as it refuses that " +
+      "statement anywhere (ADR-0001). One class per line renders in both.",
   },
   {
     id: "cls-note",
@@ -4704,14 +5266,14 @@ line2\`"]`,
       "Measured on 12.2.0: Mermaid accepts this and draws B as if it were " +
       "never destroyed — no closing box on any arrow, the lifeline running " +
       "on to the bottom row, where B gets a box level with A's (y 234 " +
-      "both). Siren draws the same: no X, B's lifeline down to where A's " +
-      "ends and a bottom-row box there, nothing in the `destroy`'s place " +
+      "both). Siren draws the same: no closing box on an arrow, B's " +
+      "lifeline down to where A's ends and a bottom-row box there, nothing " +
+      "in the `destroy`'s place " +
       "(nook 01M4YWYFJ), and warns that the `destroy` draws nothing. " +
       "Nothing but declarations comes before the `create`, so B's lane is " +
       "where a declared B's would be (measured: x 200 either way).",
     assert: (result) => {
       expectSame("participants", participants(result), ["A", "B"]);
-      expectSame("no destroy mark was drawn", drew(result, "path.siren-destroy-mark"), false);
       expectSame("B's box is on its creating message", createdBox(result, "B"), "centred on A-B, whose arrow stops at its left edge");
       expectSame("B's lifeline runs as far down as A's", lifelineBottom(result, "B"), lifelineBottom(result, "A"));
       expectSame("B is drawn in the bottom row, level with A", bottomRowEdge(result, "B"), bottomRowEdge(result, "A"));
@@ -4975,13 +5537,65 @@ line2\`"]`,
     meaning:
       "`destroy B` is a declaration about the next message, which B must " +
       "send or receive: its destroying message. Measured on 12.2.0: " +
-      "accepted, and B's lifeline ends on `A->>B: bye`'s own row (Mermaid " +
-      "centres B's closing box on that arrow), with no row for the " +
-      "`destroy` itself. Siren draws its X there, on the arrow's tip, and " +
-      "says nothing — the arrow reaches B before B stops.",
+      "accepted, and B's lifeline ends on `A->>B: bye`'s own row: B's box " +
+      "is drawn a second time centred on that arrow, which stops short of " +
+      "it, with no row for the `destroy` itself. Siren draws the same " +
+      "closing box, the arrow ending at its edge, and says nothing — the " +
+      "arrow reaches B before B stops.",
     assert: (result) => {
       expectSame("messages", messages(result), ["A-B: hi", "A-B#2: bye", "A-A: carry on"]);
-      expectSame("B ends on the destroying message's tip", lifelineEnd(result, "B"), "tip of A-B#2, lifeline stops there");
+      expectSame(
+        "B's closing box is on the destroying message",
+        closingBox(result, "B"),
+        "centred on A-B#2, whose tip stops at its left edge, lifeline ends under it",
+      );
+    },
+  },
+  {
+    id: "seq-destroy-closing-box",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      participant B
+      A->>B: hi
+      destroy B
+      A-xB: bye
+      A->>A: after`,
+    status: "supported",
+    meaning:
+      "A destroyed participant's closing box takes room on the timeline. " +
+      "Measured on 12.2.0 (layout stubs, 76-tall boxes): B's box is drawn a " +
+      "second time at y 138–214, centred on `A-xB: bye`'s arrow at 176; " +
+      "B's lifeline stops at the box's top; the arrow stops 10 short of " +
+      "the box's left edge (with no destroy it runs to the lane); and " +
+      "`A->>A: after` is 38 lower than with no destroy — half the box — " +
+      "with A's bottom-row box and the diagram 38 lower and taller too. No " +
+      "X is drawn anywhere. Siren draws the same closing box, its lifeline " +
+      "running under it as at either end, the arrow ending at its edge, " +
+      "and every row after it half the box lower, down to the diagram's " +
+      "bottom.",
+    assert: (result) => {
+      expectSame(
+        "B's closing box is on the destroying message",
+        closingBox(result, "B"),
+        "centred on A-B#2, whose tip stops at its left edge, lifeline ends under it",
+      );
+      const rows = arrowRows(result);
+      const closing = participantRects(result, "B")[1]!;
+      expectSame(
+        "the row after the destroying message is half B's box further down than the pitch before it",
+        rows["A-A"]! - rows["A-B#2"]! - (rows["A-B#2"]! - rows["A-B"]!),
+        Number(closing.getAttribute("height")) / 2,
+      );
+      // The canvas grows with the rows: only its gutter (as far below the
+      // diagram as the viewBox starts above it) lies below A's bottom row.
+      const [, minY, , spanY] = (svgOf(result).getAttribute("viewBox") ?? "").split(" ").map(Number);
+      expectSame(
+        "only the canvas gutter lies below A's bottom-row box",
+        minY! + spanY! - bottomRowEdge(result, "A")!,
+        -minY!,
+      );
+      expectSame("no X mark is drawn", drew(result, ".siren-destroy-mark"), false);
     },
   },
   {
@@ -5017,10 +5631,15 @@ line2\`"]`,
     meaning:
       "A destroying message may be sent by the destroyed participant as " +
       "well as to it. Measured on 12.2.0: accepted, B's lifeline ends on " +
-      "`B-->>A: bye`'s row. Siren's X sits on the arrow's tail, on B's lane.",
+      "`B-->>A: bye`'s row, B's closing box centred on that arrow, whose " +
+      "tail starts at the box's edge. Siren draws the same.",
     assert: (result) => {
       expectSame("messages", messages(result), ["A-B: hi", "B-A: bye"]);
-      expectSame("B ends on the destroying message's tail", lifelineEnd(result, "B"), "tail of B-A, lifeline stops there");
+      expectSame(
+        "B's closing box is on the destroying message",
+        closingBox(result, "B"),
+        "centred on B-A, whose tail starts at its left edge, lifeline ends under it",
+      );
     },
   },
   {
@@ -5046,11 +5665,10 @@ line2\`"]`,
       "at the end is — B and C as if never destroyed, boxes in the top and " +
       "bottom rows, no row for either `destroy`. A note or a block's `end` " +
       "after a lone `destroy` draws the same. Siren draws B and C exactly " +
-      "as it draws A, with no X (nook 01M4YWYFJ), and warns at each " +
+      "as it draws A (nook 01M4YWYFJ), and warns at each " +
       "`destroy`. A message after the two would refuse the first, which " +
       "Mermaid would not draw (nook 01M4YS7DV8).",
     assert: (result) => {
-      expectSame("no destroy mark was drawn", drew(result, "path.siren-destroy-mark"), false);
       expectSame("B is drawn as A is", participantRows(result, "B"), participantRows(result, "A"));
       expectSame("C is drawn as A is", participantRows(result, "C"), participantRows(result, "A"));
     },
@@ -5074,7 +5692,6 @@ line2\`"]`,
     assert: (result) => {
       expectSame("participants", participants(result), ["A", "B"]);
       expectSame("lanes", laneOrder(result), ["A", "B"]);
-      expectSame("no destroy mark was drawn", drew(result, "path.siren-destroy-mark"), false);
     },
   },
   {
@@ -5091,10 +5708,14 @@ line2\`"]`,
       "12.2.0 (layout-stubbed render): lanes A, B, C, Z — C before Z, in " +
       "the order the message names them, not Z at the `destroy` — with Z's " +
       "lifeline ending on `C-xZ`'s row and no shift of Z's lane. Siren " +
-      "draws the same lanes and Z's X on the arrow's tip.",
+      "draws the same lanes and Z's closing box on the arrow.",
     assert: (result) => {
       expectSame("lanes", laneOrder(result), ["A", "B", "C", "Z"]);
-      expectSame("Z ends on its destroying message's tip", lifelineEnd(result, "Z"), "tip of C-Z, lifeline stops there");
+      expectSame(
+        "Z's closing box is on its destroying message",
+        closingBox(result, "Z"),
+        "centred on C-Z, whose tip stops at its left edge, lifeline ends under it",
+      );
     },
   },
   {
@@ -5614,14 +6235,18 @@ line2\`"]`,
       "`create` and `destroy` are read in any case (measured: `Box … END`, " +
       "`Autonumber`, `AUTONUMBER`, `Activate`, `DEACTIVATE`, `Create " +
       "participant`, `Destroy`). `C-->>A: four` is C's destroying message, " +
-      "so `DESTROY C` draws its X (measured on 12.2.0: C's closing box on " +
-      "that arrow); with no message after it, it would draw nothing.",
+      "so `DESTROY C` draws C's closing box on that arrow (measured on " +
+      "12.2.0); with no message after it, it would draw nothing.",
     assert: (result) => {
       expectSame("the box grouping is drawn", drew(result, 'g.siren-box[data-siren-id="box:1"]'), true);
       expectSame("the two numbered messages", texts(result, "text.siren-autonumber"), ["1", "2"]);
       expectSame("one activation bar", elements(result, "rect.siren-activation-bar").length, 1);
       expectSame("C is created", participants(result), ["A", "B", "C"]);
-      expectSame("C is destroyed", drew(result, 'path.siren-destroy-mark[data-siren-id="C"]'), true);
+      expectSame(
+        "C is destroyed",
+        closingBox(result, "C"),
+        "centred on C-A, whose tail starts at its left edge, lifeline ends under it",
+      );
     },
   },
   {
@@ -8496,6 +9121,107 @@ line2\`"]`,
       "is not a comment and, if it is one, to move it to a line of its own. " +
       "Siren used to cut the line at the `%%`. A comment on its own line " +
       "renders in both.",
+  },
+  {
+    id: "er-percent-in-label-and-comment",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : "pays 50% up front"
+      ORDER {
+        int total "in cents, 20% tax"
+      }`,
+    status: "supported",
+    meaning:
+      "A single `%` in a relationship's quoted label or an attribute's " +
+      "quoted comment is text: Mermaid 12.2.0 draws the label `pays 50% up " +
+      "front` and the comment `in cents, 20% tax` (measured). The control " +
+      "for the three `er-percent-in-*` rows below, where the same `%` in a " +
+      "quoted entity name or alias refuses the document.",
+    assert: (result) => {
+      const label = svgOf(result).querySelector(
+        'g.siren-er-relationship-labels[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label',
+      );
+      expectSame("the label", labelRows(label), ["pays 50% up front"]);
+      expectSame("ORDER's attributes", erAttributeRows(result, "ORDER"), [
+        "type=int | name=total | comment=in cents, 20% tax",
+      ]);
+    },
+  },
+  {
+    id: "er-percent-in-alias",
+    kind: "er",
+    source: `erDiagram
+      DISCOUNT["50% off"]
+      DISCOUNT ||--o{ ORDER : applies`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** Mermaid 12.2.0's " +
+      "ER lexer reads a quoted string holding a `%` as its `WORD` token, " +
+      "which only a relationship's label takes, so an alias with even one " +
+      "`%` refuses the document (\"Expecting 'UNICODE_TEXT', … got " +
+      "'WORD'\", measured; `%%` too). Siren used to draw the box `50% off`; " +
+      "it refuses it now (ADR-0017), with an error at the `%` saying to " +
+      "remove it or spell it out.",
+  },
+  {
+    id: "er-percent-in-quoted-name",
+    kind: "er",
+    source: `erDiagram
+      "Discount % rate" {
+        int value
+      }`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A quoted entity " +
+      "name holding a `%` is the lexer's `WORD`, not an `ENTITY_NAME`, and " +
+      "Mermaid 12.2.0 refuses the document (\"Expecting 'EOF', 'NEWLINE', " +
+      "… got 'WORD'\", measured). Siren used to draw the entity; it refuses " +
+      "it now (ADR-0017), with an error at the `%`.",
+  },
+  {
+    id: "er-percent-in-relationship-end",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ "Order % batch" : places`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A relationship's " +
+      "quoted end holding a `%` is the lexer's `WORD`, and only the label " +
+      "after the `:` takes one, so Mermaid 12.2.0 refuses the document " +
+      "(\"Expecting 'UNICODE_TEXT', …, 'IDENTIFYING', got 'WORD'\", " +
+      "measured, at either end). Siren used to draw the relationship; it " +
+      "refuses it now (ADR-0017), with an error at the `%`.",
+  },
+  {
+    id: "er-percent-in-subgraph-name",
+    kind: "er",
+    source: `erDiagram
+      subgraph "Sales % team"
+        CUSTOMER
+      end`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A subgraph's " +
+      "quoted name holding a `%` is the lexer's `WORD`, which the header " +
+      "does not take, so Mermaid 12.2.0 refuses the document (\"Expecting " +
+      "'UNICODE_TEXT', 'NUM', 'ENTITY_NAME', …, got 'WORD'\", measured; " +
+      "`%%` too). Siren used to draw the cluster; it refuses it now " +
+      "(ADR-0017), with an error at the `%`.",
+  },
+  {
+    id: "er-percent-in-subgraph-title",
+    kind: "er",
+    source: `erDiagram
+      subgraph sales["50% off"]
+        CUSTOMER
+      end`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A subgraph's " +
+      "quoted title holding a `%` is the lexer's `WORD` too, and Mermaid " +
+      "12.2.0 refuses the document (\"… got 'WORD'\", measured; `%%` " +
+      "too). Siren used to draw the cluster titled `50% off`; it refuses " +
+      "it now (ADR-0017), with an error at the `%`.",
   },
   {
     id: "er-label-line-height",
