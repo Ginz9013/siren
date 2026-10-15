@@ -319,6 +319,29 @@ describe("renderSequenceToSVG", () => {
     }
   });
 
+  // Mermaid 12.2.0 draws its actor figure `ACTOR_TYPE_WIDTH` (36) wide —
+  // arms at `±ACTOR_TYPE_WIDTH / 2` from the lane — whatever the label.
+  it("draws an actor's stick figure 36 wide, centred on its lane, however wide its label makes the participant", () => {
+    for (const width of [60, 300]) {
+      const diagram = buildParticipantsFixture();
+      const bob = diagram.participants[1]!;
+      const svg = renderSequenceToSVG({ ...diagram, participants: [diagram.participants[0]!, { ...bob, width }] });
+
+      const bobGroup = svg.querySelector('g.siren-participant[data-siren-id="Bob"]')!;
+      const xs: number[] = [];
+      for (const circle of Array.from(bobGroup.querySelectorAll("circle"))) {
+        const cx = Number(circle.getAttribute("cx"));
+        const r = Number(circle.getAttribute("r"));
+        xs.push(cx - r, cx + r);
+      }
+      for (const line of Array.from(bobGroup.querySelectorAll("line"))) {
+        xs.push(Number(line.getAttribute("x1")), Number(line.getAttribute("x2")));
+      }
+      expect(Math.min(...xs)).toBe(bob.x - 18);
+      expect(Math.max(...xs)).toBe(bob.x + 18);
+    }
+  });
+
   it("leaves a participant lane's label centred in its own box (characterization: unchanged by the actor-label fix)", () => {
     const svg = renderSequenceToSVG(buildParticipantsFixture());
 

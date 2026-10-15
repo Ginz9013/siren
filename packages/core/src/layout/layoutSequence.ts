@@ -34,6 +34,32 @@ const PARTICIPANT_PADDING_Y = 12;
  * tall as a participant's with the same label and the two kinds line up.
  */
 const ACTOR_FIGURE_HEIGHT = 2 * PARTICIPANT_PADDING_Y;
+/**
+ * Width of an `actor`'s stick figure, arm tip to arm tip: fixed, whatever
+ * its label. Mermaid 12.2.0's `ACTOR_TYPE_WIDTH` (`18 * 2`, svgDraw.js),
+ * which `adjustCreatedDestroyedData` stops a creating message's arrow
+ * against for every figure kind rather than the label's width
+ * (`ACTOR_TYPE_WIDTH / 2 + 3`; measured: lane 275, arrow line ends at 247
+ * with its 7px marker). Its classic glyph, measured from `drawActorTypeActor`
+ * as offsets from the actor's top and lane: head `cy 10`, `r 15`; torso
+ * 25 to 45; arms at 33, `±18`; legs from the torso's foot at 45 to `-18`
+ * and `+16` at 60 — 65 tall in all (`ACTOR_GLYPH_TOP` -5 to
+ * `ACTOR_GLYPH_BOTTOM` 60). The default `neo` look scales that glyph by
+ * 44/65 (arms `±12.18`, head `r 10.15`) but still stops the arrow by the
+ * unscaled 36. Siren keeps the 36 and its own shorter figure
+ * (`ACTOR_FIGURE_HEIGHT`). The label keeps its own width under the figure
+ * and may be wider than it; the participant's `width`, and with it lane
+ * spacing, stays the label's. Exported because the renderer draws the
+ * figure at this width (`renderSequenceToSVG`'s `buildActorIcon`), as
+ * `layoutGraph`'s `SHAPE_LEAN` is shared with `renderToSVG`: one number the
+ * layout stops arrows at and the renderer draws to.
+ */
+export const ACTOR_FIGURE_WIDTH = 36;
+/**
+ * Half of `ACTOR_FIGURE_WIDTH`: how far each arm tip reaches from the lane,
+ * and so how far short of the lane a created actor's creating arrow stops.
+ */
+export const ACTOR_FIGURE_HALF_WIDTH = ACTOR_FIGURE_WIDTH / 2;
 /** Minimum horizontal gap between adjacent participant lane boxes. */
 const LANE_GAP = 40;
 /** Horizontal room either side of a link-menu entry's label. */
@@ -115,9 +141,17 @@ const BLOCK_DIVIDER_HEIGHT = 30;
 const BLOCK_DIVIDER_TOP_GAP = 10;
 /** Vertical gap between a block's last content and its own frame's bottom edge. */
 const BLOCK_MARGIN_BOTTOM = 20;
-/** Vertical gap above a `create`d participant's box, separating it from the preceding row. */
+/**
+ * Vertical gap above a `create`d participant's box, separating it from the
+ * preceding row — only for a `create` whose creating message was refused,
+ * the one case whose box still sits where `create` is written.
+ */
 const CREATE_ROW_GAP = 20;
-/** Vertical distance a `destroy` statement's X mark sits below the preceding row. */
+/**
+ * Vertical distance a `destroy` statement's X mark sits below the preceding
+ * row — only for a `destroy` whose destroying message was refused, the one
+ * case whose lifeline still ends where `destroy` is written.
+ */
 const DESTROY_ROW_HEIGHT = 30;
 /**
  * Horizontal padding a box's background rect extends beyond its outermost
@@ -141,6 +175,23 @@ interface SequenceLayoutContext {
   createdTopById: Map<string, number>;
   /** y-coordinate a `destroy`ed participant's lifeline ends at, keyed by id. */
   destroyedBottomById: Map<string, number>;
+  /**
+   * Participants whose `destroy` statement takes a row of its own: those
+   * the model ends (`destroyedAt` set) with no message destroying them
+   * (`ResolvedSequenceMessage.destroys`) — a declaration refused for its
+   * missing destroying message. Every other `destroy` takes no row: a paired
+   * one ends on its destroying message's row, and one no message came after
+   * leaves its participant destroyed by nothing and draws nothing, as in
+   * Mermaid 12.2.0 (nook 01M4YWYFJ). A participant is destroyed at most
+   * once, so the id alone says which `destroy` this is.
+   */
+  destroyedOnOwnRow: Set<string>;
+  /**
+   * Participants some message creates (`ResolvedSequenceMessage.creates`),
+   * collected before the walk: their `create` statement takes no row,
+   * because the creating message's row is where their box is drawn.
+   */
+  createdByMessage: Set<string>;
   /** Activations not yet closed, per participant id — a stack, since Mermaid stacks repeat activations rather than merging them. */
   openActivationsByParticipantId: Map<string, OpenActivation[]>;
   /** Every closed bar, in the order it closed — `layoutSequence` sorts nothing further, since draw order does not depend on it. */
@@ -365,9 +416,11 @@ function placeLinkMenus(
  * Assigns a y-coordinate to each message and a bounding box to each block,
  * walking `statements` recursively (block bodies included) in document
  * order, so the whole diagram shares one strictly-increasing time axis
- * regardless of nesting. A `create` statement claims a row of its own —
- * enough for the created participant's box — and records where that
- * participant's lifeline begins.
+ * regardless of nesting. A created participant's box is centred on its
+ * creating message's arrow, and the next row starts below the box; a
+ * `create` with no creating message claims a row of its own instead —
+ * enough for the box — and records where that participant's lifeline
+ * begins.
  */
 function layoutStatements(
   statements: ResolvedSequenceStatement[],
@@ -385,16 +438,60 @@ function layoutStatements(
       // arrow down by its own height.
       const labelBox = layoutLabel(statement.message.label, ctx.measureText, SEQUENCE_LINE);
       y += MESSAGE_ROW_HEIGHT + heightBesides(labelBox, labelBox.rows.length - 1);
-      elements.push({
-        kind: "message",
-        message: layoutMessage(statement.message, labelBox, ctx.laneCenterById, y),
-      });
+      const message = layoutMessage(statement.message, labelBox, ctx.laneCenterById, y);
+      elements.push({ kind: "message", message });
+
+      // The destroying message ends its participant's lifeline on its own
+      // row. Measured against Mermaid 12.2.0: the destroyed actor's `stopy`
+      // is taken from this message's `lineStartY`, and the closing box it
+      // draws there is centred on the arrow (`adjustCreatedDestroyedData`).
+      // Siren draws its X instead of a closing box, so the X goes where that
+      // box's centre is: on X's lane, on this arrow — its tip when X
+      // receives the message, its tail when X sends it (a message X sends to
+      // itself counts as sent, as Mermaid checks the sender first, so the X
+      // stays on X's lane rather than at the self-loop's far end).
+      const destroyed = statement.message.destroys;
+      if (destroyed !== undefined) {
+        ctx.destroyedBottomById.set(destroyed, y);
+        elements.push({
+          kind: "destroyMark",
+          mark: { participantId: destroyed, x: destroyed === message.from ? message.fromX : message.toX, y },
+        });
+      }
+
+      // The creating message starts its participant's lifeline on its own
+      // row. Measured against Mermaid 12.2.0: the created actor's `starty`
+      // is this message's `lineStartY` less half the box, so the box is
+      // centred on the arrow, and the next row starts half a box lower
+      // (`bumpVerticalPos(actor.height / 2)`) to clear the box's lower half.
+      //
+      // Its arrow stops at the box's near edge rather than running under the
+      // box to the lane (Mermaid's `receiverAdjustment` pulls the arrow's end
+      // back by half the box) — for an actor, at its figure's near arm tip,
+      // `ACTOR_FIGURE_HALF_WIDTH` from the lane whatever its label, as
+      // Mermaid pulls it back by `ACTOR_TYPE_WIDTH / 2` for every figure
+      // kind; the label stays centred between the lanes, as Mermaid places it
+      // before that adjustment. A message X sends itself loops out from its
+      // lane and is left as it is.
+      const createdId = statement.message.creates;
+      const created = createdId === undefined ? undefined : ctx.participantsById.get(createdId);
+      if (created === undefined) continue;
+      if (message.from !== message.to) {
+        const halfWidth = created.participantKind === "actor" ? ACTOR_FIGURE_HALF_WIDTH : created.width / 2;
+        message.toX += message.toX > message.fromX ? -halfWidth : halfWidth;
+      }
+      ctx.createdTopById.set(created.id, y - created.height / 2);
+      y += created.height / 2;
       continue;
     }
 
     if (statement.kind === "participant") {
       const participant = ctx.participantsById.get(statement.participant.id);
-      if (participant !== undefined && participant.origin === "created") {
+      // Paired with a creating message: that message's row is where the box
+      // goes, and `create` itself takes no row, as it takes none in Mermaid.
+      // With no message after it, the model resolved the participant as
+      // `declared`, drawn from the top, so it takes no row either.
+      if (participant !== undefined && participant.origin === "created" && !ctx.createdByMessage.has(participant.id)) {
         y += CREATE_ROW_GAP;
         ctx.createdTopById.set(participant.id, y);
         y += participant.height;
@@ -403,6 +500,10 @@ function layoutStatements(
     }
 
     if (statement.kind === "destroy") {
+      // Paired with a destroying message later on, that message's row is the
+      // end; with no message after it, it ends nothing. Either way `destroy`
+      // itself takes no row, as it takes none in Mermaid.
+      if (!ctx.destroyedOnOwnRow.has(statement.id)) continue;
       y += DESTROY_ROW_HEIGHT;
       ctx.destroyedBottomById.set(statement.id, y);
       elements.push({
@@ -679,7 +780,9 @@ function layoutMessage(
  * Computes participant lane x-positions, each lifeline's y-extent —
  * full-height (ending at the reserved bottom row where a declared,
  * never-destroyed participant's box is drawn again), or truncated to its
- * `create`/`destroy` rows — each message's
+ * creating message's row and its destroying message's row (a refused
+ * `create` or `destroy`, with no such message, to its own row) — each
+ * message's
  * y-coordinate and arrow endpoint x-coordinates, every nested control-flow
  * block's bounding box (recursively, so time flows strictly top-to-bottom
  * across the whole diagram regardless of nesting), and every box group's
@@ -695,6 +798,8 @@ export function layoutSequence(
     participantsById: new Map(participants.map((p) => [p.id, p])),
     createdTopById: new Map(),
     destroyedBottomById: new Map(),
+    destroyedOnOwnRow: destroyedOnOwnRow(model),
+    createdByMessage: pairedByMessage(model.statements, "creates"),
     openActivationsByParticipantId: new Map(),
     closedActivations: [],
     measureText: options.measureText,
@@ -785,6 +890,35 @@ export function layoutSequence(
     width: extent.width,
     height: extent.height,
   };
+}
+
+/**
+ * Every participant a message destroys (`"destroys"`) or creates
+ * (`"creates"`), anywhere in the statement tree (block bodies included).
+ */
+function pairedByMessage(
+  statements: readonly ResolvedSequenceStatement[],
+  mark: "destroys" | "creates",
+): Set<string> {
+  const ids = new Set<string>();
+  for (const statement of statements) {
+    if (statement.kind === "message" && statement.message[mark] !== undefined) {
+      ids.add(statement.message[mark]);
+    } else if (statement.kind === "block") {
+      for (const branch of statement.block.branches) {
+        for (const id of pairedByMessage(branch.statements, mark)) ids.add(id);
+      }
+    }
+  }
+  return ids;
+}
+
+/** `SequenceLayoutContext.destroyedOnOwnRow`: ended by the model, destroyed by no message. */
+function destroyedOnOwnRow(model: SequenceModel): Set<string> {
+  const byMessage = pairedByMessage(model.statements, "destroys");
+  return new Set(
+    model.participants.filter((p) => p.destroyedAt !== null && !byMessage.has(p.id)).map((p) => p.id),
+  );
 }
 
 /** Finds the rightmost frame edge across every block, recursively including nested children. */

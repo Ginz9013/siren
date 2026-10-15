@@ -999,6 +999,133 @@ function messageArrow(result: SirenRenderResult, id: string): string {
   return `${line}/${head}`;
 }
 
+/** One drawn sequence arrow: its message's id, where it starts and ends, and its row. */
+interface DrawnArrow {
+  id: string;
+  fromX: number;
+  toX: number;
+  y: number;
+}
+
+/** Every sequence message's arrow, read off its path (`M fromX,y L toX,y`), in draw order. */
+function messageArrows(result: SirenRenderResult): DrawnArrow[] {
+  return elements(result, "g.siren-message").map((g) => {
+    const [fromX, y, toX] = [...(g.querySelector("path.siren-message-arrow")?.getAttribute("d") ?? "").matchAll(/-?[\d.]+/g)].map(Number);
+    return { id: idOf(g), fromX: fromX!, toX: toX!, y: y! };
+  });
+}
+
+/** `below <message>` for a drawing at `y` on no arrow: the last arrow above it, or the top row. */
+function belowArrow(arrows: readonly DrawnArrow[], y: number): string {
+  const above = arrows.filter((arrow) => arrow.y < y).sort((a, b) => b.y - a.y)[0];
+  return `below ${above?.id ?? "the top row"}`;
+}
+
+/**
+ * Where a destroyed participant's lifeline ends, read off the drawn picture:
+ * `tip of <message>` or `tail of <message>` when its X mark sits on that end
+ * of a message's arrow, `below <message>` when it sits on no arrow (on a row
+ * of its own, under the last arrow above it), each followed by
+ * `, lifeline stops there` when the lifeline's bottom is the mark's centre.
+ * The words name the relation a reader sees — the X on the arrow the
+ * participant receives or sends — rather than coordinates no assert could
+ * hold still.
+ */
+function lifelineEnd(result: SirenRenderResult, participantId: string): string {
+  const mark = svgOf(result).querySelector(`path.siren-destroy-mark[data-siren-id="${participantId}"]`);
+  if (mark === null) return "no destroy mark";
+  const [left, top, right, bottom] = [...(mark.getAttribute("d") ?? "").matchAll(/-?[\d.]+/g)].map(Number);
+  const centre = { x: (left! + right!) / 2, y: (top! + bottom!) / 2 };
+  const lifeline = svgOf(result).querySelector(`line.siren-lifeline[data-siren-id="${participantId}"]`);
+  const stops = Number(lifeline?.getAttribute("y2")) === centre.y ? ", lifeline stops there" : "";
+
+  const arrows = messageArrows(result);
+  for (const arrow of arrows) {
+    if (arrow.y !== centre.y) continue;
+    if (arrow.toX === centre.x) return `tip of ${arrow.id}${stops}`;
+    if (arrow.fromX === centre.x) return `tail of ${arrow.id}${stops}`;
+  }
+  return `${belowArrow(arrows, centre.y)}${stops}`;
+}
+
+/**
+ * Where a created participant's box is drawn, read off the picture:
+ * `centred on <message>, whose arrow stops at its left edge` (or right edge,
+ * or `runs to its lane` when it does not stop short) when the box's centre
+ * is on a message's arrow ending at that participant, `below <message>` when
+ * it sits on no arrow (on a row of its own, under the last arrow above it).
+ * The words name what a reader sees — the box on the arrow that creates the
+ * participant — rather than coordinates no assert could hold still.
+ */
+function createdBox(result: SirenRenderResult, participantId: string): string {
+  const rect = svgOf(result).querySelector(`g.siren-participant[data-siren-id="${participantId}"] rect`);
+  if (rect === null) return "no box";
+  const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(rect.getAttribute(name)));
+  const centre = { x: x! + width! / 2, y: y! + height! / 2 };
+
+  const ends: [number, string][] = [
+    [x!, "stops at its left edge"],
+    [x! + width!, "stops at its right edge"],
+    [centre.x, "runs to its lane"],
+  ];
+  const arrows = messageArrows(result);
+  for (const arrow of arrows) {
+    if (arrow.y !== centre.y) continue;
+    const end = ends.find(([at]) => at === arrow.toX)?.[1] ?? `ends at x ${arrow.toX}`;
+    return `centred on ${arrow.id}, whose arrow ${end}`;
+  }
+  return belowArrow(arrows, centre.y);
+}
+
+/**
+ * How a sequence participant is drawn, as positions to compare with another
+ * participant's rather than to hold still: the y of every box drawn for it
+ * (top row, and bottom row when it has one) and its lifeline's span. Two
+ * participants drawn alike — boxes in the same rows, lifelines from the same
+ * top to the same bottom — read the same here.
+ */
+function participantRows(result: SirenRenderResult, participantId: string): string {
+  const svg = svgOf(result);
+  const boxes = Array.from(svg.querySelectorAll(`g.siren-participant[data-siren-id="${participantId}"] rect`)).map(
+    (rect) => rect.getAttribute("y"),
+  );
+  const lifeline = svg.querySelector(`line.siren-lifeline[data-siren-id="${participantId}"]`);
+  return `boxes at y ${boxes.join(", ")}; lifeline ${lifeline?.getAttribute("y1")}..${lifeline?.getAttribute("y2")}`;
+}
+
+/** Where a sequence participant's lifeline ends, as its drawn `y2`. */
+function lifelineBottom(result: SirenRenderResult, participantId: string): string | null {
+  return svgOf(result).querySelector(`line.siren-lifeline[data-siren-id="${participantId}"]`)?.getAttribute("y2") ?? null;
+}
+
+/**
+ * Where a created actor's creating message ends, read off the drawn figure:
+ * `<message> stops at its left arm tip, <n> short of its lane` (or right),
+ * or `<message> ends at x <n>` when the arrow meets no arm tip. The arms
+ * are the figure's widest stroke, so its leftmost and rightmost line ends
+ * are the tips; the lane is the lifeline's x. `createdBox` asks the same of
+ * a box, which an actor does not have.
+ */
+function createdFigureArrow(result: SirenRenderResult, participantId: string): string {
+  const svg = svgOf(result);
+  const figure = svg.querySelector(`g.siren-participant[data-siren-id="${participantId}"]`);
+  const lifeline = svg.querySelector(`line.siren-lifeline[data-siren-id="${participantId}"]`);
+  if (figure === null || lifeline === null) return "no figure";
+  const xs = Array.from(figure.querySelectorAll("line")).flatMap((line) =>
+    ["x1", "x2"].map((name) => Number(line.getAttribute(name))),
+  );
+  const lane = Number(lifeline.getAttribute("x1"));
+  const tips: [number, string][] = [
+    [Math.min(...xs), "left"],
+    [Math.max(...xs), "right"],
+  ];
+  const arrow = messageArrows(result).find((candidate) => candidate.id.endsWith(`-${participantId}`));
+  if (arrow === undefined) return "no arrow to it";
+  const tip = tips.find(([at]) => at === arrow.toX)?.[1];
+  if (tip === undefined) return `${arrow.id} ends at x ${arrow.toX}`;
+  return `${arrow.id} stops at its ${tip} arm tip, ${Math.abs(lane - arrow.toX)} short of its lane`;
+}
+
 /** Every control-flow block as `kind:id`, in draw order. */
 function blocks(result: SirenRenderResult): string[] {
   return elements(result, "g.siren-block").map(
@@ -4436,10 +4563,241 @@ line2\`"]`,
       B-->>A: yes
       destroy B`,
     status: "supported",
-    meaning: "`create` starts a lifeline partway down; `destroy` ends it with an X.",
+    warnings: [
+      'The destroyed participant "B" has no destroying message, so the destroy draws nothing: its lifeline runs to the bottom. A message sent by or to it right after the destroy ends it there.',
+    ],
+    meaning:
+      "`create` starts a lifeline partway down: `A->>B: are you there` is " +
+      "B's creating message, so B's box is drawn on that arrow. Nothing " +
+      "follows the `destroy`, so it has no destroying message to pair with. " +
+      "Measured on 12.2.0: Mermaid accepts this and draws B as if it were " +
+      "never destroyed — no closing box on any arrow, the lifeline running " +
+      "on to the bottom row. Siren draws the same: no X, B's lifeline down " +
+      "to where A's ends, nothing in the `destroy`'s place (nook " +
+      "01M4YWYFJ), and warns that the `destroy` draws nothing.",
     assert: (result) => {
       expectSame("participants", participants(result), ["A", "B"]);
-      expectSame("a destroy mark was drawn", drew(result, "path.siren-destroy-mark"), true);
+      expectSame("no destroy mark was drawn", drew(result, "path.siren-destroy-mark"), false);
+      expectSame("B's box is on its creating message", createdBox(result, "B"), "centred on A-B, whose arrow stops at its left edge");
+      expectSame("B's lifeline runs as far down as A's", lifelineBottom(result, "B"), lifelineBottom(result, "A"));
+    },
+  },
+  {
+    id: "seq-creating-message",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      A->>A: before
+      create participant C
+      A->>C: make
+      A->>C: again`,
+    status: "supported",
+    meaning:
+      "`create participant C` is a declaration about the next message, which " +
+      "must be sent to C: its creating message. Measured on 12.2.0: " +
+      "accepted; C's box is centred on `A->>C: make`'s arrow, which stops " +
+      "short of the box, C's lifeline starts at the box's bottom, and the " +
+      "`create` takes no row of its own. Siren draws the box there too, the " +
+      "arrow ending at its edge; `again` runs on to C's lane as any message " +
+      "does.",
+    assert: (result) => {
+      expectSame("messages", messages(result), ["A-A: before", "A-C: make", "A-C#2: again"]);
+      expectSame("C's box is on its creating message", createdBox(result, "C"), "centred on A-C, whose arrow stops at its left edge");
+    },
+  },
+  {
+    id: "seq-create-actor-long-label",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      create actor C as Carol the very long-named customer
+      A->>C: make`,
+    status: "supported",
+    meaning:
+      "A created `actor` whose label is far wider than its stick figure. " +
+      "Mermaid 12.2.0 draws the figure a fixed `ACTOR_TYPE_WIDTH` (36) wide " +
+      "whatever the label and stops the creating arrow against that figure " +
+      "(`ACTOR_TYPE_WIDTH / 2 + 3`, measured: the arrow's line ends 28 short " +
+      "of the lane, its 7px marker included), not against the label. Siren " +
+      "draws its figure 36 wide too, the label free to be wider beneath it, " +
+      "and stops the arrow at the figure's near arm tip, 18 from the lane, " +
+      "as it stops one at a box's near edge (nook 01M4YVB29).",
+    assert: (result) => {
+      expectSame("C's figure is on its creating message", createdFigureArrow(result, "C"), "A-C stops at its left arm tip, 18 short of its lane");
+    },
+  },
+  {
+    id: "seq-create-next-message-sent-by-created",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      create participant C
+      C->>A: hi`,
+    status: "rejected",
+    meaning:
+      "`create participant C` declares that the next message is C's " +
+      "creating message, which must be sent to C; one C sends does not " +
+      "count. Measured on 12.2.0: Mermaid refuses the document (\"The " +
+      "created participant … does not have an associated creating message " +
+      "after its declaration\"). Siren refuses it too, with an error at the " +
+      "`create` line saying the next message must be sent to C.",
+  },
+  {
+    id: "seq-create-without-creating-message",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      participant B
+      create participant C
+      A->>B: hi`,
+    status: "rejected",
+    meaning:
+      "The next message after `create participant C` joins A and B, so C " +
+      "has no creating message. Measured on 12.2.0: Mermaid refuses the " +
+      "document, as for a message C sends. Siren refuses it with the same " +
+      "error at the `create` line. Refused documents cost an author nothing " +
+      "Mermaid gave them.",
+  },
+  {
+    id: "seq-create-at-end",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      A->>A: think
+      create participant C`,
+    status: "supported",
+    warnings: [
+      'The created participant "C" has no creating message, so the create draws nothing: its lifeline starts at the top. A message sent to it right after the create starts it there.',
+    ],
+    meaning:
+      "A `create` with no message after it has nothing to pair with. " +
+      "Measured on 12.2.0: accepted, with no error, and C drawn much as a " +
+      "declared participant is — its box in the top row and again in the " +
+      "bottom row, its lifeline full height — with no row for the `create`, " +
+      "though its lane sits half a box further right (`addActorRenderingData` " +
+      "keeps a created actor's `prevMargin`). `create actor C` draws its " +
+      "figure the same way. Siren draws C's rows exactly as it draws A's " +
+      "(nook 01M4YWYFJ) but does not model that x offset, laying C's lane " +
+      "out as a declared one's (a separate nook issue, 01M4Z6KQ91), and " +
+      "warns that the `create` draws nothing.",
+    assert: (result) => {
+      expectSame("participants", participants(result), ["A", "C"]);
+      expectSame("C is drawn as A is, top row to bottom row", participantRows(result, "C"), participantRows(result, "A"));
+    },
+  },
+  {
+    id: "seq-create-note-before-creating-message",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      create participant C
+      note over A: aside
+      A->>C: make`,
+    status: "rejected",
+    meaning:
+      "A note between `create participant C` and `A->>C: make`. Measured on " +
+      "12.2.0: accepted, with no error, but Mermaid draws C's box at the top " +
+      "and runs the arrow to C's lane as if C were never created — its " +
+      "drawing pairs the `create` with the record right after it, here the " +
+      "note. A wrong picture with no diagnostic, so Siren refuses it " +
+      "(ADR-0001's exception, nook 01M4YS7DV8), with an error at the " +
+      "`create` line saying the message must come right after the `create`, " +
+      "with no note in between. The same holds for an `activate`, a " +
+      "`deactivate`, an `autonumber`, a block boundary, or another `create` " +
+      "or `destroy` in between, on either declaration.",
+  },
+  {
+    id: "seq-destroying-message-received",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      participant B
+      A->>B: hi
+      destroy B
+      A->>B: bye
+      A->>A: carry on`,
+    status: "supported",
+    meaning:
+      "`destroy B` is a declaration about the next message, which B must " +
+      "send or receive: its destroying message. Measured on 12.2.0: " +
+      "accepted, and B's lifeline ends on `A->>B: bye`'s own row (Mermaid " +
+      "centres B's closing box on that arrow), with no row for the " +
+      "`destroy` itself. Siren draws its X there, on the arrow's tip, and " +
+      "says nothing — the arrow reaches B before B stops.",
+    assert: (result) => {
+      expectSame("messages", messages(result), ["A-B: hi", "A-B#2: bye", "A-A: carry on"]);
+      expectSame("B ends on the destroying message's tip", lifelineEnd(result, "B"), "tip of A-B#2, lifeline stops there");
+    },
+  },
+  {
+    id: "seq-destroy-without-destroying-message",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      participant B
+      participant C
+      A->>B: hi
+      destroy B
+      A->>C: unrelated`,
+    status: "rejected",
+    meaning:
+      "`destroy B` declares that the next message is B's destroying " +
+      "message, which B must send or receive. Here the next message joins A " +
+      "and C. Measured on 12.2.0: Mermaid refuses the document (\"The " +
+      "destroyed participant … does not have an associated destroying " +
+      "message after its declaration\"). Siren refuses it too, with an " +
+      "error at the `destroy` line saying the next message must be sent by " +
+      "or to B. Refused documents cost an author nothing Mermaid gave them.",
+  },
+  {
+    id: "seq-destroying-message-sent",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      participant B
+      A->>B: hi
+      destroy B
+      B-->>A: bye`,
+    status: "supported",
+    meaning:
+      "A destroying message may be sent by the destroyed participant as " +
+      "well as to it. Measured on 12.2.0: accepted, B's lifeline ends on " +
+      "`B-->>A: bye`'s row. Siren's X sits on the arrow's tail, on B's lane.",
+    assert: (result) => {
+      expectSame("messages", messages(result), ["A-B: hi", "B-A: bye"]);
+      expectSame("B ends on the destroying message's tail", lifelineEnd(result, "B"), "tail of B-A, lifeline stops there");
+    },
+  },
+  {
+    id: "seq-destroy-two-at-end",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      participant B
+      participant C
+      A->>B: hi
+      A->>C: hi
+      destroy B
+      destroy C`,
+    status: "supported",
+    warnings: [
+      'The destroyed participant "B" has no destroying message, so the destroy draws nothing: its lifeline runs to the bottom. A message sent by or to it right after the destroy ends it there.',
+      'The destroyed participant "C" has no destroying message, so the destroy draws nothing: its lifeline runs to the bottom. A message sent by or to it right after the destroy ends it there.',
+    ],
+    meaning:
+      "Two `destroy` lines with no message after either: neither has a " +
+      "destroying message to pair with, the second one first or not. " +
+      "Measured on 12.2.0: accepted, and drawn exactly as a lone `destroy` " +
+      "at the end is — B and C as if never destroyed, boxes in the top and " +
+      "bottom rows, no row for either `destroy`. A note or a block's `end` " +
+      "after a lone `destroy` draws the same. Siren draws B and C exactly " +
+      "as it draws A, with no X (nook 01M4YWYFJ), and warns at each " +
+      "`destroy`. A message after the two would refuse the first, which " +
+      "Mermaid would not draw (nook 01M4YS7DV8).",
+    assert: (result) => {
+      expectSame("no destroy mark was drawn", drew(result, "path.siren-destroy-mark"), false);
+      expectSame("B is drawn as A is", participantRows(result, "B"), participantRows(result, "A"));
+      expectSame("C is drawn as A is", participantRows(result, "C"), participantRows(result, "A"));
     },
   },
   {
@@ -4951,13 +5309,16 @@ line2\`"]`,
       AUTONUMBER OFF
       Create participant C
       A->>C: three
-      DESTROY C`,
+      DESTROY C
+      C-->>A: four`,
     status: "supported",
     meaning:
       "`box`, `autonumber` (and `autonumber off`), `activate`, `deactivate`, " +
       "`create` and `destroy` are read in any case (measured: `Box … END`, " +
       "`Autonumber`, `AUTONUMBER`, `Activate`, `DEACTIVATE`, `Create " +
-      "participant`, `Destroy`).",
+      "participant`, `Destroy`). `C-->>A: four` is C's destroying message, " +
+      "so `DESTROY C` draws its X (measured on 12.2.0: C's closing box on " +
+      "that arrow); with no message after it, it would draw nothing.",
     assert: (result) => {
       expectSame("the box grouping is drawn", drew(result, 'g.siren-box[data-siren-id="box:1"]'), true);
       expectSame("the two numbered messages", texts(result, "text.siren-autonumber"), ["1", "2"]);

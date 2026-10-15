@@ -57,6 +57,7 @@ Web->>Payments: Check balance
 deactivate Web
 
 create participant Retry
+Web->>Retry: Schedule a retry
 Web->Payments: Quote fees
 Web-)Payments: Notify
 Web-xPayments: Cancel
@@ -68,6 +69,7 @@ loop Every attempt
   alt approved
     Payments-->>Web: Approved
     destroy Retry
+    Web-xRetry: Stop
   else declined
     Payments->>Web: Declined
   end

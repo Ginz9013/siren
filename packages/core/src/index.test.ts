@@ -634,7 +634,7 @@ A->>GHOST: Hello
     }
   });
 
-  it("starts a `create`d participant's lifeline at its create statement with no top-row box, and ends a `destroy`ed one at its destroy statement with an X mark and no bottom-row box", () => {
+  it("starts a `create`d participant's lifeline at its create statement with no top-row box, and ends a `destroy`ed one at its destroying message with an X mark and no bottom-row box", () => {
     const container = document.createElement("div");
     const source = `sequenceDiagram
 participant Client
@@ -642,8 +642,8 @@ participant Server
 Client->>Server: Start
 create participant Worker
 Server->>Worker: Spawn
-Worker-->>Server: Done
 destroy Worker
+Worker-->>Server: Done
 Server-->>Client: Finished
 `;
 
@@ -849,7 +849,7 @@ end
     expect(result.svg!.querySelectorAll("i")).toHaveLength(0);
   });
 
-  it("renders demos/sequence-diagram.html's comprehensive example (examples/sequence-full.srn) end to end — box grouping, both participant kinds, all ten arrow forms, a self-message, all seven block kinds nested, create inside and outside blocks, and destroy after the last message", () => {
+  it("renders demos/sequence-diagram.html's comprehensive example (examples/sequence-full.srn) end to end — box grouping, both participant kinds, all ten arrow forms, a self-message, all seven block kinds nested, and create/destroy inside and outside blocks", () => {
     const container = document.createElement("div");
 
     const result = render(readExample("sequence-full"), container);
@@ -868,9 +868,10 @@ end
       "Checkout — every sequence feature",
     );
 
-    // Four declared, never-destroyed participants (two rows each), plus three
-    // `create`d ones (one row each): Ledger and Retry are destroyed, Auditor
-    // survives — a created participant never gets a bottom row either way.
+    // Four declared, never-destroyed participants (a box in both the top and
+    // bottom rows), plus three `create`d ones (one box each, centred on its
+    // creating message's arrow): Ledger and Retry are destroyed, Auditor
+    // survives — a created participant never gets a bottom-row box either way.
     const groupCount = (id: string) =>
       svg.querySelectorAll(`g.siren-participant[data-siren-id="${id}"]`).length;
     expect(groupCount("Shopper")).toBe(2);
@@ -906,7 +907,7 @@ end
     // All ten arrow forms: two line styles x five arrowheads, each a distinct
     // marker/dash combination on the rendered path.
     const messages = Array.from(svg.querySelectorAll("g.siren-message"));
-    expect(messages).toHaveLength(22);
+    expect(messages).toHaveLength(24);
     const arrowForms = new Set(
       messages.map((g) => {
         const path = g.querySelector("path.siren-message-arrow")!;
@@ -955,8 +956,9 @@ end
     expect(boxes).toHaveLength(1);
     expect(boxes[0]!.querySelector("text.siren-box-label")!.textContent).toBe("Storefront");
 
-    // Destroy marks for the two destroyed lifelines only — `destroy Retry` and
-    // `destroy Ledger`, both at the top level after the last message.
+    // Destroy marks for the two destroyed lifelines only — `destroy Retry`
+    // inside the `alt approved` branch and `destroy Ledger` at the top level,
+    // each followed by its destroying message.
     expect(
       Array.from(svg.querySelectorAll("path.siren-destroy-mark"))
         .map((p) => p.getAttribute("data-siren-id"))
@@ -979,6 +981,30 @@ end
       expect(y2(destroyed)).toBeLessThan(y2("Web"));
     }
     expect(y2("Auditor")).toBe(y2("Web"));
+    // Each destroyed lifeline ends exactly on its destroying message's arrow:
+    // Retry's on `Web-xRetry: Cancel the retry`, which sits inside the `alt`
+    // block's frame (in its first, `approved`, branch, above the first
+    // divider); Ledger's on `Web-xLedger: Close ledger entry`.
+    const messageLabelled = (label: string) =>
+      messages.find((g) => g.querySelector("text.siren-message-label")!.textContent === label)!;
+    const arrowY = (label: string) => {
+      // `M{fromX},{y} L{toX},{y}` — a horizontal arrow at one y.
+      const d = messageLabelled(label).querySelector("path.siren-message-arrow")!.getAttribute("d")!;
+      return Number(/^M[^,]+,([^ ]+) /.exec(d)![1]);
+    };
+    expect(messageLabelled("Cancel the retry").getAttribute("data-siren-id")).toBe("Web-Retry#2");
+    const cancelRetryY = arrowY("Cancel the retry");
+    expect(y2("Retry")).toBe(cancelRetryY);
+    expect(y2("Ledger")).toBe(arrowY("Close ledger entry"));
+    const altFrame = block("alt:1").querySelector("rect.siren-block-frame")!;
+    const altTop = Number(altFrame.getAttribute("y"));
+    const altBottom = altTop + Number(altFrame.getAttribute("height"));
+    const firstDividerY = Number(
+      block("alt:1").querySelector(":scope > line.siren-block-divider")!.getAttribute("y1"),
+    );
+    expect(cancelRetryY).toBeGreaterThan(altTop);
+    expect(cancelRetryY).toBeLessThan(firstDividerY);
+    expect(cancelRetryY).toBeLessThan(altBottom);
   });
 
   it("gives every one of the ten source arrow forms its own line style and arrowhead through render(): dotted forms dash, `<<->>`/`<<-->>` arrow both ends, and filled/cross/open resolve to three distinct <marker> defs", () => {
@@ -2553,6 +2579,7 @@ participant A
 participant B
 A->>B: Hello
 destroy B
+A-xB: Bye
 timeline:
   highlight B outline
 `;
@@ -2699,7 +2726,8 @@ timeline:
 
     // Zero diagnostics, not merely zero errors: the closing example has to be
     // clean against the advisory message-outlives-its-participant warning too,
-    // which is why `Retry` and the one message touching it exit together.
+    // which is why `Retry` and both messages touching it — its creating
+    // message and its destroying one — exit together.
     expect(result.diagnostics).toEqual([]);
     const controller = result.controller!;
     expect(controller.totalSteps).toBe(8);
@@ -2719,6 +2747,7 @@ timeline:
       "Retry",
       "Shopper-Web",
       "Web-Retry",
+      "Web-Retry#2",
       "box:1",
       "note:1",
     ]);
@@ -2729,6 +2758,7 @@ timeline:
     const loopBlock = result.svg!.querySelector('[data-siren-id="loop:1"]')!;
     const rectBlock = result.svg!.querySelector('[data-siren-id="rect:1"]')!;
     const scheduleRetry = result.svg!.querySelector('g.siren-message[data-siren-id="Web-Retry"]')!;
+    const cancelRetry = result.svg!.querySelector('g.siren-message[data-siren-id="Web-Retry#2"]')!;
     const receiptNote = result.svg!.querySelector('[data-siren-id="note:1"]')!;
     const retryElements = () => Array.from(result.svg!.querySelectorAll('[data-siren-id="Retry"]'));
     expect(retryElements()).toHaveLength(3);
@@ -2761,8 +2791,9 @@ timeline:
       false,
     ]);
     expect(scheduleRetry.classList.contains("siren-enter-slide-bottom")).toBe(true);
+    expect(cancelRetry.classList.contains("siren-enter-slide-bottom")).toBe(true);
 
-    // Step 5: the participant leaves, and the one message touching it leaves
+    // Step 5: the participant leaves, and both messages touching it leave
     // with it — the pairing that keeps this example warning-free.
     controller.next();
     expect(retryElements().map((el) => el.classList.contains("siren-exit-slide-top"))).toEqual([
@@ -2771,6 +2802,7 @@ timeline:
       true,
     ]);
     expect(scheduleRetry.classList.contains("siren-exit-slide-right")).toBe(true);
+    expect(cancelRetry.classList.contains("siren-exit-slide-right")).toBe(true);
 
     // Step 6: the loop's outline lifted, the rect block's raised.
     controller.next();
@@ -2805,6 +2837,7 @@ timeline:
       "Retry",
       "Shopper-Web",
       "Web-Retry",
+      "Web-Retry#2",
       "box:1",
       "note:1",
     ]);
@@ -7792,7 +7825,8 @@ ${deactivate} B
 ${off}
 ${create} participant C
 A->>C: three
-${destroy} C`;
+${destroy} C
+C-->>A: four`;
     expectSamePicture(
       doc("ACTIVATE", "Deactivate", "AutoNumber", "AUTONUMBER OFF", "Create", "DESTROY"),
       doc("activate", "deactivate", "autonumber", "autonumber off", "create", "destroy"),
@@ -7944,7 +7978,8 @@ activate Y
 A->>Y: call
 deactivate Y
 A->>X: bye
-destroy X`);
+destroy X
+A-xX: gone`);
 
     expect(result).toMatchObject({ diagnostics: [], lanes: ["A", "Z", "Y", "X"] });
   });

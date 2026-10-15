@@ -14,6 +14,7 @@ import type {
   SequenceArrowHead,
 } from "../contracts";
 import { appendLabel, drawLabel } from "../label/drawLabel";
+import { ACTOR_FIGURE_HALF_WIDTH, ACTOR_FIGURE_WIDTH } from "../layout/layoutSequence";
 import { buildSequenceLinkMenu } from "./buildSequenceLinkMenu";
 import { drawPlaced } from "../label/drawPlaced";
 import { mintIdScope } from "./mintIdScope";
@@ -21,6 +22,20 @@ import { sizeCanvas } from "./sizeCanvas";
 import { wrapInteraction } from "./wrapInteraction";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+/**
+ * How far an actor's feet spread from its lane, as a share of its arms'
+ * reach (`ACTOR_FIGURE_HALF_WIDTH`). Siren's own 3:4 legs-to-arms ratio, the
+ * one its figure had before it was fixed-width (arms a third, legs a quarter
+ * of the participant's width), kept so the figure keeps the proportions it
+ * had. Mermaid 12.2.0's measured feet are wider and lopsided — `-18` and
+ * `+16` at the foot, i.e. the full arm reach on the left and two
+ * short of it on the right (`drawActorTypeActor`). Siren's figure is 24
+ * tall and its legs drop only about 7 (from 0.7 of the figure to its
+ * foot), so legs that wide would splay nearly flat — 18 out for a 7 drop —
+ * where Mermaid's drop 15 over its 65; the 3:4 ratio is followed instead.
+ */
+const ACTOR_LEG_SPREAD = 0.75;
 
 /**
  * Horizontal/vertical inset of a block's keyword from the block frame's
@@ -687,13 +702,18 @@ function buildParticipant(participant: PositionedParticipant, top: number): SVGG
  * the part of the participant's layout-assigned row `[top, top + height]`
  * above its label, which owns the bottom `labelBox.height` of the row (see
  * `buildParticipant`). The band is as tall for a label of several rows as
- * for one, so the figure does not grow with its label.
+ * for one, and the figure is `ACTOR_FIGURE_WIDTH` wide however wide the
+ * label is, so the figure does not grow with its label either way: its arms
+ * span the whole width, as Mermaid 12.2.0's span `±ACTOR_TYPE_WIDTH / 2`,
+ * and its legs `ACTOR_LEG_SPREAD` of it. That width is the one
+ * `layoutSequence` stops a creating message's arrow against, so the arrow
+ * meets the near arm tip.
  */
 function buildActorIcon(participant: PositionedParticipant, top: number): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
   const centerX = participant.x;
   const iconHeight = participant.height - participant.labelBox.height;
-  const headRadius = Math.max(Math.min(participant.width, iconHeight) / 6, 4);
+  const headRadius = Math.max(Math.min(ACTOR_FIGURE_WIDTH, iconHeight) / 6, 4);
   const headCenterY = top + headRadius;
   const bodyTopY = headCenterY + headRadius;
   const bodyBottomY = top + iconHeight * 0.7;
@@ -712,7 +732,7 @@ function buildActorIcon(participant: PositionedParticipant, top: number): SVGGEl
   body.setAttribute("y2", String(bodyBottomY));
   g.appendChild(body);
 
-  const armSpan = participant.width / 3;
+  const armSpan = ACTOR_FIGURE_HALF_WIDTH;
   const armY = bodyTopY + (bodyBottomY - bodyTopY) * 0.3;
   const arms = document.createElementNS(SVG_NS, "line");
   arms.setAttribute("x1", String(centerX - armSpan));
@@ -721,7 +741,7 @@ function buildActorIcon(participant: PositionedParticipant, top: number): SVGGEl
   arms.setAttribute("y2", String(armY));
   g.appendChild(arms);
 
-  const legSpan = participant.width / 4;
+  const legSpan = ACTOR_FIGURE_HALF_WIDTH * ACTOR_LEG_SPREAD;
   const legLeft = document.createElementNS(SVG_NS, "line");
   legLeft.setAttribute("x1", String(centerX));
   legLeft.setAttribute("y1", String(bodyBottomY));

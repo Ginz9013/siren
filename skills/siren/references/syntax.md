@@ -166,7 +166,7 @@ A participant you don't declare is created where it is first named, labeled with
 Lanes run left to right in the order participants are first named, so declare them up
 front when you want a specific order or a label (`participant A as Alice`). A declaration
 after the first mention still sets the label and kind, but doesn't move the lane.
-`create participant X` must come before anything else names X.
+`create participant X` must come before anything else names X, and the next message must be sent to X.
 
 ```
 sequenceDiagram
@@ -195,6 +195,7 @@ sequenceDiagram
   create participant Receipt
   Web->>Receipt: Build receipt
   destroy Receipt
+  Receipt-->>Web: Receipt ready
   Web-->>Shopper: Done
 ```
 
@@ -229,7 +230,15 @@ from the request.
 - Notes: `note right of X: text`, `note left of X: text`, `note over X,Y: text`.
   The timeline names notes `note:1`, `note:2`, ... in source order.
 - `create participant X` / `create actor X` starts a lifeline mid-diagram, and
-  `destroy X` ends it.
+  `destroy X` ends it. The message right after `create X` must be sent to X, not by X;
+  X's box is drawn on that message's arrow and its lifeline starts there. A `create X`
+  whose next message is not sent to X is refused. With no message after it, the `create`
+  draws nothing (X is drawn from the top) and is warned about. The next message after `destroy X` must be sent by or to X;
+  X's lifeline ends on that message's row, and a later message naming X is warned about.
+  A `destroy X` whose next message does not touch X is refused. With no message after
+  it, the `destroy` draws nothing (no X mark) and is warned about. Nothing may stand between a `create`
+  or `destroy` and its message: a note, `activate`/`deactivate`, `autonumber`, block
+  boundary (`else`, `end`, ...) or another `create`/`destroy` in between is refused.
 - `link X: Label @ https://...` adds a link to a participant.
 - `autonumber` and `autonumber off`, `title`, `accTitle`, `accDescr`.
 
