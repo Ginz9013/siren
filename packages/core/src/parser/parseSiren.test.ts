@@ -264,7 +264,7 @@ timeline:
     const bare = parseSiren(unquoted);
     expect(bare.document).toBeNull();
     expect(bare.diagnostics.map((d) => d.message)).toEqual([
-      'Unrecognized flowchart line: "A[a]b]"',
+      'A node label without quotes cannot hold "]". Put the whole label in quotes: A["a]b"]',
     ]);
   });
 
@@ -506,7 +506,7 @@ timeline:
     const refused = parseSiren(`flowchart TB\n  A{{a}b}}\n`);
     expect(refused.document).toBeNull();
     expect(refused.diagnostics.map((d) => d.message)).toEqual([
-      'Unrecognized flowchart line: "A{{a}b}}"',
+      'A node label without quotes cannot hold "}". Put the whole label in quotes: A{{"a}b"}}',
     ]);
   });
 
@@ -1371,7 +1371,7 @@ timeline:
     expect(diagnostics).toEqual([
       {
         severity: "error",
-        message: 'Unrecognized style declaration: "oops"',
+        message: '"oops" is not a style declaration. Write each declaration as property:value, such as stroke:#f00',
         line: 3,
         column: 3,
       },
@@ -1927,7 +1927,7 @@ timeline:
     expect(diagnostics).toEqual([
       {
         severity: "error",
-        message: 'Unrecognized style declaration: "oops"',
+        message: '"oops" is not a style declaration. Write each declaration as property:value, such as stroke:#f00',
         line: 3,
         column: 3,
       },

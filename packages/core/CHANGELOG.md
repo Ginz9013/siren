@@ -45,6 +45,11 @@ Breaking for an ER document with a `%` in a quoted entity name or an alias (`A["
 `"A % b"`, `A ||--o{ "B % c" : r`) or in a subgraph's quoted name or title (`subgraph "s % t"`,
 `subgraph s1["t % u"]`), which is now refused (see **Changed**).
 
+Breaking for a flowchart document with an unquoted `[`, `]`, `{` or `}` inside a node label that
+is not the shape's own bracket (`A[a}b]`, `A{a]b}`, `A>a{b]`, `A[[a}b]]`), or an unquoted `(` or
+`)` there with no partner (`A[a)b]`, `A[a(b]`, `A{a)b}`, `A[(a)b)]`), which is now refused (see
+**Changed**).
+
 Breaking for code that reads a sequence diagram's SVG or positioned layout: a destroyed participant
 is drawn with a closing box instead of an X mark, the `siren-destroy-mark` path and
 `PositionedDestroyMark` are gone, and the rows after a destroying message move down (see
@@ -147,6 +152,25 @@ reads as one member (`+int x; y`, `+foo(); +bar()`), which is now refused (see *
   own.
 
 ### Changed
+
+- **An unquoted bracket inside a flowchart node label is refused** (nook `01M4ZWT8G2`), as Mermaid
+  12.2.0 refuses every unquoted `( ) [ ] { }` in any shape's label. An `[`, `]`, `{` or `}` that is
+  not the shape's own (`A[a}b]`, `A{a]b}`, `A>a{b]`), and a `(` or `)` with no partner (`A[a)b]`,
+  `A{a)b}`, `A[a (b) (c]`), used to be drawn; each is now an error at the bracket asking to quote
+  the label (`A["a}b"]`), on a line of its own or at an edge endpoint. `A[(a)b)]` used to be drawn
+  as the rect `(a)b)`. A balanced pair of parentheses outside a round shape (`A[f(x)]`, `A{f(x)}`)
+  is still drawn, a recorded divergence (nook `01M4R3RVV`). A label that was already refused
+  (`A[a]b]`, `A(a)b)`, `A{{a}b}}`) now gets the same error instead of "Unrecognized flowchart line".
+- A flowchart refusal that used to read "Unrecognized flowchart line" now says what Siren does not
+  support yet and what to write instead (nook `01M4ZWT8G2`): a node's `@{ … }` data
+  (`A@{ shape: rect }`, on a line of its own or at either end of an edge) is pointed at its `@` and
+  asked to write the shape with brackets (`A[text]`, `A((text))`, `A{text}`); an edge id
+  (`A e1@--> B`) is pointed at and asked to be left out, with the line rewritten without it; and an
+  `@{ … }` on an id an edge was given (`e1@{ animate: true }`) is asked to be left out.
+- A flowchart `style`, `classDef` or `linkStyle` declaration with no `:` (`linkStyle 0 zz`,
+  `linkStyle 0 interpolate basis zz`) is still refused, now saying how a declaration is written
+  (`property:value`, such as `stroke:#f00`) instead of "Unrecognized style declaration" (nook
+  `01M4ZWT8G2`). A value holding a space (`stroke:red zz`) is passed on as written, as before.
 
 - A flowchart subgraph title Siren cannot read is now refused with an error saying how to fix it,
   instead of "Unrecognized flowchart line", and its `end` no longer reports a second error: words

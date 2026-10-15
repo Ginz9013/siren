@@ -3063,6 +3063,49 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "fc-text-unquoted-bracket",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[a}b] --> B{a)b}`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** Mermaid 12.2.0 " +
+      "refuses every unquoted `( ) [ ] { }` inside any shape's label " +
+      "(`A[a}b]` \"got 'DIAMOND_STOP'\", `A{a)b}` \"got 'PE'\", measured " +
+      "across all fourteen spellings) and draws the quoted `A[\"a}b\"]`. " +
+      "Siren drew both before; it refuses them now (ADR-0017), at the " +
+      "bracket, saying to quote the label. A balanced pair of parentheses " +
+      "outside a round shape (`A[f(x)]`, `A{f(x)}`) is still drawn: Mermaid " +
+      "refuses that too, and Siren keeps it as a recorded divergence " +
+      "(nook 01M4R3RVV).",
+  },
+  {
+    id: "fc-node-shape-data",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ shape: circle, label: "x" } --> B`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0's `@{ … }` node data gives `A` the shape `circle` and " +
+      "the label `x` (measured). Siren does not read `@{ … }` yet (its own " +
+      "board): refused at the `@`, saying to write the shape with brackets " +
+      "(`A((x))`).",
+  },
+  {
+    id: "fc-edge-id",
+    kind: "flowchart",
+    source: `flowchart TB
+      A e1@--> B
+      e1@{ animate: true }`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 names the edge `e1` and reads the `@{ … }` after it as " +
+      "that edge's data (measured; with no edge `e1` the same line is a " +
+      "node). Siren does not support edge ids yet (the `@{ … }` board): " +
+      "refused at the id, saying to leave it out, and the data line is told " +
+      "to go with it.",
+  },
+  {
     id: "fc-text-markdown",
     kind: "flowchart",
     source: `flowchart TB
@@ -3622,6 +3665,20 @@ line2\`"]`,
       expectSame("edge A-B's line", edgeCurve(result, "A-B"), "rounded corners");
       expectSame("edge A-C's line", edgeCurve(result, "A-C"), "axis-aligned steps");
     },
+  },
+  {
+    id: "fc-linkstyle-not-a-declaration",
+    kind: "flowchart",
+    source: `flowchart TD
+      A --> B
+      linkStyle 0 interpolate basis zz`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 accepts a `linkStyle` word with no `:` (`linkStyle 0 " +
+      "zz`, `interpolate basis zz`) and writes it out as a style nothing " +
+      "reads (measured). Siren refuses it, saying a declaration is written " +
+      "`property:value`; a value holding a space (`stroke:red zz`) is " +
+      "passed on as written, as Mermaid does.",
   },
 
   // -------------------------------------------------------------------------

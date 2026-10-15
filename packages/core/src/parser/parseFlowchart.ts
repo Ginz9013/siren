@@ -37,7 +37,7 @@ const FLOWCHART_HEADER_SPELLINGS = listAcceptedHeaders(["flowchart"]);
 
 /**
  * What may lie between the `[` and the `]` of a node: either a fenced run,
- * or a character that is not the `]` ending the bracket.
+ * or a character that is neither a quote nor a square bracket or brace.
  *
  * The fenced alternative is the whole point of quoting. `]` ends the
  * bracket, so an unquoted label cannot contain one — `A[a]b]` is a parse
@@ -53,10 +53,18 @@ const FLOWCHART_HEADER_SPELLINGS = listAcceptedHeaders(["flowchart"]);
  * alternatives from overlapping, so this pattern cannot backtrack
  * exponentially over a line full of quotes.
  *
+ * Nor may an unquoted `[`, `{` or `}` stand there: Mermaid 12.2.0 refuses
+ * every one of them inside any shape's label (`A[a}b]`, `A[a[b]`,
+ * `A>a{b]`, measured), so they are refused here too (ADR-0017), with the
+ * quoted fix `refuseNodeLabel` offers.
+ *
  * An unquoted `(` or `)` is a label character here, and that is a known,
  * deliberate divergence in Siren's permissive direction: Mermaid 12.2.0
  * reads `P[a (b)]` as a parse error ("got 'PS'") and only accepts the
  * quoted `P["a (b)"]`. Siren draws both as the rect labelled `a (b)`.
+ * Only a balanced pair is that divergence: a parenthesis with no partner
+ * (`A[a)b]`, `A[a(b]`) is refused, as Mermaid refuses it, which a pattern
+ * cannot count and `unpairedParenAt` does.
  * Accepting more than Mermaid breaks no Mermaid document, and refusing it
  * would take the picture away from documents that draw today (nook
  * 01M4R3RVV). It is not a corpus row, because a corpus source must be valid
@@ -65,7 +73,7 @@ const FLOWCHART_HEADER_SPELLINGS = listAcceptedHeaders(["flowchart"]);
  * Written once and shared by both readers below, so that a label means the
  * same thing on a line of its own as it does at an edge endpoint.
  */
-const LABEL_CONTENT = String.raw`(?:"[^"]*"|[^\]"])*`;
+const LABEL_CONTENT = String.raw`(?:"[^"]*"|[^\[\]{}"])*`;
 
 /**
  * What may lie between the `{` and the `}` of a diamond: the same two
@@ -82,14 +90,16 @@ const LABEL_CONTENT = String.raw`(?:"[^"]*"|[^\]"])*`;
  *
  * An **unfenced** brace inside the label is not Mermaid: it reads `A{{a}b}}`
  * as a parse error, so refusing it here is compatibility rather than
- * strictness.
+ * strictness. So is an unfenced `[` or `]` (`A{a]b}` is "got 'SQE'",
+ * measured on 12.2.0), which makes this the same set `LABEL_CONTENT` reads;
+ * it keeps a name of its own for the reason the brace is excluded at all.
  *
  * A *fenced* brace is still a label character, exactly as a fenced `]` is:
  * mermaid 11.17.2 reads `A{"a}b"}` as the label `a}b`, `A{"x{y"}` as `x{y`
  * and `A{{"a}}b"}}` as the hexagon `a}}b`, measured with
  * `scripts/mermaid-probe.mjs`.
  */
-const BRACE_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^{}"])*`;
+const BRACE_LABEL_CONTENT = String.raw`(?:"[^"]*"|[^\[\]{}"])*`;
 
 /**
  * What may lie between the `(` and the `)` of a round node: the same two
@@ -150,12 +160,13 @@ const ID_RUN = String.raw`(?:-(?=\w))?\w+(?:\.+-?\w*|${ID_DASH}\w*)*`;
  * one place a spelling and a shape are associated, read by the standalone
  * declaration and by an edge endpoint alike.
  *
- * `bracket` is everything after the id as a pattern, with the label as its
- * single capture group, so the two patterns below can be built from it
- * without either of them learning what punctuation any shape uses. Not
+ * `open` and `close` are what surround the label, as patterns, and
+ * `content` is what the label may hold; `bracketOf` joins the three with the
+ * label as its single capture group, so the patterns below can be built from
+ * them without any of them learning what punctuation any shape uses. Not
  * every spelling is bracketed on both sides — the asymmetric flag opens
- * with a bare `>` — which is the reason this is a pattern rather than an
- * open/close pair. A later ticket adds a row; nothing else here moves.
+ * with a bare `>` — which is the reason these are patterns rather than
+ * characters. A later ticket adds a row; nothing else here moves.
  *
  * Ordered, and read in order: a spelling that is a prefix of another must
  * come after it. That is why the four slanted forms precede `rect` — their
@@ -182,38 +193,45 @@ const ID_RUN = String.raw`(?:-(?=\w))?\w+(?:\.+-?\w*|${ID_DASH}\w*)*`;
  * match `\[/…/\]`, which needs a `/` at each end, so it stays a rectangle
  * labelled `/` — as it is in Mermaid.
  */
-const NODE_SPELLINGS: ReadonlyArray<{ shape: NodeShape; bracket: string }> = [
-  { shape: "parallelogram", bracket: String.raw`\[/(${LABEL_CONTENT})/\]` },
-  { shape: "parallelogram-alt", bracket: String.raw`\[\\(${LABEL_CONTENT})\\\]` },
-  { shape: "trapezoid", bracket: String.raw`\[/(${LABEL_CONTENT})\\\]` },
-  { shape: "trapezoid-alt", bracket: String.raw`\[\\(${LABEL_CONTENT})/\]` },
-  { shape: "subroutine", bracket: String.raw`\[\[(${LABEL_CONTENT})\]\]` },
+interface NodeSpelling {
+  shape: NodeShape;
+  open: string;
+  content: string;
+  close: string;
+}
+
+const NODE_SPELLINGS: ReadonlyArray<NodeSpelling> = [
+  { shape: "parallelogram", open: String.raw`\[/`, content: LABEL_CONTENT, close: String.raw`/\]` },
+  { shape: "parallelogram-alt", open: String.raw`\[\\`, content: LABEL_CONTENT, close: String.raw`\\\]` },
+  { shape: "trapezoid", open: String.raw`\[/`, content: LABEL_CONTENT, close: String.raw`\\\]` },
+  { shape: "trapezoid-alt", open: String.raw`\[\\`, content: LABEL_CONTENT, close: String.raw`/\]` },
+  { shape: "subroutine", open: String.raw`\[\[`, content: LABEL_CONTENT, close: String.raw`\]\]` },
   // The cylinder before `rect`, for the reason the four slanted forms come
   // before it: `LABEL_CONTENT` would read `A[(DB)]` as a rectangle labelled
   // `(DB)`, which is the picture board 4 refused this spelling to stop
   // Siren drawing. Its label pattern closes the same door a second time —
   // `PAREN_LABEL_CONTENT` cannot cross a bracket of any kind, so a
   // rectangle's label can never be mistaken for a cylinder's either.
-  { shape: "cylinder", bracket: String.raw`\[\((${PAREN_LABEL_CONTENT})\)\]` },
-  { shape: "rect", bracket: String.raw`\[(${LABEL_CONTENT})\]` },
-  { shape: "stadium", bracket: String.raw`\(\[(${LABEL_CONTENT})\]\)` },
+  { shape: "cylinder", open: String.raw`\[\(`, content: PAREN_LABEL_CONTENT, close: String.raw`\)\]` },
+  { shape: "rect", open: String.raw`\[`, content: LABEL_CONTENT, close: String.raw`\]` },
+  { shape: "stadium", open: String.raw`\(\[`, content: LABEL_CONTENT, close: String.raw`\]\)` },
   // Three parenthesised spellings, deepest nesting first, and the label
   // pattern is what makes the order a courtesy rather than a load-bearing
   // rule: `PAREN_LABEL_CONTENT` admits no parenthesis, so a double circle
   // can never be read as a circle labelled `(Double)` nor as a round node
   // labelled `((Double))` whichever way round the three are listed.
-  { shape: "double-circle", bracket: String.raw`\(\(\((${PAREN_LABEL_CONTENT})\)\)\)` },
-  { shape: "circle", bracket: String.raw`\(\((${PAREN_LABEL_CONTENT})\)\)` },
-  { shape: "round", bracket: String.raw`\((${PAREN_LABEL_CONTENT})\)` },
-  { shape: "hexagon", bracket: String.raw`\{\{(${BRACE_LABEL_CONTENT})\}\}` },
+  { shape: "double-circle", open: String.raw`\(\(\(`, content: PAREN_LABEL_CONTENT, close: String.raw`\)\)\)` },
+  { shape: "circle", open: String.raw`\(\(`, content: PAREN_LABEL_CONTENT, close: String.raw`\)\)` },
+  { shape: "round", open: String.raw`\(`, content: PAREN_LABEL_CONTENT, close: String.raw`\)` },
+  { shape: "hexagon", open: String.raw`\{\{`, content: BRACE_LABEL_CONTENT, close: String.raw`\}\}` },
   // No opening bracket: `A>Flag]`. Its `>` is also the last character of
   // `-->`, and the two never collide because a line is cut into endpoints
   // at its arrows before any of these patterns is asked anything — each
   // sees one endpoint, anchored at both ends. Mermaid 11.17.2 reads
   // `A>a>b]` as the label `a>b`, so a `>` inside the label is ordinary
   // text, which is exactly what `LABEL_CONTENT` already says.
-  { shape: "asymmetric", bracket: String.raw`>(${LABEL_CONTENT})\]` },
-  { shape: "rhombus", bracket: String.raw`\{(${BRACE_LABEL_CONTENT})\}` },
+  { shape: "asymmetric", open: String.raw`>`, content: LABEL_CONTENT, close: String.raw`\]` },
+  { shape: "rhombus", open: String.raw`\{`, content: BRACE_LABEL_CONTENT, close: String.raw`\}` },
 ];
 
 /**
@@ -230,10 +248,19 @@ const NODE_SPELLINGS: ReadonlyArray<{ shape: NodeShape; bracket: string }> = [
  * `parseNodeLabel` is what tells a Markdown label from an ordinary one once
  * the content reaches it.
  */
-const NODE_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
-  shape,
-  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracket}\s*(?::::(\w+))?\s*$`, "d"),
+const NODE_PATTERNS = NODE_SPELLINGS.map((spelling) => ({
+  shape: spelling.shape,
+  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracketOf(spelling)}\s*(?::::(\w+))?\s*$`, "d"),
 }));
+
+/**
+ * Everything after a node's id as a pattern — its spelling's `open`, the
+ * label as the one capture group, its `close` — with the label holding
+ * `content`, or whatever else the caller asks it to hold.
+ */
+function bracketOf({ open, content, close }: NodeSpelling, holding: string = content): string {
+  return `${open}(${holding})${close}`;
+}
 
 /**
  * The quotation mark that fences a label: `A["Quoted, with comma"]`.
@@ -370,10 +397,10 @@ const NODE_CLASS_RE = new RegExp(String.raw`^(${ID_RUN})\s*:::(\w+)\s*$`);
  * quoting works wherever a label can be written — Mermaid takes
  * `A["a]b-->c"] --> B["x, y"]:::hot`, and so does this.
  */
-const ENDPOINT_PATTERNS = NODE_SPELLINGS.map(({ shape, bracket }) => ({
-  shape,
+const ENDPOINT_PATTERNS = NODE_SPELLINGS.map((spelling) => ({
+  shape: spelling.shape,
   // `d` for the label's own index, which `labelAt` is measured from.
-  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracket}(?:\s*:::(\w+))?$`, "d"),
+  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracketOf(spelling)}(?:\s*:::(\w+))?$`, "d"),
 }));
 
 /**
@@ -911,7 +938,7 @@ function readEndpoint(text: string, at: number): EdgeEndpoint | null {
   const lead = text.length - text.trimStart().length;
   for (const { shape, re } of ENDPOINT_PATTERNS) {
     const match = re.exec(trimmed);
-    if (match !== null) {
+    if (match !== null && unpairedParenAt(match[2]) === null) {
       const labelAt = at + lead + match.indices![2]![0];
       return { id: match[1], label: match[2], labelAt, definitionName: match[3], shape };
     }
@@ -933,7 +960,7 @@ function readEndpoint(text: string, at: number): EdgeEndpoint | null {
 function readNodeDeclaration(line: string): EdgeEndpoint | null {
   for (const { shape, re } of NODE_PATTERNS) {
     const match = re.exec(line);
-    if (match !== null) {
+    if (match !== null && unpairedParenAt(match[2]) === null) {
       return {
         id: match[1],
         label: match[2],
@@ -944,6 +971,144 @@ function readNodeDeclaration(line: string): EdgeEndpoint | null {
     }
   }
   return null;
+}
+
+/**
+ * Every node spelling once more, its label free to hold anything — never to
+ * draw a node, only to say why `NODE_PATTERNS` refused one: which shape the
+ * author was writing, and where in its label the character is that the
+ * shape's own `content` cannot hold.
+ */
+const ANY_LABEL_PATTERNS = NODE_SPELLINGS.map((spelling) => ({
+  content: new RegExp(`^(?:${spelling.content})$`),
+  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracketOf(spelling, ".*")}\s*(?::::(\w+))?\s*$`, "d"),
+}));
+
+/** The characters a bracket spelling is made of, which a label can hold only quoted. */
+const LABEL_BRACKETS = "()[]{}";
+
+/**
+ * Why a node written as `text` — one declaration or one endpoint, trimmed —
+ * was refused, when the reason is an unquoted bracket character in its
+ * label, and where in `text` that character stands; `null` otherwise, left
+ * to the generic "Unrecognized" error.
+ *
+ * Measured on Mermaid 12.2.0: each of `( ) [ ] { }` written unquoted in a
+ * label is a parse error, whichever shape holds it (`A[a]b]` "got 'SQE'",
+ * `A(a)b)`, `A{a]b}` "got 'SQE'", `A[[a)b]]` "got 'PE'"), and the quoted
+ * label is drawn (`A("a)b")`, `A{"a]b"}`, `A[["a]b"]]`). So the fix is the
+ * same for every shape: quote the whole label.
+ */
+function refuseNodeLabel(text: string): { message: string; offset: number } | null {
+  for (const { content, re } of ANY_LABEL_PATTERNS) {
+    const match = re.exec(text);
+    if (match === null) {
+      continue;
+    }
+    const [labelStart, labelEnd] = match.indices![2]!;
+    const label = match[2];
+    let refusedAt = unpairedParenAt(label);
+    let quoted = false;
+    for (let i = 0; i < (refusedAt ?? label.length); i++) {
+      const char = label[i]!;
+      if (char === LABEL_FENCE) {
+        quoted = !quoted;
+      } else if (!quoted && LABEL_BRACKETS.includes(char) && !content.test(char)) {
+        refusedAt = i;
+        break;
+      }
+    }
+    if (refusedAt !== null) {
+      const fixed = `${text.slice(0, labelStart)}"${label.replaceAll(LABEL_FENCE, "")}"${text.slice(labelEnd)}`;
+      return {
+        message: `A node label without quotes cannot hold "${label[refusedAt]}". Put the whole label in quotes: ${fixed}`,
+        offset: labelStart + refusedAt,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * A node written with Mermaid's `@{ … }` data block — `A@{ shape: rect }`,
+ * `A[x]@{ … }` — which Siren does not draw yet. Mermaid 12.2.0 accepts it on
+ * a line of its own and at either end of an edge (measured); its shapes and
+ * keys are a board of their own. The `@` is the second group.
+ */
+const NODE_DATA_RE = new RegExp(String.raw`^(${ID_RUN})(?:[\[({>].*?)?\s*(@)\{.*\}$`, "d");
+
+/**
+ * An edge id, `A e1@--> B`: an id and an `@` written right before an arrow,
+ * after a space. Mermaid 12.2.0 accepts one before every arrow spelling
+ * (measured); Siren does not support them yet. Cutting the line at its
+ * arrows leaves the id at the end of the piece before one, so that is where
+ * this looks; the id is the first group.
+ */
+const EDGE_ID_RE = new RegExp(String.raw`^.*\S\s+(${ID_RUN})@$`, "d");
+
+/** Every edge id on a line, for the line written without them. */
+const EDGE_IDS_IN_LINE_RE = new RegExp(String.raw`(?<=\s)${ID_RUN}@(?=[-=<~ox.])`, "g");
+
+/**
+ * Why a node written as `text` — one declaration or one endpoint, trimmed —
+ * was refused, and where in `text` to point, for the two reasons this
+ * parser can name: an `@{ … }` block, or an unquoted bracket in its label.
+ * `edgeIds` are the edge ids written so far, whose `@{ … }` is an edge's.
+ * `null` leaves it to the generic "Unrecognized" error.
+ */
+function refuseNode(text: string, edgeIds: ReadonlySet<string>): { message: string; offset: number } | null {
+  const data = NODE_DATA_RE.exec(text);
+  if (data !== null) {
+    const id = data[1];
+    // An id an edge was given earlier makes the block that edge's data, as
+    // Mermaid 12.2.0 reads it (measured: `e1@{ animate: true }` after
+    // `A e1@--> B`; with no such edge it is a node `e1`).
+    if (edgeIds.has(id)) {
+      return {
+        message: `Siren does not support "@{ … }" data on the edge "${id}" yet. Leave this line out`,
+        offset: data.indices![2]![0],
+      };
+    }
+    return {
+      message:
+        `Siren does not support the "@{ … }" node syntax yet. ` +
+        `Write the shape with brackets instead, such as ${id}[text], ${id}((text)) or ${id}{text}`,
+      offset: data.indices![2]![0],
+    };
+  }
+  return refuseNodeLabel(text);
+}
+
+/**
+ * Where the first unquoted parenthesis with no partner stands in a label's
+ * bracket content, or `null` when every one pairs up — a `)` with no `(`
+ * before it, or else the first `(` never closed.
+ *
+ * Asked of every label a node spelling reads, because a pattern cannot count:
+ * `LABEL_CONTENT` lets a parenthesis in, for the 01M4R3RVV divergence, and
+ * only a balanced pair is that divergence. One with no partner is refused,
+ * as Mermaid 12.2.0 refuses it (`A[a)b]` "got 'PE'", `A{a)b}`, measured) —
+ * and it is what told a cylinder from a rect: `A[(a)b)]` is no cylinder, and
+ * without this it was drawn as the rect `(a)b)`.
+ */
+function unpairedParenAt(label: string): number | null {
+  const opened: number[] = [];
+  let quoted = false;
+  for (let i = 0; i < label.length; i++) {
+    const char = label[i]!;
+    if (char === LABEL_FENCE) {
+      quoted = !quoted;
+    } else if (quoted) {
+      continue;
+    } else if (char === "(") {
+      opened.push(i);
+    } else if (char === ")") {
+      if (opened.pop() === undefined) {
+        return i;
+      }
+    }
+  }
+  return opened[0] ?? null;
 }
 
 /**
@@ -1720,6 +1885,9 @@ export function parseFlowchart(source: string): DiagramParseResult {
   const interactions: Interaction[] = [];
   const subgraphs: SirenSubgraph[] = [];
   let direction: Direction | null = null;
+  // The edge ids refused so far (`A e1@--> B`), so a later `e1@{ … }` is
+  // told it is that edge's data rather than a node's.
+  const edgeIds = new Set<string>();
   // The keyword the header was written with, `flowchart` or `graph`, so a
   // fix this parser suggests for the header is spelled the author's way.
   let headerKeyword = "";
@@ -1779,7 +1947,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
     for (const segment of malformed) {
       diagnostics.push({
         severity: "error",
-        message: `Unrecognized style declaration: "${segment}"`,
+        message: `"${segment}" is not a style declaration. Write each declaration as property:value, such as stroke:#f00`,
         line: lineNumber,
         column,
       });
@@ -2224,20 +2392,46 @@ export function parseFlowchart(source: string): DiagramParseResult {
         // label's problem is reported at its own column: the pieces and the
         // separators that cut them lie end to end, and add up to the line.
         const partAt = offsetsOf(arrowParts, arrowTokens);
+        // Each piece kept beside what it read as, so an unreadable one can be
+        // explained in its own words, at its own column.
+        const pieces: { text: string; at: number }[] = [];
         const groups: (EdgeEndpoint | null)[][] = arrowParts.map((part, index) => {
           const { parts, separators } = cutOutsideLabel(part, GROUP_SEPARATOR);
           const pieceAt = offsetsOf(parts, separators);
-          return parts.map((piece, at) => readEndpoint(piece, partAt[index]! + pieceAt[at]!));
+          return parts.map((piece, at) => {
+            pieces.push({ text: piece, at: partAt[index]! + pieceAt[at]! });
+            return readEndpoint(piece, partAt[index]! + pieceAt[at]!);
+          });
         });
-        if (groups.flat().some((endpoint) => endpoint === null)) {
+        const unreadableAt = groups.flat().findIndex((endpoint) => endpoint === null);
+        if (unreadableAt !== -1) {
           // One unreadable endpoint refuses the whole statement — the rule
           // `ENDPOINT_RE` is anchored for. Nothing has been declared yet, so
           // there is no half-drawn chain to take back.
+          const piece = pieces[unreadableAt]!;
+          const lead = piece.text.length - piece.text.trimStart().length;
+          const edgeId = EDGE_ID_RE.exec(piece.text.trim());
+          if (edgeId !== null) {
+            for (const [written] of line.matchAll(EDGE_IDS_IN_LINE_RE)) {
+              edgeIds.add(written.slice(0, -1));
+            }
+            diagnostics.push({
+              severity: "error",
+              message:
+                `Siren does not support edge ids ("${edgeId[1]}@") yet. ` +
+                `Leave the id out: ${line.replace(EDGE_IDS_IN_LINE_RE, "")}`,
+              line: lineNumber,
+              column: column + piece.at + lead + edgeId.indices![1]![0],
+            });
+            sawError = true;
+            continue;
+          }
+          const nodeRefusal = refuseNode(piece.text.trim(), edgeIds);
           diagnostics.push({
             severity: "error",
-            message: `Unrecognized flowchart line: "${line}"`,
+            message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${line}"`,
             line: lineNumber,
-            column,
+            column: nodeRefusal === null ? column : column + piece.at + lead + nodeRefusal.offset,
           });
           sawError = true;
           continue;
@@ -2487,11 +2681,12 @@ export function parseFlowchart(source: string): DiagramParseResult {
         continue;
       }
 
+      const nodeRefusal = refuseNode(line, edgeIds);
       diagnostics.push({
         severity: "error",
-        message: `Unrecognized flowchart line: "${line}"`,
+        message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${line}"`,
         line: lineNumber,
-        column,
+        column: column + (nodeRefusal?.offset ?? 0),
       });
       sawError = true;
       continue;

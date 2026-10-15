@@ -119,6 +119,192 @@ describe("a flowchart node's label", () => {
 });
 
 /**
+ * A bracket character inside an unquoted node label. Measured on Mermaid
+ * 12.2.0: every one of `( ) [ ] { }` written unquoted inside any shape's
+ * label is a parse error (`A[a]b]`, `A(a)b)`, `A{a]b}`, `A[a}b]`,
+ * `A[[a]b]]`, `A>a{b]` …), and the quoted label (`A("a)b")`) is drawn.
+ */
+describe("a bracket character inside an unquoted node label", () => {
+  it.each([
+    ["A(a)b)", ")", 6, 'A("a)b")'],
+    ["A[a]b]", "]", 6, 'A["a]b"]'],
+    ["A{a}b}", "}", 6, 'A{"a}b"}'],
+    ["A((a(b))", "(", 7, 'A(("a(b"))'],
+  ])("refuses %s at the bracket, saying to quote the label", (written, char, column, fixed) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `A node label without quotes cannot hold "${char}". Put the whole label in quotes: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it.each([
+    ["A[a}b]", "}", 6, 'A["a}b"]'],
+    ["A[a{b]", "{", 6, 'A["a{b"]'],
+    ["A[a[b]", "[", 6, 'A["a[b"]'],
+    ["A{a]b}", "]", 6, 'A{"a]b"}'],
+    ["A{a[b}", "[", 6, 'A{"a[b"}'],
+    ["A>a{b]", "{", 6, 'A>"a{b"]'],
+    ["A[[a}b]]", "}", 7, 'A[["a}b"]]'],
+    ["A{{a]b}}", "]", 7, 'A{{"a]b"}}'],
+  ])("refuses %s, a square bracket or brace that is not the shape's own, which used to be drawn", (written, char, column, fixed) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `A node label without quotes cannot hold "${char}". Put the whole label in quotes: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+  /**
+   * Parentheses are the one exception, and only when they pair up: an
+   * unquoted `(` or `)` is refused by Mermaid too, but Siren keeps drawing a
+   * balanced pair in a label (nook 01M4R3RVV), so only one with no partner
+   * is refused here.
+   */
+  it.each([
+    ["A[a)b]", ")", 6, 'A["a)b"]'],
+    ["A[a(b]", "(", 6, 'A["a(b"]'],
+    ["A{a)b}", ")", 6, 'A{"a)b"}'],
+    ["A>a)b]", ")", 6, 'A>"a)b"]'],
+    ["A[a (b) (c]", "(", 11, 'A["a (b) (c"]'],
+    ["A[(a)b)]", ")", 7, 'A[("a)b")]'],
+  ])("refuses %s, a parenthesis with no partner, which used to be drawn", (written, char, column, fixed) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `A node label without quotes cannot hold "${char}". Put the whole label in quotes: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it.each([
+    ["A[f(x)]", "rect"],
+    ["A>f(x)]", "asymmetric"],
+    ["A[[f(x)]]", "subroutine"],
+    ["A([f(x)])", "stadium"],
+    ["A[/f(x)/]", "parallelogram"],
+    ["A{f(x)}", "rhombus"],
+    ["A{{f(x)}}", "hexagon"],
+  ])("still draws %s, whose parentheses pair up", (written, shape) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.label.text, node.shape])).toEqual([["f(x)", shape]]);
+  });
+
+  it.each([
+    ["A[a}b] --> B", "}", 6, 'A["a}b"]'],
+    ["A --> B{a)b}", ")", 12, 'B{"a)b"}'],
+    ["A & B[a]b] --> C", "]", 10, 'B["a]b"]'],
+  ])("refuses %s at an edge endpoint the same way", (written, char, column, fixed) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `A node label without quotes cannot hold "${char}". Put the whole label in quotes: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+});
+
+/**
+ * The `@{ … }` node syntax, which Siren does not draw yet (its own board).
+ * Measured on Mermaid 12.2.0: `A@{ shape: rect }`, `A[x]@{ shape: rect }`,
+ * and `A@{ … }` at either end of an edge are all accepted.
+ */
+describe("a node written with `@{ … }`", () => {
+  it.each([
+    ["A@{ shape: rect }", "A", 4],
+    ["A[x]@{ shape: rect }", "A", 7],
+    ['A@{ shape: circle, label: "x" } --> B', "A", 4],
+    ["A --> B@{ shape: diam }", "B", 10],
+  ])("refuses %s at the `@`, saying to write the shape with brackets", (written, id, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          `Siren does not support the "@{ … }" node syntax yet. ` +
+          `Write the shape with brackets instead, such as ${id}[text], ${id}((text)) or ${id}{text}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+});
+
+/**
+ * An edge id, `A e1@--> B`, which Siren does not support yet (the same board
+ * as `@{ … }`). Measured on Mermaid 12.2.0: accepted before every arrow
+ * spelling (`e1@==>`, `e1@-- yes -->`, `e1@-->|yes|`), on one link of a
+ * chain each, and after an `&` group, where it names the last link.
+ */
+describe("an edge written with an id", () => {
+  it.each([
+    ["A e1@--> B", "e1", 5, "A --> B"],
+    ["A e1@-->|yes| B", "e1", 5, "A -->|yes| B"],
+    ["A e1@--> B e2@--> C", "e1", 5, "A --> B --> C"],
+    ["A & C e1@==> B", "e1", 9, "A & C ==> B"],
+  ])("refuses %s at the id, saying to leave it out", (written, id, column, fixed) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `Siren does not support edge ids ("${id}@") yet. Leave the id out: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it("refuses an `@{ … }` block on that id as edge data, saying to leave the line out", () => {
+    // Measured: after `A e1@--> B`, `e1@{ animate: true }` is the edge's
+    // data; with no edge named `e1`, the same line is a node `e1`.
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  A e1@--> B\n  e1@{ animate: true }");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'Siren does not support edge ids ("e1@") yet. Leave the id out: A --> B',
+        line: 2,
+        column: 5,
+      },
+      {
+        severity: "error",
+        message: 'Siren does not support "@{ … }" data on the edge "e1" yet. Leave this line out',
+        line: 3,
+        column: 5,
+      },
+    ]);
+  });
+});
+
+/**
  * A node written with a bracket more than once. Mermaid 11.17.2, measured:
  * the last bracket is the one drawn — its label *and* its shape (`A[x]` then
  * `A{x}` is a diamond) — with no diagnostic, while a bare mention changes
@@ -1014,6 +1200,40 @@ describe("a flowchart's `linkStyle … interpolate` statement", () => {
         column: 3,
       },
     ]);
+  });
+});
+
+/**
+ * A `linkStyle` declaration with no `:`. Measured on Mermaid 12.2.0:
+ * `linkStyle 0 zz` and `linkStyle 0 interpolate basis zz` are accepted, `zz`
+ * written out as a style nothing reads; Siren keeps refusing them (spec
+ * decision 2), and says what a declaration looks like. A value holding a
+ * space (`stroke:red zz`) is still a `property:value` pair and is passed on
+ * as written, as Mermaid does: CSS values hold spaces (`stroke-dasharray: 5 5`).
+ */
+describe("a flowchart `linkStyle` declaration that is not property:value", () => {
+  it.each([["linkStyle 0 zz"], ["linkStyle 0 interpolate basis zz"]])(
+    "refuses %s, saying how a declaration is written",
+    (statement) => {
+      const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> B\n  ${statement}`);
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message: '"zz" is not a style declaration. Write each declaration as property:value, such as stroke:#f00',
+          line: 3,
+          column: 3,
+        },
+      ]);
+    },
+  );
+
+  it("passes a value holding a space through as written", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  A --> B\n  linkStyle 0 stroke:red zz");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.linkStyles.map((style) => style.properties)).toEqual([[{ property: "stroke", value: "red zz" }]]);
   });
 });
 

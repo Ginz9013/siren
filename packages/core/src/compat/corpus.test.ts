@@ -1724,8 +1724,18 @@ const SILENTLY_WRONG = 0;
  * `cls-namespace-one-line` and `cls-namespace-closed-on-statement-line`,
  * new beside them, are `supported` and move nothing. `silently-wrong` does
  * not move.
+ *
+ * **36 → 40: case (2), four refusals written down for the first time.**
+ * `01M4ZWT8G2` refused an unquoted `[ ] { }` and an unpaired `(` or `)` in
+ * a flowchart node label, as Mermaid 12.2.0 does (`fc-text-unquoted-bracket`,
+ * which Siren drew before), and gave three refusals Siren already made an
+ * explanation each: `@{ … }` node data (`fc-node-shape-data`), an edge id
+ * (`fc-edge-id`) and a `linkStyle` word with no `:`
+ * (`fc-linkstyle-not-a-declaration`), none of which had a row. No
+ * `supported` row moved: none held such a label. `silently-wrong` does not
+ * move.
  */
-const REJECTED = 36;
+const REJECTED = 40;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
