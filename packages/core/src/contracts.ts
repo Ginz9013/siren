@@ -899,10 +899,16 @@ export interface ResolvedSequenceParticipant {
    * something drawn — a message, a note, an `activate`/`deactivate`, a block's
    * start, later branch or `end`, or an `autonumber`/`autonumber off`, at any
    * depth; a declaration, a `destroy` or a `link` draws nothing. Absent
-   * otherwise, and always for a participant with no `create`. Kept when the
-   * `create` has no creating message and the participant is drawn from the
-   * top with origin `declared`: its lane still sits half its width further
-   * right than a declared one's would, as `layoutSequence` places it.
+   * otherwise, and always for a participant with no `create`.
+   *
+   * Measured against Mermaid 12.2.0: such a participant's box starts half its
+   * own width further right than a declared one's would, and every lane after
+   * it follows (`addActorRenderingData`'s `prevMargin += actor.width / 2`,
+   * skipped when nothing has been drawn before the `create`). `participant
+   * A`, `create participant B`, `A->>B` puts B's box at x 200, as a declared
+   * B's; with a message before the `create`, at x 275. Kept when the `create`
+   * has no creating message and the participant is drawn from the top with
+   * origin `declared`: its lane still moves, as `layoutSequence` places it.
    */
   createdAfterDrawing?: true;
 }

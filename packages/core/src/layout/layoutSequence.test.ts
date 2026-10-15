@@ -79,6 +79,13 @@ function coreModel(): SequenceModel {
   };
 }
 
+// The created participants built by hand in these tests leave
+// `createdAfterDrawing` unset even where a message comes before their
+// `create`, which `buildSequenceModel` would never produce: layout trusts
+// the model's flag rather than looking at the statements, so those fixtures
+// keep their lanes where a declared one's would be on purpose. The
+// lane-shift tests set the flag themselves (`createdModel` below).
+
 /** A preamble-declared participant: full-height lifeline, boxes at both ends. */
 function declaredParticipant(id: string, label: string): ResolvedSequenceParticipant {
   return {
@@ -2283,7 +2290,10 @@ describe("layoutSequence: a participant a message creates and nothing destroys",
   // The model says whether anything was drawn before the `create`
   // (`ResolvedSequenceParticipant.createdAfterDrawing`), counting what
   // leaves no statement of its own — an `autonumber off`, say — so layout
-  // takes its word rather than looking at the statements before it.
+  // takes its word rather than looking at the statements before it. The
+  // `untold` model, a message before the `create` with the flag unset, is
+  // one the model never produces; it is here only to show layout ignores
+  // the statements.
   it("moves the lane exactly when the model says its `create` came after something drawn", () => {
     const told = createdModel([], true);
     const shifted = lanes(told);

@@ -314,17 +314,7 @@ function layoutParticipants(
       decl.participantKind === "actor"
         ? ACTOR_FIGURE_HEIGHT + labelBox.height
         : labelBox.height + PARTICIPANT_PADDING_Y * 2;
-    // Measured against Mermaid 12.2.0: a created participant's box starts
-    // half its own width further right than a declared one's would, and
-    // every lane after it follows (`addActorRenderingData`'s `prevMargin +=
-    // actor.width / 2`) — but only when anything was drawn before its
-    // `create` — which the model says (`createdAfterDrawing`). Mermaid keys
-    // that move on how many things it has drawn before the `create` and
-    // skips it when there are none, so a participant created after nothing
-    // but declarations stays where a declared one would be (measured:
-    // `participant A`, `create participant B`, `A->>B` puts B's box at x
-    // 200, as a declared B's). A `create` with no creating message moves
-    // too, though its participant is drawn from the top as a declared one is.
+    // A lane created after something drawn moves right (`createdAfterDrawing`).
     if (decl.createdAfterDrawing === true) nextLeft += width / 2;
     const x = nextLeft + width / 2;
 

@@ -109,14 +109,10 @@ interface ResolutionState {
   pending: PendingDeclaration[];
   /**
    * Whether anything drawn has been written so far — the fact behind
-   * `ResolvedSequenceParticipant.createdAfterDrawing`. Measured on Mermaid
-   * 12.2.0, a created lane moves right when its `create` comes after any
-   * message, note, `activate`/`deactivate`, block start, later branch or
-   * `end`, `autonumber` or `autonumber off`, and stays put after nothing but
-   * declarations, `destroy`s and `link`s. Every statement that interrupts a
-   * waiting declaration sets it, except a `create` or `destroy`; so does a
-   * message. A block's later branches and `end` always come after its start,
-   * which has already set it.
+   * `ResolvedSequenceParticipant.createdAfterDrawing`, whose JSDoc has the
+   * measured rule. Set in one of two places: `interrupt`, for every
+   * statement that interrupts a waiting declaration except a `create` or
+   * `destroy`, and the message branch, since a message interrupts nothing.
    */
   drawnSoFar: boolean;
 }
@@ -209,10 +205,12 @@ const DECLARATION_RULES: Record<PendingDeclaration["kind"], DeclarationRule> = {
 /**
  * Marks every declaration still waiting as interrupted by `keyword`, a
  * record that is not a message: its message, when one comes, is no longer
- * the record right after it.
+ * the record right after it. Every such record but a `create` or `destroy`
+ * is also drawn (`ResolutionState.drawnSoFar`).
  */
 function interrupt(state: ResolutionState, keyword: InterruptingKeyword): void {
   for (const declaration of state.pending) declaration.interruptedBy ??= keyword;
+  if (keyword !== "create" && keyword !== "destroy") state.drawnSoFar = true;
 }
 
 /**
@@ -513,14 +511,12 @@ function resolveStatements(
     if (statement.kind === "autonumberOn") {
       state.autonumbering = true;
       interrupt(state, "autonumber");
-      state.drawnSoFar = true;
       continue;
     }
 
     if (statement.kind === "autonumberOff") {
       state.autonumbering = false;
       interrupt(state, "autonumber");
-      state.drawnSoFar = true;
       continue;
     }
 
@@ -724,7 +720,6 @@ function resolveStatements(
     if (statement.kind === "activate") {
       mention(statement.id, participantsById, state);
       interrupt(state, "activate");
-      state.drawnSoFar = true;
       state.openActivationCounts.set(
         statement.id,
         (state.openActivationCounts.get(statement.id) ?? 0) + 1,
@@ -740,7 +735,6 @@ function resolveStatements(
     if (statement.kind === "deactivate") {
       mention(statement.id, participantsById, state);
       interrupt(state, "deactivate");
-      state.drawnSoFar = true;
       // Matches Mermaid's own rejection ("Trying to inactivate an inactive
       // participant") — a `deactivate` with nothing open is dropped rather
       // than drawing a bar with no start, the same partial-failure
@@ -765,7 +759,6 @@ function resolveStatements(
     if (statement.kind === "note") {
       for (const id of new Set([statement.from, statement.to])) mention(id, participantsById, state);
       interrupt(state, "note");
-      state.drawnSoFar = true;
 
       state.noteCounter += 1;
       ++state.position;
@@ -816,7 +809,6 @@ function resolveBlock(
   // `end` — is a record of its own in Mermaid's drawing, so none may stand
   // between a `create` or `destroy` and its message.
   interrupt(state, statement.kind);
-  state.drawnSoFar = true;
 
   // `opens` is the keyword that starts a later branch, and an interruption
   // like any other boundary; the first branch opens with the block itself.
