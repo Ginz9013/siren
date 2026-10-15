@@ -52,15 +52,15 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = 
  * is what gives every kind the same behavior without five implementations
  * of them.
  *
- * The rule is Mermaid's: a comment runs from the first `%%` on a line to
- * the end of that line, whether the line is nothing but a comment, an
- * indented comment, or a comment trailing real syntax (`A --> B %% note`).
- * It is deliberately **line-wise and context-free** — a `%%` inside a
- * quoted string, a bracket label or message text also starts a comment,
- * and there is no escape for a literal `%%`. That matches what Mermaid
- * does (it strips comments before its grammar ever sees the line), so a
- * document that renders in Mermaid renders the same way here; a
- * quote-aware rule would be a silent divergence instead.
+ * The rule is Mermaid's (CONTEXT.md **Comment**): a comment is a whole
+ * line whose first non-blank characters are `%%`, indented or not, and it
+ * is removed here. A `%%` later on a line is not removed by Mermaid's
+ * `cleanupComments` at all; what it means is each kind's grammar's — text
+ * inside a label, a refusal after a complete statement, a comment only
+ * where a kind's lexer reads one. So `lines` cuts each line at its first
+ * `%%` only for the kinds still read that way (`CUTS_MID_LINE_COMMENTS`),
+ * and `linesAsRead` keeps every line as Mermaid's grammar is handed it, for
+ * the kinds that read their own `%%`.
  *
  * Except a line that is nothing but `%%` (`bareCommentLines`). Mermaid's
  * `cleanupComments` removes `^\s*%%(?!{)[^\n]+\n?`, so a whole-line
@@ -72,12 +72,12 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = 
  *
  * Mermaid's order matters for one thing. Its `cleanupComments` removes only
  * whole-line comments, and then its `encodeEntities` drops a style line's
- * last `;` — so on a line with an end-of-line comment, that `;` may be the
- * comment's: measured (11.17.2), a state diagram's
+ * last `;` — so on a line with a mid-line `%%`, that `;` may be after it:
+ * measured (11.17.2), a state diagram's
  * `state "<span style='color:#f00;'>r</span>" as A %% x;` keeps its color's
  * `;`, so its color is an entity code and `r` is drawn uncolored. Here,
- * too, whole-line comments go first, then `styleLines`, then end-of-line
- * comments.
+ * too, whole-line comments go first, then `styleLines`, then — for a kind
+ * that still cuts them — mid-line `%%`s.
  *
  * Before any of them comes Mermaid's first step, its `cleanupText`
  * (`tagQuotesRewritten`): it runs over the document as written, comments
@@ -104,6 +104,7 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = 
  */
 function asMermaidReads(source: string): {
   lines: string[];
+  linesAsRead: string[];
   asWritten: <T>(result: T) => T;
   frontmatter: FrontmatterRead;
   directives: DirectivesRead;
@@ -119,12 +120,39 @@ function asMermaidReads(source: string): {
     line.trimStart().startsWith("%%") ? "" : line,
   );
   const read = styleLines(wholeLinesBlanked.join("\n"));
-  const lines = read.source.split("\n").map((line) => {
-    const commentStart = line.indexOf("%%");
-    return commentStart === -1 ? line : line.slice(0, commentStart);
-  });
-  return { lines, asWritten: read.asWritten, frontmatter, directives, bareCommentLines };
+  const linesAsRead = read.source.split("\n");
+  const lines = linesAsRead.map(endOfLineCommentStripped);
+  return { lines, linesAsRead, asWritten: read.asWritten, frontmatter, directives, bareCommentLines };
 }
+
+/** `line` without everything from its first `%%` on. */
+function endOfLineCommentStripped(line: string): string {
+  const commentStart = line.indexOf("%%");
+  return commentStart === -1 ? line : line.slice(0, commentStart);
+}
+
+/**
+ * Whether a kind's parser is handed its lines with everything from a
+ * mid-line `%%` on already cut away — the rule every kind followed before
+ * CONTEXT.md's **Comment** was measured.
+ *
+ * Mermaid 12.2.0 cuts nothing mid-line: its `cleanupComments` removes whole
+ * lines only, and what a `%%` later on a line means is each grammar's own —
+ * text where the line holds text, a refusal where the grammar has no room
+ * for it, and a comment only where a kind's lexer reads one. So `false` is
+ * where every kind is going: its parser sees the line as written and
+ * decides. `true` is the old cut, kept for a kind until its own reading is
+ * measured and written — one kind at a time, so each switch is one change.
+ * A record rather than a switch, as `PARSE_KIND` is, so a new kind cannot
+ * arrive without this decision.
+ */
+const CUTS_MID_LINE_COMMENTS: Record<DiagramKind, boolean> = {
+  flowchart: false,
+  sequence: true,
+  class: true,
+  state: true,
+  er: true,
+};
 
 /** Where a line that is nothing but `%%` starts its `%%`, as the author wrote it. */
 interface BareCommentLine {
@@ -166,7 +194,10 @@ function bareCommentMessage(header: Header | null, at: BareCommentLine): string 
  * written with Mermaid's original `graph` keyword) or `parseSequenceDiagram`
  * (`sequenceDiagram` header), after reading the whole document as Mermaid
  * does — tag quotes, frontmatter, directives, `%%` comments and the
- * style-line rule (`asMermaidReads`).
+ * style-line rule (`asMermaidReads`). A kind that reads its own mid-line
+ * `%%` (`CUTS_MID_LINE_COMMENTS`) is handed its lines as Mermaid's grammar
+ * is, up to its first timeline header; a timeline block's lines are always
+ * cut at their first `%%`.
  * Never throws on malformed input — an unrecognized header is reported as
  * a diagnostic instead.
  *
@@ -185,7 +216,8 @@ function bareCommentMessage(header: Header | null, at: BareCommentLine): string 
  * Mermaid does not read it as a comment there.
  */
 export function parseSiren(source: string): ParseResult {
-  const { lines, asWritten, frontmatter, directives, bareCommentLines } = asMermaidReads(source);
+  const { lines, linesAsRead, asWritten, frontmatter, directives, bareCommentLines } =
+    asMermaidReads(source);
   for (const read of [frontmatter, directives]) {
     if (read.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
       return { document: null, diagnostics: read.diagnostics, config: {} };
@@ -209,7 +241,15 @@ export function parseSiren(source: string): ParseResult {
     return { document: null, diagnostics: bareCommentRefusals, config: {} };
   }
   const documentConfig = documentConfigOf(frontmatter, directives, header?.kind ?? null);
-  const { document, diagnostics } = asWritten(dispatch(lines, header));
+  // The lines the kind's parser reads: every one as Mermaid hands it to the
+  // grammar, unless the kind still cuts a mid-line `%%` away
+  // (`CUTS_MID_LINE_COMMENTS`). A timeline block is Siren's own syntax, not
+  // Mermaid's, so its lines keep that cut whatever the kind.
+  const linesForKind =
+    header?.kind && !CUTS_MID_LINE_COMMENTS[header.kind]
+      ? linesAsRead.map((line, index) => (index < timelineStart ? line : lines[index]!))
+      : lines;
+  const { document, diagnostics } = asWritten(dispatch(linesForKind, header));
   return { document, diagnostics: [...documentConfig.diagnostics, ...diagnostics], config: documentConfig.config };
 }
 
@@ -239,7 +279,7 @@ function firstTimelineHeader(lines: readonly string[], headerIndex: number): num
 }
 
 /**
- * `parseSiren`'s reading of `lines`, the document without its comments and
+ * `parseSiren`'s reading of `lines`, the document without its whole-line comments and
  * with Mermaid's style-line rule applied, whose `header` is `headerOf(lines)`:
  * every position it finds is in those lines.
  */
@@ -257,7 +297,7 @@ function dispatch(lines: readonly string[], header: Header | null): DiagramParse
   }
 
   if (header.kind !== null) {
-    // The comment-free source every per-kind parser sees. Line count and
+    // The source every per-kind parser sees, whole-line comments removed. Line count and
     // line order are untouched, so their diagnostics' line numbers still
     // match the document the author wrote.
     return PARSE_KIND[header.kind](lines.join("\n"));

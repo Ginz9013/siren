@@ -1014,12 +1014,15 @@ timeline:
     expect(erDocument(document).entities.map((entity) => entity.name)).toEqual(["CUSTOMER"]);
   });
 
-  it("ignores whole-line, indented and trailing %% comments in a flowchart", () => {
+  it("ignores whole-line and indented %% comments in a flowchart", () => {
+    // Only whole lines: a `%%` trailing a flowchart statement is refused
+    // (see "a `%%` in the middle of a flowchart line" below).
     const source = `%% what this diagram is for
 flowchart TD
   A[Start]
     %% the interesting bit
-  A --> B[End] %% and back again
+  A --> B[End]
+  %% and back again
 `;
 
     const { document, diagnostics } = parseFlowchartOk(source);
@@ -1194,10 +1197,10 @@ classDiagram
       }
     });
 
-    it("leaves a `%%` trailing real syntax to the end-of-line comment rule — it is not a bare line", () => {
+    it("leaves a `%%` trailing real syntax to the mid-line rule — it is not a bare line", () => {
       // Measured: Mermaid reads `A-->B %%` exactly as it reads `A-->B %% x`
       // (a flowchart refuses both), so the bare-line rule has nothing to say
-      // about it; it means here what any end-of-line comment means.
+      // about it; it means here what any mid-line `%%` means in its kind.
       for (const [header, body] of [
         ["flowchart TB", "A-->B"],
         ["erDiagram", "A ||--o{ B : has"],
@@ -1206,8 +1209,18 @@ classDiagram
         const worded = parseSiren(`${header}\n${body} %% x\n${body} %% x`);
 
         expect([header, bare]).toEqual([header, worded]);
-        expect([header, bare.diagnostics]).toEqual([header, []]);
       }
+      // A flowchart refuses each `%%` as the mid-line `%%` it is, not as a
+      // bare line; an ER diagram still cuts it away until its own reading
+      // of a mid-line `%%` is written.
+      const midLine =
+        'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+        "Move the comment to a line of its own.";
+      expect(parseSiren("flowchart TB\nA-->B %%\nA-->B %%").diagnostics).toEqual([
+        { severity: "error", message: midLine, line: 2, column: 7 },
+        { severity: "error", message: midLine, line: 3, column: 7 },
+      ]);
+      expect(parseSiren("erDiagram\nA ||--o{ B : has %%\nA ||--o{ B : has %%").diagnostics).toEqual([]);
     });
 
     it("reads a bare `%%` inside a timeline block as a comment, unnamed or named — Mermaid never sees that block", () => {
@@ -3326,5 +3339,171 @@ describe("a document's directives", () => {
       '%%{init: {"theme": "dark"}}%%\n%%{init: {"config": {"curve": "basis"}, "look": "neo"}}%%\nflowchart TB\n  A --> B',
     );
     expect(config).toEqual({ theme: "dark", look: "neo" });
+  });
+});
+
+/**
+ * A `%%` in the middle of a flowchart line (CONTEXT.md **Comment**).
+ * Mermaid 12.2.0's `cleanupComments` removes whole-line comments only, and
+ * the flowchart lexer has no `%%` rule of its own (`%` is a node-string
+ * character), so a mid-line `%%` reaches the grammar: inside text it is
+ * text, and after a complete statement it is a parse error. Measured with
+ * `pnpm --filter siren-core probe`; the table is T1's 量測結果.
+ */
+describe("a `%%` in the middle of a flowchart line", () => {
+  const NOT_A_COMMENT =
+    'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+    "Move the comment to a line of its own.";
+
+  it("refuses a `%%` trailing an edge, at its `%%`, where the grammar has no room for it", () => {
+    // Measured: `A --> B %% x` is a parse error ("Expecting 'SEMI',
+    // 'NEWLINE', 'EOF', … got 'NODE_STRING'"), on the last line or not.
+    const { document, diagnostics } = parseSiren("flowchart TB\n  A --> B %% and back\n  B --> C");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: NOT_A_COMMENT, line: 2, column: 11 }]);
+  });
+
+  it("reads a subgraph's bare name with a `%%` after it as one title, as its grammar reads a run of words", () => {
+    // Measured: `subgraph S %% zz` records the title "S %% zz" under a
+    // generated id (`subGraph0`), so `S --> B` below names a node, not it;
+    // `subgraph S [t %% zz]` keeps "t %% zz" as the bracketed title.
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n  subgraph S %% zz\n    A\n  end\n  subgraph T [t %% zz]\n    C\n  end",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs.map((subgraph) => [subgraph.name, subgraph.label.text])).toEqual([
+      [null, "S %% zz"],
+      ["T", "t %% zz"],
+    ]);
+  });
+
+  it("refuses a `%%` after a subgraph's bracketed title, at its `%%`", () => {
+    // Measured: `subgraph S[t] %% zz` is "Expecting 'SEMI', 'NEWLINE', 'EOF', got 'SPACE'".
+    const { document, diagnostics } = parseSiren("flowchart TB\n  subgraph S[t] %% zz\n    A\n  end");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: NOT_A_COMMENT, line: 2, column: 17 }]);
+
+    // Measured: `subgraph S %% end` is read with its `end` as the block's
+    // own end, swallowing the next line into the title ("S %% end\nA") —
+    // a picture nobody wrote, so it is refused rather than drawn.
+    const swallowed = parseSiren("flowchart TB\n  subgraph S %% end\n    A\n  end");
+    expect(swallowed.document).toBeNull();
+    expect(swallowed.diagnostics).toEqual([{ severity: "error", message: NOT_A_COMMENT, line: 2, column: 14 }]);
+  });
+
+  it("reads a block's `direction` with a `%%` after it as that direction — its rule runs to the line's end", () => {
+    // Measured: `direction LR %% zz` inside a subgraph records `dir: "LR"` —
+    // the lexer's `.*direction\s+LR[^\n]*` takes the rest of the line.
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n  subgraph S\n    direction LR %% across\n    A --> B\n  end",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs.map((subgraph) => subgraph.direction)).toEqual(["LR"]);
+  });
+
+  it("keeps a `%%` in a declaration list and an accessibility line as part of what they hold", () => {
+    // Measured: `style A fill:#f00 %% zz` records `fill:#f00 %% zz`,
+    // `classDef c fill:#f00 %% zz` the same, `linkStyle 0 stroke:#f00 %% zz`
+    // `stroke:#f00 %% zz`; `accTitle: t %% zz` the title "t %% zz" and
+    // `accDescr: d %% zz` the description "d %% zz".
+    const { document, diagnostics } = parseFlowchartOk(
+      [
+        "flowchart TB",
+        "  accTitle: t %% zz",
+        "  accDescr: d %% zz",
+        "  A --> B",
+        "  style A fill:#f00 %% zz",
+        "  classDef c fill:#0f0 %% zz",
+        "  linkStyle 0 stroke:#00f %% zz",
+      ].join("\n"),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect([document.accTitle, document.accDescr]).toEqual(["t %% zz", "d %% zz"]);
+    expect(document.styles.map((style) => [style.styleKind, style.properties])).toEqual([
+      ["style", [{ property: "fill", value: "#f00 %% zz" }]],
+      ["classDef", [{ property: "fill", value: "#0f0 %% zz" }]],
+    ]);
+    expect(document.linkStyles.map((style) => style.properties)).toEqual([
+      [{ property: "stroke", value: "#00f %% zz" }],
+    ]);
+  });
+
+  it("keeps a `%%` in a click's quoted tooltip, and refuses one trailing the click", () => {
+    // Measured: `click A "https://x.org" "t %% zz"` records the tooltip
+    // "t %% zz"; `click A "https://x.org" %% zz` is "Expecting 'STR',
+    // 'LINK_TARGET', got 'NODE_STRING'".
+    const kept = parseFlowchartOk('flowchart TB\n  A\n  click A "https://x.org" "t %% zz"');
+    expect(kept.diagnostics).toEqual([]);
+    expect(kept.document.interactions.map((interaction) => interaction.tooltip)).toEqual(["t %% zz"]);
+
+    const refused = parseSiren('flowchart TB\n  A\n  click A "https://x.org" %% zz');
+    expect(refused.document).toBeNull();
+    expect(refused.diagnostics).toEqual([{ severity: "error", message: NOT_A_COMMENT, line: 3, column: 27 }]);
+  });
+
+  it("refuses a `%%` after every other complete statement, at its `%%`, once", () => {
+    // Measured, each a parse error on its line: a node's declaration
+    // (`A[a] %% zz`, `A %% zz`, `A:::c %% zz`, `A@{ shape: rect } %% zz`),
+    // a statement ended by `;` (`A --> B; %% zz`), a block's `end`
+    // (`end %% zz`) and a class list (`class A c %% zz`).
+    for (const [body, line, column] of [
+      ["  A[a] %% zz", 2, 8],
+      ["  A %% zz", 2, 5],
+      ["  A:::c %% zz", 2, 9],
+      ["  A@{ shape: rect } %% zz", 2, 21],
+      ["  A --> B; %% zz", 2, 12],
+      ["  subgraph S\n    A\n  end %% zz", 4, 7],
+      ["  A\n  classDef c fill:#f00\n  class A c %% zz", 4, 13],
+    ] as const) {
+      const { document, diagnostics } = parseSiren(`flowchart TB\n${body}`);
+
+      expect([body, document]).toEqual([body, null]);
+      expect([body, diagnostics]).toEqual([body, [{ severity: "error", message: NOT_A_COMMENT, line, column }]]);
+    }
+  });
+
+  it("still cuts a `%%` in a timeline block to the line's end — that block is Siren's syntax, not Mermaid's", () => {
+    // ADR-0017: the document without its timeline blocks is the Mermaid one,
+    // so a flowchart's reading of `%%` stops at its first timeline header.
+    const commented = parseSiren("flowchart TB\n  A --> B\ntimeline: %% the reveal\n  enter B fade %% last\n");
+    const plain = parseSiren("flowchart TB\n  A --> B\ntimeline:\n  enter B fade\n");
+
+    expect(commented.diagnostics).toEqual([]);
+    expect(commented).toEqual(plain);
+  });
+
+  it("refuses a `%%` trailing the header, at its `%%`", () => {
+    // Measured: `flowchart TB %% x` is "Expecting 'NEWLINE', got 'NODE_STRING'"
+    // on line 1; so is `graph LR %% x`.
+    for (const header of ["flowchart TB", "graph LR"]) {
+      const { document, diagnostics } = parseSiren(`${header} %% what this is\n  A --> B`);
+
+      expect([header, document]).toEqual([header, null]);
+      expect([header, diagnostics]).toEqual([
+        header,
+        [{ severity: "error", message: NOT_A_COMMENT, line: 1, column: header.length + 2 }],
+      ]);
+    }
+  });
+
+  it("keeps a `%%` written inside a node's label or an edge's label as text", () => {
+    // Measured: `A[50 %% done]` → text "50 %% done"; `-->|a %% b|` → "a %% b";
+    // `-- c %% d -->` → "c %% d"; `B("e %% f")` → "e %% f".
+    const { document, diagnostics } = parseFlowchartOk(
+      'flowchart TB\n  A[50 %% done] -->|a %% b| B("e %% f")\n  B -- c %% d --> C{g %% h}',
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label.text])).toEqual([
+      ["A", "50 %% done"],
+      ["B", "e %% f"],
+      ["C", "g %% h"],
+    ]);
+    expect(document.edges.map((edge) => edge.label?.text)).toEqual(["a %% b", "c %% d"]);
   });
 });

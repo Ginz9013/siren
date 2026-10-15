@@ -872,3 +872,35 @@ describe("a flowchart's `linkStyle … interpolate` statement", () => {
     ]);
   });
 });
+
+/**
+ * A `%%` in the middle of a flowchart line (CONTEXT.md **Comment**): text
+ * inside text, a refusal after a complete statement — measured on Mermaid
+ * 12.2.0, whose flowchart lexer has no `%%` rule of its own.
+ */
+describe("a `%%` in the middle of a flowchart line", () => {
+  it("keeps a `%%` on every row of a Markdown string label that spans lines", () => {
+    // Measured: "A[\"`a %% b\nc %% d`\"]" records the text "a %% b\nc %% d".
+    const { document, diagnostics } = parseOk('flowchart TB\n  A["`a %% b\nc %% d`"] --> B', parseSiren);
+
+    expect(diagnostics).toEqual([]);
+    expect(markdownRows(document.nodes[0])).toEqual([
+      [{ text: "a %% b", bold: false, italic: false }],
+      [{ text: "c %% d", bold: false, italic: false }],
+    ]);
+  });
+
+  it("keeps a `%%` in an asymmetric node's label, which opens with `>`", () => {
+    // Measured: `A>a %% zz]` records the text "a %% zz".
+    const { document, diagnostics } = parseOk("flowchart TB\n  A>a %% zz] --> B>b %% c]", parseSiren);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.label.text)).toEqual(["a %% zz", "b %% c"]);
+  });
+
+  it("refuses a `%%` after an edge at the `%%`, read by the flowchart parser itself", () => {
+    // `parseFlowchart` is handed the line as Mermaid's grammar is: it is the
+    // flowchart's own reading that refuses the `%%`, not the dispatcher's.
+    expect(positions("flowchart TB\n  A -->|a %% b| B[c %% d] %% e")).toEqual(["error 2:27"]);
+  });
+});

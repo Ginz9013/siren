@@ -3730,11 +3730,35 @@ line2\`"]`,
     kind: "flowchart",
     source: `flowchart TB
       A --> B %% this edge is the point`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason**: until 01M4Z7TQRE " +
+      "this row was `supported`, read as an edge with a comment after it. " +
+      "Only a whole line is a comment — Mermaid 12.2.0's `cleanupComments` " +
+      "removes `^\\s*%%(?!{)[^\\n]+\\n?` and nothing mid-line — and the " +
+      "flowchart lexer has no `%%` rule of its own (`%` is a node-string " +
+      "character), so this `%%` reaches the grammar after a complete edge and " +
+      "is a parse error, measured: \"Expecting 'SEMI', 'NEWLINE', 'EOF', " +
+      "'AMP', 'START_LINK', 'LINK', 'LINK_ID', got 'NODE_STRING'\". Siren " +
+      "refuses it too (ADR-0017), with an error at the `%%` saying a mid-line " +
+      "`%%` is not a comment and to move it to a line of its own. A comment " +
+      "on its own line renders in both.",
+  },
+  {
+    id: "fc-comment-mid-line-text",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[50 %% done] -->|a %% b| B`,
     status: "supported",
-    meaning: "`%%` starts a comment running to the end of the line; an edge creates both nodes.",
+    meaning:
+      "A `%%` inside a label is text, not a comment: Mermaid 12.2.0 records " +
+      "the node text `50 %% done` and the edge text `a %% b` (measured). " +
+      "Siren used to cut the line at the first `%%`, refusing the truncated " +
+      "label.",
     assert: (result) => {
-      expectSame("nodes", nodes(result), ["A[A]", "B[B]"]);
+      expectSame("nodes", nodes(result), ["A[50 %% done]", "B[B]"]);
       expectSame("edges", edges(result), ["A-B"]);
+      expectSame("edge A-B's label", edgeLabel(result, "A-B"), "a %% b");
     },
   },
   // -------------------------------------------------------------------------

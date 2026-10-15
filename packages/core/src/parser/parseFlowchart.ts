@@ -1129,6 +1129,66 @@ function splitStatements(rawLine: string): { text: string; column: number }[] {
 }
 
 /**
+ * What a flowchart says about a `%%` written in the middle of a line where
+ * the line holds no text for it to be part of. CONTEXT.md's **Comment**: only
+ * a whole line is a comment, and Mermaid 12.2.0's flowchart grammar refuses a
+ * `%%` that follows a complete statement (`A --> B %% x` is "Expecting
+ * 'SEMI', 'NEWLINE', 'EOF', … got 'NODE_STRING'", measured).
+ */
+const MID_LINE_COMMENT_MESSAGE =
+  'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+  "Move the comment to a line of its own.";
+
+/**
+ * Where in `text` a `%%` stands outside every piece of text the statement
+ * holds — a bracketed or quoted label, an edge's label in either spelling —
+ * or `null` when every `%%` in it is inside one (or there is none).
+ *
+ * Inside text a `%%` is text: Mermaid 12.2.0 keeps `A[a %% b]`,
+ * `A["a %% b"]`, `A -->|a %% b| B` and `A -- a %% b --> B` as written,
+ * measured. A `"` opens a string wherever it stands, as Mermaid's lexer
+ * reads one (`click A "u" "a %% b"` keeps its tooltip), and an arrow token is
+ * stepped over whole, because its inline label is text too.
+ */
+function midLineCommentAt(text: string): number | null {
+  let depth = 0;
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === LABEL_FENCE) {
+      quoted = !quoted;
+      continue;
+    }
+    if (quoted) {
+      continue;
+    }
+    // An asymmetric node's label opens with a lone `>` and closes with `]`
+    // (`A>a %% b]`): an arrow's `>` never reaches here, its token being
+    // stepped over whole below.
+    if (text[i] === "[" || text[i] === "{" || text[i] === "(" || (depth === 0 && text[i] === ">")) {
+      depth++;
+      continue;
+    }
+    if (text[i] === "]" || text[i] === "}" || text[i] === ")") {
+      if (depth > 0) {
+        depth--;
+      }
+      continue;
+    }
+    if (depth > 0) {
+      continue;
+    }
+    if (text.startsWith("%%", i)) {
+      return i;
+    }
+    const arrow = separatorAt(text, i, ARROW_RE);
+    if (arrow !== null) {
+      i += arrow.length - 1;
+    }
+  }
+  return null;
+}
+
+/**
  * The opening statement of a `subgraph` block, and everything the author
  * wrote after the keyword. What that tail *means* is `readSubgraphTitle`'s;
  * this pattern only says a block opens here.
@@ -1201,8 +1261,24 @@ function readSubgraphTitle(
     // A bare word is the handle and the title at once, and has no tag in it.
     return { name: tail, label: plainLabel(tail), problems: [] };
   }
+  if (COMMENTED_BARE_TITLE_RE.test(tail)) {
+    // `subgraph S %% zz`: no handle at all, and the whole run is the title.
+    return { name: null, label: plainLabel(tail), problems: [] };
+  }
   return null;
 }
+
+/**
+ * A subgraph's bare name followed by a `%%` and plain words — which is not
+ * a name and a comment but one title: Mermaid 12.2.0 reads the run of words
+ * after `subgraph` as its text, so `subgraph S %% zz` records the title
+ * "S %% zz" under a generated id (measured, `subGraph0`). Only words: a
+ * bracket, a quote, a tag or an arrow after the `%%` is a parse error there
+ * (measured: `got 'PS'`, `'STR'`, `'TAGSTART'`, `'LINK'`), and so is the
+ * diagnostic here; and `end`, which Mermaid reads as the block's own end
+ * swallowing the next line, is no word of a title Siren draws.
+ */
+const COMMENTED_BARE_TITLE_RE = new RegExp(String.raw`^${ID_RUN}\s+%%(?!.*\bend\b)[\w%]*(?:\s+[\w%]+)*$`);
 
 /**
  * `direction LR` written inside a `subgraph` block — a per-cluster rank
@@ -1828,12 +1904,19 @@ export function parseFlowchart(source: string): DiagramParseResult {
       if (mode === "before-header") {
         const headerDirection = matchFlowchartHeader(line);
         if (headerDirection === null) {
-          diagnostics.push({
-            severity: "error",
-            message: `Expected ${FLOWCHART_HEADER_SPELLINGS}, found "${line}"`,
-            line: lineNumber,
-            column,
-          });
+          // `flowchart TB %% x`: a header Mermaid refuses for its `%%`
+          // (measured, "Expecting 'NEWLINE', got 'NODE_STRING'") is told so.
+          const commentAt = midLineCommentAt(line);
+          diagnostics.push(
+            commentAt === null
+              ? {
+                  severity: "error",
+                  message: `Expected ${FLOWCHART_HEADER_SPELLINGS}, found "${line}"`,
+                  line: lineNumber,
+                  column,
+                }
+              : { severity: "error", message: MID_LINE_COMMENT_MESSAGE, line: lineNumber, column: column + commentAt },
+          );
           sawError = true;
           break readLines;
         }
@@ -1866,7 +1949,21 @@ export function parseFlowchart(source: string): DiagramParseResult {
       // block with a punctuated name, not a malformed edge.
       const subgraphOpenMatch = SUBGRAPH_OPEN_RE.exec(line);
       if (subgraphOpenMatch !== null) {
-        const title = readSubgraphTitle(subgraphOpenMatch[1]);
+        const read = readSubgraphTitle(subgraphOpenMatch[1]);
+        const tailCommentAt = read === null ? midLineCommentAt(subgraphOpenMatch[1]) : null;
+        if (tailCommentAt !== null) {
+          // Refused for its `%%`, but still a block: its `end` closes it, so
+          // the one mistake is reported once rather than again at the `end`.
+          diagnostics.push({
+            severity: "error",
+            message: MID_LINE_COMMENT_MESSAGE,
+            line: lineNumber,
+            column: column + subgraphOpenMatch.indices![1]![0] + tailCommentAt,
+          });
+          sawError = true;
+        }
+        const title =
+          tailCommentAt === null ? read : { name: null, label: plainLabel(subgraphOpenMatch[1]), problems: [] };
         if (title === null) {
           diagnostics.push({
             severity: "error",
@@ -1904,9 +2001,46 @@ export function parseFlowchart(source: string): DiagramParseResult {
       }
 
       if (openBlocks.length > 0) {
-        const blockDirection = matchClassDirection(line);
+        // Read up to a `%%`: Mermaid's direction token is
+        // `.*direction\s+LR[^\n]*`, so whatever trails it on the line is
+        // taken with it (measured, `direction LR %% x` is `dir: "LR"`).
+        const commentAt = midLineCommentAt(line);
+        const blockDirection = matchClassDirection(
+          commentAt === null ? line : line.slice(0, commentAt).trimEnd(),
+        );
         if (blockDirection !== null) {
           openBlocks[openBlocks.length - 1].subgraph.direction = blockDirection;
+          continue;
+        }
+      }
+
+      // A `%%` after a complete statement, with no text around it to belong
+      // to. Asked after the statements that do hold text to the end of their
+      // line — a subgraph's title, a block's direction — and before any
+      // reading of what is left, so the author is told what the `%%` is
+      // rather than that the line is unreadable. A declaration list and an
+      // accessibility line keep everything they hold, a `%%` included, as
+      // Mermaid does (measured: `style A fill:#f00 %% x` records
+      // `fill:#f00 %% x`, `accTitle: t %% x` the title `t %% x`).
+      if (
+        !DECLARATION_LIST_RE.test(line) &&
+        !ACC_TITLE_RE.test(line) &&
+        !ACC_DESCR_RE.test(line)
+      ) {
+        const commentAt = midLineCommentAt(line);
+        if (commentAt !== null) {
+          diagnostics.push({
+            severity: "error",
+            message: MID_LINE_COMMENT_MESSAGE,
+            line: lineNumber,
+            column: column + commentAt,
+          });
+          sawError = true;
+          // `end %% x` is refused for its `%%`, and still ends its block, so
+          // the one mistake is not reported again as an unterminated block.
+          if (line.slice(0, commentAt).trim() === SUBGRAPH_END && openBlocks.length > 0) {
+            openBlocks.pop();
+          }
           continue;
         }
       }

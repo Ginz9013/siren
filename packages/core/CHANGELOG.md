@@ -21,6 +21,9 @@ Breaking for a sequence document with a note, activation, `autonumber`, block bo
 `create` or `destroy` between a `create` or `destroy` and the message after it, which is now
 refused (see **Changed**).
 
+Breaking for a flowchart document with a `%%` comment after a statement on the same line
+(`A --> B %% note`), which is now refused (see **Changed**).
+
 ### Added
 
 - A document may open with a Mermaid frontmatter (`---` … `---`), read as Mermaid 12.2.0 reads it,
@@ -91,6 +94,18 @@ refused (see **Changed**).
   `01M4WS1P6`). ER used to refuse the block by name; a flowchart refused it.
 
 ### Changed
+
+- **A `%%` in the middle of a flowchart line is no longer a comment** (nook `01M4Z7TQRE`). Only a
+  whole line whose first non-blank characters are `%%` is a comment, as in Mermaid 12.2.0, whose
+  flowchart grammar has no comment of its own. Inside text a `%%` is now kept as text — a node's
+  label, an edge's label, a subgraph's title, a `click` tooltip, `accTitle`/`accDescr`, and a
+  `style`/`classDef`/`linkStyle` declaration list (`A[50 %% done]` draws "50 %% done", where it
+  used to be cut short and refused). After a complete statement (`A --> B %% note`, `A[a] %% x`,
+  `end %% x`, `flowchart TB %% x`) the document is refused, as Mermaid refuses it, with an error at
+  the `%%` saying it is not a comment and to move it to a line of its own; it used to be ignored.
+  A subgraph's bare name followed by `%%` and words (`subgraph S %% x`) is one title, "S %% x",
+  with no handle, and a block's `direction LR %% x` is `direction LR`, both as Mermaid reads them.
+  Timeline blocks, and sequence, class, state and ER diagrams, still cut a line at its first `%%`.
 
 - **A sequence `create participant X` draws X's box on its creating message**: the message right
   after it, which must be sent to X (nook `01M4YS7DMG`). X's box is now centred on that message's

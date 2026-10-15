@@ -1651,12 +1651,15 @@ click Fish href "https://example.com/fish" "Fish facts"
     expect(fish.querySelector("title")!.textContent).toBe("Fish facts");
   });
 
-  it("ignores `%%` comments in all three diagram kinds — whole-line, indented and trailing a line of real syntax — rendering the same diagram as the same document without them", () => {
+  it("ignores `%%` comments in all three diagram kinds — whole-line and indented, and (sequence and class) trailing a line of real syntax — rendering the same diagram as the same document without them", () => {
+    // A flowchart refuses a `%%` trailing its statements (Mermaid 12.2.0's
+    // grammar does), so its comments here are whole lines only.
     const commented = {
       flowchart: `%% a flowchart that counts
 flowchart TD
   %% the first node
-  A[Start] --> B[End] %% and the edge to it
+  A[Start] --> B[End]
+  %% and the edge to it
 `,
       sequence: `%% a sequence that counts
 sequenceDiagram

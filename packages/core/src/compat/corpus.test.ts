@@ -1537,8 +1537,21 @@ const SILENTLY_WRONG = 0;
  * after the message renders in both. `silently-wrong` does not move — the
  * row was never silent-and-wrong in Siren. `seq-destroy-two-at-end`, new
  * beside it, is `supported` and moves nothing.
+ *
+ * **15 → 16: a `supported` row moved to `rejected`, because its source was
+ * never valid Mermaid.** `01M4Z7TQRE` measured what a `%%` in the middle of
+ * a line means (CONTEXT.md **Comment**): Mermaid 12.2.0 removes whole-line
+ * comments only, and the flowchart grammar refuses a `%%` after a complete
+ * statement. `fc-comment-trailing` — `A --> B %% this edge is the point` —
+ * had been seeded `supported` on the old belief that `%%` comments run to
+ * the end of any line, and Mermaid refuses it ("got 'NODE_STRING'"). Siren
+ * refuses it too now (ADR-0017), with an error at the `%%`. What an author
+ * loses is a picture Mermaid does not draw either; the comment on its own
+ * line renders in both. `fc-comment-mid-line-text`, new beside it, is
+ * `supported` — a `%%` inside a label is kept as text, where Siren used to
+ * cut the label short — and moves nothing. `silently-wrong` does not move.
  */
-const REJECTED = 15;
+const REJECTED = 16;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
