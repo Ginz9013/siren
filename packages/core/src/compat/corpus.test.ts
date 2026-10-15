@@ -1596,8 +1596,18 @@ const SILENTLY_WRONG = 0;
  * note opener's `%% …` is the note's first row, as Mermaid records it,
  * where `01M4Z7TR5R` had first refused it with no row — and moves nothing. `silently-wrong`
  * does not move.
+ *
+ * **20 → 21: case (2), a refusal written down for the first time.**
+ * `01M4Z7TRCQ` read a mid-line `%%` in ER diagrams as Mermaid 12.2.0 does,
+ * the last kind to stop cutting a line at its first `%%`. The ER lexer has
+ * no `%` rule, so `er-comment-after-statement` — a `%%` after a
+ * relationship — is a document Mermaid refuses ("got '%'"); Siren used to
+ * cut the line at the `%%` and draw it, and refuses it now, with an error
+ * at the `%%`. No `supported` row moved: no ER row had a mid-line `%%`.
+ * `er-comment-mid-line-text`, new beside it, is `supported` and moves
+ * nothing. `silently-wrong` does not move.
  */
-const REJECTED = 20;
+const REJECTED = 21;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

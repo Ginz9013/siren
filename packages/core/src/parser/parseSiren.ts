@@ -57,10 +57,10 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = 
  * is removed here. A `%%` later on a line is not removed by Mermaid's
  * `cleanupComments` at all; what it means is each kind's grammar's — text
  * inside a label, a refusal after a complete statement, a comment only
- * where a kind's lexer reads one. So `lines` keeps every line as Mermaid's
- * grammar is handed it, for a kind that reads its own `%%`, and cuts each
- * line at its first `%%` for a kind still read the old way
- * (`CUTS_AT_DOUBLE_PERCENT`) and for every timeline block.
+ * where a kind's lexer reads one. So `lines` keeps every line of the
+ * diagram as Mermaid's grammar is handed it, and each kind's parser decides.
+ * A timeline block is Siren's own syntax, not Mermaid's (ADR-0017), and
+ * its lines are still cut at their first `%%`.
  *
  * Except a line that is nothing but `%%` (`bareCommentLines`). Mermaid's
  * `cleanupComments` removes `^\s*%%(?!{)[^\n]+\n?`, so a whole-line
@@ -76,8 +76,8 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = 
  * measured (11.17.2), a state diagram's
  * `state "<span style='color:#f00;'>r</span>" as A %% x;` keeps its color's
  * `;`, so its color is an entity code and `r` is drawn uncolored. Here,
- * too, whole-line comments go first, then `styleLines`, then — for a kind
- * that still cuts them — mid-line `%%`s.
+ * too, whole-line comments go first, then `styleLines`, then — in a
+ * timeline block — the cut at a mid-line `%%`.
  *
  * Before any of them comes Mermaid's first step, its `cleanupText`
  * (`tagQuotesRewritten`): it runs over the document as written, comments
@@ -123,15 +123,14 @@ function asMermaidReads(source: string): {
   const read = styleLines(wholeLinesBlanked.join("\n"));
   const linesAsRead = read.source.split("\n");
   // The header, and where the timeline blocks start, are found on the lines
-  // cut at their first `%%`, as every kind found them before any kind read
-  // its own `%%`: `flowchart TB %% x` still names a flowchart, whose own
-  // parser then refuses the `%%`. A timeline block is Siren's own syntax,
-  // not Mermaid's (ADR-0017), so its lines keep the cut whatever the kind.
+  // cut at their first `%%`: `flowchart TB %% x` still names a flowchart,
+  // whose own parser then refuses the `%%`, and `timeline: %% x` still
+  // opens a block. A timeline block is Siren's own syntax, not Mermaid's
+  // (ADR-0017), so its lines keep the cut.
   const cut = linesAsRead.map(cutAtDoublePercent);
   const header = headerOf(cut);
   const timelineStart = header === null ? Infinity : firstTimelineHeader(cut, header.index);
-  const readsItsOwn = header?.kind != null && !CUTS_AT_DOUBLE_PERCENT[header.kind];
-  const lines = linesAsRead.map((line, index) => (readsItsOwn && index < timelineStart ? line : cut[index]!));
+  const lines = linesAsRead.map((line, index) => (index < timelineStart ? line : cut[index]!));
   return { lines, header, timelineStart, asWritten: read.asWritten, frontmatter, directives, bareCommentLines };
 }
 
@@ -141,39 +140,18 @@ function cutAtDoublePercent(line: string): string {
   return at === -1 ? line : line.slice(0, at);
 }
 
-/**
- * Whether a kind's parser is handed its lines with everything from a
- * mid-line `%%` on already cut away — the rule every kind followed before
- * CONTEXT.md's **Comment** was measured.
- *
- * Mermaid 12.2.0 cuts nothing mid-line: its `cleanupComments` removes whole
- * lines only, and what a `%%` later on a line means is each grammar's own —
- * text where the line holds text, a refusal where the grammar has no room
- * for it, and a comment only where a kind's lexer reads one. So `false` is
- * where every kind is going: its parser sees the line as written and
- * decides. `true` is the old cut, kept for a kind until its own reading is
- * measured and written — one kind at a time, so each switch is one change.
- * A record rather than a switch, as `PARSE_KIND` is, so a new kind cannot
- * arrive without this decision.
- */
-const CUTS_AT_DOUBLE_PERCENT: Record<DiagramKind, boolean> = {
-  flowchart: false,
-  sequence: false,
-  class: false,
-  state: false,
-  er: true,
-};
-
 /** Where a line that is nothing but `%%` starts its `%%`, as the author wrote it. */
 interface BareCommentLine {
   line: number;
   column: number;
 }
 
+// The cause and the fix, and nothing about another tool: an author reads
+// what is wrong with the line and how to write it.
 const BARE_COMMENT_IS_NOT = 'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%"';
 const BARE_COMMENT_HINT = ' Write "%% text", or leave the line blank.';
-const BARE_COMMENT_DRAWN = `${BARE_COMMENT_IS_NOT}, and Mermaid draws this line as a node named "%%".${BARE_COMMENT_HINT}`;
-const BARE_COMMENT_REFUSED = `${BARE_COMMENT_IS_NOT}; Mermaid refuses the document too.${BARE_COMMENT_HINT}`;
+const BARE_COMMENT_DRAWN = `${BARE_COMMENT_IS_NOT}, so this line is a node named "%%".${BARE_COMMENT_HINT}`;
+const BARE_COMMENT_REFUSED = `${BARE_COMMENT_IS_NOT}.${BARE_COMMENT_HINT}`;
 
 /**
  * What Mermaid makes of a bare `%%` line in each kind, as the refusal to
@@ -204,10 +182,10 @@ function bareCommentMessage(header: Header | null, at: BareCommentLine): string 
  * written with Mermaid's original `graph` keyword) or `parseSequenceDiagram`
  * (`sequenceDiagram` header), after reading the whole document as Mermaid
  * does — tag quotes, frontmatter, directives, `%%` comments and the
- * style-line rule (`asMermaidReads`). A kind that reads its own mid-line
- * `%%` (`CUTS_AT_DOUBLE_PERCENT`) is handed its lines as Mermaid's grammar
- * is, up to its first timeline header; a timeline block's lines are always
- * cut at their first `%%`.
+ * style-line rule (`asMermaidReads`). Each kind is handed its lines as
+ * Mermaid's grammar is, up to its first timeline header, and reads a
+ * mid-line `%%` itself; a timeline block's lines are cut at their first
+ * `%%`.
  * Never throws on malformed input — an unrecognized header is reported as
  * a diagnostic instead.
  *

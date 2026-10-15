@@ -33,10 +33,13 @@
  * the document as written, so what Mermaid is handed is the author's text.
  *
  * Where that header is, is found the way `parseSiren` finds it: on the
- * document as `asMermaidReads` (`src/parser/parseSiren.ts`) reads it, its
- * lines split on every spelling of a line break, its frontmatter and
- * `%%{…}%%` directives blanked in place, and every `%%` comment, whole-line
- * or end-of-line, removed. The diagram's header is the first line left that
+ * document as `asMermaidReads` (`src/parser/parseSiren.ts`) finds the
+ * header and the blocks on, its lines split on every spelling of a line
+ * break, its frontmatter and `%%{…}%%` directives blanked in place, and
+ * each line cut at its first `%%`, a whole-line comment with it — so
+ * `timeline: %% x` still opens a block, as it does in Siren,
+ * though only a whole line is a comment to the diagram itself (CONTEXT.md
+ * **Comment**). The diagram's header is the first line left that
  * is not blank, and the first line below it that is a timeline header
  * (`isTimelineHeader` in `src/parser/parseTimelineBlock.ts`) starts the
  * blocks. Tag-quote rewriting and the style-line rule are not repeated: they

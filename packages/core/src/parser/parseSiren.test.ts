@@ -1001,17 +1001,20 @@ timeline:
     ]);
   });
 
-  it("strips %% comments from an erDiagram before the kind's parser sees them", () => {
+  it("strips whole-line %% comments from an erDiagram before the kind's parser sees them, and leaves a mid-line %% to it", () => {
     // The dispatcher owns comment stripping for the whole language, so a
     // fifth kind gets it without a line of its own — and this is what says
-    // so rather than assuming it. A `%%` reaching `parseErDiagram` would be
-    // outside the entity alphabet and cost the document.
+    // so rather than assuming it. Only whole lines: a `%%` after a
+    // statement reaches `parseErDiagram`, outside the entity alphabet, and
+    // costs the document, as Mermaid 12.2.0 refuses it (see "a `%%` in the
+    // middle of an ER line" below).
     const { document, diagnostics } = parseSiren(
-      "%% the shop's records\nerDiagram\n  CUSTOMER %% the one who pays\n",
+      "%% the shop's records\nerDiagram\n  %% the one who pays\n  CUSTOMER\n",
     );
 
     expect(diagnostics).toEqual([]);
     expect(erDocument(document).entities.map((entity) => entity.name)).toEqual(["CUSTOMER"]);
+    expect(parseSiren("erDiagram\n  CUSTOMER %% the one who pays\n").diagnostics.map((d) => d.column)).toEqual([12]);
   });
 
   it("ignores whole-line and indented %% comments in a flowchart", () => {
@@ -1111,12 +1114,13 @@ classDiagram
     // needs at least one character after its `%%`. A bare `%%` line is left
     // to the diagram's own grammar, which in a flowchart draws a node named
     // `%%` and in an ER diagram refuses the document.
+    // The messages name the cause and the fix, never Mermaid.
     const FLOWCHART_DRAWS_IT =
       'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%", ' +
-      'and Mermaid draws this line as a node named "%%". Write "%% text", or leave the line blank.';
-    const MERMAID_REFUSES_IT =
-      'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%"; ' +
-      'Mermaid refuses the document too. Write "%% text", or leave the line blank.';
+      'so this line is a node named "%%". Write "%% text", or leave the line blank.';
+    const REFUSED_OUTRIGHT =
+      'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%". ' +
+      'Write "%% text", or leave the line blank.';
 
     it("refuses a bare `%%` line below a flowchart header, where Mermaid draws a node named `%%`", () => {
       const { document, diagnostics } = parseSiren("flowchart TB\n%%\nA-->B\n");
@@ -1143,7 +1147,7 @@ classDiagram
 
       expect(document).toBeNull();
       expect(diagnostics).toEqual([
-        { severity: "error", message: MERMAID_REFUSES_IT, line: 2, column: 1 },
+        { severity: "error", message: REFUSED_OUTRIGHT, line: 2, column: 1 },
       ]);
     });
 
@@ -1154,7 +1158,7 @@ classDiagram
 
       expect(document).toBeNull();
       expect(diagnostics).toEqual([
-        { severity: "error", message: MERMAID_REFUSES_IT, line: 1, column: 1 },
+        { severity: "error", message: REFUSED_OUTRIGHT, line: 1, column: 1 },
         { severity: "error", message: FLOWCHART_DRAWS_IT, line: 3, column: 1 },
       ]);
     });
@@ -1199,7 +1203,7 @@ classDiagram
           { severity: "error", message: FLOWCHART_DRAWS_IT, line: 3, column: 1 },
         ]);
         expect(parseSiren(`erDiagram\nA ||--o{ B : has\n%%${ending}`).diagnostics).toEqual([
-          { severity: "error", message: MERMAID_REFUSES_IT, line: 3, column: 1 },
+          { severity: "error", message: REFUSED_OUTRIGHT, line: 3, column: 1 },
         ]);
       }
     });
@@ -1217,9 +1221,8 @@ classDiagram
 
         expect([header, bare]).toEqual([header, worded]);
       }
-      // A flowchart refuses each `%%` as the mid-line `%%` it is, not as a
-      // bare line; an ER diagram still cuts it away until its own reading
-      // of a mid-line `%%` is written.
+      // Each kind refuses each `%%` as the mid-line `%%` it is, not as a
+      // bare line.
       const midLine =
         'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
         "If it is a comment, move it to a line of its own.";
@@ -1227,7 +1230,10 @@ classDiagram
         { severity: "error", message: midLine, line: 2, column: 7 },
         { severity: "error", message: midLine, line: 3, column: 7 },
       ]);
-      expect(parseSiren("erDiagram\nA ||--o{ B : has %%\nA ||--o{ B : has %%").diagnostics).toEqual([]);
+      expect(parseSiren("erDiagram\nA ||--o{ B : has %%\nA ||--o{ B : has %%").diagnostics).toEqual([
+        { severity: "error", message: midLine, line: 2, column: 18 },
+        { severity: "error", message: midLine, line: 3, column: 18 },
+      ]);
     });
 
     it("reads a bare `%%` inside a timeline block as a comment, unnamed or named — Mermaid never sees that block", () => {
@@ -3764,5 +3770,64 @@ describe("a `%%` in the middle of a class or state line", () => {
       expect([header, commented.diagnostics]).toEqual([header, []]);
       expect([header, commented]).toEqual([header, plain]);
     }
+  });
+});
+
+/**
+ * The dispatcher hands an ER diagram its lines as Mermaid's grammar is
+ * handed them — only whole-line comments removed — so the ER parser decides
+ * what a mid-line `%%` means (see parseErDiagram.test.ts, "a `%%` in the
+ * middle of a line"). Measured on Mermaid 12.2.0: the ER lexer has no `%`
+ * rule, so a `%%` is text only inside a relationship's quoted label, an
+ * attribute's quoted comment, a backticked name, a generic type, the
+ * accessibility lines, and a line `direction` swallows whole.
+ */
+describe("a `%%` in the middle of an ER line", () => {
+  const erOk = (body: string) => {
+    const { document, diagnostics } = parseSiren(`erDiagram\n${body}`);
+    expect(diagnostics).toEqual([]);
+    return erDocument(document);
+  };
+
+  it("keeps a `%%` in every piece of text an ER statement holds, as Mermaid records it", () => {
+    expect(erOk('  A ||--o{ B : "r %% zz"\n  C').relationships.map((r) => r.label.text)).toEqual(["r %% zz"]);
+    const attributes = erOk('  A {\n    int x "c %% zz"\n    string `a %% b`\n    list~a %% b~ y\n  }').entities[0]!
+      .attributes;
+    expect(attributes.map((a) => [a.type, a.name, a.comment.text])).toEqual([
+      ["int", "x", "c %% zz"],
+      ["string", "a %% b", ""],
+      ["list~a %% b~", "y", ""],
+    ]);
+    const described = erOk("  accTitle: t %% zz\n  accDescr: d %% zz\n  A");
+    expect([described.accTitle, described.accDescr]).toEqual(["t %% zz", "d %% zz"]);
+    expect(erOk("  accDescr {\n    d %% zz\n  }\n  A").accDescr).toBe("d %% zz");
+  });
+
+  it("reads a line `direction` swallows whole as that direction, `%%` and all, as Mermaid's lexer does", () => {
+    // Measured: the direction rules are `.*direction\s+LR[^\n]*`, so
+    // `direction LR %% zz` and `A %% direction LR` each set `LR` and
+    // declare nothing.
+    for (const body of ["  direction LR %% zz\n  A", "  A %% direction LR\n  A"]) {
+      const document = erOk(body);
+      expect([body, document.direction, document.entities.map((e) => e.name)]).toEqual([body, "LR", ["A"]]);
+    }
+  });
+
+  it("refuses a `%%` after a complete statement, at its `%%`", () => {
+    const midLine =
+      'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+      "If it is a comment, move it to a line of its own.";
+    const { document, diagnostics } = parseSiren("erDiagram\n  A ||--o{ B : r %% zz\n  C");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: midLine, line: 2, column: 18 }]);
+  });
+
+  it("still cuts a `%%` in a timeline block to the line's end — that block is Siren's syntax, not Mermaid's", () => {
+    const commented = parseSiren("erDiagram\n  A ||--o{ B : r\ntimeline: %% the reveal\n  enter B fade %% last\n");
+    const plain = parseSiren("erDiagram\n  A ||--o{ B : r\ntimeline:\n  enter B fade\n");
+
+    expect(commented.diagnostics).toEqual([]);
+    expect(commented).toEqual(plain);
   });
 });

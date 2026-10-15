@@ -8250,6 +8250,60 @@ line2\`"]`,
     },
   },
   {
+    id: "er-comment-mid-line-text",
+    kind: "er",
+    source: `erDiagram
+      direction LR %% left to right
+      CUSTOMER ||--o{ ORDER : "places %% one or more"
+      ORDER {
+        int total "in cents %% before tax"
+        string \`ship %% to\`
+      }`,
+    status: "supported",
+    meaning:
+      "A `%%` in a relationship's quoted label, an attribute's quoted " +
+      "comment or a backticked attribute name is text, not a comment: " +
+      "Mermaid 12.2.0's `cleanupComments` removes whole-line comments only, " +
+      "and the ER lexer reads each of these to its closing quote or " +
+      "backtick, `%%` included (measured: the label `places %% one or " +
+      "more`, the comment `in cents %% before tax`, the name `ship %% to`). " +
+      "A line naming `direction LR` is swallowed whole by the lexer's " +
+      "direction rule, `%%` and all, so it is drawn left to right. Siren " +
+      "used to cut each line at its first `%%`.",
+    assert: (result) => {
+      const label = svgOf(result).querySelector(
+        'g.siren-er-relationship-labels[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label',
+      );
+      expectSame("the label", labelRows(label), ["places %% one or more"]);
+      expectSame("ORDER's attributes", erAttributeRows(result, "ORDER"), [
+        "type=int | name=total | comment=in cents %% before tax",
+        "type=string | name=ship %% to | comment=",
+      ]);
+      expectSame(
+        "ORDER right of CUSTOMER",
+        erEntityRect(result, "ORDER").left > erEntityRect(result, "CUSTOMER").right,
+        true,
+      );
+    },
+  },
+  {
+    id: "er-comment-after-statement",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places %% one or more
+      ORDER ||--|{ LINE-ITEM : contains`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** The ER lexer " +
+      "has no `%` rule, so outside a quoted string or a backticked name a " +
+      "`%%` is a stray character and Mermaid 12.2.0 refuses the document " +
+      "(\"Expecting 'EOF', 'NEWLINE' …, got '%'\", measured). Siren refuses " +
+      "it too (ADR-0017), with an error at the `%%` saying a mid-line `%%` " +
+      "is not a comment and, if it is one, to move it to a line of its own. " +
+      "Siren used to cut the line at the `%%`. A comment on its own line " +
+      "renders in both.",
+  },
+  {
     id: "er-label-line-height",
     kind: "er",
     source: `erDiagram

@@ -36,6 +36,11 @@ namespace's `{` or a block's closing `}`; or after an annotation inside a class 
 state document with a `%%` run straight into its header (`stateDiagram-v2%%note`). Each is now
 refused (see **Changed**).
 
+Breaking for an ER document with a `%%` on the same line after a statement
+(`A ||--o{ B : places %% note`) or after its header; in a quoted entity name, an alias, a
+`subgraph` line or a `style`/`classDef` declaration list; or inside an attribute block outside a
+quoted comment or a backticked name. Each is now refused (see **Changed**).
+
 ### Added
 
 - A document may open with a Mermaid frontmatter (`---` … `---`), read as Mermaid 12.2.0 reads it,
@@ -118,7 +123,7 @@ refused (see **Changed**).
   used to be ignored.
   A subgraph's bare name followed by `%%` and words (`subgraph S %% x`) is one title, "S %% x",
   with no handle, and a block's `direction LR %% x` is `direction LR`, both as Mermaid reads them.
-  Timeline blocks and ER diagrams still cut a line at its first `%%`.
+  Timeline blocks still cut a line at its first `%%`.
   The flowchart's readers now agree on where text runs: a `;`, `&` or arrow inside an asymmetric
   node's label (`A>a;b] --> B`) or inside a quoted string outside any bracket
   (`click A "https://x.org/a;b" "t;u"`) is text, as in Mermaid 12.2.0; both used to be refused.
@@ -176,6 +181,21 @@ refused (see **Changed**).
   stereotype, a `--` divider, `end note`, `[*]` and `direction` — on any line, as before. The
   error refuses a `%%` run straight into a state diagram's header (`stateDiagram-v2%%x`, refused
   by Mermaid). Timeline blocks still cut a line at its first `%%`.
+
+- **A `%%` in the middle of an ER line is no longer a comment** (nook `01M4Z7TRCQ`). Only a whole
+  line is a comment, as in Mermaid 12.2.0, and ER is the last kind to stop cutting a line at its
+  first `%%`: every kind's parser now reads its lines as written, whole-line comments removed.
+  The ER lexer has no `%` rule, so a `%%` is text only where it reads a string to its end: a
+  relationship's quoted label (`A ||--o{ B : "r %% x"`), an attribute's quoted comment, a
+  backticked attribute name, a generic type (`list~a %% b~`), `accTitle`/`accDescr` and the
+  braced `accDescr { ... }` — each used to be cut at the `%%`. A line naming a direction is read
+  whole as that direction, `%%` and all (`direction LR %% x`, and `A %% direction LR` as Mermaid's
+  `.*direction\s+LR` rule reads it). Anywhere else the document is refused, as Mermaid refuses it,
+  with an error at the `%%` saying it is not a comment and, if it is meant as one, to move it to a
+  line of its own: after a statement or the header, in a quoted entity name or an alias (a quoted
+  string holding `%` is a word only a relationship's label takes), on a `subgraph` line, in a
+  `style`/`classDef` declaration list (quoted or not), and inside an attribute block outside a
+  quoted comment or a backticked name. Timeline blocks still cut a line at its first `%%`.
 
 - **A sequence `create participant X` draws X's box on its creating message**: the message right
   after it, which must be sent to X (nook `01M4YS7DMG`). X's box is now centred on that message's
@@ -248,6 +268,7 @@ refused (see **Changed**).
   and so does a timeline block in any kind, since Mermaid never sees one; `%%` followed by a
   space, a tab or any text is still a comment everywhere.
   `examples/flowchart-styling.srn` used one as a paragraph break; it is now a blank line.
+  The error names only the cause and the fix; it no longer says what Mermaid does with the line.
 - A `style` on a node, state or entity now beats a class applied to it whichever line comes first,
   as Mermaid 12.2.0 paints it in flowchart, class, state and ER diagrams. Before, the later line
   won, so `style A fill:#0ff` written above `class A alpha` drew the class's fill (nook `01M39F9N1`,
