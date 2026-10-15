@@ -45,21 +45,27 @@
       an <code>actor</code> and a <code>participant</code>, a <code>title</code>,
       <code>autonumber</code>/<code>autonumber off</code>, all ten arrow forms, a self-message,
       all seven block kinds with <code>alt</code> nested inside <code>loop</code>, and
-      <code>create</code> both at the top level (<code>Ledger</code>) and inside a block body
-      (<code>Retry</code> inside <code>loop</code>; <code>Auditor</code>, created inside
-      <code>opt</code> and never destroyed — so its box sits on its creating message's arrow
-      partway down the page and its lifeline runs to the bottom), and <code>destroy</code> both
-      inside a block (<code>Retry</code>, in the <code>alt approved</code> branch) and at the top
-      level (<code>Ledger</code>, before the receipt). Each <code>create</code> is followed right
-      after by its creating message, sent to the new participant, and each <code>destroy</code>
+      <code>create</code>/<code>destroy</code> both inside and outside blocks.
+    </p>
+    <p class="intro">
+      <code>create</code> appears at the top level (<code>Ledger</code>) and inside block bodies
+      (<code>Retry</code> inside <code>loop</code>; <code>Auditor</code> inside <code>opt</code>,
+      never destroyed, so its lifeline runs to the bottom). Each <code>create</code> is followed
+      right after by its creating message, sent to the new participant, and the new box sits on
+      that message's arrow partway down the page. <code>destroy</code> appears inside a block
+      (<code>Retry</code>, in the <code>alt approved</code> branch) and at the top level
+      (<code>Ledger</code>, before the receipt). Each <code>destroy</code> is followed right after
       by its destroying message — <code>Web-xRetry: Cancel the retry</code> and
-      <code>Web-xLedger: Close ledger entry</code> — on whose row the lifeline ends with its X
-      mark. Its
-      <code>timeline:</code> block animates all four addressable kinds — a participant, a message,
-      a control-flow block and a <code>box</code> grouping — so <strong>Next</strong> and
-      <strong>Reset</strong> below drive the same <code>AnimationController</code> a flowchart or
-      a class diagram returns. Watch <code>Retry</code> at step 4: one timeline entry moves its
-      participant box, its lifeline and its destroy mark together, because all three carry its id.
+      <code>Web-xLedger: Close ledger entry</code> — and the lifeline ends with its X mark on that
+      message's row.
+    </p>
+    <p class="intro">
+      Its <code>timeline:</code> block animates all five addressable kinds — a participant, a
+      message, a control-flow block, a <code>box</code> grouping and a <code>note</code> — so
+      <strong>Next</strong> and <strong>Reset</strong> below drive the same
+      <code>AnimationController</code> a flowchart or a class diagram returns. Watch
+      <code>Retry</code> at step 4: one timeline entry moves its participant box, its lifeline and
+      its destroy mark together, because all three carry its id.
     </p>
     <p class="status" id="full-status">Loading…</p>
     <p class="status">

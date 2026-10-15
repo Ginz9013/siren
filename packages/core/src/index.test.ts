@@ -981,14 +981,30 @@ end
       expect(y2(destroyed)).toBeLessThan(y2("Web"));
     }
     expect(y2("Auditor")).toBe(y2("Web"));
-    // Each lifeline ends on its destroying message's row, where it was
-    // written: Retry's inside the `loop`, before the `opt` block creates
-    // Auditor; Ledger's before the receipt note.
-    expect(y2("Retry")).toBeLessThan(y1("Auditor"));
-    const receiptNoteY = Number(
-      svg.querySelector('[data-siren-id="note:1"] rect')!.getAttribute("y"),
+    // Each destroyed lifeline ends exactly on its destroying message's arrow:
+    // Retry's on `Web-xRetry: Cancel the retry`, which sits inside the `alt`
+    // block's frame (in its first, `approved`, branch, above the first
+    // divider); Ledger's on `Web-xLedger: Close ledger entry`.
+    const messageLabelled = (label: string) =>
+      messages.find((g) => g.querySelector("text.siren-message-label")!.textContent === label)!;
+    const arrowY = (label: string) => {
+      // `M{fromX},{y} L{toX},{y}` — a horizontal arrow at one y.
+      const d = messageLabelled(label).querySelector("path.siren-message-arrow")!.getAttribute("d")!;
+      return Number(/^M[^,]+,([^ ]+) /.exec(d)![1]);
+    };
+    expect(messageLabelled("Cancel the retry").getAttribute("data-siren-id")).toBe("Web-Retry#2");
+    const cancelRetryY = arrowY("Cancel the retry");
+    expect(y2("Retry")).toBe(cancelRetryY);
+    expect(y2("Ledger")).toBe(arrowY("Close ledger entry"));
+    const altFrame = block("alt:1").querySelector("rect.siren-block-frame")!;
+    const altTop = Number(altFrame.getAttribute("y"));
+    const altBottom = altTop + Number(altFrame.getAttribute("height"));
+    const firstDividerY = Number(
+      block("alt:1").querySelector(":scope > line.siren-block-divider")!.getAttribute("y1"),
     );
-    expect(y2("Ledger")).toBeLessThan(receiptNoteY);
+    expect(cancelRetryY).toBeGreaterThan(altTop);
+    expect(cancelRetryY).toBeLessThan(firstDividerY);
+    expect(cancelRetryY).toBeLessThan(altBottom);
   });
 
   it("gives every one of the ten source arrow forms its own line style and arrowhead through render(): dotted forms dash, `<<->>`/`<<-->>` arrow both ends, and filled/cross/open resolve to three distinct <marker> defs", () => {
