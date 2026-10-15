@@ -4,3 +4,5 @@
 {"id":"01M4ZAQS4D1R5RM5X35QNXY2X3","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4ZBTD32B0ZAFWQT3A7J9BF8","t":5,"a":"83a1","op":"comment","body":"實作完成並驗證（commit 見 branch mermaid-parity-comments-lanes），因用量上限暫停：尚未做兩軸 review。實作者回報的偏離與發現見 HANDOFF.md。"}
 {"id":"01M4ZBTD9V574VJ8YD8NSP508T","t":6,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M4ZHYW2P6DS71CZV0Z2FG444","t":7,"a":"83a1","op":"comment","body":"T3 review 完成（standards／spec 兩軸）。追加 commit 454ade5：state `class A c %% x` 改為照畫（class 名依空白拆開，`c` 上色；`class A u extra` 同理上 `u`）、`note right of A %% zz` 開頭行的 `%% zz` 保留為 note 第一列；兩者原本被拒。header 行中檢查共用 midLinePercent.ts。改寫的測試列在 commit body。REJECTED 21 → 20。既有落差 `class A { +int x }` 另開 backlog 01M4ZHJ9W（T8）。"}
+{"id":"01M4ZHYW931N3V6R2009Q17GF8","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
