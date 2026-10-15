@@ -999,6 +999,28 @@ function messageArrow(result: SirenRenderResult, id: string): string {
   return `${line}/${head}`;
 }
 
+/** One drawn sequence arrow: its message's id, where it starts and ends, and its row. */
+interface DrawnArrow {
+  id: string;
+  fromX: number;
+  toX: number;
+  y: number;
+}
+
+/** Every sequence message's arrow, read off its path (`M fromX,y L toX,y`), in draw order. */
+function messageArrows(result: SirenRenderResult): DrawnArrow[] {
+  return elements(result, "g.siren-message").map((g) => {
+    const [fromX, y, toX] = [...(g.querySelector("path.siren-message-arrow")?.getAttribute("d") ?? "").matchAll(/-?[\d.]+/g)].map(Number);
+    return { id: idOf(g), fromX: fromX!, toX: toX!, y: y! };
+  });
+}
+
+/** `below <message>` for a drawing at `y` on no arrow: the last arrow above it, or the top row. */
+function belowArrow(arrows: readonly DrawnArrow[], y: number): string {
+  const above = arrows.filter((arrow) => arrow.y < y).sort((a, b) => b.y - a.y)[0];
+  return `below ${above?.id ?? "the top row"}`;
+}
+
 /**
  * Where a destroyed participant's lifeline ends, read off the drawn picture:
  * `tip of <message>` or `tail of <message>` when its X mark sits on that end
@@ -1017,17 +1039,13 @@ function lifelineEnd(result: SirenRenderResult, participantId: string): string {
   const lifeline = svgOf(result).querySelector(`line.siren-lifeline[data-siren-id="${participantId}"]`);
   const stops = Number(lifeline?.getAttribute("y2")) === centre.y ? ", lifeline stops there" : "";
 
-  const arrows = elements(result, "g.siren-message").map((g) => {
-    const [fromX, y, toX] = [...(g.querySelector("path.siren-message-arrow")?.getAttribute("d") ?? "").matchAll(/-?[\d.]+/g)].map(Number);
-    return { id: idOf(g), fromX: fromX!, toX: toX!, y: y! };
-  });
+  const arrows = messageArrows(result);
   for (const arrow of arrows) {
     if (arrow.y !== centre.y) continue;
     if (arrow.toX === centre.x) return `tip of ${arrow.id}${stops}`;
     if (arrow.fromX === centre.x) return `tail of ${arrow.id}${stops}`;
   }
-  const above = arrows.filter((arrow) => arrow.y < centre.y).sort((a, b) => b.y - a.y)[0];
-  return `below ${above?.id ?? "the top row"}${stops}`;
+  return `${belowArrow(arrows, centre.y)}${stops}`;
 }
 
 /**
@@ -1045,18 +1063,18 @@ function createdBox(result: SirenRenderResult, participantId: string): string {
   const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(rect.getAttribute(name)));
   const centre = { x: x! + width! / 2, y: y! + height! / 2 };
 
-  const arrows = elements(result, "g.siren-message").map((g) => {
-    const [, arrowY, toX] = [...(g.querySelector("path.siren-message-arrow")?.getAttribute("d") ?? "").matchAll(/-?[\d.]+/g)].map(Number);
-    return { id: idOf(g), toX: toX!, y: arrowY! };
-  });
+  const ends: [number, string][] = [
+    [x!, "stops at its left edge"],
+    [x! + width!, "stops at its right edge"],
+    [centre.x, "runs to its lane"],
+  ];
+  const arrows = messageArrows(result);
   for (const arrow of arrows) {
     if (arrow.y !== centre.y) continue;
-    const end =
-      arrow.toX === x ? "stops at its left edge" : arrow.toX === x! + width! ? "stops at its right edge" : arrow.toX === centre.x ? "runs to its lane" : `ends at x ${arrow.toX}`;
+    const end = ends.find(([at]) => at === arrow.toX)?.[1] ?? `ends at x ${arrow.toX}`;
     return `centred on ${arrow.id}, whose arrow ${end}`;
   }
-  const above = arrows.filter((arrow) => arrow.y < centre.y).sort((a, b) => b.y - a.y)[0];
-  return `below ${above?.id ?? "the top row"}`;
+  return belowArrow(arrows, centre.y);
 }
 
 /** Every control-flow block as `kind:id`, in draw order. */

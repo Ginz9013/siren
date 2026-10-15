@@ -1,8 +1,34 @@
 import { describe, expect, it } from "vitest";
 import { plainLabel } from "../label/label";
-import type { ResolvedSequenceMessage, SequenceDocument, SequenceStatement } from "../contracts";
+import type { ResolvedSequenceMessage, ResolvedSequenceStatement, SequenceDocument, SequenceStatement } from "../contracts";
 import { buildSequenceModel } from "./buildSequenceModel";
 import { parseSequenceDiagram } from "../parser/parseSequenceDiagram";
+
+/**
+ * Parses `body` under a `sequenceDiagram` header and builds it, returning
+ * the model and the parts of it these tests read: the lane order, each
+ * lane's lifeline extent, the link targets, every message's `creates` mark
+ * (block bodies included) and the diagnostics as `severity line:column:
+ * message`.
+ */
+function build(body: string) {
+  const { document } = parseSequenceDiagram(`sequenceDiagram\n${body}\n`);
+  if (document === null || document.kind !== "sequence") throw new Error("expected a sequence document");
+  const { model, diagnostics } = buildSequenceModel(document);
+  const messages = (statements: ResolvedSequenceStatement[]): ResolvedSequenceMessage[] =>
+    statements.flatMap((s) =>
+      s.kind === "message" ? [s.message] : s.kind === "block" ? s.block.branches.flatMap((b) => messages(b.statements)) : [],
+    );
+  return {
+    model,
+    lanes: model.participants.map((p) => p.id),
+    linked: model.interactions.map((i) => i.targetId),
+    createdAt: Object.fromEntries(model.participants.map((p) => [p.id, p.createdAt])),
+    destroyedAt: Object.fromEntries(model.participants.map((p) => [p.id, p.destroyedAt])),
+    creates: messages(model.statements).map((m) => [m.id, m.creates ?? null]),
+    diagnostics: diagnostics.map((d) => `${d.severity} ${d.line}:${d.column}: ${d.message}`),
+  };
+}
 
 describe("buildSequenceModel", () => {
   it("assigns message ids of the form fromId-toId, suffixing a second message between the same pair with #2", () => {
@@ -1433,22 +1459,11 @@ describe("buildSequenceModel", () => {
   });
 
   describe("a link names its participant, like any other mention (01M3NNNE6)", () => {
-    /** Parses and builds `body`, returning the lane order, the linked ids and the diagnostics. */
-    function build(body: string) {
-      const { document } = parseSequenceDiagram(`sequenceDiagram\n${body}\n`);
-      if (document === null || document.kind !== "sequence") throw new Error("expected a sequence document");
-      const { model, diagnostics } = buildSequenceModel(document);
-      return {
-        lanes: model.participants.map((p) => p.id),
-        linked: model.interactions.map((i) => i.targetId),
-        diagnostics: diagnostics.map((d) => d.message),
-      };
-    }
-
     // Each case measured on Mermaid 12.2.0: a link creates its participant's
     // lane, at the place in the document the link is written.
     it("resolves a link to a participant only a message created", () => {
-      expect(build("  A->>B: x\n  link B: Docs @ https://x.com")).toEqual({
+      const { lanes, linked, diagnostics } = build("  A->>B: x\n  link B: Docs @ https://x.com");
+      expect({ lanes, linked, diagnostics }).toEqual({
         lanes: ["A", "B"],
         linked: ["B"],
         diagnostics: [],
@@ -1495,23 +1510,12 @@ describe("buildSequenceModel", () => {
 
     it("refuses a create after a link has already named the participant, as Mermaid does", () => {
       expect(build("  link C: Docs @ https://x.com\n  create participant C\n  A->>C: x").diagnostics).toEqual([
-        'create participant "C" comes after "C" is already used; a created participant must be created before it is first named',
+        'error 3:3: create participant "C" comes after "C" is already used; a created participant must be created before it is first named',
       ]);
     });
   });
 
   describe("destroying messages (the first message after `destroy X`, which X sends or receives)", () => {
-    function build(body: string) {
-      const { document } = parseSequenceDiagram(`sequenceDiagram\n${body}\n`);
-      if (document === null || document.kind !== "sequence") throw new Error("expected a sequence document");
-      const { model, diagnostics } = buildSequenceModel(document);
-      return {
-        model,
-        destroyedAt: Object.fromEntries(model.participants.map((p) => [p.id, p.destroyedAt])),
-        diagnostics: diagnostics.map((d) => `${d.severity} ${d.line}: ${d.message}`),
-      };
-    }
-
     it("ends X's lifeline at the message X receives right after `destroy X`, with no warning for it", () => {
       // Positions: 1 participant A, 2 participant B, 3 A->>B hi, 4 destroy B,
       // 5 A->>B bye — the destroying message.
@@ -1544,7 +1548,7 @@ describe("buildSequenceModel", () => {
 
       expect(result.destroyedAt).toEqual({ A: null, B: 4 });
       expect(result.diagnostics).toEqual([
-        'warning 6: Message "A-B" references participant "B", whose lifeline already ended — the arrow points past the destroy mark',
+        'warning 6:1: Message "A-B" references participant "B", whose lifeline already ended — the arrow points past the destroy mark',
       ]);
     });
 
@@ -1574,7 +1578,7 @@ describe("buildSequenceModel", () => {
       const result = build("participant A\nparticipant B\nparticipant C\ndestroy B\nA->>C: unrelated");
 
       expect(result.diagnostics).toEqual([
-        'error 5: The destroyed participant "B" has no destroying message: the next message must be sent by or to it.',
+        'error 5:1: The destroyed participant "B" has no destroying message: the next message must be sent by or to it.',
       ]);
       expect(result.diagnostics.join("\n")).not.toMatch(/mermaid/i);
     });
@@ -1597,26 +1601,6 @@ describe("buildSequenceModel", () => {
   });
 
   describe("creating messages (the first message after `create participant X`, which must be sent to X)", () => {
-    function build(body: string) {
-      const { document } = parseSequenceDiagram(`sequenceDiagram\n${body}\n`);
-      if (document === null || document.kind !== "sequence") throw new Error("expected a sequence document");
-      const { model, diagnostics } = buildSequenceModel(document);
-      const messages = (statements: typeof model.statements): ResolvedSequenceMessage[] =>
-        statements.flatMap((s) =>
-          s.kind === "message"
-            ? [s.message]
-            : s.kind === "block"
-              ? s.block.branches.flatMap((b) => messages(b.statements))
-              : [],
-        );
-      return {
-        model,
-        createdAt: Object.fromEntries(model.participants.map((p) => [p.id, p.createdAt])),
-        creates: messages(model.statements).map((m) => [m.id, m.creates ?? null]),
-        diagnostics: diagnostics.map((d) => `${d.severity} ${d.line}:${d.column}: ${d.message}`),
-      };
-    }
-
     it("starts X's lifeline at the message sent to X right after `create participant X`, and marks that message alone", () => {
       // Positions: 1 participant A, 2 create C, 3 A->>C make — the creating
       // message, 4 A->>C again.

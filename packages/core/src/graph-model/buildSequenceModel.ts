@@ -103,7 +103,7 @@ interface ResolutionState {
    * added in). `null` when nothing is waiting. The `destroy` statement
    * itself is kept so a missing destroying message is reported at its line.
    */
-  pendingDestroy: { participant: ResolvedSequenceParticipant; statement: SequenceDestroyStatement } | null;
+  pendingDestroy: PendingDeclaration<SequenceDestroyStatement> | null;
   /**
    * The participant the latest `create` named, while no message has been
    * resolved since — the **creating message** it is waiting for, which must
@@ -113,7 +113,46 @@ interface ResolutionState {
    * `null` when nothing is waiting. The `create` statement itself is kept so
    * a missing creating message is reported at its line.
    */
-  pendingCreate: { participant: ResolvedSequenceParticipant; statement: SequenceParticipantStatement } | null;
+  pendingCreate: PendingDeclaration<SequenceParticipantStatement> | null;
+}
+
+/**
+ * A `create` or `destroy` waiting for the next message, with the statement
+ * that declared it, whose line a missing message is reported at.
+ */
+interface PendingDeclaration<S extends SequenceStatement> {
+  participant: ResolvedSequenceParticipant;
+  statement: S;
+}
+
+/**
+ * Settles a waiting `create` or `destroy` against the message right after
+ * it. When the message `pairs` with it, the participant's lifeline end
+ * (`extent`: `createdAt` or `destroyedAt`) moves onto the message's
+ * `position` and the participant's id is returned, for the message to carry
+ * as its `creates`/`destroys` mark. Otherwise `refusal` is reported as an
+ * error at the declaration's line and `null` is returned: the extent stays
+ * where the declaration is written.
+ */
+function settle(
+  pending: PendingDeclaration<SequenceStatement>,
+  pairs: boolean,
+  extent: "createdAt" | "destroyedAt",
+  position: number,
+  refusal: string,
+  diagnostics: Diagnostic[],
+): string | null {
+  if (pairs) {
+    pending.participant[extent] = position;
+    return pending.participant.id;
+  }
+  diagnostics.push({
+    severity: "error",
+    message: refusal,
+    line: pending.statement.line,
+    column: pending.statement.column,
+  });
+  return null;
 }
 
 /**
@@ -448,40 +487,29 @@ function resolveStatements(
       // draws for that `destroy` is still unmeasured (nook 01M4YS7DV8).
       let createdHere: string | null = null;
       let destroyedHere: string | null = null;
-      const pendingCreate = state.pendingCreate;
-      const pendingDestroy = state.pendingDestroy;
+      const { pendingCreate, pendingDestroy } = state;
       if (pendingCreate !== null) {
         state.pendingCreate = null;
-        const created = pendingCreate.participant;
-        if (statement.to === created.id) {
-          created.createdAt = position;
-          createdHere = created.id;
-        } else {
-          state.diagnostics.push({
-            severity: "error",
-            message:
-              `The created participant "${created.id}" has no creating message: ` +
-              `the next message must be sent to it.`,
-            line: pendingCreate.statement.line,
-            column: pendingCreate.statement.column,
-          });
-        }
+        const { id: createdId } = pendingCreate.participant;
+        createdHere = settle(
+          pendingCreate,
+          statement.to === createdId,
+          "createdAt",
+          position,
+          `The created participant "${createdId}" has no creating message: the next message must be sent to it.`,
+          state.diagnostics,
+        );
       } else if (pendingDestroy !== null) {
         state.pendingDestroy = null;
-        const destroyed = pendingDestroy.participant;
-        if (statement.from === destroyed.id || statement.to === destroyed.id) {
-          destroyed.destroyedAt = position;
-          destroyedHere = destroyed.id;
-        } else {
-          state.diagnostics.push({
-            severity: "error",
-            message:
-              `The destroyed participant "${destroyed.id}" has no destroying message: ` +
-              `the next message must be sent by or to it.`,
-            line: pendingDestroy.statement.line,
-            column: pendingDestroy.statement.column,
-          });
-        }
+        const { id: destroyedId } = pendingDestroy.participant;
+        destroyedHere = settle(
+          pendingDestroy,
+          statement.from === destroyedId || statement.to === destroyedId,
+          "destroyedAt",
+          position,
+          `The destroyed participant "${destroyedId}" has no destroying message: the next message must be sent by or to it.`,
+          state.diagnostics,
+        );
       }
 
       for (const referencedId of referencedIds) {

@@ -868,9 +868,10 @@ end
       "Checkout — every sequence feature",
     );
 
-    // Four declared, never-destroyed participants (two rows each), plus three
-    // `create`d ones (one row each): Ledger and Retry are destroyed, Auditor
-    // survives — a created participant never gets a bottom row either way.
+    // Four declared, never-destroyed participants (a box in both the top and
+    // bottom rows), plus three `create`d ones (one box each, centred on its
+    // creating message's arrow): Ledger and Retry are destroyed, Auditor
+    // survives — a created participant never gets a bottom-row box either way.
     const groupCount = (id: string) =>
       svg.querySelectorAll(`g.siren-participant[data-siren-id="${id}"]`).length;
     expect(groupCount("Shopper")).toBe(2);

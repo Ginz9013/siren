@@ -441,15 +441,13 @@ function layoutStatements(
       // Mermaid places it before that adjustment. A message X sends itself
       // loops out from its lane and is left as it is.
       const created = statement.message.creates;
-      if (created !== undefined) {
-        const box = ctx.participantsById.get(created);
-        const height = box?.height ?? 0;
-        if (box !== undefined && message.from !== message.to) {
-          message.toX += message.toX > message.fromX ? -box.width / 2 : box.width / 2;
-        }
-        ctx.createdTopById.set(created, y - height / 2);
-        y += height / 2;
+      const box = created === undefined ? undefined : ctx.participantsById.get(created);
+      if (box === undefined) continue;
+      if (message.from !== message.to) {
+        message.toX += message.toX > message.fromX ? -box.width / 2 : box.width / 2;
       }
+      ctx.createdTopById.set(box.id, y - box.height / 2);
+      y += box.height / 2;
       continue;
     }
 
