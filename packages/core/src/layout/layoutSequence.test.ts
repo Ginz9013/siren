@@ -1149,6 +1149,29 @@ describe("layoutSequence", () => {
       expect(byId.C!.x).toBeLessThan(byId.A!.x);
       expect(make!.toX).toBe(byId.C!.x + byId.C!.width / 2);
     });
+
+    // Mermaid 12.2.0 stops the creating arrow for an actor at its fixed
+    // figure (`ACTOR_TYPE_WIDTH / 2 + 3`, `ACTOR_TYPE_WIDTH` = 36), not at
+    // its label-wide box: the figure's half-width is 18 whatever the label.
+    it("stops the creating arrow at an actor's figure, 18 short of its lane, however long its label", () => {
+      for (const label of ["Carol", "Carol the very long-named actor"]) {
+        const actorCarol: ResolvedSequenceParticipant = {
+          ...carol,
+          label: plainLabel(label),
+          participantKind: "actor",
+        };
+        for (const participants of [
+          [declaredParticipant("A", "Alice"), actorCarol],
+          [actorCarol, declaredParticipant("A", "Alice")],
+        ]) {
+          const positioned = layoutSequence(createdBy(participants), { measureText: fakeMeasurer });
+          const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+          const [, make] = messagesOf(positioned);
+          expect(Math.abs(make!.toX - byId.C!.x)).toBe(18);
+          expect(Math.abs(make!.toX - byId.A!.x)).toBe(Math.abs(byId.C!.x - byId.A!.x) - 18);
+        }
+      }
+    });
   });
 
   it("spans an activation bar from its activate statement's row to its deactivate statement's row, centered on the participant's lane", () => {

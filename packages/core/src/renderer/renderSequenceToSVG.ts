@@ -14,6 +14,7 @@ import type {
   SequenceArrowHead,
 } from "../contracts";
 import { appendLabel, drawLabel } from "../label/drawLabel";
+import { ACTOR_FIGURE_WIDTH } from "../layout/layoutSequence";
 import { buildSequenceLinkMenu } from "./buildSequenceLinkMenu";
 import { drawPlaced } from "../label/drawPlaced";
 import { mintIdScope } from "./mintIdScope";
@@ -687,13 +688,18 @@ function buildParticipant(participant: PositionedParticipant, top: number): SVGG
  * the part of the participant's layout-assigned row `[top, top + height]`
  * above its label, which owns the bottom `labelBox.height` of the row (see
  * `buildParticipant`). The band is as tall for a label of several rows as
- * for one, so the figure does not grow with its label.
+ * for one, and the figure is `ACTOR_FIGURE_WIDTH` wide however wide the
+ * label is, so the figure does not grow with its label either way: its arms
+ * span the whole width, as Mermaid 12.2.0's span `±ACTOR_TYPE_WIDTH / 2`,
+ * and its legs three quarters of it. That width is the one `layoutSequence`
+ * stops a creating message's arrow against, so the arrow meets the near arm
+ * tip.
  */
 function buildActorIcon(participant: PositionedParticipant, top: number): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
   const centerX = participant.x;
   const iconHeight = participant.height - participant.labelBox.height;
-  const headRadius = Math.max(Math.min(participant.width, iconHeight) / 6, 4);
+  const headRadius = Math.max(Math.min(ACTOR_FIGURE_WIDTH, iconHeight) / 6, 4);
   const headCenterY = top + headRadius;
   const bodyTopY = headCenterY + headRadius;
   const bodyBottomY = top + iconHeight * 0.7;
@@ -712,7 +718,7 @@ function buildActorIcon(participant: PositionedParticipant, top: number): SVGGEl
   body.setAttribute("y2", String(bodyBottomY));
   g.appendChild(body);
 
-  const armSpan = participant.width / 3;
+  const armSpan = ACTOR_FIGURE_WIDTH / 2;
   const armY = bodyTopY + (bodyBottomY - bodyTopY) * 0.3;
   const arms = document.createElementNS(SVG_NS, "line");
   arms.setAttribute("x1", String(centerX - armSpan));
@@ -721,7 +727,7 @@ function buildActorIcon(participant: PositionedParticipant, top: number): SVGGEl
   arms.setAttribute("y2", String(armY));
   g.appendChild(arms);
 
-  const legSpan = participant.width / 4;
+  const legSpan = (ACTOR_FIGURE_WIDTH / 2) * 0.75;
   const legLeft = document.createElementNS(SVG_NS, "line");
   legLeft.setAttribute("x1", String(centerX));
   legLeft.setAttribute("y1", String(bodyBottomY));

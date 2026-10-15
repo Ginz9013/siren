@@ -34,6 +34,20 @@ const PARTICIPANT_PADDING_Y = 12;
  * tall as a participant's with the same label and the two kinds line up.
  */
 const ACTOR_FIGURE_HEIGHT = 2 * PARTICIPANT_PADDING_Y;
+/**
+ * Width of an `actor`'s stick figure, arm tip to arm tip: fixed, whatever
+ * its label. Mermaid 12.2.0's `ACTOR_TYPE_WIDTH` (`18 * 2`, svgDraw.js),
+ * which spans its arms at `±ACTOR_TYPE_WIDTH / 2` and which
+ * `adjustCreatedDestroyedData` stops a creating message's arrow against for
+ * every figure kind rather than the label's width. The label keeps its own
+ * width under the figure and may be wider than it; the participant's
+ * `width`, and with it lane spacing, stays the label's. Exported because the
+ * renderer draws the figure at this width (`renderSequenceToSVG`'s
+ * `buildActorIcon`), as `layoutGraph`'s `SHAPE_LEAN` is shared with
+ * `renderToSVG`: one number the layout stops arrows at and the renderer
+ * draws to.
+ */
+export const ACTOR_FIGURE_WIDTH = 36;
 /** Minimum horizontal gap between adjacent participant lane boxes. */
 const LANE_GAP = 40;
 /** Horizontal room either side of a link-menu entry's label. */
@@ -437,14 +451,18 @@ function layoutStatements(
       //
       // Its arrow stops at the box's near edge rather than running under the
       // box to the lane (Mermaid's `receiverAdjustment` pulls the arrow's end
-      // back by half the box); the label stays centred between the lanes, as
-      // Mermaid places it before that adjustment. A message X sends itself
+      // back by half the box) — for an actor, at its figure's near arm tip,
+      // `ACTOR_FIGURE_WIDTH / 2` from the lane whatever its label, as Mermaid
+      // pulls it back by `ACTOR_TYPE_WIDTH / 2` for every figure kind; the
+      // label stays centred between the lanes, as Mermaid places it before
+      // that adjustment. A message X sends itself
       // loops out from its lane and is left as it is.
       const created = statement.message.creates;
       const box = created === undefined ? undefined : ctx.participantsById.get(created);
       if (box === undefined) continue;
       if (message.from !== message.to) {
-        message.toX += message.toX > message.fromX ? -box.width / 2 : box.width / 2;
+        const halfWidth = box.participantKind === "actor" ? ACTOR_FIGURE_WIDTH / 2 : box.width / 2;
+        message.toX += message.toX > message.fromX ? -halfWidth : halfWidth;
       }
       ctx.createdTopById.set(box.id, y - box.height / 2);
       y += box.height / 2;

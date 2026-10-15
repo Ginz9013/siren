@@ -117,6 +117,15 @@ refused (see **Changed**).
   must be sent by or to it.` Siren used to draw such a document in silence; Mermaid 12.2.0
   refuses it. As with Siren's other sequence errors, the diagram is still drawn beside the error,
   with X's lifeline ending where `destroy` is written.
+- **A sequence `actor`'s stick figure is a fixed 36px wide**, whatever its label (nook
+  `01M4YVB29`). It used to widen with the label — arms two thirds and legs half the label's width
+  plus padding — so a long name drew a sprawling figure. The label keeps its own width beneath the
+  figure and may be wider than it; lane spacing still follows the label. The creating message of
+  a created actor now stops at the figure's near arm tip, 18px from the lane, rather than at the
+  edge of its label-wide row, so its arrow reaches the figure however long the name. Measured
+  against Mermaid 12.2.0, which sizes its figure by a fixed `ACTOR_TYPE_WIDTH` of 36 and stops the
+  creating arrow against that rather than the label. Appearance only; box participants are
+  unchanged.
 - **A `create` or `destroy` with anything but its message right after it is refused** once a
   message follows: a note, an `activate` or `deactivate`, an `autonumber`, a block boundary (a
   block's start, `else`, `and`, `option`, `end`), or another `create` or `destroy` in between

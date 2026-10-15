@@ -1077,6 +1077,34 @@ function createdBox(result: SirenRenderResult, participantId: string): string {
   return belowArrow(arrows, centre.y);
 }
 
+/**
+ * Where a created actor's creating message ends, read off the drawn figure:
+ * `<message> stops at its left arm tip, <n> short of its lane` (or right),
+ * or `<message> ends at x <n>` when the arrow meets no arm tip. The arms
+ * are the figure's widest stroke, so its leftmost and rightmost line ends
+ * are the tips; the lane is the lifeline's x. `createdBox` asks the same of
+ * a box, which an actor does not have.
+ */
+function createdFigureArrow(result: SirenRenderResult, participantId: string): string {
+  const svg = svgOf(result);
+  const figure = svg.querySelector(`g.siren-participant[data-siren-id="${participantId}"]`);
+  const lifeline = svg.querySelector(`line.siren-lifeline[data-siren-id="${participantId}"]`);
+  if (figure === null || lifeline === null) return "no figure";
+  const xs = Array.from(figure.querySelectorAll("line")).flatMap((line) =>
+    ["x1", "x2"].map((name) => Number(line.getAttribute(name))),
+  );
+  const lane = Number(lifeline.getAttribute("x1"));
+  const tips: [number, string][] = [
+    [Math.min(...xs), "left"],
+    [Math.max(...xs), "right"],
+  ];
+  const arrow = messageArrows(result).find((candidate) => candidate.id.endsWith(`-${participantId}`));
+  if (arrow === undefined) return "no arrow to it";
+  const tip = tips.find(([at]) => at === arrow.toX)?.[1];
+  if (tip === undefined) return `${arrow.id} ends at x ${arrow.toX}`;
+  return `${arrow.id} stops at its ${tip} arm tip, ${Math.abs(lane - arrow.toX)} short of its lane`;
+}
+
 /** Every control-flow block as `kind:id`, in draw order. */
 function blocks(result: SirenRenderResult): string[] {
   return elements(result, "g.siren-block").map(
@@ -4550,6 +4578,27 @@ line2\`"]`,
     assert: (result) => {
       expectSame("messages", messages(result), ["A-A: before", "A-C: make", "A-C#2: again"]);
       expectSame("C's box is on its creating message", createdBox(result, "C"), "centred on A-C, whose arrow stops at its left edge");
+    },
+  },
+  {
+    id: "seq-create-actor-long-label",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      create actor C as Carol the very long-named customer
+      A->>C: make`,
+    status: "supported",
+    meaning:
+      "A created `actor` whose label is far wider than its stick figure. " +
+      "Mermaid 12.2.0 draws the figure a fixed `ACTOR_TYPE_WIDTH` (36) wide " +
+      "whatever the label and stops the creating arrow against that figure " +
+      "(`ACTOR_TYPE_WIDTH / 2 + 3`, measured: the arrow's line ends 28 short " +
+      "of the lane, its 7px marker included), not against the label. Siren " +
+      "draws its figure 36 wide too, the label free to be wider beneath it, " +
+      "and stops the arrow at the figure's near arm tip, 18 from the lane, " +
+      "as it stops one at a box's near edge (nook 01M4YVB29).",
+    assert: (result) => {
+      expectSame("C's figure is on its creating message", createdFigureArrow(result, "C"), "A-C stops at its left arm tip, 18 short of its lane");
     },
   },
   {
