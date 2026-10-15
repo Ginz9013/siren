@@ -11,6 +11,9 @@ While the version is 0.x, a minor release may contain breaking changes.
 Breaking for a flowchart or ER document with a line that is nothing but `%%` outside its timeline
 blocks, which is now refused (see **Changed**).
 
+Breaking for a sequence document whose `destroy X` is followed by a message X neither sends nor
+receives, which is now refused (see **Changed**).
+
 ### Added
 
 - A document may open with a Mermaid frontmatter (`---` … `---`), read as Mermaid 12.2.0 reads it,
@@ -82,6 +85,20 @@ blocks, which is now refused (see **Changed**).
 
 ### Changed
 
+- **A sequence `destroy X` ends X's lifeline at its destroying message**: the first message after
+  it, in document order and whatever block it is in, which X must send or receive (nook
+  `01M4YS7DDX`). X's lifeline and X mark now sit on that message's row, on the arrow's tip when X
+  receives it and on its tail when X sends it, and `destroy` no longer takes a row of its own. That
+  message is no longer warned about as reaching past the end of X's lifeline; a later message
+  naming X still is. Measured against Mermaid 12.2.0, which reads `destroy X` the same way and
+  ends X's lifeline on that message's row. Notes, activations and block boundaries in between do
+  not count, only messages. A `destroy` with no message after it still ends the lifeline where it
+  is written.
+- **A `destroy X` whose next message X neither sends nor receives is refused** with an error at
+  the `destroy` line: `The destroyed participant "X" has no destroying message: the next message
+  must be sent by or to it.` Siren used to draw such a document in silence; Mermaid 12.2.0
+  refuses it. As with Siren's other sequence errors, the diagram is still drawn beside the error,
+  with X's lifeline ending where `destroy` is written.
 - **A line that is nothing but `%%` is refused in flowcharts and ER diagrams**, with an error at its
   `%%` that says to write `%% text` or leave the line blank (ADR-0017, nook `01M4XSF9S`). Such a
   line used to be stripped as a comment, but Mermaid 12.2.0 does not read it as one: its comment

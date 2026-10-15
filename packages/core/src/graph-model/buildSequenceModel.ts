@@ -90,6 +90,19 @@ interface ResolutionState {
    * where a preamble-declared participant's lifeline begins.
    */
   position: number;
+  /**
+   * The participant the latest `destroy` named, while no message has been
+   * resolved since — the **destroying message** it is waiting for. Mermaid
+   * 12.2.0 reads `destroy X` as a declaration about the *next message*, not
+   * as an event of its own (`sequenceDiagram-BLEHNHQU.mjs`, `addMessage`:
+   * `lastDestroyed` is checked against the next `addMessage` alone, so a
+   * note, an `activate` or a block boundary between the two does not count,
+   * and the walk here is the flattened document order those records are
+   * added in). `null` when nothing is waiting. `line`/`column` are the
+   * `destroy` statement's own, where a missing destroying message is
+   * reported.
+   */
+  pendingDestroy: { participant: ResolvedSequenceParticipant; line?: number; column?: number } | null;
 }
 
 /**
@@ -134,6 +147,7 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
     autonumbering: false,
     autonumberCounter: 0,
     position: 0,
+    pendingDestroy: null,
   };
 
   const boxes = resolveBoxes(document, diagnostics);
@@ -324,6 +338,13 @@ function resolveStatements(
       // full-height extent alone.
       participant!.origin = statement.origin;
       if (statement.origin === "created") participant!.createdAt = position;
+      // A `create` waits for the next message too, and Mermaid remembers only
+      // the latest of the two declarations: `createParticipant` sets
+      // `lastCreated`, which `addMessage` checks first, so a `destroy` still
+      // waiting is never checked at all. Until T3 measures what Mermaid then
+      // draws, the replaced `destroy` keeps the end it was written at — the
+      // same as a `destroy` with no message after it — rather than guessing.
+      if (statement.origin === "created") state.pendingDestroy = null;
       resolved.push({ kind: "participant", participant: participant! });
       continue;
     }
@@ -344,8 +365,17 @@ function resolveStatements(
         continue;
       }
 
-      // The lifeline stops here instead of running to the diagram's bottom.
+      // The lifeline stops here instead of running to the diagram's bottom —
+      // for now. The next message moves the end onto its own row when X
+      // sends or receives it (the destroying message, below); with no
+      // message after it, the end stays where `destroy` is written, which is
+      // what Siren always drew.
       participant.destroyedAt = ++state.position;
+      // A `destroy` still waiting for its message is replaced, unchecked:
+      // Mermaid's `lastDestroyed` holds one participant, so `destroy B` then
+      // `destroy C` checks only C. The replaced one keeps the end it was
+      // written at until T3 decides this case.
+      state.pendingDestroy = { participant, line: statement.line, column: statement.column };
       resolved.push({ kind: "destroy", id: statement.id });
       continue;
     }
@@ -367,7 +397,43 @@ function resolveStatements(
       // kept, since nothing else can be inferred about what the author
       // meant. The walk is in document order, so any non-null `destroyedAt`
       // here belongs to an earlier statement.
+      //
+      // The destroying message is the exception: measured against Mermaid
+      // 12.2.0, the first message after `destroy X` that X sends or receives
+      // is where X's lifeline ends (`adjustCreatedDestroyedData` sets the
+      // destroyed actor's `stopy` from that message's own `lineStartY`), so
+      // the arrow reaches X before X stops, not after.
+      //
+      // A next message that does not touch X is refused, at the `destroy`
+      // line, as Mermaid refuses the document ("The destroyed participant B
+      // does not have an associated destroying message after its
+      // declaration"). The diagnostic says what is wrong and how to fix it;
+      // it does not send the author to Mermaid for the rule. The message is
+      // kept and X's lifeline still ends at its `destroy`, the same partial
+      // tolerance a bad `deactivate` or a late `create` gets.
+      const pending = state.pendingDestroy;
+      state.pendingDestroy = null;
+      const position = ++state.position;
+      let destroyedHere: string | null = null;
+      if (pending !== null) {
+        const destroyed = pending.participant;
+        if (statement.from === destroyed.id || statement.to === destroyed.id) {
+          destroyed.destroyedAt = position;
+          destroyedHere = destroyed.id;
+        } else {
+          state.diagnostics.push({
+            severity: "error",
+            message:
+              `The destroyed participant "${destroyed.id}" has no destroying message: ` +
+              `the next message must be sent by or to it.`,
+            line: pending.line,
+            column: pending.column,
+          });
+        }
+      }
+
       for (const referencedId of referencedIds) {
+        if (referencedId === destroyedHere) continue;
         const endsAt = participantsById.get(referencedId)!.destroyedAt;
         if (endsAt === null) continue;
         state.diagnostics.push({
@@ -383,8 +449,6 @@ function resolveStatements(
       if (state.autonumbering) {
         state.autonumberCounter += 1;
       }
-
-      ++state.position;
 
       const message: ResolvedSequenceMessage = {
         id,

@@ -634,7 +634,7 @@ A->>GHOST: Hello
     }
   });
 
-  it("starts a `create`d participant's lifeline at its create statement with no top-row box, and ends a `destroy`ed one at its destroy statement with an X mark and no bottom-row box", () => {
+  it("starts a `create`d participant's lifeline at its create statement with no top-row box, and ends a `destroy`ed one at its destroying message with an X mark and no bottom-row box", () => {
     const container = document.createElement("div");
     const source = `sequenceDiagram
 participant Client
@@ -642,8 +642,8 @@ participant Server
 Client->>Server: Start
 create participant Worker
 Server->>Worker: Spawn
-Worker-->>Server: Done
 destroy Worker
+Worker-->>Server: Done
 Server-->>Client: Finished
 `;
 

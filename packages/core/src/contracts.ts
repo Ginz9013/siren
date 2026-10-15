@@ -879,7 +879,13 @@ export interface ResolvedSequenceParticipant {
   origin: SequenceParticipantOrigin;
   /** Flattened-statement-order index the lifeline begins at (0 for a preamble declaration). */
   createdAt: number;
-  /** Flattened-statement-order index the lifeline ends at, or `null` if never destroyed. */
+  /**
+   * Flattened-statement-order index the lifeline ends at, or `null` if never
+   * destroyed: the position of the participant's destroying message — the
+   * first message after its `destroy` statement, which it sends or receives
+   * — or, when no message follows the `destroy`, that statement's own
+   * position.
+   */
   destroyedAt: number | null;
 }
 

@@ -68,6 +68,7 @@ loop Every attempt
   alt approved
     Payments-->>Web: Approved
     destroy Retry
+    Web-xRetry: Stop
   else declined
     Payments->>Web: Declined
   end

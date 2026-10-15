@@ -1497,8 +1497,18 @@ const SILENTLY_WRONG = 0;
  * on the frame's boundary. The four rows beside it (relationship above the
  * block — which Mermaid 12.2.0 fails to render, both ends clusters, a
  * cluster to itself, a nested cluster) are new and `supported`.
+ *
+ * **11 → 12: case (2), a refusal written down for the first time.**
+ * `01M4YS7DDX` made `destroy X` wait for its destroying message — the next
+ * message, which X must send or receive — and refuses a `destroy` whose next
+ * message does not touch X, as Mermaid 12.2.0 refuses the document ("The
+ * destroyed participant … does not have an associated destroying message").
+ * Siren used to draw it in silence; no row recorded it because nothing
+ * measured what `destroy` declares about the message after it.
+ * `seq-destroy-without-destroying-message` is that row. Nothing that rendered
+ * in Mermaid stopped rendering, and `silently-wrong` does not move.
  */
-const REJECTED = 11;
+const REJECTED = 12;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

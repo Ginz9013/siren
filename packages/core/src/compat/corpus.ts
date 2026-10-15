@@ -999,6 +999,37 @@ function messageArrow(result: SirenRenderResult, id: string): string {
   return `${line}/${head}`;
 }
 
+/**
+ * Where a destroyed participant's lifeline ends, read off the drawn picture:
+ * `tip of <message>` or `tail of <message>` when its X mark sits on that end
+ * of a message's arrow, `below <message>` when it sits on no arrow (on a row
+ * of its own, under the last arrow above it), each followed by
+ * `, lifeline stops there` when the lifeline's bottom is the mark's centre.
+ * The words name the relation a reader sees — the X on the arrow the
+ * participant receives or sends — rather than coordinates no assert could
+ * hold still.
+ */
+function lifelineEnd(result: SirenRenderResult, participantId: string): string {
+  const mark = svgOf(result).querySelector(`path.siren-destroy-mark[data-siren-id="${participantId}"]`);
+  if (mark === null) return "no destroy mark";
+  const [left, top, right, bottom] = [...(mark.getAttribute("d") ?? "").matchAll(/-?[\d.]+/g)].map(Number);
+  const centre = { x: (left! + right!) / 2, y: (top! + bottom!) / 2 };
+  const lifeline = svgOf(result).querySelector(`line.siren-lifeline[data-siren-id="${participantId}"]`);
+  const stops = Number(lifeline?.getAttribute("y2")) === centre.y ? ", lifeline stops there" : "";
+
+  const arrows = elements(result, "g.siren-message").map((g) => {
+    const [fromX, y, toX] = [...(g.querySelector("path.siren-message-arrow")?.getAttribute("d") ?? "").matchAll(/-?[\d.]+/g)].map(Number);
+    return { id: idOf(g), fromX: fromX!, toX: toX!, y: y! };
+  });
+  for (const arrow of arrows) {
+    if (arrow.y !== centre.y) continue;
+    if (arrow.toX === centre.x) return `tip of ${arrow.id}${stops}`;
+    if (arrow.fromX === centre.x) return `tail of ${arrow.id}${stops}`;
+  }
+  const above = arrows.filter((arrow) => arrow.y < centre.y).sort((a, b) => b.y - a.y)[0];
+  return `below ${above?.id ?? "the top row"}${stops}`;
+}
+
 /** Every control-flow block as `kind:id`, in draw order. */
 function blocks(result: SirenRenderResult): string[] {
   return elements(result, "g.siren-block").map(
@@ -4436,10 +4467,78 @@ line2\`"]`,
       B-->>A: yes
       destroy B`,
     status: "supported",
-    meaning: "`create` starts a lifeline partway down; `destroy` ends it with an X.",
+    meaning:
+      "`create` starts a lifeline partway down; `destroy` ends it with an X. " +
+      "Nothing follows the `destroy`, so there is no destroying message and " +
+      "the lifeline ends where `destroy` is written. Measured on 12.2.0: " +
+      "Mermaid accepts this and, with no message for the `destroy` to " +
+      "pair with, draws B as if it were never destroyed.",
     assert: (result) => {
       expectSame("participants", participants(result), ["A", "B"]);
       expectSame("a destroy mark was drawn", drew(result, "path.siren-destroy-mark"), true);
+      expectSame("B ends on a row of its own, under the last message", lifelineEnd(result, "B"), "below B-A, lifeline stops there");
+    },
+  },
+  {
+    id: "seq-destroying-message-received",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      participant B
+      A->>B: hi
+      destroy B
+      A->>B: bye
+      A->>A: carry on`,
+    status: "supported",
+    meaning:
+      "`destroy B` is a declaration about the next message, which B must " +
+      "send or receive: its destroying message. Measured on 12.2.0: " +
+      "accepted, and B's lifeline ends on `A->>B: bye`'s own row (Mermaid " +
+      "centres B's closing box on that arrow), with no row for the " +
+      "`destroy` itself. Siren draws its X there, on the arrow's tip, and " +
+      "says nothing — the arrow reaches B before B stops.",
+    assert: (result) => {
+      expectSame("messages", messages(result), ["A-B: hi", "A-B#2: bye", "A-A: carry on"]);
+      expectSame("B ends on the destroying message's tip", lifelineEnd(result, "B"), "tip of A-B#2, lifeline stops there");
+    },
+  },
+  {
+    id: "seq-destroy-without-destroying-message",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      participant B
+      participant C
+      A->>B: hi
+      destroy B
+      A->>C: unrelated`,
+    status: "rejected",
+    meaning:
+      "`destroy B` declares that the next message is B's destroying " +
+      "message, which B must send or receive. Here the next message joins A " +
+      "and C. Measured on 12.2.0: Mermaid refuses the document (\"The " +
+      "destroyed participant … does not have an associated destroying " +
+      "message after its declaration\"). Siren refuses it too, with an " +
+      "error at the `destroy` line saying the next message must be sent by " +
+      "or to B. Refused documents cost an author nothing Mermaid gave them.",
+  },
+  {
+    id: "seq-destroying-message-sent",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      participant B
+      A->>B: hi
+      destroy B
+      B-->>A: bye`,
+    status: "supported",
+    meaning:
+      "A destroying message may be sent by the destroyed participant as " +
+      "well as to it. Measured on 12.2.0: accepted, B's lifeline ends on " +
+      "`B-->>A: bye`'s row. Siren's X sits on the arrow's tail, on B's lane.",
+    assert: (result) => {
+      expectSame("messages", messages(result), ["A-B: hi", "B-A: bye"]);
+      expectSame("B ends on the destroying message's tail", lifelineEnd(result, "B"), "tail of B-A, lifeline stops there");
     },
   },
   {

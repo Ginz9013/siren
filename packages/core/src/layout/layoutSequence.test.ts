@@ -931,6 +931,58 @@ describe("layoutSequence", () => {
     expect(byId.B.top).toBe(byId.A.top);
   });
 
+  describe("a destroying message (the message right after `destroy X` that X sends or receives)", () => {
+    // Measured against Mermaid 12.2.0 (probe, jsdom layout stubs): the
+    // destroyed participant's lifeline ends on the destroying message's own
+    // row — Mermaid centres X's closing box on that arrow — and the arrow is
+    // drawn exactly as tall a row as any other message; `destroy` claims no
+    // row of its own. Siren marks the end with its X, so the X sits on the
+    // arrow's end at X's lane: its tip when X receives, its tail when X sends.
+    function destroyedBy(destroying: ResolvedSequenceStatement): SequenceModel {
+      return {
+        title: null,
+        accTitle: null,
+        accDescr: null,
+        interactions: [],
+        // Positions: 1 hi, 2 destroy B, 3 the destroying message, 4 ok.
+        participants: [declaredParticipant("A", "Alice"), { ...declaredParticipant("B", "Bob"), destroyedAt: 3 }],
+        boxes: [],
+        statements: [
+          messageStatement("m1", "A", "B", "hi"),
+          { kind: "destroy", id: "B" },
+          destroying,
+          messageStatement("m3", "A", "A", "ok"),
+        ],
+        timeline: { totalSteps: 0, entries: [] },
+      };
+    }
+
+    it("puts X's mark on the arrow's tip and ends its lifeline there when X receives it, with no row for `destroy`", () => {
+      const positioned = layoutSequence(destroyedBy(messageStatement("m2", "A", "B", "bye")), {
+        measureText: fakeMeasurer,
+      });
+
+      const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+      const [hi, bye, ok] = messagesOf(positioned);
+      expect(destroyMarksOf(positioned)).toEqual([{ participantId: "B", x: bye!.toX, y: bye!.y }]);
+      expect(byId.B!.bottom).toBe(bye!.y);
+      // Every row is a plain message row: `destroy` added nothing between them.
+      expect(bye!.y - hi!.y).toBe(ok!.y - bye!.y);
+    });
+
+    it("puts X's mark on the arrow's tail and ends its lifeline there when X sends it", () => {
+      const positioned = layoutSequence(destroyedBy(messageStatement("m2", "B", "A", "bye")), {
+        measureText: fakeMeasurer,
+      });
+
+      const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+      const [hi, bye, ok] = messagesOf(positioned);
+      expect(destroyMarksOf(positioned)).toEqual([{ participantId: "B", x: bye!.fromX, y: bye!.y }]);
+      expect(byId.B!.bottom).toBe(bye!.y);
+      expect(bye!.y - hi!.y).toBe(ok!.y - bye!.y);
+    });
+  });
+
   it("spans an activation bar from its activate statement's row to its deactivate statement's row, centered on the participant's lane", () => {
     const model: SequenceModel = {
       title: null,
