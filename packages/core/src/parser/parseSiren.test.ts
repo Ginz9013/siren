@@ -1096,6 +1096,154 @@ classDiagram
     expect(diagnostics.some((d) => d.severity === "error")).toBe(true);
   });
 
+  describe("a line that is nothing but `%%` (ADR-0017; measured on Mermaid 12.2.0)", () => {
+    // Mermaid's `cleanupComments` removes `^\s*%%(?!{)[^\n]+\n?`: a comment
+    // needs at least one character after its `%%`. A bare `%%` line is left
+    // to the diagram's own grammar, which in a flowchart draws a node named
+    // `%%` and in an ER diagram refuses the document.
+    const FLOWCHART_DRAWS_IT =
+      'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%", ' +
+      'and Mermaid draws this line as a node named "%%". Write "%% text", or leave the line blank.';
+    const MERMAID_REFUSES_IT =
+      'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%"; ' +
+      'Mermaid refuses the document too. Write "%% text", or leave the line blank.';
+
+    it("refuses a bare `%%` line below a flowchart header, where Mermaid draws a node named `%%`", () => {
+      const { document, diagnostics } = parseSiren("flowchart TB\n%%\nA-->B\n");
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        { severity: "error", message: FLOWCHART_DRAWS_IT, line: 2, column: 1 },
+      ]);
+    });
+
+    it("refuses an indented bare `%%` too, at the column of its `%%`, once per line", () => {
+      // `^\s*` before the `%%`: Mermaid's indented bare `%%` is a node too.
+      const { document, diagnostics } = parseSiren("flowchart TB\n  %%\nA-->B\n\t%%\nB-->C\n");
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        { severity: "error", message: FLOWCHART_DRAWS_IT, line: 2, column: 3 },
+        { severity: "error", message: FLOWCHART_DRAWS_IT, line: 4, column: 2 },
+      ]);
+    });
+
+    it("refuses a bare `%%` line in an ER diagram, which Mermaid refuses outright", () => {
+      const { document, diagnostics } = parseSiren("erDiagram\n%%\nA ||--o{ B : has\n");
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        { severity: "error", message: MERMAID_REFUSES_IT, line: 2, column: 1 },
+      ]);
+    });
+
+    it("says Mermaid refuses a flowchart whose bare `%%` stands above the header, where it draws no node", () => {
+      // Measured: `%%\nflowchart TB\nA-->B` and `%%\ngraph TB\nA-->B` are
+      // parse errors on line 1; below the header the same line is a node.
+      const { document, diagnostics } = parseSiren("%%\ngraph TB\n%%\nA-->B\n");
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        { severity: "error", message: MERMAID_REFUSES_IT, line: 1, column: 1 },
+        { severity: "error", message: FLOWCHART_DRAWS_IT, line: 3, column: 1 },
+      ]);
+    });
+
+    it("reads a bare `%%` line as a comment in sequence, class and state diagrams, whose grammars Mermaid lets read it as one", () => {
+      // Measured: each kind's own lexer has a `%%` rule, so Mermaid draws
+      // these documents exactly as it draws them without the line.
+      for (const [header, body] of [
+        ["sequenceDiagram", "A->>B: hi"],
+        ["classDiagram", "A <|-- B"],
+        ["stateDiagram-v2", "A --> B"],
+      ]) {
+        const bare = parseSiren(`%%\n${header}\n%%\n  %%\n${body}\n%%`);
+        const without = parseSiren(`\n${header}\n\n\n${body}\n`);
+
+        expect([header, bare.diagnostics]).toEqual([header, []]);
+        expect([header, bare.document]).toEqual([header, without.document]);
+      }
+    });
+
+    it("still reads `%%` followed by nothing but spaces or a tab as a comment, as Mermaid does — any character after `%%` makes one", () => {
+      // `[^\n]+` matches a space as well as a word: measured, `%%   `, `%%\t`
+      // and `%%%` vanish in a flowchart and in an ER diagram alike.
+      for (const [header, body] of [
+        ["flowchart TB", "A-->B"],
+        ["erDiagram", "A ||--o{ B : has"],
+      ]) {
+        const spaced = parseSiren(`${header}\n%%   \n\t%%\t\n%%%\n${body}\n%%  `);
+        const without = parseSiren(`${header}\n\n\n\n${body}\n`);
+
+        expect([header, spaced.diagnostics]).toEqual([header, []]);
+        expect([header, spaced.document]).toEqual([header, without.document]);
+      }
+    });
+
+    it("refuses a bare `%%` on the document's last line, with or without a line break after it, and between CRLF line breaks", () => {
+      // Measured: `flowchart TB\nA-->B\n%%` and `…\n%%\n` both draw a `%%`
+      // node, and both refuse an ER diagram. `cleanupText` makes `\r\n`
+      // a `\n` before comments are read, so `%%\r\n` is bare too.
+      for (const ending of ["", "\n", "\r\n"]) {
+        expect(parseSiren(`flowchart TB\r\nA-->B\r\n%%${ending}`).diagnostics).toEqual([
+          { severity: "error", message: FLOWCHART_DRAWS_IT, line: 3, column: 1 },
+        ]);
+        expect(parseSiren(`erDiagram\nA ||--o{ B : has\n%%${ending}`).diagnostics).toEqual([
+          { severity: "error", message: MERMAID_REFUSES_IT, line: 3, column: 1 },
+        ]);
+      }
+    });
+
+    it("leaves a `%%` trailing real syntax to the end-of-line comment rule — it is not a bare line", () => {
+      // Measured: Mermaid reads `A-->B %%` exactly as it reads `A-->B %% x`
+      // (a flowchart refuses both), so the bare-line rule has nothing to say
+      // about it; it means here what any end-of-line comment means.
+      for (const [header, body] of [
+        ["flowchart TB", "A-->B"],
+        ["erDiagram", "A ||--o{ B : has"],
+      ]) {
+        const bare = parseSiren(`${header}\n${body} %%\n${body} %%`);
+        const worded = parseSiren(`${header}\n${body} %% x\n${body} %% x`);
+
+        expect([header, bare]).toEqual([header, worded]);
+        expect([header, bare.diagnostics]).toEqual([header, []]);
+      }
+    });
+
+    it("reads a bare `%%` inside a timeline block as a comment, unnamed or named — Mermaid never sees that block", () => {
+      // ADR-0017: a Siren document without its timeline blocks is the
+      // Mermaid document, so a line inside one is not Mermaid's to refuse.
+      // A block runs from its header to the next header or the end.
+      for (const [header, body] of [
+        ["flowchart TB", "A-->B"],
+        ["erDiagram", "A ||--o{ B : has"],
+      ]) {
+        for (const [bare, without] of [
+          [`timeline:\n%%\n  %%\nenter B fade\n%%`, `timeline:\n\n\nenter B fade\n`],
+          [
+            `timeline one:\n%%\nenter B fade\ntimeline two:\n\t%%\nenter A fade\n%%\n`,
+            `timeline one:\n\nenter B fade\ntimeline two:\n\nenter A fade\n\n`,
+          ],
+        ]) {
+          const withBare = parseSiren(`${header}\n${body}\n${bare}`);
+          const withoutBare = parseSiren(`${header}\n${body}\n${without}`);
+
+          expect([header, bare, withBare.diagnostics]).toEqual([header, bare, []]);
+          expect([header, bare, withBare]).toEqual([header, bare, withoutBare]);
+        }
+      }
+    });
+
+    it("still refuses a bare `%%` above the first timeline header", () => {
+      const { document, diagnostics } = parseSiren("flowchart TB\nA-->B\n%%\ntimeline:\nenter B\n");
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        { severity: "error", message: FLOWCHART_DRAWS_IT, line: 3, column: 1 },
+      ]);
+    });
+  });
+
   it("reports the same error for a second unnamed timeline: header, in all three diagram kinds", () => {
     // The unnamed block is declared at most once. A repeated header is not
     // a second block and not a no-op: it is the error that says only named
@@ -2704,5 +2852,479 @@ describe("Mermaid's tag-quote rewrite over the whole document", () => {
     expect(diagnostics).toEqual([]);
     const label = document.nodes.find((node) => node.id === "A")!.label;
     expect(label.rows.map((row) => row.map((run) => [run.text, run.color]))).toEqual([[["t", "red"]]]);
+  });
+});
+
+/**
+ * The **document config** a Mermaid document carries in its frontmatter,
+ * read as Mermaid 12.2.0 reads it (`matchFrontMatter`, `extractFrontMatter`,
+ * `processFrontmatter`) and kept in `ParseResult.config`, applied nowhere
+ * yet (ADR-0017).
+ */
+describe("a document's frontmatter", () => {
+  it("leaves the config empty when the document carries none", () => {
+    expect(parseSiren("flowchart TD\n  A --> B").config).toEqual({});
+  });
+
+  it("draws the diagram below a frontmatter and keeps its `config` as written", () => {
+    // Measured (probe, 12.2.0): this document draws A --> B.
+    const { document, diagnostics, config } = parseSiren(
+      "---\nconfig:\n  theme: forest\n  themeVariables:\n    primaryColor: '#ff0000'\n---\nflowchart TD\n  A --> B",
+    );
+    expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ theme: "forest", themeVariables: { primaryColor: "#ff0000" } });
+  });
+
+  it("folds a frontmatter `displayMode` into `config.gantt.displayMode`, as Mermaid's `processFrontmatter` does", () => {
+    expect(parseSiren("---\ndisplayMode: compact\n---\nflowchart TD\n  A --> B").config).toEqual({
+      gantt: { displayMode: "compact" },
+    });
+    expect(
+      parseSiren("---\ndisplayMode: compact\nconfig:\n  gantt:\n    barHeight: 30\n---\nflowchart TD\n  A --> B").config,
+    ).toEqual({ gantt: { barHeight: 30, displayMode: "compact" } });
+  });
+
+  // Measured (probe, 12.2.0): MERMAID REJECTS THIS — "Cannot create
+  // property 'displayMode' on boolean 'true'", and "... 'gantt' on string
+  // 'foo'": `processFrontmatter` writes `displayMode` into whatever
+  // `config.gantt` (or `config`) is, and a scalar takes no property.
+  for (const [where, config] of [
+    ["config.gantt", "config:\n  gantt: true\n"],
+    ["config", "config: foo\n"],
+  ] as const) {
+    it(`refuses the document, at the opening fence, when \`displayMode\` must be written into a scalar ${where}`, () => {
+      expect(parseSiren(`---\ndisplayMode: compact\n${config}---\nflowchart TD\n  A --> B`)).toEqual({
+        document: null,
+        diagnostics: [
+          {
+            severity: "error",
+            message:
+              `Frontmatter displayMode cannot be written into ${where}, which is not a mapping; ` +
+              "Mermaid refuses the document too.",
+            line: 1,
+            column: 1,
+          },
+        ],
+        config: {},
+      });
+    });
+  }
+
+  it("refuses the document, at the opening fence, when its frontmatter is not YAML — Mermaid refuses it too", () => {
+    // Measured (probe, 12.2.0): MERMAID REJECTS THIS — "unexpected end of
+    // the stream within a flow collection (2:1)".
+    expect(parseSiren("---\nconfig: [\n---\nflowchart TD\n  A --> B")).toEqual({
+      document: null,
+      diagnostics: [
+        {
+          severity: "error",
+          message:
+            "Frontmatter is not valid YAML (unexpected end of the stream within a flow collection); " +
+            "Mermaid refuses the document too.",
+          line: 1,
+          column: 1,
+        },
+      ],
+      config: {},
+    });
+  });
+
+  // Measured (probe, 12.2.0): each of these frontmatters is accepted and
+  // the diagram below drawn.
+  for (const [what, body] of [
+    ["a string", "just a string\n"],
+    ["a list", "- a\n- b\n"],
+    ["nothing", "\n"],
+  ] as const) {
+    it(`reads a frontmatter holding ${what} as an empty one, without a word`, () => {
+      const { document, diagnostics, config } = parseSiren(`---\n${body}---\nflowchart TD\n  A --> B`);
+      expect(diagnostics).toEqual([]);
+      expect(document?.kind).toBe("flowchart");
+      expect(config).toEqual({});
+    });
+  }
+
+  // Measured (probe, 12.2.0): each draws A --> B.
+  for (const config of ["foo", "[1]"] as const) {
+    it(`ignores a \`config: ${config}\` that is not a mapping, and says so at the opening fence`, () => {
+      const { document, diagnostics, config: read } = parseSiren(`---\nconfig: ${config}\n---\nflowchart TD\n  A --> B`);
+      expect(document?.kind).toBe("flowchart");
+      expect(read).toEqual({});
+      expect(diagnostics).toEqual([
+        {
+          severity: "warning",
+          message: "Frontmatter config is not a mapping; it is ignored, and the diagram is drawn without it.",
+          line: 1,
+          column: 1,
+        },
+      ]);
+    });
+  }
+
+  it("drops a top-level key Mermaid does not know, unread and unreported, as Mermaid does", () => {
+    // Measured (probe, 12.2.0): `siren:` beside `config:` draws A --> B.
+    const { document, diagnostics, config } = parseSiren(
+      "---\nsiren:\n  roles: x\nconfig:\n  theme: forest\n---\nflowchart TD\n  A --> B",
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ theme: "forest" });
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+    ]);
+  });
+
+  it("reads an indented frontmatter, closed at the same indent, with the indent taken off each YAML line", () => {
+    // Measured (probe, 12.2.0): this document draws A --> B.
+    const { document, diagnostics, config } = parseSiren(
+      "  ---\n  config:\n    theme: forest\n  ---\nflowchart TD\n  A --> B",
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ theme: "forest" });
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: 'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+        line: 1,
+        column: 3,
+      },
+    ]);
+  });
+
+  // Each measured (probe, 12.2.0) as MERMAID REJECTS THIS: a blank line
+  // above the fence, a fence never closed, and a body with no line between
+  // the fences are no frontmatter, so the `---` is diagram text.
+  for (const [what, source] of [
+    ["below a blank line", "\n---\nconfig:\n  theme: forest\n---\nflowchart TD\n  A --> B"],
+    ["never closed", "---\nconfig:\n  theme: forest\nflowchart TD\n  A --> B"],
+    ["closed on the very next line", "---\n---\nflowchart TD\n  A --> B"],
+  ] as const) {
+    it(`does not read a frontmatter ${what}, and refuses the \`---\` as it always has`, () => {
+      const { document, diagnostics, config } = parseSiren(source);
+      expect(document).toBeNull();
+      expect(config).toEqual({});
+      expect(diagnostics).toHaveLength(1);
+      expect(diagnostics[0]).toMatchObject({ severity: "error", line: source.startsWith("\n") ? 2 : 1, column: 1 });
+      expect(diagnostics[0]!.message).toMatch(/found "---"$/);
+    });
+  }
+
+  // Measured (probe, 12.2.0), both MERMAID REJECTS THIS: a closing fence
+  // closes only at the opening fence's own indent, so neither of these has
+  // a frontmatter at all.
+  for (const [what, source, column] of [
+    ["a deeper indent than the opening", "---\nconfig:\n  theme: forest\n  ---\nflowchart TD\n  A --> B", 1],
+    ["a shallower indent than the opening", "  ---\n  config:\n    theme: forest\n---\nflowchart TD\n  A --> B", 3],
+  ] as const) {
+    it(`does not read a frontmatter whose closing fence is at ${what}`, () => {
+      const { document, diagnostics, config } = parseSiren(source);
+      expect(document).toBeNull();
+      expect(config).toEqual({});
+      expect(diagnostics).toHaveLength(1);
+      expect(diagnostics[0]).toMatchObject({ severity: "error", line: 1, column });
+      expect(diagnostics[0]!.message).toMatch(/found "---"$/);
+    });
+  }
+
+  it("ends a frontmatter at its first closing fence, so a second `---` further down is diagram text", () => {
+    // Measured (probe, 12.2.0), MERMAID REJECTS THIS — "No diagram type
+    // detected" for the text from `config:` on: the frontmatter was
+    // `title: a` alone.
+    const { document, diagnostics } = parseSiren(
+      "---\ntitle: a\n---\nconfig:\n  theme: forest\n---\nflowchart TD\n  A --> B",
+    );
+    expect(document).toBeNull();
+    const errors = diagnostics.filter((d) => d.severity === "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ line: 4, column: 1 });
+    expect(errors[0]!.message).toMatch(/found "config:"$/);
+  });
+
+  it("leaves a `---` after the diagram to the diagram, though it is the document's last closing fence", () => {
+    // Measured (probe, 12.2.0), MERMAID REJECTS THIS — a parse error at
+    // the trailing `---`: Mermaid's rule looks for the last fence only to
+    // bound its search, and the frontmatter still closes at the first.
+    const { document, diagnostics, config } = parseSiren(
+      "---\nconfig:\n  theme: forest\n---\nflowchart TD\n  A --> B\n---\n",
+    );
+    expect(document).toBeNull();
+    expect(config).toEqual({ theme: "forest" });
+    expect(diagnostics.filter((d) => d.severity === "error").map((d) => d.line)).toEqual([7]);
+  });
+
+  it("keeps every later line's number: an error below a frontmatter points at the line the author wrote", () => {
+    const { document, diagnostics } = parseSiren(
+      "---\nconfig:\n  theme: forest\n---\nflowchart TD\n  A --> B\n  A -->",
+    );
+    expect(document).toBeNull();
+    expect(diagnostics.filter((d) => d.severity === "error").map((d) => d.line)).toEqual([7]);
+  });
+
+  it("warns once for the title and once for each top-level config key, at the opening fence, that none is applied yet", () => {
+    const { diagnostics } = parseSiren(
+      "---\ntitle: Orders\nconfig:\n  theme: forest\n  look: handDrawn\n---\nflowchart TD\n  A --> B",
+    );
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: "Frontmatter title is read but not drawn yet; the diagram is drawn without it.",
+        line: 1,
+        column: 1,
+      },
+      {
+        severity: "warning",
+        message: 'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+        line: 1,
+        column: 1,
+      },
+      {
+        severity: "warning",
+        message: 'Document config "look" is read but not applied yet; the diagram is drawn without it.',
+        line: 1,
+        column: 1,
+      },
+    ]);
+  });
+});
+
+/**
+ * A document's `%%{…}%%` directives, read and removed as Mermaid 12.2.0
+ * reads and removes them (`directiveRegex`, `detectInit`, `detectDirective`,
+ * `processDirectives`), their settings joined to the frontmatter's in
+ * `ParseResult.config` as `preprocessDiagram` joins them, applied nowhere
+ * yet (ADR-0017). Every config below was measured with Mermaid's own
+ * `mermaid.parse`, which hands back the config its preprocessing read.
+ */
+describe("a document's directives", () => {
+  it("reads a one-line init into the config, and says at the directive that it is not applied yet", () => {
+    // Measured (12.2.0): config `{ theme: "dark" }`, and A --> B drawn.
+    const { document, diagnostics, config } = parseSiren('%%{init: {"theme": "dark"}}%%\nflowchart TB\n  A --> B');
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ theme: "dark" });
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: 'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+        line: 1,
+        column: 1,
+      },
+    ]);
+  });
+
+  it("reads an init spread over several lines whole, so none of its lines is left behind as diagram text", () => {
+    // Measured (12.2.0): config `{ theme: "dark", flowchart: { curve: "basis" } }`, and A --> B drawn.
+    const { document, diagnostics, config } = parseSiren(
+      '%%{\n  init: {\n    "theme": "dark",\n    "flowchart": {"curve": "basis"}\n  }\n}%%\nflowchart TB\n  A --> B',
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ theme: "dark", flowchart: { curve: "basis" } });
+    expect(diagnostics.map((d) => [d.severity, d.line])).toEqual([
+      ["warning", 1],
+      ["warning", 1],
+    ]);
+  });
+
+  it("keeps every later line's number: an error below a multi-line init points at the line the author wrote", () => {
+    // Measured (12.2.0): Mermaid rejects the trailing `A -->` too.
+    const { document, diagnostics } = parseSiren(
+      '%%{\n  init: {\n    "theme": "dark"\n  }\n}%%\nflowchart TB\n  A --> B\n  A -->',
+    );
+    expect(document).toBeNull();
+    expect(diagnostics.filter((d) => d.severity === "error").map((d) => d.line)).toEqual([8]);
+  });
+
+  it("merges several inits in order, a later one's settings over an earlier one's, each key reported where it was decided", () => {
+    // Measured (12.2.0): config `{ look: "handDrawn", theme: "forest",
+    // flowchart: { curve: "basis", htmlLabels: false } }`.
+    const { document, diagnostics, config } = parseSiren(
+      '%%{init: {"look": "handDrawn", "theme": "dark", "flowchart": {"curve": "basis"}}}%%\n' +
+        '%%{init: {"theme": "forest", "flowchart": {"htmlLabels": false}}}%%\n' +
+        "flowchart TB\n  A --> B",
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ look: "handDrawn", theme: "forest", flowchart: { curve: "basis", htmlLabels: false } });
+    expect(diagnostics.map((d) => [d.message, d.line])).toEqual([
+      ['Document config "look" is read but not applied yet; the diagram is drawn without it.', 1],
+      ['Document config "theme" is read but not applied yet; the diagram is drawn without it.', 2],
+      ['Document config "flowchart" is read but not applied yet; the diagram is drawn without it.', 2],
+    ]);
+  });
+
+  // Measured (12.2.0, `detectInit`): an init's `config` is moved under the
+  // key of the diagram type Mermaid detects — `flowchart` for both of its
+  // headers, `classDiagram` and `stateDiagram` for both spellings of theirs.
+  for (const [header, body, key] of [
+    ["flowchart TB", "A --> B", "flowchart"],
+    ["graph TB", "A --> B", "flowchart"],
+    ["sequenceDiagram", "A->>B: hi", "sequence"],
+    ["classDiagram-v2", "class A", "classDiagram"],
+    ["stateDiagram-v2", "A --> B", "stateDiagram"],
+    ["erDiagram", "A ||--o{ B : has", "er"],
+  ] as const) {
+    it(`moves an init's \`config\` under \`${key}\` in a document headed \`${header}\`, as Mermaid's detectInit does`, () => {
+      const { document, diagnostics, config } = parseSiren(
+        `%%{init: {"theme": "dark", "config": {"padding": 5}}}%%\n${header}\n  ${body}`,
+      );
+      expect(document).not.toBeNull();
+      expect(config).toEqual({ theme: "dark", [key]: { padding: 5 } });
+      expect(diagnostics.map((d) => d.message)).toEqual([
+        'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+        `Document config "${key}" is read but not applied yet; the diagram is drawn without it.`,
+      ]);
+    });
+  }
+
+  it("ignores every init when one is not JSON, as Mermaid does, says so at that one, and draws the diagram", () => {
+    // Measured (12.2.0): config `{}` — `detectDirective` stops at the first
+    // init it cannot parse and hands back none of them — and A --> B drawn.
+    const { document, diagnostics, config } = parseSiren(
+      '%%{init: {"theme": "dark"}}%%\n  %%{init: {bad json}}%%\nflowchart TB\n  A --> B',
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({});
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message:
+          "Init directive is not valid JSON; Mermaid then ignores every init directive in the document, " +
+          "and so does Siren — the diagram is drawn without them.",
+        line: 2,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("reads a `%%{wrap}%%` as the config's `wrap`, as Mermaid's processDirectives does, and removes it", () => {
+    // Measured (12.2.0): config `{ theme: "dark", wrap: true }`, and A --> B drawn.
+    const { document, diagnostics, config } = parseSiren(
+      '%%{init: {"theme": "dark"}}%%\n%%{wrap}%%\nflowchart TB\n  A --> B',
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ theme: "dark", wrap: true });
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: 'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+        line: 1,
+        column: 1,
+      },
+      {
+        severity: "warning",
+        message: 'Document config "wrap" is read but not applied yet; the diagram is drawn without it.',
+        line: 2,
+        column: 1,
+      },
+    ]);
+  });
+
+  it("removes a directive Mermaid does not read, and says it was removed unread", () => {
+    // Measured (12.2.0): config `{}`, and A --> B drawn.
+    const { document, diagnostics, config } = parseSiren(
+      '%%{foo}%%\nflowchart TB\n  A --> B %%{bar: {"x": 1}}%%',
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({});
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: 'Directive "foo" is removed unread, as Mermaid removes it; the diagram is drawn without it.',
+        line: 1,
+        column: 1,
+      },
+      {
+        severity: "warning",
+        message: 'Directive "bar" is removed unread, as Mermaid removes it; the diagram is drawn without it.',
+        line: 3,
+        column: 11,
+      },
+    ]);
+  });
+
+  it("merges an init over the frontmatter's config, the init winning, each key reported where its value was decided", () => {
+    // Measured (12.2.0): config `{ theme: "dark", look: "handDrawn",
+    // flowchart: { curve: "basis", htmlLabels: false } }` —
+    // `cleanAndMerge(frontmatter, directive)`, merged all the way down.
+    const { document, diagnostics, config } = parseSiren(
+      "---\nconfig:\n  theme: forest\n  look: handDrawn\n  flowchart:\n    curve: linear\n    htmlLabels: false\n---\n" +
+        '%%{init: {"theme": "dark", "flowchart": {"curve": "basis"}}}%%\nflowchart TB\n  A --> B',
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ theme: "dark", look: "handDrawn", flowchart: { curve: "basis", htmlLabels: false } });
+    expect(diagnostics.map((d) => [d.message, d.line])).toEqual([
+      ['Document config "look" is read but not applied yet; the diagram is drawn without it.', 1],
+      ['Document config "theme" is read but not applied yet; the diagram is drawn without it.', 9],
+      ['Document config "flowchart" is read but not applied yet; the diagram is drawn without it.', 9],
+    ]);
+  });
+
+  it("reads an `initialize` as an init, and its `'` as `\"`, as Mermaid's detectDirective does", () => {
+    // Measured (12.2.0): config `{ theme: "dark" }`, and A --> B drawn.
+    const { document, config } = parseSiren("%%{initialize: {'theme': 'dark'}}%%\nflowchart TB\n  A --> B");
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ theme: "dark" });
+  });
+
+  it("keeps every later column: an error after a directive on the same line points at the column the author wrote", () => {
+    // Measured (probe, 12.2.0): MERMAID REJECTS THIS — no diagram type
+    // detected for `classDiagrm`.
+    const { document, diagnostics } = parseSiren("  %%{wrap}%%  classDiagrm\n  class A");
+    expect(document).toBeNull();
+    expect(diagnostics.filter((d) => d.severity === "error").map((d) => [d.line, d.column])).toEqual([[1, 15]]);
+  });
+
+  it("keeps every later column on the line where a multi-line init ends", () => {
+    // Measured (probe, 12.2.0): MERMAID REJECTS THIS — a parse error at
+    // `flowchartTB`.
+    const { document, diagnostics } = parseSiren('%%{init: {\n  "theme": "dark"}}%% flowchartTB\n  A --> B');
+    expect(document).toBeNull();
+    expect(diagnostics.filter((d) => d.severity === "error").map((d) => [d.line, d.column])).toEqual([[2, 23]]);
+  });
+
+  it("reports a key at the init that last changed it, not at a later init whose value Mermaid's merge refuses", () => {
+    // Measured (12.2.0): config `{ flowchart: { curve: "basis" } }` — a
+    // scalar never replaces an object in `assignWithDepth`.
+    const { config, diagnostics } = parseSiren(
+      '%%{init: {"flowchart": {"curve": "basis"}}}%%\n%%{init: {"flowchart": 1}}%%\nflowchart TB\n  A --> B',
+    );
+    expect(config).toEqual({ flowchart: { curve: "basis" } });
+    expect(diagnostics.map((d) => [d.message, d.line])).toEqual([
+      ['Document config "flowchart" is read but not applied yet; the diagram is drawn without it.', 1],
+    ]);
+  });
+
+  it("reads a lone init holding a list as Mermaid's merge reads it: each item under its index", () => {
+    // Measured (12.2.0): `detectInit` hands back `[1, 2]`, and
+    // `cleanAndMerge({}, [1, 2])` (es-toolkit's `merge`) makes it
+    // `{ "0": 1, "1": 2 }`; A --> B drawn.
+    const { document, config } = parseSiren("%%{init: [1, 2]}%%\nflowchart TB\n  A --> B");
+    expect(document?.kind).toBe("flowchart");
+    expect(config).toEqual({ 0: 1, 1: 2 });
+  });
+
+  it("refuses the document, at the wrap directive, when a bare-word init leaves `wrap` nowhere to go — Mermaid refuses it too", () => {
+    // Measured (probe, 12.2.0): MERMAID REJECTS THIS — "Cannot create
+    // property 'wrap' on string 'dark'".
+    expect(parseSiren("%%{init: dark}%%\n  %%{wrap}%%\nflowchart TB\n  A --> B")).toEqual({
+      document: null,
+      diagnostics: [
+        {
+          severity: "error",
+          message:
+            'Wrap directive cannot be written into the init directive "dark", which is not a mapping; ' +
+            "Mermaid refuses the document too.",
+          line: 2,
+          column: 3,
+        },
+      ],
+      config: {},
+    });
+  });
+
+  it("drops an init's `config` when there are several inits, as Mermaid's sanitizing does before any move", () => {
+    // Measured (12.2.0, `detectInit`): `{ theme: "dark", look: "neo" }`.
+    const { config } = parseSiren(
+      '%%{init: {"theme": "dark"}}%%\n%%{init: {"config": {"curve": "basis"}, "look": "neo"}}%%\nflowchart TB\n  A --> B',
+    );
+    expect(config).toEqual({ theme: "dark", look: "neo" });
   });
 });

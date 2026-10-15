@@ -27,7 +27,6 @@ loop Every authorization attempt
   Web->>Retry: Schedule a retry
   alt approved
     Payments-->>Web: Approved
-    destroy Retry
   else declined
     Payments-xWeb: Declined
   else timed out
@@ -54,9 +53,13 @@ end
 rect rgb(240, 248, 255)
   Web-->>Shopper: Show confirmation
 end
-destroy Ledger
 Web-->>Shopper: Email receipt
 note over Shopper,Web: The receipt arrives by email
+%% Both lifelines end after the last message. Mermaid wants the message right
+%% after a `destroy X` to touch X, and Siren warns on any message past a destroy
+%% mark, so a destroy followed by no message is the form both accept.
+destroy Retry
+destroy Ledger
 
 timeline:
   enter box:1 fade, enter Shopper-Web slide-left

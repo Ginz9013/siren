@@ -10,9 +10,9 @@ import type {
   ClassNote,
   ClassRelationship,
   ClassRelationshipEnd,
+  DiagramParseResult,
   Diagnostic,
   Label,
-  ParseResult,
   NamedTimeline,
   SirenTimeline,
   StyleDecl,
@@ -413,7 +413,7 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
  * id), so the ids in it are resolved by `buildClassModel` and validated
  * nowhere else.
  */
-export function parseClassDiagram(source: string): ParseResult {
+export function parseClassDiagram(source: string): DiagramParseResult {
   const lines = source.split(/\r\n|\r|\n/);
   const diagnostics: Diagnostic[] = [];
 

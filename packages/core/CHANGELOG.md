@@ -8,7 +8,37 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+Breaking for a flowchart or ER document with a line that is nothing but `%%` outside its timeline
+blocks, which is now refused (see **Changed**).
+
 ### Added
+
+- A document may open with a Mermaid frontmatter (`---` … `---`), read as Mermaid 12.2.0 reads it,
+  each rule measured with the probe: only at the very top, optionally indented, closed by the first
+  `---` at the same indent, and parsed as YAML under the JSON schema (with `js-yaml`, now a
+  dependency). Such a document used to be refused with `found "---"` (nook `01M4XSF9C`). Its
+  `config` (with a top-level `displayMode` folded into `config.gantt.displayMode`) is kept on
+  `ParseResult.config`, `{}` when there is none, but **not applied yet**: each top-level config key,
+  and a `title`, is reported as a warning at the opening fence. A `config` that is not a mapping
+  (`config: foo`) is ignored with a warning; Mermaid draws such a document too. A key Mermaid does
+  not know, such as `siren:`, is dropped in silence, as Mermaid drops it. A frontmatter that is not
+  valid YAML, or whose `displayMode` would have to be written into a `config` or `config.gantt`
+  that is a scalar (`gantt: true`), refuses the document with an error, as Mermaid refuses it. Line
+  and column numbers of every other diagnostic still point at the lines the author wrote
+  (ADR-0017). The standalone bundles' `THIRD-PARTY-NOTICES.md` now carries js-yaml's MIT licence.
+- `%%{init: ...}%%` (and `%%{initialize: ...}%%`) directives are read as Mermaid 12.2.0 reads them,
+  each rule measured: their arguments are JSON once every `'` is made `"`, several are merged in
+  order, and an init's `config` is filed under the diagram type's key (`flowchart`, `sequence`,
+  `classDiagram`, `stateDiagram`, `er`). The result is merged over the frontmatter's config on
+  `ParseResult.config`, the init winning where both set a value, and a `%%{wrap}%%` reads as
+  `wrap`. Nothing is **applied yet**: each top-level key is reported as a warning at the directive
+  that decided it, or at the frontmatter's opening fence. An init that is not valid JSON is
+  reported, and then, as in Mermaid, no init in the document is read; the diagram is still drawn.
+  A directive Mermaid does not read (`%%{foo}%%`) is removed with a warning. A `%%{wrap}%%` beside
+  a lone bare-word init (`%%{init: dark}%%`) refuses the document with an error at the wrap
+  directive, as Mermaid refuses it ("Cannot create property 'wrap' on string 'dark'"). A lone
+  init holding a list (`%%{init: [1, 2]}%%`) reads as its items under their indexes, as Mermaid's
+  merge reads it (nook `01M4XSF9J`).
 
 - Sequence diagrams accept the colon spelling of the title, `title: text`, in any case, as Mermaid
   12.2.0 does. A later colon stays in the title. `title:text` with no space is still rejected,
@@ -52,6 +82,15 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ### Changed
 
+- **A line that is nothing but `%%` is refused in flowcharts and ER diagrams**, with an error at its
+  `%%` that says to write `%% text` or leave the line blank (ADR-0017, nook `01M4XSF9S`). Such a
+  line used to be stripped as a comment, but Mermaid 12.2.0 does not read it as one: its comment
+  cleanup wants at least one character after the `%%`, so a flowchart draws the line as a node
+  named `%%` (or, above the header, refuses the document) and an ER diagram refuses the document.
+  Sequence, class and state diagrams read it as a comment, as Mermaid's own grammars for them do,
+  and so does a timeline block in any kind, since Mermaid never sees one; `%%` followed by a
+  space, a tab or any text is still a comment everywhere.
+  `examples/flowchart-styling.srn` used one as a paragraph break; it is now a blank line.
 - A `style` on a node, state or entity now beats a class applied to it whichever line comes first,
   as Mermaid 12.2.0 paints it in flowchart, class, state and ER diagrams. Before, the later line
   won, so `style A fill:#0ff` written above `class A alpha` drew the class's fill (nook `01M39F9N1`,
@@ -63,6 +102,12 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ### Fixed
 
+- An init directive spread over several lines no longer breaks the document. It used to be
+  removed one line at a time as a `%%` comment, so its middle lines were read as diagram text and
+  refused, where Mermaid removes the whole directive and draws the diagram. Every directive is now
+  removed whole before comments are, and blanked in place with spaces, so the line and column of
+  every other diagnostic still point at what the author wrote — on the directive's own line too
+  (`  %%{wrap}%%  classDiagrm` reports column 15, not 5) (nook `01M4XSF9J`).
 - Flowchart nodes have twice their original positive text padding, without scaling text or changing wrapping;
   subgraphs use 24px padding, including nested frames and title bands. Other diagram kinds retain
   their existing geometry (nook `01M4XKQXA`).

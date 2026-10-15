@@ -12,32 +12,74 @@ import type { Plugin } from "vite";
  * installed package rather than written here — and the EPL-2.0 asks that a
  * copy of the program in object form carry its licence.
  *
- * elkjs is resolved from this package, `siren-core`, the only one that
- * depends on it, so a version bump can never leave a stale licence behind in
- * either bundle.
+ * They also distribute js-yaml, which reads a document's frontmatter. It is
+ * MIT, and the MIT licence asks that its notice travel with every copy, so
+ * its licence text goes into the same file.
+ *
+ * Both are resolved from this package, `siren-core`, the only one that
+ * depends on them, so a version bump can never leave a stale licence behind
+ * in either bundle.
  */
 const require = createRequire(import.meta.url);
-const elkjsDir = dirname(require.resolve("elkjs/package.json"));
-const elkjs = JSON.parse(readFileSync(join(elkjsDir, "package.json"), "utf8")) as {
+
+/**
+ * One package the standalone bundles carry: its name and where it lives, its
+ * licence file, and the prose its notice section opens with. The version and
+ * the licence are read from the installed package.
+ */
+interface BundledPackage {
+  name: string;
+  url: string;
+  licenceFile: string;
+  about: readonly string[];
+  dir: string;
   version: string;
   license: string;
-};
+}
+
+/** `name`, resolved from this package, with its installed version and licence. */
+function bundled(
+  name: string,
+  url: string,
+  licenceFile: string,
+  about: (license: string) => readonly string[],
+): BundledPackage {
+  const dir = dirname(require.resolve(`${name}/package.json`));
+  const { version, license } = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+    version: string;
+    license: string;
+  };
+  return { name, url, licenceFile, about: about(license), dir, version, license };
+}
+
+/** Every third-party package the standalone bundles carry, in notice order. */
+const BUNDLED: readonly BundledPackage[] = [
+  bundled("elkjs", "https://github.com/kieler/elkjs", "LICENSE.md", (license) => [
+    "Eclipse Layout Kernel, compiled to JavaScript. https://github.com/kieler/elkjs",
+    `Licensed under ${license}; distributed here under the`,
+    "Eclipse Public License 2.0, whose text follows. The source code is",
+    "available from the project above and from the npm package `elkjs`.",
+  ]),
+  bundled("js-yaml", "https://github.com/nodeca/js-yaml", "LICENSE", (license) => [
+    "YAML 1.2 parser for JavaScript, used to read a document's frontmatter.",
+    "https://github.com/nodeca/js-yaml",
+    `Licensed under ${license}, whose text follows.`,
+  ]),
+];
 
 /**
  * The bundle's first line, pointing at the notice file beside it.
  * `packageName` is the package whose bundle this is.
  */
 export function thirdPartyBanner(packageName: string): string {
-  return (
-    `/*! ${packageName} (MIT). Bundles elkjs ${elkjs.version} (${elkjs.license}, ` +
-    "https://github.com/kieler/elkjs); see THIRD-PARTY-NOTICES.md. */"
-  );
+  const packages = BUNDLED.map(({ name, version, license, url }) => `${name} ${version} (${license}, ${url})`);
+  return `/*! ${packageName} (MIT). Bundles ${packages.join(" and ")}; see THIRD-PARTY-NOTICES.md. */`;
 }
 
 /**
  * Emits `THIRD-PARTY-NOTICES.md` next to the standalone bundle `bundleFile`
  * of `packageName`: which third-party code is inside it, under which
- * licence, and elkjs's licence text verbatim — read from the installed
+ * licence, and each one's licence text verbatim — read from the installed
  * package at build time, so the notice is always the one the bundled version
  * ships with.
  */
@@ -45,7 +87,6 @@ export function thirdPartyNotices(packageName: string, bundleFile: string): Plug
   return {
     name: "siren-third-party-notices",
     generateBundle() {
-      const elkLicence = readFileSync(join(elkjsDir, "LICENSE.md"), "utf8");
       this.emitFile({
         type: "asset",
         fileName: "THIRD-PARTY-NOTICES.md",
@@ -55,15 +96,14 @@ export function thirdPartyNotices(packageName: string, bundleFile: string): Plug
           `\`dist/${bundleFile}\`, the standalone build of ${packageName}, bundles the`,
           `following third-party code. ${packageName} itself is MIT-licensed (see LICENSE).`,
           "",
-          `## elkjs ${elkjs.version}`,
-          "",
-          "Eclipse Layout Kernel, compiled to JavaScript. https://github.com/kieler/elkjs",
-          `Licensed under ${elkjs.license}; distributed here under the`,
-          "Eclipse Public License 2.0, whose text follows. The source code is",
-          "available from the project above and from the npm package `elkjs`.",
-          "",
-          elkLicence,
-          "",
+          ...BUNDLED.flatMap((pkg) => [
+            `## ${pkg.name} ${pkg.version}`,
+            "",
+            ...pkg.about,
+            "",
+            readFileSync(join(pkg.dir, pkg.licenceFile), "utf8"),
+            "",
+          ]),
         ].join("\n"),
       });
     },

@@ -18,6 +18,10 @@
  * `parser/styleLines`'s `asWritten` moves each position back past it by
  * walking the result for these two pairs — a position spelled any other way
  * would silently point one character early. `styleLines.test.ts` pins it.
+ * The one exception is `ParseResult.config`: it is the author's document
+ * config as written, not a position, and `parseSiren` adds it only after
+ * `asWritten` has run, so a config key that happens to be spelled `line` is
+ * never moved.
  */
 
 /** Severity of a parse/build-time diagnostic. */
@@ -453,10 +457,35 @@ export type SirenDocument =
   | StateDocument
   | ErDocument;
 
-/** Result of `parseSiren` (and, independently, `parseSequenceDiagram`). */
-export interface ParseResult {
+/**
+ * What one diagram kind's parser (`parseFlowchart`, `parseSequenceDiagram`,
+ * `parseClassDiagram`, `parseStateDiagram`, `parseErDiagram`) makes of the
+ * diagram half of a document: the document and what it found wrong. The
+ * **document config** is not theirs to read — it lives outside any one
+ * kind's grammar — so `parseSiren` reads it and adds it to make a
+ * `ParseResult`.
+ */
+export interface DiagramParseResult {
   document: SirenDocument | null;
   diagnostics: Diagnostic[];
+}
+
+/** Result of `parseSiren`. */
+export interface ParseResult extends DiagramParseResult {
+  /**
+   * The document's **document config**, as Mermaid 12.2.0's
+   * `preprocessDiagram` reads it: its frontmatter's `config`, with a
+   * frontmatter `displayMode` folded into `config.gantt.displayMode`, merged
+   * under its `%%{init}%%` directives' settings — an init wins where both
+   * set a value. It is not quite what the author wrote: an init's `config`
+   * is filed under the diagram type's key (`flowchart`, `sequence`,
+   * `classDiagram`, `stateDiagram`, `er`), a `%%{wrap}%%` adds `wrap`, and
+   * a lone init holding a list holds its items under their indexes. Applied
+   * nowhere yet; `{}` when the document carries none. A frontmatter `title`
+   * is not kept here — it is not config — and is only reported, as a
+   * warning that it is not drawn yet.
+   */
+  config: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------

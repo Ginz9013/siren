@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Direction, ErAttribute, ErDocument, Label, ParseResult } from "../contracts";
+import type { DiagramParseResult, Direction, ErAttribute, ErDocument, Label } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
 import { parseErDiagram } from "./parseErDiagram";
 import { parseSiren } from "./parseSiren";
@@ -45,7 +45,7 @@ const rowsLabel = (...rows: string[]): Label => ({
  * null check or the kind check. Narrowing once in the return type is what
  * keeps `document!` and a vacuous `not.toBeNull()` out of every test below.
  */
-function documentOf(source: string, parse: (source: string) => ParseResult = parseErDiagram): ErDocument {
+function documentOf(source: string, parse: (source: string) => DiagramParseResult = parseErDiagram): ErDocument {
   const { document, diagnostics } = parse(source);
   if (document === null) {
     throw new Error(

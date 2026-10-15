@@ -14,18 +14,29 @@
  *     A["<b>a<i>b</b>c</i>d"]'
  *     pnpm --filter siren-core probe --html some-diagram.mmd
  *
- * Two things to know before pointing it at an `examples/*.srn` file, both
+ * Three things to know before pointing it at an `examples/*.srn` file, all
  * measured the hard way:
  *
- * - A Siren document carrying a `timeline:` block is **not** a Mermaid
- *   document — that block is Siren's own syntax. Probe the diagram half:
- *   `sed '/^timeline:/,$d' examples/flowchart-syntax.srn | ... -`
- * - Mermaid rejects a line that is nothing but `%%`. Its comment cleanup
- *   wants at least one character after the `%%`, while Siren strips from the
- *   first `%%` to the end of the line whatever follows. Siren is the more
- *   permissive of the two, so this breaks nothing — the condition is
- *   one-directional — but several `examples/*.srn` files use bare `%%` as a
- *   paragraph break and so cannot be fed to Mermaid as they stand.
+ * - A Siren document carrying timeline blocks is **not** a Mermaid document —
+ *   those blocks are Siren's own syntax. Probe the diagram half: everything
+ *   above the first `timeline:` or `timeline <name>:` header, found as Siren
+ *   finds it (below the frontmatter and directives, ignoring `%%` comments).
+ *   `stripTimelineBlocks` in `check-examples.mjs` is that rule, and
+ *   `pnpm --filter siren-core check-examples -- <file>` applies it when the
+ *   question is only whether Mermaid accepts the document.
+ * - A line that is nothing but `%%` is not a comment to Mermaid. Its comment
+ *   cleanup (`cleanupComments`, `^\s*%%(?!{)[^\n]+\n?`) wants at least one
+ *   character after the `%%` — a space will do — and leaves a bare `%%` to
+ *   the diagram's grammar: a flowchart draws it as a node named `%%` (or
+ *   refuses the document, above the header), an ER diagram refuses the
+ *   document, and sequence, class and state diagrams read it as a comment
+ *   after all. Siren refuses it too wherever Mermaid does not read it as a
+ *   comment (ADR-0017), so write `%% text` or a blank line instead.
+ * - Write a sequence `box` color in lower case (`box aqua Grp`). Under jsdom,
+ *   which has no `window.CSS`, Mermaid's `parseBoxData` tests the color on a
+ *   fresh `new Option().style` and compares it with what jsdom serializes it
+ *   as, so `box Aqua Grp` reads `Aqua` as part of the label here, where a
+ *   browser's `CSS.supports` reads it as a color.
  *
  * ## Why this is committed code rather than a note
  *
@@ -153,68 +164,7 @@
  * unless `--paint`, `--markup` or `--html` asked for the render as well.
  */
 import { readFileSync } from "node:fs";
-
-/**
- * Install the browser globals Mermaid's module-load path needs, before it
- * loads, and hand back the jsdom the SVG will later be read out of.
- *
- * `CSSStyleSheet` is only reached by the render path — `createCssStyles`
- * builds the stylesheet Mermaid emits inside the SVG — but it is installed
- * for both, because a global that appears only under a flag is a global that
- * is missing the first time someone else needs it.
- */
-async function installDomGlobals() {
-  const { JSDOM } = await import("jsdom");
-  const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
-  const names = [
-    "window",
-    "document",
-    "navigator",
-    "DOMParser",
-    "Node",
-    "Element",
-    "SVGElement",
-    "HTMLElement",
-    "MutationObserver",
-    "requestAnimationFrame",
-    "getComputedStyle",
-    "CSSStyleSheet",
-    // A sequence `box` line's color is tested by assigning it to a fresh
-    // `new Option().style` (Mermaid's `parseBoxData`, where `window.CSS` is
-    // missing, as it is in jsdom), so every `box` line threw "Option is not
-    // defined" without it. That fallback compares the value with what jsdom
-    // serializes it as, so write a box color in lower case (`box aqua Grp`):
-    // `box Aqua Grp` reads `Aqua` as part of the label here, where a browser's
-    // `CSS.supports` reads it as a color.
-    "Option",
-  ];
-  for (const name of names) {
-    if (globalThis[name] === undefined) globalThis[name] = dom.window[name];
-  }
-  return dom;
-}
-
-/**
- * The layout primitives jsdom does not implement, stubbed so that Mermaid's
- * renderer runs to completion.
- *
- * jsdom parses and cascades but never lays anything out, so `getBBox` on an
- * SVG element does not exist at all and Mermaid's measuring pass throws on
- * the first label it sizes. A fixed box gets it past that, at the price named
- * in the header: **every coordinate this mode produces is this stub's answer
- * and not Mermaid's.** That is an acceptable price for a paint question and
- * not for any other, which is why the stubs are installed only for the modes
- * that render (`--paint`, `--markup`, `--html`) rather than beside the globals
- * above — the parse path must stay a measurement of Mermaid with nothing of
- * ours in it.
- */
-function installLayoutStubs(dom) {
-  const box = () => ({ x: 0, y: 0, width: 40, height: 20 });
-  for (const proto of [dom.window.SVGElement.prototype, dom.window.Element.prototype]) {
-    if (proto.getBBox === undefined) proto.getBBox = box;
-    if (proto.getComputedTextLength === undefined) proto.getComputedTextLength = () => box().width;
-  }
-}
+import { loadMermaid } from "./mermaid-loader.mjs";
 
 /**
  * The document to probe: a file path, `--source <text>`, or `-` for stdin.
@@ -838,12 +788,9 @@ if (source === null) {
   process.exit(2);
 }
 
-const dom = await installDomGlobals();
-if (wantsPaint || wantsMarkup || wantsHtml) installLayoutStubs(dom);
-const mermaid = (await import("mermaid")).default;
-mermaid.initialize({ startOnLoad: false });
+const { mermaid, dom, version } = await loadMermaid({ layoutStubs: wantsPaint || wantsMarkup || wantsHtml });
 
-console.log(`# mermaid ${(await import("mermaid/package.json", { with: { type: "json" } })).default.version}`);
+console.log(`# mermaid ${version}`);
 console.log("# source");
 for (const line of source.replace(/\n$/, "").split("\n")) console.log(`  | ${line}`);
 

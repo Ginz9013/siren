@@ -9577,6 +9577,190 @@ line2\`"]`,
   },
 
   // -------------------------------------------------------------------------
+  // document config — frontmatter (ADR-0017)
+  // -------------------------------------------------------------------------
+  //
+  // Written as joined lines rather than template literals: a frontmatter
+  // must open at the document's first character and close at the same
+  // indent, which an indented template would break. Every source below was
+  // measured on mermaid 12.2.0 with the probe and draws the diagram shown.
+  {
+    id: "doc-frontmatter-flowchart",
+    kind: "flowchart",
+    source: ["---", "title: Checkout", "config:", "  theme: forest", "---", "flowchart TD", "  A[Start] --> B[End]"].join(
+      "\n",
+    ),
+    status: "supported",
+    meaning:
+      "A frontmatter at the top of the document carries its document config " +
+      "(`config`) and a `title`; Mermaid reads both and draws the flowchart " +
+      "below them. Siren draws the same flowchart, keeps the config as " +
+      "written, and says that neither the title nor the theme is applied yet.",
+    warnings: [
+      "Frontmatter title is read but not drawn yet; the diagram is drawn without it.",
+      'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+    ],
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Start]", "B[End]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+    },
+  },
+  {
+    id: "doc-frontmatter-sequence",
+    kind: "sequence",
+    source: ["---", "config:", "  look: handDrawn", "---", "sequenceDiagram", "  A->>B: Hello"].join("\n"),
+    status: "supported",
+    meaning: "A sequence diagram below a frontmatter is drawn as one without it.",
+    warnings: ['Document config "look" is read but not applied yet; the diagram is drawn without it.'],
+    assert: (result) => {
+      expectSame("participants", participants(result), ["A", "B"]);
+      expectSame("messages", messages(result), ["A-B: Hello"]);
+    },
+  },
+  {
+    id: "doc-frontmatter-class",
+    kind: "class",
+    source: [
+      "---",
+      "config:",
+      "  theme: dark",
+      "  class:",
+      "    hideEmptyMembersBox: true",
+      "---",
+      "classDiagram",
+      "  Animal <|-- Dog",
+    ].join("\n"),
+    status: "supported",
+    meaning:
+      "A class diagram below a frontmatter is drawn as one without it; each " +
+      "top-level config key, a diagram-specific block like `class` included, " +
+      "is reported once.",
+    warnings: [
+      'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+      'Document config "class" is read but not applied yet; the diagram is drawn without it.',
+    ],
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Animal", "Dog"]);
+      expectSame("relationships", relationships(result), ["Animal-Dog:inheritance"]);
+    },
+  },
+  {
+    id: "doc-frontmatter-state",
+    kind: "state",
+    source: ["---", "displayMode: compact", "---", "stateDiagram-v2", "  Idle --> Running"].join("\n"),
+    status: "supported",
+    meaning:
+      "A top-level `displayMode` is folded into `config.gantt.displayMode`, " +
+      "as Mermaid's `processFrontmatter` folds it, and so is reported as the " +
+      "`gantt` key; the state diagram below is drawn as one without it.",
+    warnings: ['Document config "gantt" is read but not applied yet; the diagram is drawn without it.'],
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Running"]);
+      expectSame("transitions", transitions(result), ["Idle-Running: "]);
+    },
+  },
+  {
+    id: "doc-frontmatter-er",
+    kind: "er",
+    source: [
+      "---",
+      "config:",
+      "  themeVariables:",
+      "    primaryColor: '#ffcc00'",
+      "---",
+      "erDiagram",
+      "  CUSTOMER ||--o{ ORDER : places",
+    ].join("\n"),
+    status: "supported",
+    meaning: "An ER diagram below a frontmatter is drawn as one without it.",
+    warnings: ['Document config "themeVariables" is read but not applied yet; the diagram is drawn without it.'],
+    assert: (result) => {
+      expectSame("entities", erEntities(result), ["CUSTOMER[CUSTOMER]", "ORDER[ORDER]"]);
+    },
+  },
+  {
+    id: "doc-frontmatter-unknown-key",
+    kind: "flowchart",
+    source: ["---", "siren:", "  roles:", "    warning: urgent", "---", "flowchart TD", "  A --> B"].join("\n"),
+    status: "supported",
+    meaning:
+      "Mermaid drops a frontmatter key it does not know, unread, and draws " +
+      "the diagram. ADR-0017 rests on that: it is the one place Siren-only " +
+      "meaning may live outside a timeline block and the document still be " +
+      "Mermaid. Siren drops it too, in silence, until a later board gives " +
+      "`siren:` a meaning — this row is the regression guard that Mermaid " +
+      "still accepts it.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // document config — `%%{init}%%` directives (ADR-0017)
+  // -------------------------------------------------------------------------
+  //
+  // Joined lines for the same reason as the frontmatter rows above. Every
+  // source below was measured on mermaid 12.2.0 with the probe and draws the
+  // diagram shown; the config each reads was measured with `mermaid.parse`.
+  {
+    id: "doc-init-multiline",
+    kind: "flowchart",
+    source: [
+      "%%{",
+      "  init: {",
+      '    "theme": "dark",',
+      '    "flowchart": {"curve": "basis"}',
+      "  }",
+      "}%%",
+      "flowchart TD",
+      "  A[Start] --> B[End]",
+    ].join("\n"),
+    status: "supported",
+    meaning:
+      "An init directive may spread over several lines; Mermaid removes it " +
+      "whole, reads its settings, and draws the flowchart below. Siren " +
+      "removes it whole too — none of its lines is left behind as diagram " +
+      "text — keeps its settings, and says that none is applied yet.",
+    warnings: [
+      'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+      'Document config "flowchart" is read but not applied yet; the diagram is drawn without it.',
+    ],
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Start]", "B[End]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+    },
+  },
+  {
+    id: "doc-init-over-frontmatter",
+    kind: "sequence",
+    source: [
+      "---",
+      "config:",
+      "  theme: forest",
+      "  look: handDrawn",
+      "---",
+      '%%{init: {"theme": "dark"}}%%',
+      "sequenceDiagram",
+      "  A->>B: Hello",
+    ].join("\n"),
+    status: "supported",
+    meaning:
+      "A frontmatter and an init directive may both set a key; Mermaid " +
+      "merges the init over the frontmatter, so `theme` is `dark` and `look` " +
+      "is kept, and draws the sequence diagram. Siren merges them the same " +
+      "way and reports each key once, neither applied yet.",
+    warnings: [
+      'Document config "look" is read but not applied yet; the diagram is drawn without it.',
+      'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+    ],
+    assert: (result) => {
+      expectSame("participants", participants(result), ["A", "B"]);
+      expectSame("messages", messages(result), ["A-B: Hello"]);
+    },
+  },
+
+  // -------------------------------------------------------------------------
   // labels — the HTML tag vocabulary (ADR-0015), kept in `labelCorpus.ts`
   // -------------------------------------------------------------------------
   ...LABEL_CASES,

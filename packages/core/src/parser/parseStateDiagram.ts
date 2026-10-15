@@ -1,8 +1,8 @@
 import type {
+  DiagramParseResult,
   Diagnostic,
   Direction,
   Label,
-  ParseResult,
   NamedTimeline,
   SirenTimeline,
   StateDecl,
@@ -525,7 +525,7 @@ function unimplementedIn(line: string): string | null {
  * `%%` comments are already gone by the time this runs: `parseSiren` strips
  * them for every diagram kind before dispatching.
  */
-export function parseStateDiagram(source: string): ParseResult {
+export function parseStateDiagram(source: string): DiagramParseResult {
   const lines = source.split(/\r\n|\r|\n/);
   const diagnostics: Diagnostic[] = [];
 

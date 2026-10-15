@@ -1,8 +1,8 @@
 import type {
+  DiagramParseResult,
   Diagnostic,
   Interaction,
   Label,
-  ParseResult,
   SequenceAltBranch,
   SequenceArrowHead,
   SequenceArrowLine,
@@ -981,7 +981,7 @@ function readLinkEntries(
  * participant id with no prior declaration is *not* rejected here — that's
  * `buildSequenceModel`'s job (ticket 02).
  */
-export function parseSequenceDiagram(source: string): ParseResult {
+export function parseSequenceDiagram(source: string): DiagramParseResult {
   const lines = source.split(/\r\n|\r|\n/);
   const diagnostics: Diagnostic[] = [];
 

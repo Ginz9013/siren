@@ -67,13 +67,19 @@ timeline <name>:          or several named blocks instead (never both)
   <step 1>
 ```
 
-- The first non-comment line must be the diagram header. Siren doesn't support YAML
-  front matter (`---`) or diagram types other than these five.
+- The first non-comment line must be the diagram header, after an optional YAML front
+  matter (`---` … `---`) at the very top. Siren reads the front matter as Mermaid does,
+  but doesn't apply its settings yet; it supports no diagram types other than these five.
 - `timeline:` starts the block, and every remaining line belongs to it. Nothing closes
   it, so it must come last. With named blocks, each one runs from its header to the next
   `timeline <name>:` header, or to the end of the document.
-- `%%` starts a comment, anywhere in the document. `%%{init: ...}%%` directives are
-  treated as comments and ignored.
+- `%%` starts a comment, anywhere in the document. A comment line needs text after its
+  `%%`: a line of only `%%` is refused in flowcharts and ER diagrams, so write `%% text`
+  or leave the line blank. `%%{init: ...}%%` directives (one line
+  or several) and `%%{wrap}%%` are read as Mermaid reads them, but no setting is applied
+  yet: each setting is reported as a warning, and the diagram is drawn without it. An init
+  that is not valid JSON is reported, and then, as in Mermaid, no init in the document is
+  read. Any other `%%{...}%%` directive is removed with a warning.
 
 ## Timeline
 
@@ -285,6 +291,10 @@ diagram.srn: ERRORS (1 error(s), 0 warning(s), 5 step(s))
 - Pass `-` to read from stdin. The exit code is 1 when any document has an error.
 - If the timeline rejects an id that `--ids` lists, that kind of element can't be
   animated yet. Leave it out of the timeline.
+- Every document you produce must, with its timeline blocks removed, pass the check the
+  Siren repository runs on its own examples, run from a Siren checkout as
+  `pnpm --filter siren-core check-examples -- diagram.srn`: real Mermaid 12.2.0 must
+  accept it, which `OK` alone does not prove.
 
 If you can't run Node.js, check the document by hand against the rules above, and tell
 the user it hasn't been validated.

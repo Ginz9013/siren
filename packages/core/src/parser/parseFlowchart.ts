@@ -1,4 +1,5 @@
 import type {
+  DiagramParseResult,
   Diagnostic,
   Direction,
   EdgeEnd,
@@ -10,7 +11,6 @@ import type {
   LinkStyleDecl,
   LinkTarget,
   NodeShape,
-  ParseResult,
   SirenEdge,
   SirenNode,
   SirenSubgraph,
@@ -1531,7 +1531,7 @@ function joinMarkdownFences(lines: readonly string[]): string[] {
  * function still owns *where* the block starts and what a diagnostic inside
  * it costs the document, and nothing else about it.
  */
-export function parseFlowchart(source: string): ParseResult {
+export function parseFlowchart(source: string): DiagramParseResult {
   const diagnostics: Diagnostic[] = [];
   const lines = joinMarkdownFences(source.split(/\r\n|\r|\n/));
 
