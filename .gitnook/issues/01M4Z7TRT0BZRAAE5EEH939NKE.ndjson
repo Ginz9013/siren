@@ -3,3 +3,5 @@
 {"id":"01M4Z7TTFHCERF9CQ5SJCT13A1","t":3,"a":"83a1","op":"set","k":"status","v":"todo"}
 {"id":"01M4ZKZ7C2KFZHCRQNBD0KRB4T","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4ZMGKSV4B9R00S4701YCX5X","t":5,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M4ZMVR0TDHKSPW9DQK4NNRYY","t":6,"a":"83a1","op":"comment","body":"T6 review 完成（兩軸皆無 blocker）。ADR-0013 修訂為 nook decision 01M4ZMH1G，docs/adr/0013 加指標；追加 commit 整理 buildSequenceModel 與 CONTEXT.md。"}
+{"id":"01M4ZMVR7CQH9NGRT6V1T4TG8G","t":7,"a":"83a1","op":"set","k":"status","v":"done"}
