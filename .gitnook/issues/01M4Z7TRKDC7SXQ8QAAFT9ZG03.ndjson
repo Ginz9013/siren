@@ -4,3 +4,4 @@
 {"id":"01M4ZK0CJNE3VGV7X98NSSW0B8","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4ZKZ6XGRDE3FJHHKM2VGBJV","t":5,"a":"83a1","op":"comment","body":"T5 review 完成（兩軸皆無 blocker）。追加 commit：layout 以 drawnInBottomRow 決定底部方框、過時註解、命名、CONTEXT.md 補規則。未完成部分（沒有建立訊息的 create、autonumber off 之後的右移）開成本 board 的 T11 01M4ZKR8P；被摧毀參與者在摧毀列的方框開 backlog T12 01M4ZKR8W。"}
 {"id":"01M4ZKZ755DX803JCX5YT90EJE","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4ZNP14E7GDSTX8B6X5MF8WM","t":7,"a":"83a1","op":"set","k":"archived","v":true}

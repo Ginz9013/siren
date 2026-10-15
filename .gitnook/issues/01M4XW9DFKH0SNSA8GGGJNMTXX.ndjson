@@ -4,3 +4,4 @@
 {"id":"01M4Z7TTP5XCPK5NBDXX7QFW7P","t":4,"a":"83a1","op":"comment","body":"由 board mermaid-parity-comments-lanes（spec 01M4Z7TQHTBRTX8T0ZV2M4QGE9）接手處理。"}
 {"id":"01M4ZNMJD2TW0WHEHZ0RE0ZG63","t":5,"a":"83a1","op":"comment","body":"已由 board mermaid-parity-comments-lanes 完成（spec 01M4Z7TQH），關閉。"}
 {"id":"01M4ZNMJKM6HDHZCHFRAHH5XVM","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4ZNP1QQECNEPPD3JCZRWDSS","t":7,"a":"83a1","op":"set","k":"archived","v":true}

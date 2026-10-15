@@ -5,3 +5,4 @@
 {"id":"01M4ZK0CS7EG89QHPT3WYFWEJV","t":5,"a":"83a1","op":"set","k":"status","v":"review"}
 {"id":"01M4ZK3YNFRCSDR2Q1FSW5YE58","t":6,"a":"83a1","op":"comment","body":"T4 review 完成（standards／spec 兩軸，皆無 blocker）。追加 commit：ER 被拒行對區塊的影響改為具名 union、位置計算合一、避免用語改寫。範圍外發現另開 backlog：01M4ZJZ39（T9，ER 引號字串含單一 %）、01M4ZJZ3F（T10，既有診斷訊息提到 Mermaid）。"}
 {"id":"01M4ZK3YVWV42YK3PX42TQ5NA1","t":7,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4ZNP0Y0QSPA4P7DWS9A75JM","t":8,"a":"83a1","op":"set","k":"archived","v":true}
