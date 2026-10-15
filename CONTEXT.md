@@ -451,8 +451,8 @@ browser does not show (`title`, `template`, a closed `dialog`, `datalist`, `rp`,
 everything after it. The 21 **refused** tags — `table`, `ruby` and `rt`, the 16 embedded, form,
 media and interactive ones, and `svg` and `math`, which DOMPurify's SVG and MathML profiles keep —
 and an open `dialog` are an error-severity diagnostic at the label's first one, saying what kind of
-HTML SVG text does not draw; `<img>`'s points at the image shape, `A@{ img: "…" }`. One per
-label, because the first already refuses the document. The 34 **block** tags (`p`, `div`,
+HTML SVG text does not draw; `<img>`'s asks for the image to be described in the label's text.
+One per label, because the first already refuses the document. The 34 **block** tags (`p`, `div`,
 `h1`–`h6`, `pre`, `ul`, `ol`, `li`, `hr`, `marquee` and the rest) are the one approximation: each
 begins and ends a row, block edges that meet end it once (no empty row between blocks or at either
 end of the label), a block keeps its font (a heading bold and sized, `pre` monospace with its spaces
