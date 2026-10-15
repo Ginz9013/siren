@@ -566,9 +566,11 @@ export function parseClassDiagram(source: string): DiagramParseResult {
    * The `}`s written after a block's own `}` on its line, each closing one
    * of the namespaces around it in turn — `class A {` ⏎ `+x }}` closes A,
    * then its namespace, as Mermaid 12.2.0 reads it (measured). Each
-   * namespace the block stands in takes one as it returns.
+   * namespace the block stands in takes one as it returns, and the one
+   * taking the last refuses the text after them (`after`, starting at
+   * `line`:`column`) as text after its own `}`.
    */
-  let pendingNamespaceCloses = 0;
+  let pendingNamespaceCloses: { count: number; after: string; line: number; column: number } | null = null;
   let accTitle: string | null = null;
   let accDescr: string | null = null;
   /**
@@ -706,6 +708,37 @@ export function parseClassDiagram(source: string): DiagramParseResult {
   };
 
   /**
+   * Reads `after`, the text after the `}` closing `owner` `id`'s block on
+   * its line, starting at `line`:`column`. The `}`s it opens with, up to
+   * one for each of the `enclosing` namespaces around that block, close
+   * those namespaces (`pendingNamespaceCloses`), and what follows them is
+   * refused by the outermost one closed; with no such `}`, all of `after`
+   * is refused here as the block's own (`refuseTextAfterBrace`).
+   */
+  const readAfterClosingBrace = (
+    owner: "class" | "namespace",
+    id: string,
+    after: string,
+    enclosing: number,
+    line: number,
+    column: number,
+  ): void => {
+    let consumed = 0;
+    let count = 0;
+    while (count < enclosing) {
+      const brace = /^\s*\}/.exec(after.slice(consumed));
+      if (brace === null) break;
+      consumed += brace[0].length;
+      count++;
+    }
+    if (count === 0) {
+      refuseTextAfterBrace(owner, id, after, line, column);
+      return;
+    }
+    pendingNamespaceCloses = { count, after: after.slice(consumed), line, column: column + consumed };
+  };
+
+  /**
    * Refuses what follows the `}` closing `owner` `id`'s block on its line —
    * `after`, starting at `line`:`column` — unless it is only whitespace.
    * Mermaid 12.2.0 refuses a statement there ("… got 'ALPHA'"), a second
@@ -714,19 +747,6 @@ export function parseClassDiagram(source: string): DiagramParseResult {
    * `%%`, as everywhere a mid-line one is refused, anything else at the text.
    * A namespace's `}` is measured the same way.
    */
-  /**
-   * Whether `after`, the text after a block's `}` on its line, is only `}`s
-   * — no more than the `enclosing` namespaces around that block — which
-   * then close those namespaces (`pendingNamespaceCloses`) rather than
-   * being refused as text after the `}`.
-   */
-  const closesEnclosingNamespaces = (after: string, enclosing: number): boolean => {
-    const text = after.replace(/\s/g, "");
-    if (text.length === 0 || /[^}]/.test(text) || text.length > enclosing) return false;
-    pendingNamespaceCloses = text.length;
-    return true;
-  };
-
   const refuseTextAfterBrace = (
     owner: "class" | "namespace",
     id: string,
@@ -840,16 +860,25 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         const holdsStatement = lines[index].trim().length > 0;
         heldStatement ||= holdsStatement;
         const lastIndex = holdsStatement ? parseStatement(index, classIds) : index;
-        if (pendingNamespaceCloses > 0) {
-          pendingNamespaceCloses--;
+        if (pendingNamespaceCloses !== null) {
+          const pending = pendingNamespaceCloses;
+          pending.count--;
+          if (pending.count === 0) {
+            pendingNamespaceCloses = null;
+            refuseTextAfterBrace("namespace", namespaceOpenMatch[1], pending.after, pending.line, pending.column);
+          }
           closed = true;
           return lastIndex;
         }
         if (brace === -1) return lastIndex;
-        const after = text.slice(brace + 1);
-        if (!closesEnclosingNamespaces(after, namespaceDepth - 1)) {
-          refuseTextAfterBrace("namespace", namespaceOpenMatch[1], after, index + 1, offset + brace + 2);
-        }
+        readAfterClosingBrace(
+          "namespace",
+          namespaceOpenMatch[1],
+          text.slice(brace + 1),
+          namespaceDepth - 1,
+          index + 1,
+          offset + brace + 2,
+        );
         closed = true;
         return index;
       };
@@ -1176,7 +1205,12 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         // refused even where Siren could read the text as one member, and
         // the error says how to write two (ADR-0001). Inside `(…)` or `~…~`
         // it is what was written: `+foo(a; b)` keeps the parameters `a; b`.
-        const separated = /;/.test(text.replace(/\([^)]*\)|~[^~]*~/g, ""))
+        // A `;` ending the member separates nothing: `+int x;` is one
+        // attribute to Mermaid as written, refused only as unrecognized.
+        const separated = text
+          .replace(/\([^)]*\)|~[^~]*~/g, "")
+          .replace(/;\s*$/, "")
+          .includes(";")
           ? '. A ";" does not separate members: write each member on a line of its own.'
           : "";
         const member = separated === "" ? parseMember(text, memberLine, memberColumn) : null;
@@ -1201,9 +1235,14 @@ export function parseClassDiagram(source: string): DiagramParseResult {
 
       // A block closed on its own opening line consumes no line after it.
       if (blockOpenMatch[6] !== undefined) {
-        if (!closesEnclosingNamespaces(blockOpenMatch[6], namespaceDepth)) {
-          refuseTextAfterBrace("class", blockOpenMatch[1], blockOpenMatch[6], lineNumber, column + blockOpenMatch.indices![6]![0]);
-        }
+        readAfterClosingBrace(
+          "class",
+          blockOpenMatch[1],
+          blockOpenMatch[6],
+          namespaceDepth,
+          lineNumber,
+          column + blockOpenMatch.indices![6]![0],
+        );
         closed = true;
         bodyIndex = startIndex;
       }
@@ -1223,10 +1262,14 @@ export function parseClassDiagram(source: string): DiagramParseResult {
           if (member.length > 0) {
             readMemberLine(member, bodyIndex + 1, bodyColumn);
           }
-          const after = bodyLine.slice(brace + 1);
-          if (!closesEnclosingNamespaces(after, namespaceDepth)) {
-            refuseTextAfterBrace("class", blockOpenMatch[1], after, bodyIndex + 1, bodyColumn + brace + 1);
-          }
+          readAfterClosingBrace(
+            "class",
+            blockOpenMatch[1],
+            bodyLine.slice(brace + 1),
+            namespaceDepth,
+            bodyIndex + 1,
+            bodyColumn + brace + 1,
+          );
           closed = true;
           break;
         }

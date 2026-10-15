@@ -1594,6 +1594,25 @@ describe("parseClassDiagram — a class block closed on a member's line", () => 
     }
   });
 
+  it("does not call a `;` ending a member a separator: only one with a member after it", () => {
+    // Measured: Mermaid draws `+int x;` as the one attribute `+int x;`, a
+    // single member as written. Siren cannot read a name ending in `;` and
+    // has refused it since before T4, but nothing follows the `;`, so the
+    // error says only that it is unrecognized.
+    for (const [body, line] of [
+      ["  class A {\n    +int x;\n  }", 3],
+      ["  class A { +int x; }", 2],
+      ["  class A { +int x;   }", 2],
+    ] as const) {
+      const source = `classDiagram\n${body}`;
+      const column = source.split("\n")[line - 1]!.indexOf("+") + 1;
+      expect([body, parseClassDiagram(source).diagnostics]).toEqual([
+        body,
+        [{ severity: "error", message: 'Unrecognized class member: "+int x;"', line, column }],
+      ]);
+    }
+  });
+
   it("still reads a `;` inside a method's parentheses or a `~generic~`", () => {
     // Measured: Mermaid reads `+foo(a; b)` as the method foo with the
     // parameters `a; b`, and `List~int; x~ y` as the attribute
@@ -1724,6 +1743,38 @@ describe("parseClassDiagram — a namespace block written on one line", () => {
     for (const body of ["  namespace N { class A } %% c", "  namespace N { class A { +x } } %% c"]) {
       expect([body, refused(body)]).toEqual([body, [{ severity: "error", message: notAComment, line: 2, column: body.indexOf("%%") + 1 }]]);
     }
+  });
+
+  it("refuses text after the `}`s closing a block and its namespace, as after the namespace's `}`", () => {
+    // Measured: `class A {` ⏎ `+x` ⏎ `}} class B` is "… got 'ALPHA'",
+    // `}} %% c` "… got 'PCT'" and `+x }}}` a lexical error — each the
+    // one-line namespace's refusal, so each is one error after N's `}`.
+    const textAfter = (text: string) =>
+      `Unexpected text after the "}" that closes namespace "N": "${text}". ` +
+      "Remove it, or start the next statement on a line of its own.";
+    const notAComment =
+      'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+      "If it is a comment, move it to a line of its own.";
+    for (const [body, line, text, message] of [
+      ["  namespace N { class A {\n    +x\n  }} class B", 4, "class B", textAfter("class B")],
+      ["  namespace N { class A {\n    +x }}}", 3, "}", textAfter("}")],
+      ["  namespace N { class A {\n    +x\n  }} %% c", 4, "%%", notAComment],
+    ] as const) {
+      const column = `classDiagram\n${body}`.split("\n")[line - 1]!.lastIndexOf(text) + 1;
+      expect([body, refused(body)]).toEqual([body, [{ severity: "error", message, line, column }]]);
+    }
+  });
+
+  it("refuses a `%%` after the namespace's `{`, at the `%%`", () => {
+    // Measured: `namespace N { %% x` is "… got 'PCT'": no comment there, so
+    // the line opens no namespace for its text to be read in (the
+    // lookahead in `NAMESPACE_OPEN_RE`) and is refused at the `%%`.
+    const notAComment =
+      'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+      "If it is a comment, move it to a line of its own.";
+    expect(refused("  namespace N { %% x\n    class A\n  }")).toEqual([
+      { severity: "error", message: notAComment, line: 2, column: 17 },
+    ]);
   });
 
   it("refuses an empty namespace, on one line or two", () => {

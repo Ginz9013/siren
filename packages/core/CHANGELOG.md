@@ -58,6 +58,9 @@ is drawn with a closing box instead of an X mark, the `siren-destroy-mark` path 
 Breaking for a class document with a `;` between two members of a class block where the text
 reads as one member (`+int x; y`, `+foo(); +bar()`), which is now refused (see **Changed**).
 
+Breaking for a class document with an empty namespace (`namespace N {` and `}` with nothing
+between), which is now refused (see **Changed**).
+
 ### Added
 
 - A flowchart subgraph title of several words is read as Mermaid 12.2.0 reads it (nook
@@ -146,10 +149,10 @@ reads as one member (`+int x; y`, `+foo(); +bar()`), which is now refused (see *
 
 - A namespace block may open and close on one line — `namespace N { class A }`, with a class block
   inside (`namespace N { class A { +x } }`) or nested (`namespace N { namespace M { class A } }`,
-  though an outer namespace holding only namespaces still draws no frame of its own) — and its `}` may end its last statement's line (`class B }`), as Mermaid 12.2.0 reads each
-  (nook `01M4ZY2DA1`). Such a namespace used to be refused as an unrecognized line. Text after its
-  `}` on its line is refused as Mermaid refuses it, the error saying to move it to a line of its
-  own.
+  though an outer namespace holding only namespaces still draws no frame of its own) — and its `}`
+  may end its last statement's line (`class B }`), as Mermaid 12.2.0 reads each (nook
+  `01M4ZY2DA1`). Such a namespace used to be refused as an unrecognized line. Text after its `}`
+  on its line is refused as Mermaid refuses it, the error saying to move it to a line of its own.
 
 ### Changed
 
@@ -394,10 +397,10 @@ reads as one member (`+int x; y`, `+foo(); +bar()`), which is now refused (see *
 
 - A `;` between members in a class block (`+int x; +foo()`, `+foo(); +bar()`, `+int x; y`) is now
   refused saying that a `;` does not separate members and to write each on a line of its own;
-  Mermaid 12.2.0 draws such text as one member (nook `01M4ZWT8XF`). Where Siren could read the text
-  as one member — `+int x; y`, `+int x; int y`, `+foo(); +bar()` — it used to draw that one member,
-  as Mermaid does, and now refuses it. A `;` inside a method's parentheses (`+foo(a; b)`) or a
-  `~generic~` is kept as written.
+  Mermaid 12.2.0 draws such text as one member (nook `01M4ZWT8XF`). Where Siren could read the
+  text as one member — `+int x; y`, `+int x; int y`, `+foo(); +bar()` — it used to draw that one
+  member, as Mermaid does, and now refuses it. A `;` inside a method's parentheses (`+foo(a; b)`)
+  or a `~generic~` is kept as written.
 
 - An empty namespace (`namespace N {` and `}` with nothing between) is now refused, saying to add a
   class to it or remove it, as Mermaid 12.2.0 refuses it (nook `01M4ZY2DA1`). It used to be
