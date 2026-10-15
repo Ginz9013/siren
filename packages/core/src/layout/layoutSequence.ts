@@ -246,12 +246,20 @@ function closeActivation(
 }
 
 /**
- * How far from its lane an arrow meeting a created or destroyed
- * participant's box stops: the box's near edge, or for an actor its
- * figure's near arm tip, whatever its label.
+ * Stops the end of `message` that meets a created or destroyed
+ * participant's box at that box's near edge, or for an actor at its
+ * figure's near arm tip, whatever its label — the tip when the participant
+ * receives the message, the tail when it sends it. A message the
+ * participant sends itself loops out from its lane and is left as it is.
  */
-function nearEdgeOffset(participant: PositionedParticipant): number {
-  return participant.participantKind === "actor" ? ACTOR_FIGURE_HALF_WIDTH : participant.width / 2;
+function stopAtNearEdge(message: PositionedMessage, participant: PositionedParticipant): void {
+  if (message.from === message.to) return;
+  const halfWidth = participant.participantKind === "actor" ? ACTOR_FIGURE_HALF_WIDTH : participant.width / 2;
+  if (participant.id === message.to) {
+    message.toX += message.toX > message.fromX ? -halfWidth : halfWidth;
+  } else {
+    message.fromX += message.fromX < message.toX ? halfWidth : -halfWidth;
+  }
 }
 
 /**
@@ -469,14 +477,7 @@ function layoutStatements(
       const destroyedId = statement.message.destroys;
       const destroyed = destroyedId === undefined ? undefined : ctx.participantsById.get(destroyedId);
       if (destroyed !== undefined) {
-        if (message.from !== message.to) {
-          const halfWidth = nearEdgeOffset(destroyed);
-          if (destroyed.id === message.to) {
-            message.toX += message.toX > message.fromX ? -halfWidth : halfWidth;
-          } else {
-            message.fromX += message.fromX < message.toX ? halfWidth : -halfWidth;
-          }
-        }
+        stopAtNearEdge(message, destroyed);
         ctx.destroyedBottomById.set(destroyed.id, y + destroyed.height / 2);
         y += destroyed.height / 2;
       }
@@ -498,10 +499,7 @@ function layoutStatements(
       const createdId = statement.message.creates;
       const created = createdId === undefined ? undefined : ctx.participantsById.get(createdId);
       if (created === undefined) continue;
-      if (message.from !== message.to) {
-        const halfWidth = nearEdgeOffset(created);
-        message.toX += message.toX > message.fromX ? -halfWidth : halfWidth;
-      }
+      stopAtNearEdge(message, created);
       ctx.createdTopById.set(created.id, y - created.height / 2);
       y += created.height / 2;
       continue;

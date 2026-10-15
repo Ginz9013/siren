@@ -367,9 +367,9 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
   // A timeline target is a participant, a message, a control-flow block, a
   // box grouping, a note or an activation bar — exactly the six things
   // `renderSequenceToSVG` stamps `data-siren-id` on, and so exactly the
-  // things an author can see and might want to animate. A destroy mark is not
-  // a seventh: it carries its participant's id, so it moves with the
-  // participant (ADR-0009).
+  // things an author can see and might want to animate. A destroyed
+  // participant's closing box is not a seventh: it carries its participant's
+  // id, so it moves with the participant (ADR-0009).
   //
   // The rules themselves live in `resolveTimeline`, shared with the
   // flowchart and class models. Nothing about dropping an unknown id or
@@ -615,7 +615,7 @@ function resolveStatements(
 
       // A message can still name a participant whose lifeline has already
       // been `destroy`ed — the id resolves, but the arrow would touch empty
-      // space below the destroy mark. Advisory only, exactly like
+      // space below its closing box. Advisory only, exactly like
       // flowchart's "edge outlives its endpoint" warning: the message is
       // kept, since nothing else can be inferred about what the author
       // meant. The walk is in document order, so any non-null `destroyedAt`
@@ -691,7 +691,8 @@ function resolveStatements(
           severity: "warning",
           message:
             `Message "${id}" references participant "${referencedId}", whose lifeline ` +
-            `already ended — the arrow points past the destroy mark`,
+            `already ended at its closing box — the arrow points into empty space below it; ` +
+            `move the message above "destroy ${referencedId}", or remove it`,
           line: statement.line,
           column: statement.column,
         });

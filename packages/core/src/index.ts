@@ -497,10 +497,11 @@ export function render(
     const sequenceSvg = renderSequenceToSVG(positionedSequence);
 
     // A sequence diagram animates on the same terms as the other two kinds:
-    // its participants, lifelines, destroy marks, messages, control-flow
-    // blocks and box groupings all carry `data-siren-id`, and the controller drives every
+    // its participants, lifelines, messages, control-flow blocks and box
+    // groupings all carry `data-siren-id`, and the controller drives every
     // element wearing a named id (ADR-0009) — so a participant's two boxes
-    // and its lifeline move together under one timeline entry.
+    // (its top and bottom ones, or its top one and its closing box) and its
+    // lifeline move together under one timeline entry.
     const sequenceController = mountAtStepZero(container, sequenceSvg, graphResult.model, options);
 
     return { svg: sequenceSvg, controller: sequenceController, diagnostics, timelines };

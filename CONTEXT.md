@@ -749,7 +749,8 @@ under its participant's id rather than one of its own), axis
 **Participant row**:
 The horizontal band at the top of a sequence diagram holding every participant's box or icon, and
 its mirror at the bottom. A preamble-declared, never-destroyed participant appears in both rows; a
-`create`d or destroyed one appears once.
+`create`d one appears once, in the bottom row; a destroyed one appears once, in the top row, and
+again as its closing box at its destroying message (one both `create`d and destroyed, in neither).
 _Avoid_: header, top box (ambiguous with a box grouping)
 
 **Message**:

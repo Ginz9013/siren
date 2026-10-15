@@ -1447,9 +1447,10 @@
  * The sequence diagram's own `outline` rules. A participant is one target
  * drawn several times under one id (ADR-0009) — a box or actor figure at each
  * end of the lifeline (a participant row, or a destroyed one's closing box)
- * and the lifeline itself — so every one of them is outlined together. The row's shapes carry no class of their own, which
- * is why they are selected by element inside `.siren-participant`. The
- * lifeline keeps its dash: only its color and width change.
+ * and the lifeline itself — so every one of them is outlined together. The
+ * row's shapes carry no class of their own, which is why they are selected
+ * by element inside `.siren-participant`. The lifeline keeps its dash: only
+ * its color and width change.
  *
  * A message outlines its line and not its arrowhead: the markers live in
  * `<defs>`, shared by every message, where the highlight class on one

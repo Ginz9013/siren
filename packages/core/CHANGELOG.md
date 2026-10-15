@@ -269,9 +269,9 @@ is drawn with a closing box instead of an X mark, the `siren-destroy-mark` path 
   Mermaid 12.2.0 refuses it. As with Siren's other sequence errors, the diagram is still drawn
   beside the error, with X's box where `create` is written.
 - **A sequence `destroy X` ends X's lifeline at its destroying message**: the message right after
-  it, which X must send or receive (nook `01M4YS7DDX`). X's lifeline and X mark now sit on that
-  message's row, on the arrow's tip when X receives it and on its tail when X sends it, and
-  `destroy` no longer takes a row of its own. That message is no longer warned about as reaching
+  it, which X must send or receive (nook `01M4YS7DDX`). X's lifeline now ends on that message's
+  row, at X's closing box (see the closing-box entry below), and `destroy` no longer takes a row of
+  its own. That message is no longer warned about as reaching
   past the end of X's lifeline; a later message naming X still is. Measured against Mermaid 12.2.0,
   which reads `destroy X` the same way and ends X's lifeline on that message's row. Nothing may
   stand between the two: a note, an activation or a block boundary in between is refused (see
@@ -361,7 +361,6 @@ is drawn with a closing box instead of an X mark, the `siren-destroy-mark` path 
 - A class member with a `;` that Siren cannot read (`+int x; +foo()`) is now refused saying that a
   `;` does not separate members and to write each on a line of its own; Mermaid 12.2.0 draws such
   text as one member (nook `01M4ZWT8XF`).
-
 - **A destroyed sequence participant ends with a closing box, not an X mark** (Breaking; nook
   decision `01M4ZXTTY3`, superseding the X-mark convention of the sequence-create-destroy board).
   As in Mermaid 12.2.0, `destroy X` draws X's box (or actor figure) a second time, centred on its

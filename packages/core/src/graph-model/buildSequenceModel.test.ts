@@ -1553,7 +1553,7 @@ describe("buildSequenceModel", () => {
 
       expect(result.destroyedAt).toEqual({ A: null, B: 4 });
       expect(result.diagnostics).toEqual([
-        'warning 6:1: Message "A-B" references participant "B", whose lifeline already ended — the arrow points past the destroy mark',
+        'warning 6:1: Message "A-B" references participant "B", whose lifeline already ended at its closing box — the arrow points into empty space below it; move the message above "destroy B", or remove it',
       ]);
     });
 
@@ -1647,13 +1647,13 @@ describe("buildSequenceModel", () => {
       expect(result.diagnostics).toEqual([
         'error 4:1: The created participant "C" has no creating message: the message sent to it must come right after the create, with no "destroy" in between.',
         'error 5:1: The destroyed participant "B" has no destroying message: the next message must be sent by or to it.',
-        'warning 7:1: Message "B-A" references participant "B", whose lifeline already ended — the arrow points past the destroy mark',
+        'warning 7:1: Message "B-A" references participant "B", whose lifeline already ended at its closing box — the arrow points into empty space below it; move the message above "destroy B", or remove it',
       ]);
       expect(result.createdAt).toEqual({ A: 0, B: 0, C: 3 });
       expect(result.destroyedAt).toEqual({ A: null, B: 4, C: null });
     });
 
-    it("does not warn that a message ends past B's destroy mark when it is B's own destroying message, after an interrupted `create`", () => {
+    it("does not warn that a message ends past B's closing box when it is B's own destroying message, after an interrupted `create`", () => {
       // `create C`, `destroy B`, `B->>C`: C's `create` is refused, and
       // `B->>C` is B's destroying message — not a message past B's end.
       // Positions: 1–2 participants, 3 create C, 4 destroy B, 5 B->>C.
@@ -1673,7 +1673,7 @@ describe("buildSequenceModel", () => {
       const destroyed = build("participant A\nparticipant B\ndestroy B\nNote over A: aside\nA->>B: bye");
       expect(destroyed.diagnostics).toEqual([
         'error 4:1: The destroyed participant "B" has no destroying message: the message sent by or to it must come right after the destroy, with no "note" in between.',
-        'warning 6:1: Message "A-B" references participant "B", whose lifeline already ended — the arrow points past the destroy mark',
+        'warning 6:1: Message "A-B" references participant "B", whose lifeline already ended at its closing box — the arrow points into empty space below it; move the message above "destroy B", or remove it',
       ]);
       expect(destroyed.destroyedAt).toEqual({ A: null, B: 3 });
 
@@ -1692,7 +1692,7 @@ describe("buildSequenceModel", () => {
       const activated = build("participant A\nparticipant B\ndestroy B\nactivate A\nB->>A: bye\ndeactivate A");
       expect(activated.diagnostics).toEqual([
         'error 4:1: The destroyed participant "B" has no destroying message: the message sent by or to it must come right after the destroy, with no "activate" in between.',
-        'warning 6:1: Message "B-A" references participant "B", whose lifeline already ended — the arrow points past the destroy mark',
+        'warning 6:1: Message "B-A" references participant "B", whose lifeline already ended at its closing box — the arrow points into empty space below it; move the message above "destroy B", or remove it',
       ]);
 
       const deactivated = build("participant A\nactivate A\nA->>A: think\ncreate participant C\ndeactivate A\nA->>C: make");

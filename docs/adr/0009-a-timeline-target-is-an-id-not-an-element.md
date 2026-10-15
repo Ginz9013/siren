@@ -4,6 +4,9 @@ status: accepted
 
 # A timeline target is an id, and it reaches every element carrying that id
 
+> Amended by decision `01M4ZXTTY3`: a destroyed participant's X mark is now a closing box, its
+> box drawn a second time at its destroying message, carrying the same `data-siren-id`.
+
 `createAnimationController` resolved a timeline target with
 `svg.querySelector('[data-siren-id="..."]')` — the first match in document order. That was never a
 decision. It was correct by accident, because every diagram kind that animates so far draws

@@ -1245,7 +1245,7 @@ export interface PositionedBox {
 
 /**
  * The sequence diagram after layout: positioned participants, messages,
- * control-flow blocks, box groupings and destroy marks, ready for
+ * control-flow blocks and box groupings, ready for
  * `renderSequenceToSVG`. No timeline: `render()` takes it from the model.
  */
 export interface PositionedSequenceDiagram {
@@ -1256,7 +1256,7 @@ export interface PositionedSequenceDiagram {
   accDescr: string | null;
   participants: PositionedParticipant[];
   boxes: PositionedBox[];
-  /** Messages, blocks, and destroy marks, in document order. */
+  /** Messages, blocks and notes, in document order. */
   elements: PositionedSequenceElement[];
   /** Every activation bar, independent of block nesting — see `PositionedActivation`. */
   activations: PositionedActivation[];

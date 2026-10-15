@@ -2754,7 +2754,7 @@ timeline:
 
     // Everything with an `enter` starts hidden. `Retry` is listed three times
     // because a created-then-destroyed participant is drawn three times under
-    // one id — top-row box, lifeline, destroy mark — and all three are driven
+    // one id — top box, lifeline, closing box — and all three are driven
     // by its single timeline entry (ADR-0009).
     expect(pendingIds()).toEqual([
       "Retry",

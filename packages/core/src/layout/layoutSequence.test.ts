@@ -963,8 +963,8 @@ describe("layoutSequence", () => {
     // destroyed participant's lifeline ends on the destroying message's own
     // row — Mermaid centres X's closing box on that arrow — and the arrow is
     // drawn exactly as tall a row as any other message; `destroy` claims no
-    // row of its own. Siren marks the end with its X, so the X sits on the
-    // arrow's end at X's lane: its tip when X receives, its tail when X sends.
+    // row of its own. Siren draws that closing box too, centred on the
+    // arrow whether X receives it or sends it.
     function destroyedBy(from: string, to: string): SequenceModel {
       // `buildSequenceModel` marks the destroying message with the id it
       // destroys; that mark is the pairing layout reads.
@@ -1076,6 +1076,54 @@ describe("layoutSequence", () => {
       expect(positioned.height - plain.height).toBe(half);
       // The next row starts below the closing box.
       expect(byId.B!.bottom).toBeLessThan(ok!.y);
+    });
+
+    it("draws X's closing box inside a `loop` it is destroyed in, the loop's frame growing by half the box", () => {
+      // Measured: with `destroy B` and its destroying message inside a
+      // `loop`, Mermaid 12.2.0 draws the closing box inside the loop's frame,
+      // which grows 38 taller (76px boxes) than with no `destroy`.
+      const inLoop = (model: SequenceModel): SequenceModel => ({
+        ...model,
+        statements: [
+          {
+            kind: "block",
+            block: {
+              id: "loop:1",
+              kind: "loop",
+              touchedParticipantIds: ["A", "B"],
+              color: null,
+              branches: [{ label: plainLabel("each"), statements: model.statements }],
+            },
+          },
+        ],
+      });
+      const plainModel = destroyedBy("A", "B");
+      plainModel.participants = [declaredParticipant("A", "Alice"), declaredParticipant("B", "Bob")];
+      plainModel.statements = [
+        messageStatement("m1", "A", "B", "hi"),
+        messageStatement("m2", "A", "B", "bye"),
+        messageStatement("m3", "A", "A", "ok"),
+      ];
+      const loopOf = (positioned: { elements: PositionedSequenceElement[] }) => {
+        const el = positioned.elements[0]!;
+        if (el.kind !== "block") throw new Error("expected the loop block");
+        return el.block;
+      };
+
+      const positioned = layoutSequence(inLoop(destroyedBy("A", "B")), { measureText: fakeMeasurer });
+      const plain = layoutSequence(inLoop(plainModel), { measureText: fakeMeasurer });
+
+      const loop = loopOf(positioned);
+      const b = positioned.participants.find((p) => p.id === "B")!;
+      const closingTop = b.bottom - b.height;
+      expect(closingTop).toBeGreaterThan(loop.y);
+      expect(b.bottom).toBeLessThan(loop.y + loop.height);
+      expect(b.x - b.width / 2).toBeGreaterThanOrEqual(loop.x);
+      expect(b.x + b.width / 2).toBeLessThanOrEqual(loop.x + loop.width);
+
+      const plainLoop = loopOf(plain);
+      expect(loop.y).toBe(plainLoop.y);
+      expect(loop.height - plainLoop.height).toBe(b.height / 2);
     });
 
     it("leaves X out of the bottom row, at top level or inside a block, and keeps every participant nothing destroys in it", () => {
