@@ -57,12 +57,14 @@ export function refusalOf({ name, rule, attributes }: StartTag, offset: number):
 /**
  * How the error-severity problem for a refused tag names its kind — a
  * plural noun, after "does not draw" — and what to write instead, when
- * Mermaid has a way.
+ * Siren draws something in its place.
  */
 const REFUSED_KINDS: Readonly<Record<RefusedKind, { phrase: string; instead?: string }>> = {
   table: { phrase: "tables" },
   ruby: { phrase: "ruby annotations" },
-  image: { phrase: "images", instead: 'Draw an image as a node with A@{ img: "…" } instead.' },
+  // Not the image shape, `A@{ img: "…" }`, which ADR-0015 named: Siren
+  // refuses `@{ … }` itself until its own board (nook 01M4ZWT8G2).
+  image: { phrase: "images", instead: "Describe the image in the label's text instead." },
   embedded: { phrase: "embedded content" },
   form: { phrase: "form controls" },
   media: { phrase: "media" },

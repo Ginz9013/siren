@@ -204,7 +204,8 @@ between), which is now refused (see **Changed**).
   says only init and wrap directives are read, wrap ones only while every wrap directive's
   arguments are valid JSON, so remove the directive or rewrite it to be read;
   an ER class-list number or reserved word says the line is refused and asks to rename the class;
-  an `<img>` in a label points at `A@{ img: "…" }` directly; a `linkStyle interpolate` curve Siren
+  an `<img>` in a label asks for the image to be described in the label's text (it used to point
+  at `A@{ img: "…" }`, which Siren refuses); a `linkStyle interpolate` curve Siren
   does not draw is now "a curve Siren does not draw yet" and lists the curves it does, and an
   unknown curve name drops "as Mermaid does". Code that matches diagnostic text exactly must be
   updated.

@@ -1020,8 +1020,9 @@ b**\`"]`,
     meaning:
       "DOMPurify keeps `<img>` with its `src` (measured against 11.17.2), and " +
       "Mermaid draws the image inside the label. Refused (ADR-0015), with a " +
-      'diagnostic pointing at the image shape, `A@{ img: "…" }`, which ' +
-      "draws an image as a node rather than inside its text.",
+      "diagnostic asking for the image to be described in the label's text " +
+      "instead; it no longer points at the image shape, `A@{ img: \"…\" }`, " +
+      "which Siren refuses too until its `@{ … }` board.",
   },
   {
     id: "label-form-control-rejected",
