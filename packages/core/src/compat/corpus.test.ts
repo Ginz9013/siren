@@ -1565,8 +1565,27 @@ const SILENTLY_WRONG = 0;
  * new beside it, `seq-comment-mid-line-text` and
  * `seq-comment-in-participant-name`, are `supported` and move nothing.
  * `silently-wrong` does not move.
+ *
+ * **17 → 21: case (2), four refusals written down for the first time.**
+ * `01M4Z7TR5R` read a mid-line `%%` in class and state diagrams as Mermaid
+ * 12.2.0 does: text where the line holds text, a comment where each lexer's
+ * own `%%` rule reads one. Two of the new rows are documents Mermaid
+ * refuses: `cls-comment-mid-document` — the class lexer's comment rule
+ * swallows the line break, so a `%%` after a relationship is a comment only
+ * on the last line and refused on any other — and
+ * `st-comment-run-into-header`, a `%%` run straight into the header. Two
+ * are documents Mermaid accepts and draws as something other than what was
+ * written, refused under ADR-0001: `cls-comment-after-annotation` (Mermaid
+ * draws a member `<> %% …` for an annotation) and `st-comment-in-class-name`
+ * (Mermaid records the class name `busy %% …`, which Siren cannot paint as
+ * Mermaid does). Siren used to cut each line at the `%%` and draw it; it
+ * refuses each now, with an error at the `%%`. No `supported` row moved: no
+ * class or state row had a mid-line `%%`. The four rows new beside them,
+ * `cls-comment-mid-line-text`, `cls-comment-last-line`,
+ * `st-comment-mid-line-text` and `st-comment-after-token`, are `supported`
+ * and move nothing. `silently-wrong` does not move.
  */
-const REJECTED = 17;
+const REJECTED = 21;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

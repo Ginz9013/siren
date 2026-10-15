@@ -4433,6 +4433,85 @@ line2\`"]`,
       expectSame("Order's members", members(result, "Order"), ["+int id"]);
     },
   },
+  {
+    id: "cls-comment-mid-line-text",
+    kind: "class",
+    source: `classDiagram
+      class Order {
+        +int total %% in cents
+      }
+      Order --> Line : holds %% one or more
+      note for Order "paid %% or not"`,
+    status: "supported",
+    meaning:
+      "A `%%` in a member, a relationship's label or a note's text is text, " +
+      "not a comment: Mermaid 12.2.0's `cleanupComments` removes whole-line " +
+      "comments only, and the class grammar reads each of these to the " +
+      "line's end or the closing quote, `%%` included (measured: the member " +
+      "`+int total %% in cents`, the label `holds %% one or more`, the note " +
+      "`paid %% or not`). Siren used to cut each line at its first `%%`.",
+    assert: (result) => {
+      expectSame("Order's members", members(result, "Order"), ["+int total %% in cents"]);
+      expectSame("relationship label", texts(result, "text.siren-relationship-label"), ["holds %% one or more"]);
+      expectSame("note text", texts(result, "text.siren-note-text"), ["paid %% or not"]);
+    },
+  },
+  {
+    id: "cls-comment-last-line",
+    kind: "class",
+    source: `classDiagram
+      direction LR %% left to right
+      Animal <|-- Duck %% the last line`,
+    status: "supported",
+    meaning:
+      "The class lexer reads a `%%` as a comment where a token ends, and " +
+      "its rule swallows the line break after it. After `direction` that " +
+      "costs nothing; after a relationship the next line would run on into " +
+      "it, so the comment holds only on the document's last line, as here. " +
+      "Measured on Mermaid 12.2.0: drawn left to right, `Duck` inheriting " +
+      "from `Animal`, no trace of either comment.",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Animal", "Duck"]);
+      expectSame("relationships", relationships(result).length, 1);
+      expectSame("Duck right of Animal", classBox(result, "Duck").x > classBox(result, "Animal").x, true);
+      expectSame("no comment drawn", texts(result, "text").some((text) => text.includes("%%")), false);
+    },
+  },
+  {
+    id: "cls-comment-mid-document",
+    kind: "class",
+    source: `classDiagram
+      Animal <|-- Duck %% ducks are animals
+      Animal <|-- Fish`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** The class " +
+      "lexer's `%%` rules swallow the line break after the comment, so " +
+      "`Animal <|-- Fish` runs on into the first relationship and Mermaid " +
+      "12.2.0 refuses the document (\"Expecting 'NEWLINE', 'EOF', 'LABEL', " +
+      "got 'EXTENSION'\", measured). Siren refuses it too (ADR-0017), with an error at the `%%` " +
+      "saying a mid-line `%%` is not a comment and, if it is one, to move it " +
+      "to a line of its own. Siren used to cut the line at the `%%`. A " +
+      "comment on its own line renders in both.",
+  },
+  {
+    id: "cls-comment-after-annotation",
+    kind: "class",
+    source: `classDiagram
+      class Shape {
+        <<interface>> %% drawn as a member
+        +area() double
+      }`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** Inside a " +
+      "class block, `<<interface>> %% …` is no annotation to Mermaid 12.2.0 " +
+      "but a member, drawn `<> %% drawn as a member` with the " +
+      "`<interface>` stripped as a tag (measured) — neither the annotation " +
+      "nor the text, with no diagnostic. Siren refuses it (ADR-0001), with " +
+      "an error at the `%%`. Siren used to cut the line and draw the " +
+      "annotation. The comment on its own line renders in both.",
+  },
   // -------------------------------------------------------------------------
   // sequenceDiagram
   // -------------------------------------------------------------------------
@@ -7563,6 +7642,78 @@ line2\`"]`,
       const transition = svgOf(result).querySelector("text.siren-transition-label");
       expectSame("the transition's runs", labelRuns(transition, "style"), ["u[style=fill: blue]"]);
     },
+  },
+  {
+    id: "st-comment-mid-line-text",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Busy : start %% by hand
+      Busy : working %% hard`,
+    status: "supported",
+    meaning:
+      "A `%%` in a transition's label or a state's description is text, not " +
+      "a comment: Mermaid 12.2.0's `cleanupComments` removes whole-line " +
+      "comments only, and the state lexer's text rules read on past a `%%` " +
+      "(measured: the label `start %% by hand`, the description " +
+      "`working %% hard`). Siren used to cut each line at its first `%%`.",
+    assert: (result) => {
+      expectSame("transitions", transitions(result), ["Idle-Busy: start %% by hand"]);
+      expectSame("Busy's rows", stateRows(result, "Busy"), ["working %% hard"]);
+    },
+  },
+  {
+    id: "st-comment-after-token",
+    kind: "state",
+    source: `stateDiagram-v2 %% the lifecycle
+      [*] --> Idle %% where it starts
+      state Busy { %% the busy part
+        Working
+      } %% done
+      Idle --> Busy`,
+    status: "supported",
+    meaning:
+      "The state lexer has a `%%` rule of its own, `%%(?!\\{)[^\\n]*`, " +
+      "that reads a comment wherever a token ends — after the header, a " +
+      "transition, a composite's `{` and `}` — and leaves the line break " +
+      "alone, so it holds on any line. Measured on Mermaid 12.2.0: drawn " +
+      "exactly as the document without the four comments.",
+    assert: (result) => {
+      expectSame("transitions", transitions(result), ["start:1-Idle: ", "Idle-Busy: "]);
+      expectSame("no comment drawn", texts(result, "text").some((text) => text.includes("%%")), false);
+    },
+  },
+  {
+    id: "st-comment-run-into-header",
+    kind: "state",
+    source: `stateDiagram-v2%% the lifecycle
+      Idle --> Busy`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** Run straight " +
+      "into the header, a `%%` is no comment: Mermaid 12.2.0 refuses the " +
+      "document (\"Expecting 'SPACE', 'NL', 'SD', got 'ID'\", measured). " +
+      "Siren refuses it too (ADR-0017), with an error at the `%%`. Siren " +
+      "used to cut the line at the `%%`. A space before the `%%` makes it a " +
+      "comment in both.",
+  },
+  {
+    id: "st-comment-in-class-name",
+    kind: "state",
+    source: `stateDiagram-v2
+      classDef busy fill:#f96
+      Idle --> Busy
+      class Busy busy %% while working`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something Siren cannot.** The " +
+      "state lexer reads a `class` statement's class name to the line's end, " +
+      "so Mermaid 12.2.0 records the name `busy %% while working` " +
+      "(measured) and paints `busy` anyway, through the space-separated " +
+      "class attribute. Siren would read one class name that no `classDef` " +
+      "defines and paint nothing — a different picture with no diagnostic — " +
+      "so it refuses the `%%` (ADR-0001), with an error at it. Siren used to " +
+      "cut the line and paint `busy`. The comment on its own line renders " +
+      "in both.",
   },
   // -------------------------------------------------------------------------
   // erDiagram

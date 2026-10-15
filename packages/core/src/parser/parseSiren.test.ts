@@ -1055,7 +1055,11 @@ flowchart TD
     expect(messages[0].kind === "message" && messages[0].label.text).toBe("Sync call %% the important one");
   });
 
-  it("ignores whole-line, indented and trailing %% comments in a class diagram", () => {
+  it("ignores whole-line and indented %% comments in a class diagram, and a %% trailing its last statement", () => {
+    // Only on the last line: the class lexer's `%%` rule swallows the line
+    // break after it, so on any other line Mermaid 12.2.0 refuses the
+    // document and Siren refuses the `%%` (see parseClassDiagram.test.ts,
+    // "a `%%` in the middle of a class-diagram line").
     const source = `%% the domain, roughly
 classDiagram
     %% ducks are animals
@@ -3742,5 +3746,23 @@ describe("a `%%` in the middle of a sequence line", () => {
     expect(named("  AB%%x->>B: m")).toEqual([["AB%%x", "B"]]);
     expect(named("  note over AB%%x: n")).toEqual([["AB%%x", "AB%%x"]]);
     expect(named("  A->>B: m\n  destroy BC%%x\n  A->>BC%%x: n")).toEqual([["A", "B"], ["BC%%x"], ["A", "BC%%x"]]);
+  });
+});
+
+describe("a `%%` in the middle of a class or state line", () => {
+  it("still cuts a `%%` in a timeline block to the line's end — that block is Siren's syntax, not Mermaid's", () => {
+    // ADR-0017: the document without its timeline blocks is the Mermaid one,
+    // so a class or state diagram's reading of `%%` stops at its first
+    // timeline header, as a sequence diagram's does.
+    for (const [header, body, id] of [
+      ["classDiagram", "  Animal <|-- Duck", "Duck"],
+      ["stateDiagram-v2", "  Idle --> Busy", "Busy"],
+    ] as const) {
+      const commented = parseSiren(`${header}\n${body}\ntimeline: %% the reveal\n  enter ${id} fade %% last\n`);
+      const plain = parseSiren(`${header}\n${body}\ntimeline:\n  enter ${id} fade\n`);
+
+      expect([header, commented.diagnostics]).toEqual([header, []]);
+      expect([header, commented]).toEqual([header, plain]);
+    }
   });
 });

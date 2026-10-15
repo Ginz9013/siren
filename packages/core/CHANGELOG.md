@@ -29,6 +29,14 @@ Breaking for a sequence document with a `%%` after the participant of an `activa
 color, or right after a one-character `destroy` participant (`destroy B%%note`), on the same line,
 which is now refused (see **Changed**).
 
+Breaking for a class document with a `%%` on the same line after a relationship, a note, a
+`cssClass`, a `click`, `link` or `callback`, or a standalone annotation anywhere but its last line
+(`A <|-- B %% note` followed by another statement); after its header, a class declaration, or a
+namespace's `{` or a block's closing `}`; or after an annotation inside a class block — and for a
+state document with a `%%` run straight into its header (`stateDiagram-v2%%note`), after a
+`class` statement's class name, or after the line opening a block note. Each is now refused (see
+**Changed**).
+
 ### Added
 
 - A document may open with a Mermaid frontmatter (`---` … `---`), read as Mermaid 12.2.0 reads it,
@@ -111,7 +119,7 @@ which is now refused (see **Changed**).
   used to be ignored.
   A subgraph's bare name followed by `%%` and words (`subgraph S %% x`) is one title, "S %% x",
   with no handle, and a block's `direction LR %% x` is `direction LR`, both as Mermaid reads them.
-  Timeline blocks, and class, state and ER diagrams, still cut a line at its first `%%`.
+  Timeline blocks and ER diagrams still cut a line at its first `%%`.
   The flowchart's readers now agree on where text runs: a `;`, `&` or arrow inside an asymmetric
   node's label (`A>a;b] --> B`) or inside a quoted string outside any bracket
   (`click A "https://x.org/a;b" "t;u"`) is text, as in Mermaid 12.2.0; both used to be refused.
@@ -140,6 +148,32 @@ which is now refused (see **Changed**).
   Mermaid, and `A%%x->>B: m` draws nothing for its line). A longer name, or a `%%` after a space,
   is part of the name (`A->>BC%%x: m` is sent to "BC%%x"). Timeline blocks still cut a line at its
   first `%%`.
+
+- **A `%%` in the middle of a class or state line is no longer a comment** (nook `01M4Z7TR5R`).
+  Only a whole line is a comment, as in Mermaid 12.2.0; what a later `%%` means is each lexer's.
+  Text keeps its `%%`: in a class diagram a member or method (in a block or after `Class :`), a
+  relationship's label, a note's quoted text, a class's quoted label, a `style`/`classDef`
+  declaration list and `accTitle`/`accDescr`; in a state diagram a transition's label, a
+  description (`A : desc %% x`, `state "d %% x" as A`), a note's text on one line or in a block, a
+  `style`/`classDef` declaration list and `accTitle`/`accDescr` — each used to be cut at the `%%`.
+  What follows a class block's `{` on its line is now read as the block's first member, as Mermaid
+  reads it (`class A { %% x` has the member "%% x"; it used to be refused). A class diagram's lexer
+  reads a `%%` after `direction` as a comment, and after a relationship, a note, a `cssClass`, a
+  `click`, `link` or `callback`, or a standalone annotation as a comment that swallows the line
+  break after it, so Siren reads it as a comment only on the document's last line and otherwise
+  refuses it with an error at the `%%` saying it is not a comment and, if it is meant as one, to
+  move it to a line of its own, as Mermaid refuses the document ("Expecting 'NEWLINE', 'EOF' …").
+  The same error refuses a `%%` after a class diagram's header, a class declaration, or a
+  namespace's `{` or a block's closing `}`, which Mermaid refuses on any line, and a `%%` after an
+  annotation inside a class block, which Mermaid draws as a member `<> %% x` instead. A state
+  diagram's lexer reads a `%%` as a comment wherever a token ends and no text has started — after
+  the header and a space, a state's id, a transition, `state "d" as A`, a composite's braces, a
+  stereotype, a `--` divider, `end note`, `[*]` and `direction` — on any line, as before. The
+  error refuses a `%%` run straight into a state diagram's header (`stateDiagram-v2%%x`, refused
+  by Mermaid), after a `class` statement's class name (Mermaid records the name "c %% x" and
+  paints `c` through its class attribute, which Siren cannot match), and after the line opening a
+  block note (Mermaid draws "%% x" as the note's first row). Timeline blocks still cut a line at
+  its first `%%`.
 
 - **A sequence `create participant X` draws X's box on its creating message**: the message right
   after it, which must be sent to X (nook `01M4YS7DMG`). X's box is now centred on that message's

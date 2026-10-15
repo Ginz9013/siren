@@ -159,8 +159,8 @@ function cutAtDoublePercent(line: string): string {
 const CUTS_AT_DOUBLE_PERCENT: Record<DiagramKind, boolean> = {
   flowchart: false,
   sequence: false,
-  class: true,
-  state: true,
+  class: false,
+  state: false,
   er: true,
 };
 

@@ -23,6 +23,7 @@ import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchClassDirection, matchDiagramHeader } from "./parseDirection";
 import { readAccDescrBlock } from "./readAccDescrBlock";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
+import { midLinePercentError } from "./midLinePercent";
 
 
 /**
@@ -84,9 +85,15 @@ const CLASS_DECL_RE = new RegExp(
   String.raw`^class\s+(\w+)(?:~(.+)~)?\s*${BRACKETED_LABEL}${STYLE_SHORTHAND}\s*$`,
   "d",
 );
-/** The opening line of a block-form declaration, `class Animal {`, with the same optional generic, label and `:::name`. */
+/**
+ * The opening line of a block-form declaration, `class Animal {`, with the
+ * same optional generic, label and `:::name`. What follows the `{` on its
+ * line is the block's first member line (the last capture): Mermaid 12.2.0
+ * reads `class A { +int x` with the member `+int x`, and `class A { %% x`
+ * with the member "%% x" — its block state has no comment rule (measured).
+ */
 const CLASS_BLOCK_OPEN_RE = new RegExp(
-  String.raw`^class\s+(\w+)(?:~(.+)~)?\s*${BRACKETED_LABEL}${STYLE_SHORTHAND}\s*\{$`,
+  String.raw`^class\s+(\w+)(?:~(.+)~)?\s*${BRACKETED_LABEL}${STYLE_SHORTHAND}\s*\{([^}]*)$`,
   "d",
 );
 /**
@@ -194,6 +201,39 @@ const STYLE_RE = /^style\s+(\w+)\s+(.+)$/;
  */
 const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
 const CSS_CLASS_RE = /^cssClass\s+"([^"]*)"\s+(\w+)$/;
+
+/**
+ * Where `line`'s first `%%` outside a quoted string starts, or `-1`. A
+ * quoted note, label or url holds its `%%` as text, as Mermaid 12.2.0's
+ * class lexer reads a string whole.
+ */
+function percentOutsideQuotes(line: string): number {
+  const match = /^(?:[^"%]|"[^"]*"|%(?!%))*%%/.exec(line);
+  return match === null ? -1 : match[0].length - 2;
+}
+
+/**
+ * The statements after which Mermaid 12.2.0's class lexer reads a `%%` as a
+ * comment: its rules `%%(?!\{)*[^\n]*(\r?\n?)+` and `%%[^\n]*(\r?\n)*` match
+ * where such a statement's last token ends. Both swallow the line break
+ * after the comment, so the next statement runs on into this one, which the
+ * grammar refuses — the comment holds only on the document's last line
+ * (measured: `A <|-- B %% x` alone is drawn without it, and followed by
+ * `class C` is "Expecting 'NEWLINE', 'EOF' …"). The same after a
+ * relationship with multiplicities, a note, a `cssClass`, a `click`, a
+ * `link`, a `callback` and a standalone annotation.
+ */
+const COMMENT_ENDS = [
+  RELATIONSHIP_RE,
+  NOTE_RE,
+  NOTE_FOR_RE,
+  CSS_CLASS_RE,
+  CLICK_HREF_RE,
+  CLICK_CALL_RE,
+  CALLBACK_RE,
+  LINK_RE,
+  STANDALONE_ANNOTATION_RE,
+];
 
 /** The inline member form, `Bird : +fly()`. */
 const INLINE_MEMBER_RE = /^(\w+)\s*:\s*(.+)$/;
@@ -364,8 +404,14 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
  * error: Mermaid renders it as an empty canvas, and there is nothing
  * malformed to report.
  *
- * `%%` comments are already gone by the time this runs: `parseSiren`
- * strips them for every diagram kind before dispatching.
+ * Whole-line `%%` comments are already gone by the time this runs:
+ * `parseSiren` blanks them before dispatching, and hands this parser every
+ * other line as written. A `%%` later on a line is read as Mermaid 12.2.0's
+ * class grammar reads it (CONTEXT.md **Comment**): as text where the line
+ * holds text — a member, a label, a note, a declaration list — as a comment
+ * after `direction`, and after another complete statement only on the
+ * document's last line (`COMMENT_ENDS`); anywhere else it is refused at the
+ * `%%` (`midLinePercentError`).
  *
  * **Interaction and styling are validated for syntax shape only, and that
  * is deliberate.** A `click X href "javascript:alert(1)"` and a
@@ -428,6 +474,13 @@ export function parseClassDiagram(source: string): DiagramParseResult {
 
   const headerRawLine = lines[index];
   const headerLine = headerRawLine.trim();
+  // A `%%` after the header is refused at the `%%`, written with a space
+  // before it or without, and with nothing below it too: measured, Mermaid
+  // reads `classDiagram %% x` as "Expecting 'NEWLINE', got 'EOF'".
+  const headerPercent = headerRawLine.indexOf("%%");
+  if (headerPercent !== -1 && matchDiagramHeader(headerRawLine.slice(0, headerPercent).trim()) === "class") {
+    return { document: null, diagnostics: [midLinePercentError(index + 1, headerPercent + 1)] };
+  }
   if (matchDiagramHeader(headerLine) !== "class") {
     diagnostics.push({
       severity: "error",
@@ -439,6 +492,19 @@ export function parseClassDiagram(source: string): DiagramParseResult {
   }
 
   index++;
+
+  /**
+   * The index of the document's last statement line: the last non-blank
+   * line above the first timeline header. Mermaid never sees a timeline
+   * block, and whole-line comments are already blank here, so this is the
+   * line Mermaid's lexer finds last — the one line where a `%%` after a
+   * statement is a comment (`COMMENT_ENDS`).
+   */
+  const timelineAt = lines.findIndex((candidate, at) => at >= index && isTimelineHeader(candidate.trim()));
+  let lastStatementIndex = (timelineAt === -1 ? lines.length : timelineAt) - 1;
+  while (lastStatementIndex >= index && lines[lastStatementIndex].trim().length === 0) {
+    lastStatementIndex--;
+  }
 
   const classes: ClassDecl[] = [];
   const relationships: ClassRelationship[] = [];
@@ -592,6 +658,20 @@ export function parseClassDiagram(source: string): DiagramParseResult {
   };
 
   /**
+   * Whether `rawLine`, at `lineIndex`, is a block's closing `}` with a `%%`
+   * after it — refused at that `%%` here, the block still closed by it.
+   * Measured: `} %% x` closing a class block or a namespace is "Expecting
+   * 'NEWLINE', 'EOF', 'STRUCT_STOP', got 'PCT'", on the last line too.
+   */
+  const refusedAfterClosingBrace = (rawLine: string, lineIndex: number): boolean => {
+    const match = /^(\s*\}\s*)%%/.exec(rawLine);
+    if (match === null) return false;
+    diagnostics.push(midLinePercentError(lineIndex + 1, match[1].length + 1));
+    sawError = true;
+    return true;
+  };
+
+  /**
    * Parses the statement starting at `startIndex` and returns the index of
    * the last line it consumed: the same line for a one-line statement, the
    * closing `}` for a block form. The caller advances past that.
@@ -665,7 +745,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         if (bodyLine.length === 0) {
           continue;
         }
-        if (bodyLine === "}") {
+        if (bodyLine === "}" || refusedAfterClosingBrace(lines[bodyIndex], bodyIndex)) {
           closed = true;
           break;
         }
@@ -908,21 +988,15 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       attachShorthand(blockOpenMatch[1], blockOpenMatch[4], lineNumber, column);
       const members: ClassMember[] = [];
       // Annotations inside the block are emitted as their own declarations
-      // above, so the block declaration itself never carries one.
+      // (`readMemberLine`), so the block declaration itself never carries one.
       let closed = false;
       let bodyIndex = startIndex + 1;
 
-      for (; bodyIndex < lines.length; bodyIndex++) {
-        const bodyRawLine = lines[bodyIndex];
-        const bodyLine = bodyRawLine.trim();
-        if (bodyLine.length === 0) {
-          continue;
-        }
-        if (bodyLine === "}") {
-          closed = true;
-          break;
-        }
-
+      /**
+       * Reads one member line of the block — `text`, written at
+       * `memberLine`:`memberColumn` — as an annotation or a member.
+       */
+      const readMemberLine = (text: string, memberLine: number, memberColumn: number) => {
         // Checked before `parseMember`, which would read `<<interface>>`
         // as a nameless member and reject it.
         //
@@ -934,7 +1008,18 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         // first — the same authoring mistake diagnosed two different ways
         // depending on where it was written. Emitting both lets
         // `buildClassModel`'s merge be the single rule for either spelling.
-        const annotationMatch = ANNOTATION_RE.exec(bodyLine);
+        //
+        // An annotation with a `%%` after it is refused at the `%%`: Mermaid
+        // 12.2.0 reads `<<interface>> %% x` as no annotation but a member,
+        // drawn "<> %% x" with the `<interface>` stripped as a tag (measured)
+        // — a picture of neither, with no diagnostic (ADR-0001).
+        const annotationComment = /^<<.+>>\s*(?=%%)/.exec(text);
+        if (annotationComment !== null) {
+          diagnostics.push(midLinePercentError(memberLine, memberColumn + annotationComment[0].length));
+          sawError = true;
+          return;
+        }
+        const annotationMatch = ANNOTATION_RE.exec(text);
         if (annotationMatch !== null) {
           declareClass(
             {
@@ -943,30 +1028,45 @@ export function parseClassDiagram(source: string): DiagramParseResult {
               annotation: annotationMatch[1].trim(),
               label: null,
               members: [],
-              line: bodyIndex + 1,
-              column: bodyRawLine.length - bodyRawLine.trimStart().length + 1,
+              line: memberLine,
+              column: memberColumn,
             },
             namespaceMembers,
           );
-          continue;
+          return;
         }
 
-        const member = parseMember(
-          bodyLine,
-          bodyIndex + 1,
-          bodyRawLine.length - bodyRawLine.trimStart().length + 1,
-        );
+        const member = parseMember(text, memberLine, memberColumn);
         if (member === null) {
           diagnostics.push({
             severity: "error",
-            message: `Unrecognized class member: "${bodyLine}"`,
-            line: bodyIndex + 1,
-            column: bodyRawLine.length - bodyRawLine.trimStart().length + 1,
+            message: `Unrecognized class member: "${text}"`,
+            line: memberLine,
+            column: memberColumn,
           });
           sawError = true;
-          continue;
+          return;
         }
         members.push(member);
+      };
+
+      const firstMember = blockOpenMatch[5];
+      if (firstMember.trim().length > 0) {
+        const offset = blockOpenMatch.indices![5]![0] + firstMember.length - firstMember.trimStart().length;
+        readMemberLine(firstMember.trim(), lineNumber, column + offset);
+      }
+
+      for (; bodyIndex < lines.length; bodyIndex++) {
+        const bodyRawLine = lines[bodyIndex];
+        const bodyLine = bodyRawLine.trim();
+        if (bodyLine.length === 0) {
+          continue;
+        }
+        if (bodyLine === "}" || refusedAfterClosingBrace(bodyRawLine, bodyIndex)) {
+          closed = true;
+          break;
+        }
+        readMemberLine(bodyLine, bodyIndex + 1, bodyRawLine.length - bodyRawLine.trimStart().length + 1);
       }
 
       if (!closed) {
@@ -1049,6 +1149,31 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         namespaceMembers,
       );
       return startIndex;
+    }
+
+    // A `%%` no statement above holds as text. After a statement in
+    // `COMMENT_ENDS` it is a comment on the last line and refused on any
+    // other; after `direction` it is a comment wherever it stands (measured:
+    // `direction LR %% x` then `class A` draws); after a class declaration
+    // or a namespace's `{` it is refused always (measured: `class A %% x`,
+    // `class A~T~ %% x`, `class A:::c %% x` and `namespace N { %% x` are
+    // parse errors even on the last line, the lexer reading its `%` as
+    // `PCT` there). Refused at the `%%` (ADR-0017) — and the statement
+    // before it still read, so a namespace's body is not misread as well.
+    const percent = percentOutsideQuotes(line);
+    if (percent !== -1) {
+      const before = line.slice(0, percent).trimEnd();
+      const endsInComment = !before.includes(":::") && COMMENT_ENDS.some((pattern) => pattern.test(before));
+      const isComment =
+        matchClassDirection(before) !== null || (endsInComment && startIndex === lastStatementIndex);
+      if (isComment || endsInComment || CLASS_DECL_RE.test(before) || NAMESPACE_OPEN_RE.test(before)) {
+        if (!isComment) {
+          diagnostics.push(midLinePercentError(lineNumber, column + percent));
+          sawError = true;
+        }
+        lines[startIndex] = rawLine.slice(0, column - 1) + before;
+        return parseStatement(startIndex, namespaceMembers);
+      }
     }
 
     diagnostics.push({

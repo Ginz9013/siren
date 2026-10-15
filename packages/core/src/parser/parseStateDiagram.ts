@@ -25,6 +25,7 @@ import {
   matchDiagramHeader,
 } from "./parseDirection";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
+import { midLinePercentError } from "./midLinePercent";
 
 /**
  * The headers this parser accepts, asked for by kind rather than written out
@@ -329,6 +330,48 @@ const NOTE_BLOCK_RE = /^note\s+((?:left|right)\s+of)\s+(\w+|\[\*\])\s*$/i;
 const END_NOTE_RE = /^end\s+note$/i;
 
 /**
+ * Where the state lexer reads a comment on `line` (trimmed): the offset of
+ * its first `%%` that stands where a token ends, or `-1` when there is none.
+ *
+ * Mermaid 12.2.0's state lexer has a rule of its own, `%%(?!\{)[^\n]*`, that
+ * reads a comment wherever a token ends and no rule reading text has started
+ * — after the header, a state's id, a transition, a composite's braces, a
+ * stereotype, a divider, `end note`, a `[*]`, `direction` (measured, each
+ * drawn as without it). A rule that reads text reads on past a `%%` to the
+ * line's end: a quoted description, and whatever follows a `:` — a
+ * transition's label, a description, a note, the accessibility lines — and
+ * the whole of a `classDef`, `style` or `class` statement after its keyword.
+ * So the `%%` that is a comment is the first one outside quotes with no `:`
+ * before it (the `:::` of a class shorthand is no such colon), on a line
+ * that is not one of those three statements.
+ */
+function lexerCommentAt(line: string): number {
+  if (/^(?:classDef|style|class)\s/i.test(line)) return -1;
+  let quoted = false;
+  for (let at = 0; at < line.length; at++) {
+    const character = line[at];
+    if (character === '"') {
+      quoted = !quoted;
+    } else if (quoted) {
+      continue;
+    } else if (line.startsWith(":::", at)) {
+      at += 2;
+    } else if (character === ":") {
+      return -1;
+    } else if (line.startsWith("%%", at) && line[at + 2] !== "{") {
+      return at;
+    }
+  }
+  return -1;
+}
+
+/** `line` (trimmed) without the comment the state lexer reads on it (`lexerCommentAt`). */
+function withoutLexerComment(line: string): string {
+  const at = lexerCommentAt(line);
+  return at === -1 ? line : line.slice(0, at).trimEnd();
+}
+
+/**
  * The two positions, as `StateNotePosition` spells them — and the gate that
  * keeps `NOTE_RE`'s case-insensitivity off them.
  *
@@ -522,8 +565,13 @@ function unimplementedIn(line: string): string | null {
  * so the ids in it are resolved by `buildStateModel` and validated nowhere
  * else.
  *
- * `%%` comments are already gone by the time this runs: `parseSiren` strips
- * them for every diagram kind before dispatching.
+ * Whole-line `%%` comments are already gone by the time this runs:
+ * `parseSiren` blanks them before dispatching, and hands this parser every
+ * other line as written. A `%%` later on a line is read as Mermaid 12.2.0's
+ * state lexer reads it (CONTEXT.md **Comment**): a comment where a token
+ * ends (`lexerCommentAt`), text where the line holds text, and refused at
+ * the `%%` (`midLinePercentError`) where Mermaid refuses it or draws
+ * something other than what was written.
  */
 export function parseStateDiagram(source: string): DiagramParseResult {
   const lines = source.split(/\r\n|\r|\n/);
@@ -539,7 +587,15 @@ export function parseStateDiagram(source: string): DiagramParseResult {
   }
 
   const headerRawLine = lines[index];
-  const headerLine = headerRawLine.trim();
+  // A `%%` after the header and a space is a comment (`lexerCommentAt`);
+  // run into it, it is refused at the `%%` — measured, `stateDiagram-v2%%x`
+  // is "Expecting 'SPACE', 'NL', 'SD', got 'ID'".
+  const headerLine = headerRawLine.trim().replace(/\s+%%(?!\{).*$/, "");
+  const headerPercent = headerRawLine.indexOf("%%");
+  const runInto = headerPercent > 0 && /\S/.test(headerRawLine[headerPercent - 1]!);
+  if (runInto && matchDiagramHeader(headerRawLine.slice(0, headerPercent).trim()) === "state") {
+    return { document: null, diagnostics: [midLinePercentError(index + 1, headerPercent + 1)] };
+  }
   if (matchDiagramHeader(headerLine) !== "state") {
     diagnostics.push({
       severity: "error",
@@ -931,7 +987,9 @@ export function parseStateDiagram(source: string): DiagramParseResult {
 
   for (; index < lines.length; index++) {
     const rawLine = lines[index];
-    const line = rawLine.trim();
+    const trimmed = rawLine.trim();
+    const commentAt = lexerCommentAt(trimmed);
+    const line = commentAt === -1 ? trimmed : trimmed.slice(0, commentAt).trimEnd();
     if (line.length === 0) {
       continue;
     }
@@ -1214,6 +1272,16 @@ export function parseStateDiagram(source: string): DiagramParseResult {
       });
       continue;
     }
+    if (classApplyMatch !== null && classApplyMatch[2].includes("%%")) {
+      // Mermaid 12.2.0 reads `class A c %% x` with the class name "c %% x"
+      // (measured), which names no `classDef` here — while Mermaid paints
+      // `c` anyway, through the space-separated class attribute. Not the
+      // picture Siren would draw, and neither says so: refused at the `%%`
+      // (ADR-0001).
+      diagnostics.push(midLinePercentError(lineNumber, column + line.indexOf("%%")));
+      sawError = true;
+      continue;
+    }
     if (classApplyMatch !== null) {
       styles.push({
         styleKind: "apply",
@@ -1287,7 +1355,9 @@ export function parseStateDiagram(source: string): DiagramParseResult {
     const noteBlockMatch = NOTE_BLOCK_RE.exec(line);
     const blockPosition = noteBlockMatch === null ? null : notePositionOf(noteBlockMatch[1]);
     if (noteBlockMatch !== null && blockPosition !== null) {
-      const close = lines.findIndex((candidate, at) => at > index && END_NOTE_RE.test(candidate.trim()));
+      const close = lines.findIndex(
+        (candidate, at) => at > index && END_NOTE_RE.test(withoutLexerComment(candidate.trim())),
+      );
       if (close === -1) {
         diagnostics.push({
           severity: "error",
@@ -1297,6 +1367,16 @@ export function parseStateDiagram(source: string): DiagramParseResult {
         });
         sawError = true;
         break;
+      }
+      // A `%%` after the opening line is no comment there: Mermaid 12.2.0
+      // reads `note right of A %% x` as a block note whose first row is
+      // "%% x" (measured) — text where the author meant a comment, drawn
+      // with no diagnostic, so it is refused at the `%%` (ADR-0001).
+      if (commentAt !== -1) {
+        diagnostics.push(midLinePercentError(lineNumber, column + commentAt));
+        sawError = true;
+        index = close;
+        continue;
       }
       const rows: Label["rows"] = [];
       const texts: string[] = [];

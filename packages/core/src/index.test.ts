@@ -1656,7 +1656,9 @@ click Fish href "https://example.com/fish" "Fish facts"
     // grammar does), so its comments here are whole lines only. A sequence
     // diagram reads a `%%` after a participant's name or in a message's text
     // as part of it (measured), so its `%%` past a line's start stands after
-    // the header, where its lexer reads a comment.
+    // the header, where its lexer reads a comment. A class diagram's lexer
+    // reads one after a relationship only on the document's last line (its
+    // rule swallows the line break), so that is where this one stands.
     const commented = {
       flowchart: `%% a flowchart that counts
 flowchart TD

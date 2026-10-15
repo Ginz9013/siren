@@ -1287,3 +1287,143 @@ describe("parseClassDiagram — accTitle and accDescr", () => {
     }
   });
 });
+
+/**
+ * A `%%` in the middle of a class-diagram line (CONTEXT.md **Comment**),
+ * measured on Mermaid 12.2.0 (the class table in the mermaid-parity
+ * measurement). Only a whole line is a comment; the class lexer's own `%%`
+ * rules read one where a token ends but swallow the line break after it, so
+ * such a comment holds only on the document's last line. Read through
+ * `parseSiren`, which hands a class diagram its lines as written.
+ */
+describe("a `%%` in the middle of a class-diagram line", () => {
+  const NOT_A_COMMENT =
+    'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+    "If it is a comment, move it to a line of its own.";
+
+  const classOk = (body: string) => parseOk(`classDiagram\n${body}`, parseSiren).document;
+  const membersOf = (document: ClassDocument) =>
+    document.classes.flatMap((declaration) => declaration.members.map(reconstruct));
+
+  it("keeps a `%%` in every piece of text a statement holds, as Mermaid records it", () => {
+    // Measured: a member or method in a block or after `Class :`, a
+    // relationship's label, a note's quoted text, a class's quoted label,
+    // a `style`/`classDef` declaration list and the accessibility lines all
+    // keep their `%% zz`, on the last line or not.
+    expect(membersOf(classOk("  class A {\n    +int x %% zz\n  }"))).toEqual(["+int x %% zz"]);
+    expect(membersOf(classOk("  class A {\n    +run(a) int %% zz\n  }"))).toEqual(["+run(a) int %% zz"]);
+    expect(membersOf(classOk("  class A\n  A : +int x %% zz"))).toEqual(["+int x %% zz"]);
+    expect(membersOf(classOk("  class A\n  A : +int x %% zz\n  class B"))).toEqual(["+int x %% zz"]);
+    expect(membersOf(classOk("  class A\n  A : +run() %% zz\n  class B"))).toEqual(["+run() %% zz"]);
+    expect(classOk("  A --> B : lbl %% zz\n  class C").relationships.map((r) => r.label?.text)).toEqual([
+      "lbl %% zz",
+    ]);
+    expect(classOk("  A --> B : lbl %% zz").relationships.map((r) => r.label?.text)).toEqual(["lbl %% zz"]);
+    expect(classOk('  class A\n  note "n %% zz"\n  class B').notes.map((n) => n.label.text)).toEqual(["n %% zz"]);
+    expect(classOk('  class A\n  note for A "n %% zz"\n  class B').notes.map((n) => n.label.text)).toEqual([
+      "n %% zz",
+    ]);
+    expect(classOk('  class A["l %% zz"]\n  class B').classes.map((c) => c.label?.text ?? null)).toEqual([
+      "l %% zz",
+      null,
+    ]);
+    const styled = classOk("  class A\n  style A fill:#f00 %% zz\n  classDef c fill:#0f0 %% zz\n  class B");
+    expect(styled.styles.map((s) => [s.styleKind, s.properties])).toEqual([
+      ["style", [{ property: "fill", value: "#f00 %% zz" }]],
+      ["classDef", [{ property: "fill", value: "#0f0 %% zz" }]],
+    ]);
+    const described = classOk("  accTitle: t %% zz\n  accDescr: d %% zz\n  class A");
+    expect([described.accTitle, described.accDescr]).toEqual(["t %% zz", "d %% zz"]);
+  });
+
+  it("reads a `%%` after a complete statement as a comment on the document's last line, and refuses it, at its `%%`, on any other", () => {
+    // Measured: the class lexer's `%%[^\n]*(\r?\n)*` rules read a comment
+    // there and swallow the line break, so the next statement runs on into
+    // this one — `A <|-- B %% zz` alone is drawn without its comment, and
+    // `A <|-- B %% zz` then `class C` is "Expecting 'NEWLINE', 'EOF' …".
+    // The same holds after a relationship with multiplicities, a note, a
+    // `cssClass`, a `click`, a `link`, a `callback` and a standalone
+    // annotation. Blank lines and whole-line comments below do not count:
+    // they are gone before the lexer runs.
+    for (const [statement, before] of [
+      ["  A <|-- B %% zz", ""],
+      ["  A <|-- B%%zz", ""],
+      ['  A "1" --> "*" B %% zz', ""],
+      ['  note "n" %% zz', "  class A\n"],
+      ['  note for A "n" %% zz', "  class A\n"],
+      ['  cssClass "A" c %% zz', "  class A\n"],
+      ['  click A href "https://x.org" %% zz', "  class A\n"],
+      ['  link A "https://x.org" %% zz', "  class A\n"],
+      ['  callback A "cb" %% zz', "  class A\n"],
+      ["  <<interface>> A %% zz", "  class A\n"],
+    ] as const) {
+      const line = before === "" ? 2 : 3;
+      const column = statement.indexOf("%%") + 1;
+      const last = parseSiren(`classDiagram\n${before}${statement}\n\n%% the end\n`);
+      const plain = parseSiren(`classDiagram\n${before}${statement.slice(0, column - 1).trimEnd()}\n\n\n`);
+      expect([statement, last.diagnostics]).toEqual([statement, []]);
+      expect([statement, last.document]).toEqual([statement, plain.document]);
+
+      const notLast = parseSiren(`classDiagram\n${before}${statement}\n  class C`);
+      expect([statement, notLast.document]).toEqual([statement, null]);
+      expect([statement, notLast.diagnostics]).toEqual([
+        statement,
+        [{ severity: "error", message: NOT_A_COMMENT, line, column }],
+      ]);
+    }
+  });
+
+  it("reads a `%%` after `direction` as a comment on any line", () => {
+    // Measured: `direction LR %% zz` and `direction LR%%zz` followed by
+    // `class A` draw left to right with no trace of the comment.
+    for (const statement of ["  direction LR %% zz", "  direction LR%%zz"]) {
+      const { document, diagnostics } = parseSiren(`classDiagram\n${statement}\n  class A`);
+      expect([statement, diagnostics]).toEqual([statement, []]);
+      expect([statement, document]).toEqual([statement, parseSiren("classDiagram\n  direction LR\n  class A").document]);
+    }
+  });
+
+  it("refuses a `%%` after the header, a class declaration, or a block's brace, at its `%%`, on the last line too", () => {
+    // Measured: Mermaid refuses each, on the last line or not — the header
+    // ("Expecting 'NEWLINE', got 'EOF'" even with nothing below it), a class
+    // declaration bare, generic, labelled or with `:::` ("… got 'PCT'"), a
+    // class block's closing `}`, and a namespace's opening `{` and closing `}`.
+    for (const [body, line] of [
+      ["classDiagram %% zz\n  class A", 1],
+      ["classDiagram%%zz\n  class A", 1],
+      ["classDiagram\n  class A %% zz", 2],
+      ["classDiagram\n  class A %% zz\n  class B", 2],
+      ["classDiagram\n  class A~T~ %% zz", 2],
+      ['classDiagram\n  class A["l"] %% zz', 2],
+      ["classDiagram\n  class A:::c %% zz", 2],
+      ["classDiagram\n  class A {\n    +int x\n  } %% zz", 4],
+      ["classDiagram\n  class A {\n    +int x\n  } %% zz\n  class B", 4],
+      ["classDiagram\n  namespace N { %% zz\n    class A\n  }\n  class B", 2],
+      ["classDiagram\n  namespace N {\n    class A\n  } %% zz\n  class B", 4],
+      ["classDiagram\n  namespace N {\n    class A\n  } %% zz", 4],
+    ] as const) {
+      const column = body.split("\n")[line - 1]!.indexOf("%%") + 1;
+      const { document, diagnostics } = parseSiren(body);
+      expect([body, document]).toEqual([body, null]);
+      expect([body, diagnostics]).toEqual([body, [{ severity: "error", message: NOT_A_COMMENT, line, column }]]);
+    }
+  });
+
+  it("reads what follows a class block's `{` on its line as the block's first member, `%%` and all", () => {
+    // Measured: `class A { %% zz` then `+int x` and `}` records the members
+    // "%% zz" and "+int x" — the block's lexer state reads the rest of the
+    // opening line as a member, as it reads `class A { +int x`.
+    expect(membersOf(classOk("  class A { %% zz\n    +int x\n  }"))).toEqual(["%% zz", "+int x"]);
+    expect(membersOf(classOk("  class A { +int x\n  }"))).toEqual(["+int x"]);
+  });
+
+  it("refuses a `%%` after an annotation inside a class block, at its `%%` — Mermaid draws neither the annotation nor the text", () => {
+    // Measured: `<<interface>> %% zz` in a block is no annotation to Mermaid
+    // but a member, drawn "<> %% zz" — the `<interface>` stripped as a tag.
+    // A picture of something the author did not write, with no diagnostic,
+    // so Siren refuses it (ADR-0001).
+    const { document, diagnostics } = parseSiren("classDiagram\n  class A {\n    <<interface>> %% zz\n    +int x\n  }");
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: NOT_A_COMMENT, line: 3, column: 19 }]);
+  });
+});
