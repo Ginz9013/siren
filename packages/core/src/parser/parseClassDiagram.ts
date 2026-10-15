@@ -23,7 +23,7 @@ import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchClassDirection, matchDiagramHeader } from "./parseDirection";
 import { readAccDescrBlock } from "./readAccDescrBlock";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
-import { midLinePercentError } from "./midLinePercent";
+import { headerPercentError, midLinePercentError } from "./midLinePercent";
 
 
 /**
@@ -223,7 +223,7 @@ function percentOutsideQuotes(line: string): number {
  * relationship with multiplicities, a note, a `cssClass`, a `click`, a
  * `link`, a `callback` and a standalone annotation.
  */
-const COMMENT_ENDS = [
+const STATEMENTS_A_COMMENT_MAY_FOLLOW = [
   RELATIONSHIP_RE,
   NOTE_RE,
   NOTE_FOR_RE,
@@ -410,8 +410,8 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
  * class grammar reads it (CONTEXT.md **Comment**): as text where the line
  * holds text — a member, a label, a note, a declaration list — as a comment
  * after `direction`, and after another complete statement only on the
- * document's last line (`COMMENT_ENDS`); anywhere else it is refused at the
- * `%%` (`midLinePercentError`).
+ * document's last line (`STATEMENTS_A_COMMENT_MAY_FOLLOW`); anywhere else
+ * it is refused at the `%%` (`midLinePercentError`).
  *
  * **Interaction and styling are validated for syntax shape only, and that
  * is deliberate.** A `click X href "javascript:alert(1)"` and a
@@ -477,9 +477,9 @@ export function parseClassDiagram(source: string): DiagramParseResult {
   // A `%%` after the header is refused at the `%%`, written with a space
   // before it or without, and with nothing below it too: measured, Mermaid
   // reads `classDiagram %% x` as "Expecting 'NEWLINE', got 'EOF'".
-  const headerPercent = headerRawLine.indexOf("%%");
-  if (headerPercent !== -1 && matchDiagramHeader(headerRawLine.slice(0, headerPercent).trim()) === "class") {
-    return { document: null, diagnostics: [midLinePercentError(index + 1, headerPercent + 1)] };
+  const headerPercent = headerPercentError(headerRawLine, index + 1, "class", { spacedIsComment: false });
+  if (headerPercent !== null) {
+    return { document: null, diagnostics: [headerPercent] };
   }
   if (matchDiagramHeader(headerLine) !== "class") {
     diagnostics.push({
@@ -493,13 +493,11 @@ export function parseClassDiagram(source: string): DiagramParseResult {
 
   index++;
 
-  /**
-   * The index of the document's last statement line: the last non-blank
-   * line above the first timeline header. Mermaid never sees a timeline
-   * block, and whole-line comments are already blank here, so this is the
-   * line Mermaid's lexer finds last — the one line where a `%%` after a
-   * statement is a comment (`COMMENT_ENDS`).
-   */
+  // The index of the document's last statement line: the last non-blank
+  // line above the first timeline header. Mermaid never sees a timeline
+  // block, and whole-line comments are already blank here, so this is the
+  // line Mermaid's lexer finds last — the one line where a `%%` after a
+  // statement is a comment (`STATEMENTS_A_COMMENT_MAY_FOLLOW`).
   const timelineAt = lines.findIndex((candidate, at) => at >= index && isTimelineHeader(candidate.trim()));
   let lastStatementIndex = (timelineAt === -1 ? lines.length : timelineAt) - 1;
   while (lastStatementIndex >= index && lines[lastStatementIndex].trim().length === 0) {
@@ -1152,8 +1150,9 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     }
 
     // A `%%` no statement above holds as text. After a statement in
-    // `COMMENT_ENDS` it is a comment on the last line and refused on any
-    // other; after `direction` it is a comment wherever it stands (measured:
+    // `STATEMENTS_A_COMMENT_MAY_FOLLOW` it is a comment on the last line and
+    // refused on any other; after `direction` it is a comment wherever it
+    // stands (measured:
     // `direction LR %% x` then `class A` draws); after a class declaration
     // or a namespace's `{` it is refused always (measured: `class A %% x`,
     // `class A~T~ %% x`, `class A:::c %% x` and `namespace N { %% x` are
@@ -1163,11 +1162,14 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     const percent = percentOutsideQuotes(line);
     if (percent !== -1) {
       const before = line.slice(0, percent).trimEnd();
-      const endsInComment = !before.includes(":::") && COMMENT_ENDS.some((pattern) => pattern.test(before));
+      const followsCommentable =
+        !before.includes(":::") && STATEMENTS_A_COMMENT_MAY_FOLLOW.some((pattern) => pattern.test(before));
       const isComment =
-        matchClassDirection(before) !== null || (endsInComment && startIndex === lastStatementIndex);
-      if (isComment || endsInComment || CLASS_DECL_RE.test(before) || NAMESPACE_OPEN_RE.test(before)) {
-        if (!isComment) {
+        matchClassDirection(before) !== null || (followsCommentable && startIndex === lastStatementIndex);
+      const isRefused =
+        !isComment && (followsCommentable || CLASS_DECL_RE.test(before) || NAMESPACE_OPEN_RE.test(before));
+      if (isComment || isRefused) {
+        if (isRefused) {
           diagnostics.push(midLinePercentError(lineNumber, column + percent));
           sawError = true;
         }

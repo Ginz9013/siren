@@ -7469,7 +7469,7 @@ line2\`"]`,
     meaning:
       "An apply-directive's class name is the whole rest of the line. " +
       "Measured on 12.2.0: `class Busy a,b` gives Busy `classes=[\"a,b\"]` " +
-      "(and `class Busy u extra` gives `[\"u extra\"]`), and `class Idle` " +
+      "(drawn as `class=\"node a,b …\"`, one CSS class), and `class Idle` " +
       "gives `[\"\"]` — both draw, and neither paints anything, since no " +
       "classDef carries those names. Siren draws the same unstyled picture " +
       "and says why in two warnings; it used to refuse the document.",
@@ -7703,17 +7703,51 @@ line2\`"]`,
       classDef busy fill:#f96
       Idle --> Busy
       class Busy busy %% while working`,
-    status: "rejected",
+    status: "supported",
     meaning:
-      "⚠️ **Mermaid accepts this and draws something Siren cannot.** The " +
-      "state lexer reads a `class` statement's class name to the line's end, " +
-      "so Mermaid 12.2.0 records the name `busy %% while working` " +
-      "(measured) and paints `busy` anyway, through the space-separated " +
-      "class attribute. Siren would read one class name that no `classDef` " +
-      "defines and paint nothing — a different picture with no diagnostic — " +
-      "so it refuses the `%%` (ADR-0001), with an error at it. Siren used to " +
-      "cut the line and paint `busy`. The comment on its own line renders " +
-      "in both.",
+      "A `%%` in a `class` statement is part of its class names, not a " +
+      "comment: the state lexer reads the statement to the line's end, so " +
+      "Mermaid 12.2.0 records the class `busy %% while working` and draws " +
+      "Busy with `class=\"node busy %% while working statediagram-state\"` " +
+      "(measured, `--markup`) — split on whitespace, `busy` paints Busy " +
+      "exactly as `class Busy busy` does, and `%%`, `while` and `working` " +
+      "paint nothing, since no classDef names them. Siren reads the names " +
+      "the same way, paints `busy`, and warns about the three it cannot " +
+      "find. It used to refuse the document.",
+    warnings: [
+      'class applies "%%", which no classDef defines; dropping the declaration.',
+      'class applies "while", which no classDef defines; dropping the declaration.',
+      'class applies "working", which no classDef defines; dropping the declaration.',
+    ],
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Busy"]);
+      expectSame("Busy is painted with busy", stateStyle(result, "Busy"), "fill:#f96");
+      expectSame("Idle is unstyled", stateStyle(result, "Idle"), "");
+    },
+  },
+  {
+    id: "st-comment-after-note-opener",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Busy
+      note right of Idle %% why it waits
+        waiting for work
+      end note`,
+    status: "supported",
+    meaning:
+      "A `%%` after a block note's opener is the note's first line of text, " +
+      "not a comment: Mermaid 12.2.0 records the note text " +
+      "`%% why it waits\\nwaiting for work` (measured), the text rule " +
+      "starting where the target ends — as a class body's `{ %% …` keeps " +
+      "`%% …` as a member. Siren draws the same two rows. It used to refuse " +
+      "the document.",
+    assert: (result) => {
+      expectSame(
+        "the note's rows",
+        labelRows(svgOf(result).querySelector('g.siren-state[data-siren-id="Idle"] text.siren-note-text')),
+        ["%% why it waits", "waiting for work"],
+      );
+    },
   },
   // -------------------------------------------------------------------------
   // erDiagram

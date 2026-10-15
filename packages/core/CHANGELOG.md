@@ -33,9 +33,8 @@ Breaking for a class document with a `%%` on the same line after a relationship,
 `cssClass`, a `click`, `link` or `callback`, or a standalone annotation anywhere but its last line
 (`A <|-- B %% note` followed by another statement); after its header, a class declaration, or a
 namespace's `{` or a block's closing `}`; or after an annotation inside a class block — and for a
-state document with a `%%` run straight into its header (`stateDiagram-v2%%note`), after a
-`class` statement's class name, or after the line opening a block note. Each is now refused (see
-**Changed**).
+state document with a `%%` run straight into its header (`stateDiagram-v2%%note`). Each is now
+refused (see **Changed**).
 
 ### Added
 
@@ -156,6 +155,12 @@ state document with a `%%` run straight into its header (`stateDiagram-v2%%note`
   declaration list and `accTitle`/`accDescr`; in a state diagram a transition's label, a
   description (`A : desc %% x`, `state "d %% x" as A`), a note's text on one line or in a block, a
   `style`/`classDef` declaration list and `accTitle`/`accDescr` — each used to be cut at the `%%`.
+  A state block note's opening line keeps what follows a `%%` as the note's first row
+  (`note right of A %% x` opens a note whose first row is "%% x"), as Mermaid records it.
+  A state `class` statement's class names are read one per word, as Mermaid paints them through
+  the drawn node's class attribute: `class A c %% x` paints A with `c`, exactly as `class A c`
+  does, and `class A u extra` paints A with `u`, where it used to be read as one class name and
+  paint nothing. Each name no `classDef` defines draws nothing and is warned about, as before.
   What follows a class block's `{` on its line is now read as the block's first member, as Mermaid
   reads it (`class A { %% x` has the member "%% x"; it used to be refused). A class diagram's lexer
   reads a `%%` after `direction` as a comment, and after a relationship, a note, a `cssClass`, a
@@ -170,10 +175,7 @@ state document with a `%%` run straight into its header (`stateDiagram-v2%%note`
   the header and a space, a state's id, a transition, `state "d" as A`, a composite's braces, a
   stereotype, a `--` divider, `end note`, `[*]` and `direction` — on any line, as before. The
   error refuses a `%%` run straight into a state diagram's header (`stateDiagram-v2%%x`, refused
-  by Mermaid), after a `class` statement's class name (Mermaid records the name "c %% x" and
-  paints `c` through its class attribute, which Siren cannot match), and after the line opening a
-  block note (Mermaid draws "%% x" as the note's first row). Timeline blocks still cut a line at
-  its first `%%`.
+  by Mermaid). Timeline blocks still cut a line at its first `%%`.
 
 - **A sequence `create participant X` draws X's box on its creating message**: the message right
   after it, which must be sent to X (nook `01M4YS7DMG`). X's box is now centred on that message's

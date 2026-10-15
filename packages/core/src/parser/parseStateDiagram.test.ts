@@ -1171,20 +1171,22 @@ describe("parseStateDiagram", () => {
     }
   });
 
-  it("reads the apply-directive's class name as the whole rest of the line, as Mermaid does", () => {
+  it("reads the apply-directive's class names as the rest of the line, one per word, as Mermaid paints them", () => {
     // 01M37GQRM, measured on mermaid 12.2.0: `class Busy a,b` gives Busy
     // `classes=["a,b"]` and `class Busy u extra` gives `["u extra"]` — the
-    // name is everything after the target list. No classDef carries such a
-    // name, so nothing is painted (`resolveStyles` warns), and the picture
-    // is Mermaid's. Siren used to refuse both documents outright.
-    for (const [statement, name] of [
-      ["class Busy a,b", "a,b"],
-      ["class Busy u extra", "u extra"],
-      ["class Busy, Idle u", "u"],
-    ]) {
+    // name is everything after the target list. No classDef carries `a,b`,
+    // so nothing is painted (`resolveStyles` warns), and the picture is
+    // Mermaid's. `u extra` is drawn as `class="node u extra …"` and Busy
+    // painted with `u`'s fill (`--markup`), so the tail is split on
+    // whitespace. Siren used to refuse both documents outright.
+    for (const [statement, names] of [
+      ["class Busy a,b", ["a,b"]],
+      ["class Busy u extra", ["u", "extra"]],
+      ["class Busy, Idle u", ["u"]],
+    ] as const) {
       const document = documentOf(`stateDiagram-v2\n  classDef u fill:#00f\n  Idle --> Busy\n  ${statement}\n`);
       const apply = document.styles.filter((s) => s.styleKind === "apply");
-      expect(apply.map((s) => s.name), `for "${statement}"`).toEqual([name]);
+      expect(apply.map((s) => s.name), `for "${statement}"`).toEqual(names);
     }
   });
 
@@ -1852,18 +1854,33 @@ describe("a `%%` in the middle of a state-diagram line", () => {
     }
   });
 
-  it("refuses a `%%` Mermaid refuses, or reads into something other than what was written, at its `%%`", () => {
+  it("reads a `class` statement's `%%` as one more class name, as Mermaid paints it", () => {
+    // Measured: `class A c %% zz` records the class "c %% zz", and Mermaid
+    // draws A with `class="node c %% zz statediagram-state"` — split on
+    // whitespace, so `c` paints A (fill #f00), exactly as `class A c` does,
+    // and `%%` and `zz` paint whatever their `classDef`s say (here none).
+    const document = stateOk("  classDef c fill:#f00\n  A\n  class A c %% zz");
+    const applied = document.styles.filter((s) => s.styleKind === "apply");
+    expect(applied.map((s) => [s.targetIds, s.name])).toEqual([
+      [["A"], "c"],
+      [["A"], "%%"],
+      [["A"], "zz"],
+    ]);
+  });
+
+  it("keeps a `%%` after a block note's opener as the note's first row, as Mermaid records it", () => {
+    // Measured: `note right of A %% zz` opens a block note whose text is
+    // "%% zz\nn" — the opener's `%%` is text, as `class A { %% zz` keeps
+    // "%% zz" as a member.
+    const document = stateOk("  A\n  note right of A %% zz\n    n\n  end note");
+    expect(notesOf(document)).toEqual(["%% zz\nn"]);
+    expect(document.states.find((state) => state.id === "A")?.note?.label.rows.length).toBe(2);
+  });
+
+  it("refuses a `%%` run into the header, as Mermaid does, at its `%%`", () => {
     // Measured: `stateDiagram-v2%%zz` is a parse error ("Expecting 'SPACE',
-    // 'NL', 'SD', got 'ID'"). `class A c %% zz` is accepted with the class
-    // name "c %% zz", which Siren would read as one class no `classDef`
-    // names, and `note right of A %% zz` opens a block note whose first row
-    // is "%% zz" — neither is the picture the line's author meant, and
-    // neither says so (ADR-0001).
-    for (const [source, line] of [
-      ["stateDiagram-v2%%zz\n  A", 1],
-      ["stateDiagram-v2\n  classDef c fill:#f00\n  A\n  class A c %% zz", 4],
-      ["stateDiagram-v2\n  A\n  note right of A %% zz\n    n\n  end note", 3],
-    ] as const) {
+    // 'NL', 'SD', got 'ID'").
+    for (const [source, line] of [["stateDiagram-v2%%zz\n  A", 1]] as const) {
       const column = source.split("\n")[line - 1]!.indexOf("%%") + 1;
       const { document, diagnostics } = parseSiren(source);
       expect([source, document]).toEqual([source, null]);

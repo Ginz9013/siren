@@ -1055,7 +1055,7 @@ flowchart TD
     expect(messages[0].kind === "message" && messages[0].label.text).toBe("Sync call %% the important one");
   });
 
-  it("ignores whole-line and indented %% comments in a class diagram, and a %% trailing its last statement", () => {
+  it("ignores whole-line and indented %% comments in a class diagram, and a %% after its last statement", () => {
     // Only on the last line: the class lexer's `%%` rule swallows the line
     // break after it, so on any other line Mermaid 12.2.0 refuses the
     // document and Siren refuses the `%%` (see parseClassDiagram.test.ts,

@@ -1584,8 +1584,20 @@ const SILENTLY_WRONG = 0;
  * `cls-comment-mid-line-text`, `cls-comment-last-line`,
  * `st-comment-mid-line-text` and `st-comment-after-token`, are `supported`
  * and move nothing. `silently-wrong` does not move.
+ *
+ * **21 → 20: a construct started working.** `st-comment-in-class-name` was
+ * refused on the belief that Siren could not paint `class Busy busy %% …` as
+ * Mermaid does. Rendered (12.2.0, `--markup`), Mermaid writes the recorded
+ * name into the node's `class` attribute, so it is split on whitespace and
+ * `busy` paints Busy exactly as `class Busy busy` does. Siren now reads a
+ * state `class` statement's names one per word and draws the same picture,
+ * warning about the names no classDef defines; the row is `supported`.
+ * `st-comment-after-note-opener`, new beside it, is `supported` — a block
+ * note opener's `%% …` is the note's first row, as Mermaid records it,
+ * where `01M4Z7TR5R` had first refused it with no row — and moves nothing. `silently-wrong`
+ * does not move.
  */
-const REJECTED = 21;
+const REJECTED = 20;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
