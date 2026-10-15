@@ -8685,6 +8685,76 @@ line2\`"]`,
       "renders in both.",
   },
   {
+    id: "er-percent-in-label-and-comment",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : "pays 50% up front"
+      ORDER {
+        int total "in cents, 20% tax"
+      }`,
+    status: "supported",
+    meaning:
+      "A single `%` in a relationship's quoted label or an attribute's " +
+      "quoted comment is text: Mermaid 12.2.0 draws the label `pays 50% up " +
+      "front` and the comment `in cents, 20% tax` (measured). The control " +
+      "for the three `er-percent-in-*` rows below, where the same `%` in a " +
+      "quoted entity name or alias refuses the document.",
+    assert: (result) => {
+      const label = svgOf(result).querySelector(
+        'g.siren-er-relationship-labels[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label',
+      );
+      expectSame("the label", labelRows(label), ["pays 50% up front"]);
+      expectSame("ORDER's attributes", erAttributeRows(result, "ORDER"), [
+        "type=int | name=total | comment=in cents, 20% tax",
+      ]);
+    },
+  },
+  {
+    id: "er-percent-in-alias",
+    kind: "er",
+    source: `erDiagram
+      DISCOUNT["50% off"]
+      DISCOUNT ||--o{ ORDER : applies`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** Mermaid 12.2.0's " +
+      "ER lexer reads a quoted string holding a `%` as its `WORD` token, " +
+      "which only a relationship's label takes, so an alias with even one " +
+      "`%` refuses the document (\"Expecting 'UNICODE_TEXT', … got " +
+      "'WORD'\", measured; `%%` too). Siren used to draw the box `50% off`; " +
+      "it refuses it now (ADR-0017), with an error at the `%` saying to " +
+      "remove it or spell it out.",
+  },
+  {
+    id: "er-percent-in-quoted-name",
+    kind: "er",
+    source: `erDiagram
+      "Discount % rate" {
+        int value
+      }`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A quoted entity " +
+      "name holding a `%` is the lexer's `WORD`, not an `ENTITY_NAME`, and " +
+      "Mermaid 12.2.0 refuses the document (\"Expecting 'EOF', 'NEWLINE', " +
+      "… got 'WORD'\", measured). Siren used to draw the entity; it refuses " +
+      "it now (ADR-0017), with an error at the `%`.",
+  },
+  {
+    id: "er-percent-in-relationship-end",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ "Order % batch" : places`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A relationship's " +
+      "quoted end holding a `%` is the lexer's `WORD`, and only the label " +
+      "after the `:` takes one, so Mermaid 12.2.0 refuses the document " +
+      "(\"Expecting 'UNICODE_TEXT', …, 'IDENTIFYING', got 'WORD'\", " +
+      "measured, at either end). Siren used to draw the relationship; it " +
+      "refuses it now (ADR-0017), with an error at the `%`.",
+  },
+  {
     id: "er-label-line-height",
     kind: "er",
     source: `erDiagram

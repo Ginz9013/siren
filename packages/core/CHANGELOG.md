@@ -41,6 +41,9 @@ Breaking for an ER document with a `%%` on the same line after a statement
 `subgraph` line or a `style`/`classDef` declaration list; or inside an attribute block outside a
 quoted comment or a backticked name. Each is now refused (see **Changed**).
 
+Breaking for an ER document with a `%` in a quoted entity name or an alias (`A["50% off"]`,
+`"A % b"`, `A ||--o{ "B % c" : r`), which is now refused (see **Changed**).
+
 ### Added
 
 - A flowchart subgraph title of several words is read as Mermaid 12.2.0 reads it (nook
@@ -136,6 +139,13 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
   pointed at and the title asked to be quoted; and a title whose last word is `end`, which
   Mermaid reads as the block's end and swallows the next line into the title, is asked to be
   quoted (nook `01M4ZWT89B`).
+
+- **A `%` in an ER entity's quoted name or alias is refused** (nook `01M4ZWT94S`), as Mermaid
+  12.2.0 refuses it: its ER lexer reads a quoted string holding a `%` as a word only a
+  relationship's label takes. `A["50% off"]`, `"A % b"` and `"B % c"` at either end of a
+  relationship used to be drawn; each is now an error at the `%`, asking to remove it or spell it
+  out. A `%` in a relationship's quoted label or an attribute's quoted comment is still text, as in
+  Mermaid. A `%%` in the same places keeps its mid-line `%%` error.
 
 - **Diagnostic messages no longer mention Mermaid** (nook `01M4ZJZ3FT`). Each says what is wrong
   and how to fix it. Reworded: frontmatter that is not YAML is refused "until the frontmatter is

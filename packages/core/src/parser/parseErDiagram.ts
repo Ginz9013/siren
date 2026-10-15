@@ -633,6 +633,11 @@ function readRelationship(
   ) {
     return null;
   }
+  // A `%` in a quoted end refuses the document, though the label after it
+  // may hold one — see `quotedPercentErrors`.
+  for (const group of [1, 6]) {
+    diagnostics.push(...quotedPercentErrors(match[group]!, columnsAfter(at, match.indices![group]![0])));
+  }
   return {
     decl: {
       // Unquoted here, once, so that every stage after this one sees the id
@@ -1302,6 +1307,37 @@ const midLinePercentRefusal = (at: SourcePosition, insideAttributeBlock: boolean
   blockEffect: { kind: insideAttributeBlock ? "attribute-block-open" : "attribute-block-closed" },
 });
 
+/**
+ * One error per quoted string in `text` that holds a `%`, at its first `%`,
+ * `text` beginning at `at` — for the stretch of a line that spells an entity
+ * name or an alias, where nothing but those is quoted.
+ *
+ * Mermaid 12.2.0's ER lexer reads a quoted string with a `%` in it as its
+ * `WORD` token rather than an `ENTITY_NAME`, and only a relationship's label
+ * takes a `WORD`, so even one `%` in a name or an alias refuses the document
+ * (measured: `A["50% off"]`, `"A % b"`, `A ||--o{ "B % c" : r`, "got
+ * 'WORD'"). Siren drew each until 01M4ZWT94S; it refuses them now (ADR-0017).
+ * An error on the line rather than a refusal of it, so the line is still
+ * read through and an attribute block it opens stays the block's.
+ */
+function quotedPercentErrors(text: string, at: SourcePosition): Diagnostic[] {
+  return [...text.matchAll(/"([^"]*)"/g)].flatMap((quoted) => {
+    const percent = quoted[1]!.indexOf("%");
+    if (percent === -1) return [];
+    const { line, column } = columnsAfter(at, quoted.index! + 1 + percent);
+    return [
+      {
+        severity: "error" as const,
+        message:
+          `A quoted entity name or alias cannot contain "%" ("${quoted[1]}"): remove it or spell it out, ` +
+          `for example as "percent". A relationship's label and an attribute's comment may contain "%".`,
+        line,
+        column,
+      },
+    ];
+  });
+}
+
 /** Where the first `%%` in `text` stands, `text` beginning at `at`. */
 const firstPercentIn = (text: string, at: SourcePosition): SourcePosition => columnsAfter(at, text.indexOf("%%"));
 
@@ -1587,6 +1623,7 @@ function readLine(
     if (rest.slice(0, head.length).includes("%%")) {
       return midLinePercentAt(rest, restAt());
     }
+    diagnostics.push(...quotedPercentErrors(rest.slice(0, head.length), restAt()));
     const declared: ErEntityDecl = { name: head.name, alias: head.alias, attributes: [] };
     entities.push(declared);
     claim(declared.name);

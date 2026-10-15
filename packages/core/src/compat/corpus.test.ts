@@ -1678,8 +1678,18 @@ const SILENTLY_WRONG = 0;
  * `cls-class-block-one-line` and `cls-class-block-closed-on-member-line`,
  * new beside them, are `supported` and move nothing. `silently-wrong` does
  * not move.
+  *
+ * **27 → 30: case (2), three refusals written down for the first time.**
+ * `01M4ZWT94S` refused a single `%` in an ER entity's quoted name or alias,
+ * as Mermaid 12.2.0 does: its lexer reads such a string as `WORD`, which no
+ * entity production takes ("got 'WORD'"). Siren drew each before, with no
+ * row to say so; `er-percent-in-alias`, `er-percent-in-quoted-name` and
+ * `er-percent-in-relationship-end` write them down. No `supported` row
+ * moved: no ER row had a `%` in a quoted name. `er-percent-in-label-and-comment`,
+ * new beside them, is `supported` and moves nothing. `silently-wrong` does
+ * not move.
  */
-const REJECTED = 27;
+const REJECTED = 30;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
