@@ -938,6 +938,18 @@ function classBox(result: SirenRenderResult, id: string): Point {
   return { x: Number(frame.getAttribute("x")), y: Number(frame.getAttribute("y")) };
 }
 
+/** Whether the class `id`'s box is drawn inside the frame of the namespace labelled `label`. */
+function insideNamespace(result: SirenRenderResult, id: string, label: string): boolean {
+  const namespace = Array.from(svgOf(result).querySelectorAll("g.siren-namespace")).find(
+    (g) => g.querySelector("text.siren-namespace-label")?.textContent === label,
+  );
+  const frame = namespace?.querySelector("rect.siren-namespace-frame") ?? null;
+  if (frame === null) return false;
+  const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(frame.getAttribute(name)));
+  const box = classBox(result, id);
+  return box.x >= x && box.x <= x + width && box.y >= y && box.y <= y + height;
+}
+
 /** Every member line drawn inside the class `id`, in draw order. */
 function members(result: SirenRenderResult, id: string): string[] {
   const box = svgOf(result).querySelector(`g.siren-class[data-siren-id="${id}"]`);
@@ -4172,6 +4184,94 @@ line2\`"]`,
       expectSame("namespace ids", texts(result, "text.siren-namespace-label"), ["Zoo"]);
       expectSame("a namespace frame was drawn", drew(result, "g.siren-namespace"), true);
     },
+  },
+  {
+    id: "cls-namespace-one-line",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo { class Lion }
+      namespace Farm { class Cow { +int legs } }
+      class Keeper`,
+    status: "supported",
+    meaning:
+      "A namespace block may open and close on one line: Mermaid 12.2.0 " +
+      "reads the text after its `{` as its first statement, and a `}` after " +
+      "it, a class block's own `}` aside, as the namespace's end (measured: " +
+      "the clusters Zoo around Lion and Farm around Cow, with the member " +
+      "`+int legs`).",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Lion", "Cow", "Keeper"]);
+      expectSame("namespace ids", texts(result, "text.siren-namespace-label"), ["Zoo", "Farm"]);
+      expectSame("Lion is inside Zoo", insideNamespace(result, "Lion", "Zoo"), true);
+      expectSame("Cow is inside Farm", insideNamespace(result, "Cow", "Farm"), true);
+      expectSame("Keeper is outside Zoo", insideNamespace(result, "Keeper", "Zoo"), false);
+      expectSame("Cow's members", members(result, "Cow"), ["+int legs"]);
+    },
+  },
+  {
+    id: "cls-namespace-closed-on-statement-line",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo { class Lion
+        class Tiger }
+      class Keeper`,
+    status: "supported",
+    meaning:
+      "A namespace's `}` may end its last statement's line, its first " +
+      "statement on its opening line: Mermaid 12.2.0 reads `class Tiger }` " +
+      "as Tiger, then the namespace's end (measured: the cluster Zoo around " +
+      "Lion and Tiger).",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Lion", "Tiger", "Keeper"]);
+      expectSame("Lion is inside Zoo", insideNamespace(result, "Lion", "Zoo"), true);
+      expectSame("Tiger is inside Zoo", insideNamespace(result, "Tiger", "Zoo"), true);
+      expectSame("Keeper is outside Zoo", insideNamespace(result, "Keeper", "Zoo"), false);
+    },
+  },
+  {
+    id: "cls-namespace-empty",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo {}
+      class Lion`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A namespace must " +
+      "hold a statement: Mermaid 12.2.0 refuses `namespace Zoo {}` and a " +
+      "namespace of blank lines alike (\"Expecting 'NEWLINE', 'NAMESPACE', " +
+      "'CLASS', 'NOTE_FOR', 'NOTE', got 'STRUCT_STOP'\", measured). Siren " +
+      "refuses it too (ADR-0017), with an error at the namespace saying to " +
+      "add a class to it or remove it. Siren used to refuse the one-line " +
+      "form as an unrecognized line, and to accept the multi-line one, " +
+      "drawing no frame for it.",
+  },
+  {
+    id: "cls-namespace-text-after-brace",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo { class Lion } class Keeper`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A namespace's `}` " +
+      "ends the statement, so Mermaid 12.2.0 refuses anything after it on " +
+      "its line (\"Expecting 'NEWLINE', 'EOF', 'STRUCT_STOP', got 'ALPHA'\", " +
+      "measured). Siren refuses it too (ADR-0017), with an error at the " +
+      "text saying to start the next statement on a line of its own. " +
+      "`class Keeper` on its own line renders in both.",
+  },
+  {
+    id: "cls-namespace-two-classes-one-line",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo { class Lion class Tiger }`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** Two `class` " +
+      "statements on the namespace's line are one to Mermaid 12.2.0, which " +
+      "draws the single class `LionclassTiger` (measured, as it does for " +
+      "`class Lion class Tiger` on any line) — a picture of neither class, " +
+      "with no diagnostic. Siren refuses the line as it refuses that " +
+      "statement anywhere (ADR-0001). One class per line renders in both.",
   },
   {
     id: "cls-note",

@@ -139,6 +139,13 @@ reads as one member (`+int x; y`, `+foo(); +bar()`), which is now refused (see *
   line or member. Text after the `}` on its line, and a member on the line below it, are refused
   as Mermaid refuses them, each error saying what to move.
 
+- A namespace block may open and close on one line — `namespace N { class A }`, with a class block
+  inside (`namespace N { class A { +x } }`) or nested (`namespace N { namespace M { class A } }`,
+  though an outer namespace holding only namespaces still draws no frame of its own) — and its `}` may end its last statement's line (`class B }`), as Mermaid 12.2.0 reads each
+  (nook `01M4ZY2DA1`). Such a namespace used to be refused as an unrecognized line. Text after its
+  `}` on its line is refused as Mermaid refuses it, the error saying to move it to a line of its
+  own.
+
 ### Changed
 
 - A flowchart subgraph title Siren cannot read is now refused with an error saying how to fix it,
@@ -367,6 +374,10 @@ reads as one member (`+int x; y`, `+foo(); +bar()`), which is now refused (see *
   as one member — `+int x; y`, `+int x; int y`, `+foo(); +bar()` — it used to draw that one member,
   as Mermaid does, and now refuses it. A `;` inside a method's parentheses (`+foo(a; b)`) or a
   `~generic~` is kept as written.
+
+- An empty namespace (`namespace N {` and `}` with nothing between) is now refused, saying to add a
+  class to it or remove it, as Mermaid 12.2.0 refuses it (nook `01M4ZY2DA1`). It used to be
+  accepted and drawn as no frame at all.
 
 - **A destroyed sequence participant ends with a closing box, not an X mark** (Breaking; nook
   decision `01M4ZXTTY3`, superseding the X-mark convention of the sequence-create-destroy board).

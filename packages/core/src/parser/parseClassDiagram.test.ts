@@ -1611,3 +1611,139 @@ describe("parseClassDiagram — a class block closed on a member's line", () => 
     expect(document.relationships).toHaveLength(1);
   });
 });
+
+/**
+ * A `namespace` block written on one line (T8, measured on Mermaid 12.2.0):
+ * the text after its `{` is the body's first statement, and a `}` closes
+ * the namespace wherever it stands — the rule T4 gave a class block.
+ */
+describe("parseClassDiagram — a namespace block written on one line", () => {
+  const classOk = (body: string) => parseOk(`classDiagram\n${body}`).document;
+  const namespacesOf = (document: ClassDocument) => document.namespaces.map((n) => [n.id, n.classIds]);
+  const membersOf = (document: ClassDocument, id: string) =>
+    document.classes.filter((c) => c.id === id).flatMap((c) => c.members.map(reconstruct));
+  const refused = (body: string) => {
+    const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+    expect([body, document]).toEqual([body, null]);
+    return diagnostics;
+  };
+
+  it("reads `namespace N { class A }` as the namespace N holding the class A", () => {
+    // Measured: each spelling draws the cluster N around A.
+    for (const body of [
+      "  namespace N { class A }",
+      "  namespace N {class A}",
+      "  namespace N{ class A }",
+      "  namespace N {   class A   }   ",
+    ]) {
+      const document = classOk(body);
+      expect([body, namespacesOf(document)]).toEqual([body, [["N", ["A"]]]]);
+      expect([body, document.classes.map((c) => [c.id, c.line, c.column])]).toEqual([
+        body,
+        [["A", 2, `classDiagram\n${body}`.split("\n")[1]!.indexOf("class") + 1]],
+      ]);
+    }
+    // The namespace's label and the class's generic, label and `:::` are kept.
+    const labelled = classOk('  namespace N["L"] { class A~T~ }');
+    expect(labelled.namespaces.map((n) => n.label?.text ?? null)).toEqual(["L"]);
+    expect(labelled.classes.map((c) => c.generic)).toEqual(["T"]);
+    expect(classOk('  namespace N { class A["Lbl"] }').classes.map((c) => c.label?.text ?? null)).toEqual(["Lbl"]);
+    const stylesOf = (document: ClassDocument) => document.styles.map((s) => [s.styleKind, s.targetIds, s.name]);
+    expect(stylesOf(classOk("  namespace N { class A:::c }"))).toEqual(stylesOf(classOk("  class A:::c")));
+    // Beside other statements, and twice in a row.
+    const two = classOk("  namespace N { class A }\n  namespace M { class B }\n  class C\n  A <|-- C");
+    expect(namespacesOf(two)).toEqual([["N", ["A"]], ["M", ["B"]]]);
+    expect(two.relationships).toHaveLength(1);
+  });
+
+  it("reads a one-line class block inside a one-line namespace", () => {
+    // Measured: `{ +x } }`, `{ +x }}` and `{}}` each close the class, then the namespace.
+    for (const [body, members] of [
+      ["  namespace N { class A { +x } }", ["+x"]],
+      ["  namespace N { class A { +x }}", ["+x"]],
+      ["  namespace N { class A {} }", []],
+      ["  namespace N { class A {}}", []],
+    ] as const) {
+      const document = classOk(body);
+      expect([body, namespacesOf(document)]).toEqual([body, [["N", ["A"]]]]);
+      expect([body, membersOf(document, "A")]).toEqual([body, members]);
+    }
+  });
+
+  it("closes the namespace at a `}` on a later line, alone or after that line's statement", () => {
+    // Measured: each draws the cluster N around every class named, and a
+    // statement after the namespace stands outside it.
+    for (const [body, ids] of [
+      ["  namespace N { class A\n  }\n  class B", ["A"]],
+      ["  namespace N { class A\n    class B }\n  class C", ["A", "B"]],
+      ["  namespace N {\n    class A }\n  class B", ["A"]],
+      ["  namespace N {\n    class A\n    class B { +x } }", ["A", "B"]],
+      ["  namespace N { class A {\n    +x\n  }\n  }", ["A"]],
+    ] as const) {
+      expect([body, namespacesOf(classOk(body))]).toEqual([body, [["N", ids]]]);
+    }
+  });
+
+  it("reads a `}` after a block's own `}` as closing the namespace around it, nested too", () => {
+    // Measured: each draws A inside M inside N (or inside N alone), the
+    // `}`s after the innermost one closing the namespaces around it in turn.
+    for (const [body, namespaces] of [
+      ["  namespace N { namespace M { class A } }", [["M", ["A"]], ["N", []]]],
+      ["  namespace N { namespace M { class A }}", [["M", ["A"]], ["N", []]]],
+      ["  namespace N { namespace M { class A {}}}", [["M", ["A"]], ["N", []]]],
+      ["  namespace N { class A {\n    +x\n  } }", [["N", ["A"]]]],
+      ["  namespace N { class A {\n    +x }}", [["N", ["A"]]]],
+      ["  namespace N {\n    namespace M {\n      class A\n    } }", [["M", ["A"]], ["N", []]]],
+      ["  namespace N {\n    namespace M { class A {\n      +x } } }\n  class B", [["M", ["A"]], ["N", []]]],
+    ] as const) {
+      const document = classOk(body);
+      expect([body, namespacesOf(document)]).toEqual([body, namespaces]);
+      expect([body, membersOf(document, "A")]).toEqual([body, body.includes("+x") ? ["+x"] : []]);
+    }
+  });
+
+  it("refuses text after a namespace's `}` on its line, where the text starts", () => {
+    // Measured: Mermaid refuses each — a statement ("… got 'ALPHA'"), a `}`
+    // closing nothing (a lexical error) and a `%%` ("… got 'PCT'").
+    const textAfter = (text: string) =>
+      `Unexpected text after the "}" that closes namespace "N": "${text}". ` +
+      "Remove it, or start the next statement on a line of its own.";
+    for (const [body, line, text] of [
+      ["  namespace N { class A } class B", 2, "class B"],
+      ["  namespace N {\n    class A\n  } class B", 4, "class B"],
+      ["  namespace N { class A { +x } } class B", 2, "class B"],
+      ["  namespace N { class A }}", 2, "}"],
+      ["  namespace N {\n    class A\n  }}", 4, "}"],
+    ] as const) {
+      const column = `classDiagram\n${body}`.split("\n")[line - 1]!.lastIndexOf(text) + 1;
+      expect([body, refused(body)]).toEqual([body, [{ severity: "error", message: textAfter(text), line, column }]]);
+    }
+    const notAComment =
+      'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+      "If it is a comment, move it to a line of its own.";
+    for (const body of ["  namespace N { class A } %% c", "  namespace N { class A { +x } } %% c"]) {
+      expect([body, refused(body)]).toEqual([body, [{ severity: "error", message: notAComment, line: 2, column: body.indexOf("%%") + 1 }]]);
+    }
+  });
+
+  it("refuses an empty namespace, on one line or two", () => {
+    // Measured: `namespace N {}`, `namespace N { }` and `namespace N {` ⏎ `}`
+    // are each "Expecting 'NEWLINE', 'NAMESPACE', 'CLASS', 'NOTE_FOR',
+    // 'NOTE', got 'STRUCT_STOP'".
+    const empty =
+      'Empty "namespace N" block: a namespace needs at least one statement inside it. ' +
+      "Add a class to it, or remove the namespace.";
+    for (const body of ["  namespace N {}", "  namespace N { }", "  namespace N {\n  }", "  class A\n  namespace N {\n\n  }"]) {
+      const line = `classDiagram\n${body}`.split("\n").findIndex((l) => l.includes("namespace")) + 1;
+      expect([body, refused(body)]).toEqual([body, [{ severity: "error", message: empty, line, column: 3 }]]);
+    }
+  });
+
+  it("refuses two class statements on the namespace's line, as it refuses them on any line", () => {
+    // Measured: Mermaid draws one class `AclassB` for `class A class B`, here
+    // and at the top level alike.
+    expect(refused("  namespace N { class A class B }")).toEqual([
+      { severity: "error", message: 'Unrecognized classDiagram line: "class A class B"', line: 2, column: 17 },
+    ]);
+  });
+});

@@ -1707,8 +1707,25 @@ const SILENTLY_WRONG = 0;
  * with no row to say so; `cls-class-block-semicolon-readable-members`
  * writes it down. No `supported` row moved: no supported row has a `;`
  * between members. `silently-wrong` does not move.
+ *
+ * **33 → 36: case (2), three refusals written down for the first time.**
+ * `01M4ZY2DA1` read a namespace block written on one line as Mermaid
+ * 12.2.0 does: the text after its `{` is its first statement, and a `}`
+ * closes it wherever it stands. No row had recorded the documents around
+ * that `}`, because Siren refused every one-line namespace as an
+ * unrecognized line until now. Two are ones Mermaid refuses (measured):
+ * `cls-namespace-empty`, a namespace with no statement ("… got
+ * 'STRUCT_STOP'"; Siren used to accept the multi-line spelling, drawing no
+ * frame), and `cls-namespace-text-after-brace`, text after the `}` on its
+ * line ("… got 'ALPHA'"). One is a document Mermaid accepts and draws as
+ * something other than what was written, refused under ADR-0001:
+ * `cls-namespace-two-classes-one-line`, which Mermaid draws as the one
+ * class `LionclassTiger`. No `supported` row moved.
+ * `cls-namespace-one-line` and `cls-namespace-closed-on-statement-line`,
+ * new beside them, are `supported` and move nothing. `silently-wrong` does
+ * not move.
  */
-const REJECTED = 33;
+const REJECTED = 36;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
