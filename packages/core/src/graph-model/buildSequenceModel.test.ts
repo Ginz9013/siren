@@ -1552,26 +1552,27 @@ describe("buildSequenceModel", () => {
       ]);
     });
 
-    it("pairs in document order across blocks, and only a message counts: a note or an activation in between does not", () => {
-      // Positions: 1 participant A, 2 participant B, 3 alt, 4 A->>A, 5 destroy
-      // B, 6 note, 7 activate A, 8 B->>A (the `else` branch's first statement).
-      const result = build(
-        [
-          "participant A",
-          "participant B",
-          "alt first",
-          "A->>A: think",
-          "destroy B",
-          "Note over A: aside",
-          "activate A",
-          "else second",
-          "B->>A: bye",
-          "end",
-        ].join("\n"),
+    it("pairs with a destroying message in the same block, and refuses one past a block boundary, naming the boundary", () => {
+      // Measured on Mermaid 12.2.0: a block's start, its `else`/`and`/`option`
+      // and its `end` are each a record of their own, so a destroying message
+      // past one is accepted and then not drawn — B's lifeline runs to the
+      // bottom. Inside one branch, the pair is drawn.
+      // Positions: 1–2 participants, 3 alt, 4 A->>A, 5 destroy B, 6 B->>A, 7 A->>A.
+      const sameBranch = build(
+        ["participant A", "participant B", "alt first", "A->>A: think", "destroy B", "B->>A: bye", "else second", "A->>A: other", "end"].join("\n"),
       );
+      expect(sameBranch.diagnostics).toEqual([]);
+      expect(sameBranch.destroyedAt).toEqual({ A: null, B: 6 });
 
-      expect(result.diagnostics).toEqual([]);
-      expect(result.destroyedAt).toEqual({ A: null, B: 8 });
+      const refusal = (keyword: string) =>
+        `The destroyed participant "B" has no destroying message: the message sent by or to it must come right after the destroy, with no "${keyword}" in between.`;
+      const firstError = (body: string[]) =>
+        build(["participant A", "participant B", ...body].join("\n")).diagnostics.find((d) => d.startsWith("error"));
+      expect(firstError(["alt first", "A->>A: think", "destroy B", "else second", "B->>A: bye", "end"])).toBe(`error 6:1: ${refusal("else")}`);
+      expect(firstError(["loop again", "A->>A: think", "destroy B", "end", "B->>A: bye"])).toBe(`error 6:1: ${refusal("end")}`);
+      expect(firstError(["destroy B", "opt maybe", "B->>A: bye", "end"])).toBe(`error 4:1: ${refusal("opt")}`);
+      expect(firstError(["par one", "A->>A: think", "destroy B", "and two", "B->>A: bye", "end"])).toBe(`error 6:1: ${refusal("and")}`);
+      expect(firstError(["critical one", "A->>A: think", "destroy B", "option two", "B->>A: bye", "end"])).toBe(`error 6:1: ${refusal("option")}`);
     });
 
     it("refuses a `destroy X` whose next message does not touch X, at the `destroy` line, saying why without naming Mermaid", () => {
@@ -1582,21 +1583,159 @@ describe("buildSequenceModel", () => {
       ]);
       expect(result.diagnostics.join("\n")).not.toMatch(/mermaid/i);
     });
+  });
 
-    it("lets a later `destroy` or `create` replace a pending `destroy` before any message: the replaced one ends where it is written, unchecked (what Mermaid draws for it is open, nook 01M4YS7DV8)", () => {
-      // Provisional, pinned only so it is predictable: Mermaid remembers only
-      // the latest `destroy`/`create`, so the earlier `destroy B` is never
-      // checked against a message, and what Mermaid then draws for B is not
-      // measured yet (nook 01M4YS7DV8).
-      // Positions: 1–3 participants, 4 destroy B, 5 destroy C, 6 A->>C.
-      const twoDestroys = build("participant A\nparticipant B\nparticipant C\ndestroy B\ndestroy C\nA->>C: bye");
-      expect(twoDestroys.diagnostics).toEqual([]);
-      expect(twoDestroys.destroyedAt).toEqual({ A: null, B: 4, C: 6 });
+  describe("a `create` or `destroy` with another record before its message (nook 01M4YS7DV8)", () => {
+    // Measured on Mermaid 12.2.0: its drawing finds a creating or destroying
+    // message by the index of the record right after the declaration, so
+    // whenever anything else comes first — another `create` or `destroy`, a
+    // note, an activation, a block boundary — the declaration is accepted and
+    // then not drawn at all, with no diagnostic. Siren refuses those, at the
+    // declaration's line, once a message follows.
+    it("refuses a `destroy` followed by another `destroy` before any message, at the first one's line", () => {
+      // Mermaid draws C's lifeline ending on `A-xC` and B's running to the
+      // bottom, as if B were never destroyed.
+      // Positions: 1–3 participants, 4 destroy B, 5 destroy C, 6 A-xC.
+      const result = build("participant A\nparticipant B\nparticipant C\ndestroy B\ndestroy C\nA-xC: bye");
 
-      // Positions: 1–2 participants, 3 destroy B, 4 create C, 5 A->>C.
-      const destroyThenCreate = build("participant A\nparticipant B\ndestroy B\ncreate participant C\nA->>C: hello");
-      expect(destroyThenCreate.diagnostics).toEqual([]);
-      expect(destroyThenCreate.destroyedAt).toEqual({ A: null, B: 3, C: null });
+      expect(result.diagnostics).toEqual([
+        'error 5:1: The destroyed participant "B" has no destroying message: the message sent by or to it must come right after the destroy, with no "destroy" in between.',
+      ]);
+      expect(result.destroyedAt).toEqual({ A: null, B: 4, C: 6 });
+    });
+
+    it("refuses a `destroy` followed by a `create` before any message, at the `destroy` line", () => {
+      // Mermaid accepts `destroy B`, `create C`, `A->>C` and draws C's box on
+      // `A->>C` and B's lifeline to the bottom, as if B were never
+      // destroyed; it refuses the document only when the message after that
+      // one does not touch B, as `A->>A` here does not.
+      // Positions: 1–2 participants, 3 destroy B, 4 create C, 5 A->>C, 6 A->>A.
+      const result = build("participant A\nparticipant B\ndestroy B\ncreate participant C\nA->>C: hello\nA->>A: other");
+
+      expect(result.diagnostics).toEqual([
+        'error 4:1: The destroyed participant "B" has no destroying message: the message sent by or to it must come right after the destroy, with no "create" in between.',
+      ]);
+      expect(result.destroyedAt).toEqual({ A: null, B: 3, C: null });
+      expect(result.createdAt).toEqual({ A: 0, B: 0, C: 5 });
+    });
+
+    it("refuses a `create` followed by another `create` before any message, at the first one's line", () => {
+      // Mermaid accepts `create C`, `create D`, `A->>D`, draws D's box on
+      // `A->>D` and C's at the top, as if C were declared there.
+      // Positions: 1 participant A, 2 create C, 3 create D, 4 A->>D.
+      const result = build("participant A\ncreate participant C\ncreate participant D\nA->>D: make");
+
+      expect(result.diagnostics).toEqual([
+        'error 3:1: The created participant "C" has no creating message: the message sent to it must come right after the create, with no "create" in between.',
+      ]);
+      expect(result.createdAt).toEqual({ A: 0, C: 2, D: 4 });
+    });
+
+    it("refuses a `create` followed by a `destroy` before any message, at the `create` line, and still checks the `destroy` against that message", () => {
+      // Mermaid accepts `create C`, `destroy B`, `A->>C`, `B->>A`, draws C's
+      // box on `A->>C` and B's lifeline to the bottom, as if B were never
+      // destroyed. Siren's `destroy B` is the latest declaration, so
+      // `A->>C`, which does not touch B, is checked as its message too.
+      // Positions: 1–2 participants, 3 create C, 4 destroy B, 5 A->>C, 6 B->>A.
+      const result = build("participant A\nparticipant B\ncreate participant C\ndestroy B\nA->>C: make\nB->>A: bye");
+
+      expect(result.diagnostics).toEqual([
+        'error 4:1: The created participant "C" has no creating message: the message sent to it must come right after the create, with no "destroy" in between.',
+        'error 5:1: The destroyed participant "B" has no destroying message: the next message must be sent by or to it.',
+        'warning 7:1: Message "B-A" references participant "B", whose lifeline already ended — the arrow points past the destroy mark',
+      ]);
+      expect(result.createdAt).toEqual({ A: 0, B: 0, C: 3 });
+      expect(result.destroyedAt).toEqual({ A: null, B: 4, C: null });
+    });
+
+    it("does not warn that a message ends past B's destroy mark when it is B's own destroying message, after an interrupted `create`", () => {
+      // `create C`, `destroy B`, `B->>C`: C's `create` is refused, and
+      // `B->>C` is B's destroying message — not a message past B's end.
+      // Positions: 1–2 participants, 3 create C, 4 destroy B, 5 B->>C.
+      const result = build("participant A\nparticipant B\ncreate participant C\ndestroy B\nB->>C: bye");
+
+      expect(result.diagnostics).toEqual([
+        'error 4:1: The created participant "C" has no creating message: the message sent to it must come right after the create, with no "destroy" in between.',
+      ]);
+      expect(result.destroyedAt).toEqual({ A: null, B: 5, C: null });
+      expect(result.creates).toEqual([["B-C", null]]);
+    });
+
+    it("refuses a `destroy` or a `create` with a note before its message, and keeps the lifeline's end or start at the declaration", () => {
+      // Mermaid accepts both and draws them as if neither declaration were
+      // written: B's lifeline runs to the bottom, C's box sits at the top.
+      // Positions: 1–2 participants, 3 destroy B, 4 note, 5 A->>B.
+      const destroyed = build("participant A\nparticipant B\ndestroy B\nNote over A: aside\nA->>B: bye");
+      expect(destroyed.diagnostics).toEqual([
+        'error 4:1: The destroyed participant "B" has no destroying message: the message sent by or to it must come right after the destroy, with no "note" in between.',
+        'warning 6:1: Message "A-B" references participant "B", whose lifeline already ended — the arrow points past the destroy mark',
+      ]);
+      expect(destroyed.destroyedAt).toEqual({ A: null, B: 3 });
+
+      // Positions: 1 participant A, 2 create C, 3 note, 4 A->>C.
+      const created = build("participant A\ncreate participant C\nnote over A: aside\nA->>C: make");
+      expect(created.diagnostics).toEqual([
+        'error 3:1: The created participant "C" has no creating message: the message sent to it must come right after the create, with no "note" in between.',
+      ]);
+      expect(created.createdAt).toEqual({ A: 0, C: 2 });
+      expect(created.creates).toEqual([["A-C", null]]);
+    });
+
+    it("refuses a `destroy` or a `create` with an `activate` or a `deactivate` before its message", () => {
+      // Measured: Mermaid draws these as it draws a note in between — B's
+      // lifeline to the bottom, C's box at the top.
+      const activated = build("participant A\nparticipant B\ndestroy B\nactivate A\nB->>A: bye\ndeactivate A");
+      expect(activated.diagnostics).toEqual([
+        'error 4:1: The destroyed participant "B" has no destroying message: the message sent by or to it must come right after the destroy, with no "activate" in between.',
+        'warning 6:1: Message "B-A" references participant "B", whose lifeline already ended — the arrow points past the destroy mark',
+      ]);
+
+      const deactivated = build("participant A\nactivate A\nA->>A: think\ncreate participant C\ndeactivate A\nA->>C: make");
+      expect(deactivated.diagnostics).toEqual([
+        'error 5:1: The created participant "C" has no creating message: the message sent to it must come right after the create, with no "deactivate" in between.',
+      ]);
+    });
+
+    it("refuses a `destroy` or a `create` with an `autonumber` before its message", () => {
+      // Measured on Mermaid 12.2.0: `autonumber` and `autonumber off` are
+      // records too, drawn past as a note is.
+      expect(build("participant A\nparticipant B\ndestroy B\nautonumber\nA->>B: bye").diagnostics[0]).toBe(
+        'error 4:1: The destroyed participant "B" has no destroying message: the message sent by or to it must come right after the destroy, with no "autonumber" in between.',
+      );
+      expect(build("autonumber\nparticipant A\ncreate participant C\nautonumber off\nA->>C: make").diagnostics).toEqual([
+        'error 4:1: The created participant "C" has no creating message: the message sent to it must come right after the create, with no "autonumber" in between.',
+      ]);
+    });
+
+    it("refuses nothing when no message follows: an interrupted `destroy` or `create` keeps its own row, as one at the end does", () => {
+      // Measured on Mermaid 12.2.0: two `destroy` lines with no message
+      // after them, or one followed by a note or a block's `end`, draw
+      // exactly what a lone `destroy` at the end draws — nothing for a
+      // message to disagree with.
+      // Positions: 1–3 participants, 4 A->>B, 5 A->>C, 6 destroy B, 7 destroy C.
+      const twoAtEnd = build("participant A\nparticipant B\nparticipant C\nA->>B: hi\nA->>C: hi\ndestroy B\ndestroy C");
+      expect(twoAtEnd.diagnostics).toEqual([]);
+      expect(twoAtEnd.destroyedAt).toEqual({ A: null, B: 6, C: 7 });
+
+      expect(build("participant A\nparticipant B\nA->>B: hi\ndestroy B\nnote over A: done").diagnostics).toEqual([]);
+      expect(build("participant A\nloop again\nA->>A: hi\ncreate participant C\nend").diagnostics).toEqual([]);
+    });
+
+    it("lets a participant declaration, a link or an activation written on the message itself stand next to the pair", () => {
+      // Measured on Mermaid 12.2.0: none of these is a record of its own
+      // between the two (`A->>+B` and `B-->>-A` record the message first), so
+      // the pair is drawn.
+      // Positions: 1–2 participants, 3 destroy B, 4 participant E, 5 A->>+B.
+      const declared = build("participant A\nparticipant B\ndestroy B\nparticipant E\nlink A: Docs @ https://x.com\nA->>+B: bye");
+      expect(declared.diagnostics).toEqual([]);
+      expect(declared.destroyedAt).toEqual({ A: null, B: 5, E: null });
+
+      const created = build("participant A\ncreate participant C\nparticipant E\nA->>+C: make\nC-->>-A: done");
+      expect(created.diagnostics).toEqual([]);
+      expect(created.creates).toEqual([
+        ["A-C", "C"],
+        ["C-A", null],
+      ]);
     });
   });
 
@@ -1642,59 +1781,14 @@ describe("buildSequenceModel", () => {
       expect(result.createdAt).toEqual({ A: 0, C: 3 });
     });
 
-    it("pairs in document order across blocks, and only a message counts: a note or an activation in between does not", () => {
-      // Positions: 1 participant A, 2 alt, 3 create C, 4 note, 5 activate A,
-      // 6 A->>C (the `else` branch's first statement), 7 deactivate A.
-      const result = build(
-        [
-          "participant A",
-          "alt first",
-          "create participant C",
-          "Note over A: aside",
-          "activate A",
-          "else second",
-          "A->>C: make",
-          "deactivate A",
-          "end",
-        ].join("\n"),
-      );
+    it("refuses a `create` whose message is past a block boundary, naming the boundary", () => {
+      // Measured on Mermaid 12.2.0: accepted, and C's box is drawn at the top.
+      const result = build(["participant A", "alt first", "create participant C", "else second", "A->>C: make", "end"].join("\n"));
 
-      expect(result.diagnostics).toEqual([]);
-      expect(result.createdAt).toEqual({ A: 0, C: 6 });
-      expect(result.creates).toEqual([["A-C", "C"]]);
-    });
-
-    it("checks a pending `create` before a pending `destroy`, as Mermaid does: the `destroy` waits for the message after the creating one (provisional, nook 01M4YS7DV8)", () => {
-      // Measured on Mermaid 12.2.0: `addMessage` checks `lastCreated` first
-      // and only otherwise `lastDestroyed`, so `create C`, `destroy B`,
-      // `A->>C` is accepted, and B is checked against the message after it.
-      // What Mermaid then draws for B is open (nook 01M4YS7DV8).
-      // Positions: 1–2 participants, 3 create C, 4 destroy B, 5 A->>C, 6 B->>A.
-      const paired = build("participant A\nparticipant B\ncreate participant C\ndestroy B\nA->>C: make\nB->>A: bye");
-      expect(paired.diagnostics).toEqual([]);
-      expect(paired.createdAt).toEqual({ A: 0, B: 0, C: 5 });
-      expect(paired.model.participants.map((p) => [p.id, p.destroyedAt])).toEqual([
-        ["A", null],
-        ["B", 6],
-        ["C", null],
+      expect(result.diagnostics).toEqual([
+        'error 4:1: The created participant "C" has no creating message: the message sent to it must come right after the create, with no "else" in between.',
       ]);
-
-      // The message after the creating one must then touch B — Mermaid
-      // refuses `create C`, `destroy B`, `A->>C`, `A->>A`.
-      const unpaired = build("participant A\nparticipant B\ncreate participant C\ndestroy B\nA->>C: make\nA->>A: other");
-      expect(unpaired.diagnostics).toEqual([
-        'error 5:1: The destroyed participant "B" has no destroying message: the next message must be sent by or to it.',
-      ]);
-    });
-
-    it("lets a later `create` replace a pending `create` before any message: the replaced one starts where it is written, unchecked (nook 01M4YS7DV8)", () => {
-      // Mermaid's `lastCreated` holds one participant, so `create C`,
-      // `create D`, `A->>D` is accepted and C is never checked.
-      // Positions: 1 participant A, 2 create C, 3 create D, 4 A->>D.
-      const result = build("participant A\ncreate participant C\ncreate participant D\nA->>D: make");
-
-      expect(result.diagnostics).toEqual([]);
-      expect(result.createdAt).toEqual({ A: 0, C: 2, D: 4 });
+      expect(result.creates).toEqual([["A-C", null]]);
     });
   });
 });

@@ -17,6 +17,10 @@ receives, which is now refused (see **Changed**).
 Breaking for a sequence document whose `create participant X` is followed by a message not sent to
 X, which is now refused (see **Changed**).
 
+Breaking for a sequence document with a note, activation, `autonumber`, block boundary, or another
+`create` or `destroy` between a `create` or `destroy` and the message after it, which is now
+refused (see **Changed**).
+
 ### Added
 
 - A document may open with a Mermaid frontmatter (`---` … `---`), read as Mermaid 12.2.0 reads it,
@@ -88,35 +92,46 @@ X, which is now refused (see **Changed**).
 
 ### Changed
 
-- **A sequence `create participant X` draws X's box on its creating message**: the first message
-  after it, in document order and whatever block it is in, which must be sent to X (nook
-  `01M4YS7DMG`). X's box is now centred on that message's arrow, the arrow stops at the box's near
+- **A sequence `create participant X` draws X's box on its creating message**: the message right
+  after it, which must be sent to X (nook `01M4YS7DMG`). X's box is now centred on that message's arrow, the arrow stops at the box's near
   edge, X's lifeline starts at the box's bottom, and `create` no longer takes a row of its own; the
   next row starts below the box. Measured against Mermaid 12.2.0, which reads `create` the same way
-  and centres X's box on that arrow. Notes, activations and block boundaries in between do not
-  count, only messages. A `create` with no message after it still draws X's box where it is
-  written.
+  and centres X's box on that arrow. Nothing may stand between the two: a note, an activation or a
+  block boundary in between is refused (see below). A `create` with no message after it still draws
+  X's box where it is written.
 - **A `create participant X` whose next message is not sent to X is refused** — including one X
   sends — with an error at the `create` line: `The created participant "X" has no creating
   message: the next message must be sent to it.` Siren used to draw such a document in silence;
   Mermaid 12.2.0 refuses it. As with Siren's other sequence errors, the diagram is still drawn
-  beside the error, with X's box where `create` is written. As in Mermaid, a waiting `create` is
-  checked before a waiting `destroy`, so a `destroy` written between a `create` and its creating
-  message waits for the message after that one.
-- **A sequence `destroy X` ends X's lifeline at its destroying message**: the first message after
-  it, in document order and whatever block it is in, which X must send or receive (nook
-  `01M4YS7DDX`). X's lifeline and X mark now sit on that message's row, on the arrow's tip when X
+  beside the error, with X's box where `create` is written.
+- **A sequence `destroy X` ends X's lifeline at its destroying message**: the message right after
+  it, which X must send or receive (nook `01M4YS7DDX`). X's lifeline and X mark now sit on that message's row, on the arrow's tip when X
   receives it and on its tail when X sends it, and `destroy` no longer takes a row of its own. That
   message is no longer warned about as reaching past the end of X's lifeline; a later message
   naming X still is. Measured against Mermaid 12.2.0, which reads `destroy X` the same way and
-  ends X's lifeline on that message's row. Notes, activations and block boundaries in between do
-  not count, only messages. A `destroy` with no message after it still ends the lifeline where it
-  is written.
+  ends X's lifeline on that message's row. Nothing may stand between the two: a note, an activation
+  or a block boundary in between is refused (see below). A `destroy` with no message after it still
+  ends the lifeline where it is written.
 - **A `destroy X` whose next message X neither sends nor receives is refused** with an error at
   the `destroy` line: `The destroyed participant "X" has no destroying message: the next message
   must be sent by or to it.` Siren used to draw such a document in silence; Mermaid 12.2.0
   refuses it. As with Siren's other sequence errors, the diagram is still drawn beside the error,
   with X's lifeline ending where `destroy` is written.
+- **A `create` or `destroy` with anything but its message right after it is refused** once a
+  message follows: a note, an `activate` or `deactivate`, an `autonumber`, a block boundary (a
+  block's start, `else`, `and`, `option`, `end`), or another `create` or `destroy` in between
+  (nook `01M4YS7DV8`). The error is at the declaration's line and names what stands in between:
+  `The created participant "X" has no creating message: the message sent to it must come right
+  after the create, with no "note" in between.`, and for `destroy`, `The destroyed participant "X"
+  has no destroying message: the message sent by or to it must come right after the destroy, with
+  no "note" in between.` Measured against Mermaid 12.2.0: it accepts most of these documents but
+  then draws the declaration as if it were never written — X's box at the top, X's lifeline to the
+  bottom — because its drawing pairs a declaration with the record right after it; the rest it
+  refuses. A wrong picture with no diagnostic is refused (ADR-0001). Siren used to pair across
+  them in silence, and with two declarations waiting it checked only the latest (`destroy B`,
+  `destroy C`, `A-xC`), or a `create` before a `destroy`, which also warned that a message `B`
+  sent right after `create C`, `destroy B` reached past B's end. With no message after them, such
+  declarations are drawn where they are written, as a lone one at the end is, with no diagnostic.
 - **A line that is nothing but `%%` is refused in flowcharts and ER diagrams**, with an error at its
   `%%` that says to write `%% text` or leave the line blank (ADR-0017, nook `01M4XSF9S`). Such a
   line used to be stripped as a comment, but Mermaid 12.2.0 does not read it as one: its comment

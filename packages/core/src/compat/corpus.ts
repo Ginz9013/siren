@@ -4610,18 +4610,18 @@ line2\`"]`,
       create participant C
       note over A: aside
       A->>C: make`,
-    status: "supported",
+    status: "rejected",
     meaning:
-      "Only a message pairs with a `create`: a note in between does not " +
-      "count, so `A->>C: make` is C's creating message. Measured on 12.2.0: " +
-      "accepted, with no error. Mermaid then draws C's box at the top and " +
-      "does not stop the arrow short, because its drawing counts the note " +
-      "as a record; whether Siren should refuse that (Mermaid's picture " +
-      "disagrees with its own pairing, in silence) is nook 01M4YS7DV8's to " +
-      "decide. Until then Siren pairs them and draws C's box on the arrow.",
-    assert: (result) => {
-      expectSame("C's box is on its creating message", createdBox(result, "C"), "centred on A-C, whose arrow stops at its left edge");
-    },
+      "A note between `create participant C` and `A->>C: make`. Measured on " +
+      "12.2.0: accepted, with no error, but Mermaid draws C's box at the top " +
+      "and runs the arrow to C's lane as if C were never created — its " +
+      "drawing pairs the `create` with the record right after it, here the " +
+      "note. A wrong picture with no diagnostic, so Siren refuses it " +
+      "(ADR-0001's exception, nook 01M4YS7DV8), with an error at the " +
+      "`create` line saying the message must come right after the `create`, " +
+      "with no note in between. The same holds for an `activate`, a " +
+      "`deactivate`, an `autonumber`, a block boundary, or another `create` " +
+      "or `destroy` in between, on either declaration.",
   },
   {
     id: "seq-destroying-message-received",
@@ -4683,6 +4683,31 @@ line2\`"]`,
     assert: (result) => {
       expectSame("messages", messages(result), ["A-B: hi", "B-A: bye"]);
       expectSame("B ends on the destroying message's tail", lifelineEnd(result, "B"), "tail of B-A, lifeline stops there");
+    },
+  },
+  {
+    id: "seq-destroy-two-at-end",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      participant B
+      participant C
+      A->>B: hi
+      A->>C: hi
+      destroy B
+      destroy C`,
+    status: "supported",
+    meaning:
+      "Two `destroy` lines with no message after either: neither has a " +
+      "destroying message to pair with, the second one first or not. " +
+      "Measured on 12.2.0: accepted, and drawn exactly as a lone `destroy` " +
+      "at the end is — B and C as if never destroyed. Siren draws both as " +
+      "it draws a lone one at the end: an X on a row of its own, below the " +
+      "last message, with no diagnostic. A message after the two would " +
+      "refuse the first, which Mermaid would not draw (nook 01M4YS7DV8).",
+    assert: (result) => {
+      expectSame("B ends on a row of its own", lifelineEnd(result, "B"), "below A-C, lifeline stops there");
+      expectSame("C ends on a row of its own", lifelineEnd(result, "C"), "below A-C, lifeline stops there");
     },
   },
   {

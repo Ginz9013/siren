@@ -1518,8 +1518,27 @@ const SILENTLY_WRONG = 0;
  * after it. `seq-create-next-message-sent-by-created` and
  * `seq-create-without-creating-message` are those rows. Nothing that
  * rendered in Mermaid stopped rendering, and `silently-wrong` does not move.
+ *
+ * **14 → 15: a `supported` row moved to `rejected`, under ADR-0001's
+ * exception — the one move the ratchet's message forbids, made on purpose.**
+ * `01M4YS7DV8` measured what Mermaid 12.2.0 *draws* when a note (or an
+ * activation, an `autonumber`, a block boundary, or another `create` or
+ * `destroy`) stands between a `create`/`destroy` and its message: it
+ * accepts the document and then draws the declaration as if it were never
+ * written — C's box at the top, B's lifeline to the bottom — because its
+ * drawing pairs a declaration with the record right after it, not with the
+ * message its own check paired. `seq-create-note-before-creating-message`
+ * had recorded that document as `supported` while the question was open,
+ * with Siren drawing what the author meant rather than what Mermaid drew.
+ * A wrong picture with no diagnostic is exactly what ADR-0001 lets Siren
+ * refuse, and saying why is the obligation that comes with it, so the row
+ * is `rejected` now with an error naming what stands in between. What an
+ * author loses is a picture Mermaid itself does not draw: moving the note
+ * after the message renders in both. `silently-wrong` does not move — the
+ * row was never silent-and-wrong in Siren. `seq-destroy-two-at-end`, new
+ * beside it, is `supported` and moves nothing.
  */
-const REJECTED = 14;
+const REJECTED = 15;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

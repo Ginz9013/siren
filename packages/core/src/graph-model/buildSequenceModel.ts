@@ -93,36 +93,45 @@ interface ResolutionState {
    */
   position: number;
   /**
-   * The participant the latest `destroy` named, while no message has been
-   * resolved since — the **destroying message** it is waiting for. Mermaid
-   * 12.2.0 reads `destroy X` as a declaration about the *next message*, not
-   * as an event of its own (`sequenceDiagram-BLEHNHQU.mjs`, `addMessage`:
-   * `lastDestroyed` is checked against the next `addMessage` alone, so a
-   * note, an `activate` or a block boundary between the two does not count,
-   * and the walk here is the flattened document order those records are
-   * added in). `null` when nothing is waiting. The `destroy` statement
-   * itself is kept so a missing destroying message is reported at its line.
+   * The `create` and `destroy` declarations written since the last message,
+   * in document order — each waiting for the message it declares something
+   * about. Mermaid 12.2.0 reads `create participant X` and `destroy X` as
+   * declarations about the *next message*, not as events of their own
+   * (`sequenceDiagram-BLEHNHQU.mjs`, `addMessage` checks `lastCreated` or
+   * `lastDestroyed` against the next message). Its drawing, though, looks
+   * the creating or destroying message up by the index of the record right
+   * after the declaration, so a declaration with any other record in between
+   * is accepted and then not drawn. Only the latest declaration can still be
+   * uninterrupted; every earlier one carries what interrupted it. Emptied by
+   * every message.
    */
-  pendingDestroy: PendingDeclaration<SequenceDestroyStatement> | null;
-  /**
-   * The participant the latest `create` named, while no message has been
-   * resolved since — the **creating message** it is waiting for, which must
-   * be sent to it. Mermaid 12.2.0 reads `create participant X` as a
-   * declaration about the next message, the same way it reads `destroy`
-   * (`addMessage` checks `lastCreated` against the next message alone).
-   * `null` when nothing is waiting. The `create` statement itself is kept so
-   * a missing creating message is reported at its line.
-   */
-  pendingCreate: PendingDeclaration<SequenceParticipantStatement> | null;
+  pending: PendingDeclaration[];
 }
 
 /**
  * A `create` or `destroy` waiting for the next message, with the statement
  * that declared it, whose line a missing message is reported at.
  */
-interface PendingDeclaration<S extends SequenceStatement> {
+interface PendingDeclaration {
+  kind: "create" | "destroy";
   participant: ResolvedSequenceParticipant;
-  statement: S;
+  statement: SequenceStatement;
+  /**
+   * The keyword of the first record written between the declaration and the
+   * next message — `"create"`, `"destroy"`, `"note"`, `"activate"`,
+   * `"deactivate"`, `"autonumber"`, a block's own keyword, `"else"`, `"and"`,
+   * `"option"` or `"end"` — or `null` while nothing has been.
+   */
+  interruptedBy: string | null;
+}
+
+/**
+ * Marks every declaration still waiting as interrupted by `keyword`, a
+ * record that is not a message: its message, when one comes, is no longer
+ * the record right after it.
+ */
+function interrupt(state: ResolutionState, keyword: string): void {
+  for (const declaration of state.pending) declaration.interruptedBy ??= keyword;
 }
 
 /**
@@ -135,7 +144,7 @@ interface PendingDeclaration<S extends SequenceStatement> {
  * where the declaration is written.
  */
 function settle(
-  pending: PendingDeclaration<SequenceStatement>,
+  pending: PendingDeclaration,
   pairs: boolean,
   extent: "createdAt" | "destroyedAt",
   position: number,
@@ -197,8 +206,7 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
     autonumbering: false,
     autonumberCounter: 0,
     position: 0,
-    pendingDestroy: null,
-    pendingCreate: null,
+    pending: [],
   };
 
   const boxes = resolveBoxes(document, diagnostics);
@@ -356,11 +364,13 @@ function resolveStatements(
 
     if (statement.kind === "autonumberOn") {
       state.autonumbering = true;
+      interrupt(state, "autonumber");
       continue;
     }
 
     if (statement.kind === "autonumberOff") {
       state.autonumbering = false;
+      interrupt(state, "autonumber");
       continue;
     }
 
@@ -389,16 +399,11 @@ function resolveStatements(
       // full-height extent alone.
       participant!.origin = statement.origin;
       if (statement.origin === "created") participant!.createdAt = position;
-      // A `create` waits for the next message too, and Mermaid remembers only
-      // the latest of the two declarations: `createParticipant` sets
-      // `lastCreated`, which `addMessage` checks first, so a `destroy` still
-      // waiting is never checked at all. What Mermaid then draws for the
-      // replaced `destroy` is still unmeasured (nook 01M4YS7DV8); until it
-      // is, that `destroy` keeps the end it was written at — the same as a
-      // `destroy` with no message after it — rather than guessing.
+      // A `create` waits for the next message too, and interrupts any
+      // `create` or `destroy` still waiting (`ResolutionState.pending`).
       if (statement.origin === "created") {
-        state.pendingDestroy = null;
-        state.pendingCreate = { participant: participant!, statement };
+        interrupt(state, "create");
+        state.pending.push({ kind: "create", participant: participant!, statement, interruptedBy: null });
       }
       resolved.push({ kind: "participant", participant: participant! });
       continue;
@@ -426,12 +431,11 @@ function resolveStatements(
       // message after it, the end stays where `destroy` is written, which is
       // what Siren always drew.
       participant.destroyedAt = ++state.position;
-      // A `destroy` still waiting for its message is replaced, unchecked:
-      // Mermaid's `lastDestroyed` holds one participant, so `destroy B` then
-      // `destroy C` checks only C. Whether Mermaid then draws B's end at all
-      // is still unmeasured (nook 01M4YS7DV8); the replaced one keeps the end
-      // it was written at meanwhile.
-      state.pendingDestroy = { participant, statement };
+      // It interrupts any `create` or `destroy` still waiting: measured on
+      // Mermaid 12.2.0, `destroy B`, `destroy C`, `A-xC` ends C on `A-xC`
+      // and draws B as if it were never destroyed (nook 01M4YS7DV8).
+      interrupt(state, "destroy");
+      state.pending.push({ kind: "destroy", participant, statement, interruptedBy: null });
       resolved.push({ kind: "destroy", id: statement.id });
       continue;
     }
@@ -480,37 +484,54 @@ function resolveStatements(
       // destroying message, the message is kept and X's box stays where
       // `create` is written.
       //
-      // Mermaid checks a waiting `create` first and a waiting `destroy` only
-      // when no `create` is waiting (`addMessage`: `if (lastCreated) … else
-      // if (lastDestroyed)`), so a `destroy` written after a `create` waits
-      // past the creating message for the one after it. What Mermaid then
-      // draws for that `destroy` is still unmeasured (nook 01M4YS7DV8).
+      // A declaration interrupted before this message — by another `create`
+      // or `destroy`, a note, an activation, an `autonumber` or a block
+      // boundary — is refused here, at its own line. Measured on Mermaid
+      // 12.2.0 (nook 01M4YS7DV8): Mermaid accepts every such document or
+      // refuses it, but never draws the interrupted declaration, since its
+      // drawing pairs a declaration with the record right after it — a
+      // wrong picture with no diagnostic, which Siren refuses (ADR-0001).
+      // Mermaid's own pairing would check only the latest declaration, and a
+      // `create` before a `destroy`; refusing every interrupted one covers
+      // each document Mermaid refuses too. With no message after it, an
+      // interrupted declaration is not refused: it then draws what one at
+      // the end of the document draws. The latest, uninterrupted
+      // declaration is checked against this message as usual.
       let createdHere: string | null = null;
       let destroyedHere: string | null = null;
-      const { pendingCreate, pendingDestroy } = state;
-      if (pendingCreate !== null) {
-        state.pendingCreate = null;
-        const { id: createdId } = pendingCreate.participant;
-        createdHere = settle(
-          pendingCreate,
-          statement.to === createdId,
-          "createdAt",
-          position,
-          `The created participant "${createdId}" has no creating message: the next message must be sent to it.`,
-          state.diagnostics,
-        );
-      } else if (pendingDestroy !== null) {
-        state.pendingDestroy = null;
-        const { id: destroyedId } = pendingDestroy.participant;
-        destroyedHere = settle(
-          pendingDestroy,
-          statement.from === destroyedId || statement.to === destroyedId,
-          "destroyedAt",
-          position,
-          `The destroyed participant "${destroyedId}" has no destroying message: the next message must be sent by or to it.`,
-          state.diagnostics,
-        );
+      for (const declaration of state.pending) {
+        const { id: declaredId } = declaration.participant;
+        if (declaration.interruptedBy !== null) {
+          state.diagnostics.push({
+            severity: "error",
+            message:
+              declaration.kind === "create"
+                ? `The created participant "${declaredId}" has no creating message: the message sent to it must come right after the create, with no "${declaration.interruptedBy}" in between.`
+                : `The destroyed participant "${declaredId}" has no destroying message: the message sent by or to it must come right after the destroy, with no "${declaration.interruptedBy}" in between.`,
+            line: declaration.statement.line,
+            column: declaration.statement.column,
+          });
+        } else if (declaration.kind === "create") {
+          createdHere = settle(
+            declaration,
+            statement.to === declaredId,
+            "createdAt",
+            position,
+            `The created participant "${declaredId}" has no creating message: the next message must be sent to it.`,
+            state.diagnostics,
+          );
+        } else {
+          destroyedHere = settle(
+            declaration,
+            statement.from === declaredId || statement.to === declaredId,
+            "destroyedAt",
+            position,
+            `The destroyed participant "${declaredId}" has no destroying message: the next message must be sent by or to it.`,
+            state.diagnostics,
+          );
+        }
       }
+      state.pending = [];
 
       for (const referencedId of referencedIds) {
         if (referencedId === destroyedHere) continue;
@@ -548,6 +569,7 @@ function resolveStatements(
 
     if (statement.kind === "activate") {
       mention(statement.id, participantsById, state);
+      interrupt(state, "activate");
       state.openActivationCounts.set(
         statement.id,
         (state.openActivationCounts.get(statement.id) ?? 0) + 1,
@@ -562,6 +584,7 @@ function resolveStatements(
 
     if (statement.kind === "deactivate") {
       mention(statement.id, participantsById, state);
+      interrupt(state, "deactivate");
       // Matches Mermaid's own rejection ("Trying to inactivate an inactive
       // participant") — a `deactivate` with nothing open is dropped rather
       // than drawing a bar with no start, the same partial-failure
@@ -585,6 +608,7 @@ function resolveStatements(
 
     if (statement.kind === "note") {
       for (const id of new Set([statement.from, statement.to])) mention(id, participantsById, state);
+      interrupt(state, "note");
 
       state.noteCounter += 1;
       ++state.position;
@@ -613,6 +637,13 @@ function resolveStatements(
   return { statements: resolved, touchedParticipantIds: [...touched] };
 }
 
+/** The keyword that opens each later branch of a block that has branches. */
+const BRANCH_KEYWORD: Partial<Record<BlockStatement["kind"], string>> = {
+  alt: "else",
+  par: "and",
+  critical: "option",
+};
+
 function resolveBlock(
   statement: BlockStatement,
   participantsById: Map<string, ResolvedSequenceParticipant>,
@@ -631,6 +662,10 @@ function resolveBlock(
   // Pre-order: the block occupies the position just before its body's
   // statements do.
   ++state.position;
+  // Each boundary of a block — its start, every `else`/`and`/`option`, its
+  // `end` — is a record of its own in Mermaid's drawing, so none may stand
+  // between a `create` or `destroy` and its message.
+  interrupt(state, statement.kind);
 
   let branchInputs: Array<{ label: Label | null; body: SequenceStatement[] }>;
   switch (statement.kind) {
@@ -658,7 +693,8 @@ function resolveBlock(
   }
 
   const touched = new Set<string>();
-  const branches: ResolvedSequenceBranch[] = branchInputs.map(({ label, body }) => {
+  const branches: ResolvedSequenceBranch[] = branchInputs.map(({ label, body }, index) => {
+    if (index > 0) interrupt(state, BRANCH_KEYWORD[statement.kind]!);
     const { statements: resolvedBody, touchedParticipantIds } = resolveStatements(
       body,
       participantsById,
@@ -667,6 +703,8 @@ function resolveBlock(
     for (const participantId of touchedParticipantIds) touched.add(participantId);
     return { label, statements: resolvedBody };
   });
+
+  interrupt(state, "end");
 
   return {
     id,
