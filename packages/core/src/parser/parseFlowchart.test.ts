@@ -418,6 +418,22 @@ describe("a direction written outside any subgraph", () => {
       },
     ]);
   });
+
+  it("suggests the header keyword the author wrote, so a `graph` document is told to write `graph LR`", () => {
+    const { document, diagnostics } = parseOk("graph TD\n  direction LR\n  A --> B");
+
+    expect(document.direction).toBe("TB");
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message:
+          '"direction LR" outside a subgraph has no effect. ' +
+          "Set the diagram's direction on its first line instead: graph LR",
+        line: 2,
+        column: 3,
+      },
+    ]);
+  });
 });
 
 describe("a direction written inside a subgraph", () => {

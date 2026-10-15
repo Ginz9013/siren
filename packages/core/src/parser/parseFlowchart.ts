@@ -1274,6 +1274,9 @@ function refuseSubgraphTitle(tail: string): { message: string; offset: number } 
   if (!/\s/.test(tail)) {
     return null;
   }
+  // The fix both refusals below offer: the whole tail as one quoted title,
+  // with the quotes already in it dropped so the suggestion is one string.
+  const quoteTheTitle = `Put the whole title in quotes: subgraph "${tail.replaceAll(LABEL_FENCE, "")}"`;
   // Past a leading quoted title, which holds anything: `"t" a,b` breaks at
   // its `,`, not inside the quotes.
   const wordsAt = LEADING_QUOTED_TITLE_RE.exec(tail)?.[0].length ?? 0;
@@ -1282,7 +1285,7 @@ function refuseSubgraphTitle(tail: string): { message: string; offset: number } 
     return {
       message:
         `A subgraph title cannot end with the word "${SUBGRAPH_END}", which closes the block. ` +
-        `Put the whole title in quotes: subgraph "${tail.replaceAll(LABEL_FENCE, "")}"`,
+        quoteTheTitle,
       offset: tail.lastIndexOf(SUBGRAPH_END),
     };
   }
@@ -1294,7 +1297,7 @@ function refuseSubgraphTitle(tail: string): { message: string; offset: number } 
   return {
     message:
       `A subgraph title without quotes cannot hold "${broken[0]}". ` +
-      `Put the whole title in quotes: subgraph "${tail.replaceAll(LABEL_FENCE, "")}"`,
+      quoteTheTitle,
     offset: wordsAt + broken.index,
   };
 }
@@ -1717,6 +1720,9 @@ export function parseFlowchart(source: string): DiagramParseResult {
   const interactions: Interaction[] = [];
   const subgraphs: SirenSubgraph[] = [];
   let direction: Direction | null = null;
+  // The keyword the header was written with, `flowchart` or `graph`, so a
+  // fix this parser suggests for the header is spelled the author's way.
+  let headerKeyword = "";
   let timeline: SirenTimeline | null = null;
   let namedTimelines: NamedTimeline<SirenTimeline>[] = [];
   let accTitle: string | null = null;
@@ -2032,6 +2038,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
           break readLines;
         }
         direction = headerDirection;
+        headerKeyword = line.slice(0, line.search(/\s/));
         mode = "flowchart";
         continue;
       }
@@ -2133,7 +2140,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
             severity: "warning",
             message:
               `"${beforePercent}" outside a subgraph has no effect. ` +
-              `Set the diagram's direction on its first line instead: flowchart ${blockDirection}`,
+              `Set the diagram's direction on its first line instead: ${headerKeyword} ${blockDirection}`,
             line: lineNumber,
             column,
           });

@@ -60,7 +60,8 @@ is drawn with a closing box instead of an X mark, the `siren-destroy-mark` path 
   used to be refused.
 - A flowchart `direction LR` outside any subgraph is drawn as Mermaid 12.2.0 draws it, in the
   header's direction, with a warning that the line does nothing and that the direction belongs on
-  the header (`flowchart LR`). It used to be refused.
+  the header, spelled with the header's own keyword (`flowchart LR`, or `graph LR` under a `graph`
+  header). It used to be refused.
 - A document may open with a Mermaid frontmatter (`---` … `---`), read as Mermaid 12.2.0 reads it,
   each rule measured with the probe: only at the very top, optionally indented, closed by the first
   `---` at the same indent, and parsed as YAML under the JSON schema (with `js-yaml`, now a
