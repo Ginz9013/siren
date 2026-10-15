@@ -4,3 +4,4 @@
 {"id":"01M4ZTQ50V629W3QVCSTSZ56GG","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4ZVC3M7KXFVERNZ46C5F349","t":5,"a":"83a1","op":"comment","body":"T10 完成：所有既有診斷訊息不再提 Mermaid，並補上修法；corpus runner 逐列檢查。review 兩軸無 blocker，追加 commit 已修。"}
 {"id":"01M4ZVC3TWAXW1MYM68XWPK0VP","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4ZVC44T1P5S0QSB21TRQQ8V","t":7,"a":"83a1","op":"set","k":"archived","v":true}
