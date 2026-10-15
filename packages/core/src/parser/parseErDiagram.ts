@@ -19,6 +19,7 @@ import { plainLabel, type SourcePosition } from "../label/label";
 import { labelDiagnostics, readLabel } from "../label/readLabel";
 import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
+import { headerPercentError, MID_LINE_PERCENT_MESSAGE, midLinePercentError } from "./midLinePercent";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
 import { readAccDescrBlock } from "./readAccDescrBlock";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
@@ -1254,7 +1255,59 @@ interface ErLineReading {
  */
 interface ErLineRefusal {
   refusal: string;
+  /** Where the refused construct stands, when that is not where the line starts. */
+  at?: SourcePosition;
+  /**
+   * What the line still does to the blocks around it, when the reader
+   * knows; absent, it changes nothing.
+   */
+  blockEffect?: RefusedLineBlockEffect;
 }
+
+/**
+ * What a refused line still does to the block structure, so the lines after
+ * it are read as the block they stand in — neither refused a second time as
+ * lines nor reported unclosed. Applied in one place, `applyBlockEffect` in
+ * `parseErDiagram`.
+ *
+ * - `attribute-block-open` — the reader stopped inside an attribute block
+ *   (`A { %% x`): its lines up to the `}` are still the block's, read as
+ *   attributes of an entity no document will hold.
+ * - `attribute-block-closed` — the reader stopped outside every attribute
+ *   block, so a block the line closed before its `%%` (`} %% x`) is closed.
+ * - `subgraph-opened` — a refused `subgraph` header: the block is opened
+ *   unnamed and in no document, so its body and its `end` are a block's.
+ */
+type RefusedLineBlockEffect =
+  | { kind: "attribute-block-open" }
+  | { kind: "attribute-block-closed" }
+  | { kind: "subgraph-opened" };
+
+/** `at` moved `offset` columns along its line. */
+const columnsAfter = (at: SourcePosition, offset: number): SourcePosition => ({
+  line: at.line,
+  column: at.column + offset,
+});
+
+/**
+ * The refusal for a `%%` at `at` that no rule of Mermaid 12.2.0's ER lexer
+ * takes as text. The lexer has no `%` rule of its own: outside a quoted
+ * string or a backticked name the character falls to its catch-all `.`
+ * rule, and no production takes that token, so the document is refused at
+ * the `%%` ("got '%'"). CONTEXT.md's **Comment**: it is not a comment.
+ */
+const midLinePercentRefusal = (at: SourcePosition, insideAttributeBlock: boolean): ErLineRefusal => ({
+  refusal: MID_LINE_PERCENT_MESSAGE,
+  at,
+  blockEffect: { kind: insideAttributeBlock ? "attribute-block-open" : "attribute-block-closed" },
+});
+
+/** Where the first `%%` in `text` stands, `text` beginning at `at`. */
+const firstPercentIn = (text: string, at: SourcePosition): SourcePosition => columnsAfter(at, text.indexOf("%%"));
+
+/** `midLinePercentRefusal` at the first `%%` in `text`, which begins at `at`, outside every block. */
+const midLinePercentAt = (text: string, at: SourcePosition): ErLineRefusal =>
+  midLinePercentRefusal(firstPercentIn(text, at), false);
 
 /**
  * Everything `line` declares, given the block it began inside — or `null`
@@ -1355,9 +1408,19 @@ function readLine(
       if (read === CONTINUES) {
         return CONTINUES;
       }
+      if ("percentAt" in read) {
+        return midLinePercentRefusal(columnsAfter(restAt(), read.percentAt), true);
+      }
       appends.push({ entity: open, attributes: read.attributes });
       rest = rest.slice(read.length).trimStart();
       continue;
+    }
+
+    // Where a statement would start, a `%%` is the `.` rule's token and
+    // nothing more — the one place a `%%` after a complete statement, or run
+    // into a name (`A%%zz`), is found.
+    if (rest.startsWith("%%")) {
+      return midLinePercentRefusal(restAt(), false);
     }
 
     // The styling statements, read **before** the entity patterns, because
@@ -1378,6 +1441,12 @@ function readLine(
     }
 
     const style = STYLE_RE.exec(rest);
+    // The `style` condition has no quote rule and no `%` rule, so a `%%`
+    // anywhere in a declaration list is refused, quoted or not (measured:
+    // "Lexical error … Unrecognized text"). `classDef` shares the condition.
+    if ((style !== null || CLASS_DEF_RE.test(rest)) && rest.includes("%%")) {
+      return midLinePercentAt(rest, restAt());
+    }
     if (style !== null) {
       const { properties, malformed } = parseStyleProperties(style[2]);
       malformedStyles.push(...malformed);
@@ -1469,6 +1538,12 @@ function readLine(
       if (relationship.reservedClass !== null) {
         return reservedClassRefusal(relationship.reservedClass, line);
       }
+      // A quoted end holding a `%` is the lexer's `WORD`, which only the
+      // label takes; the ends come before the label, so the first `%%` on
+      // what is left of the line is the end's.
+      if (relationship.decl.left.includes("%%") || relationship.decl.right.includes("%%")) {
+        return midLinePercentAt(rest, restAt());
+      }
       // Both endpoints join the one entity list, in the order the line names
       // them — measured, a relationship declares its entities exactly as a
       // bare name does and Mermaid's table interleaves the two kinds of
@@ -1505,6 +1580,12 @@ function readLine(
     }
     if (head.reservedClass !== null) {
       return reservedClassRefusal(head.reservedClass, line);
+    }
+    // A quoted name or alias holding a `%` is the lexer's `WORD`, which no
+    // entity production takes (measured: `"A %% b"` and `A["al %% zz"]`,
+    // "got 'WORD'").
+    if (rest.slice(0, head.length).includes("%%")) {
+      return midLinePercentAt(rest, restAt());
     }
     const declared: ErEntityDecl = { name: head.name, alias: head.alias, attributes: [] };
     entities.push(declared);
@@ -1693,6 +1774,15 @@ const ATTRIBUTE_TOKEN_RULES: readonly { kind: "key" | "word" | "comment"; patter
  */
 const CONTINUES = "continues";
 
+/**
+ * Where in the text tokenized a `%%` stands that no rule but the catch-all
+ * `.` takes — a parse error in Mermaid 12.2.0 ("got '%'"), refused by the
+ * caller at that `%%` (`midLinePercentRefusal`).
+ */
+interface PercentAt {
+  percentAt: number;
+}
+
 interface AttributeToken {
   kind: "key" | "word" | "comment" | "punctuation";
   text: string;
@@ -1715,7 +1805,7 @@ interface AttributeToken {
  */
 function tokenizeAttributeLine(
   text: string,
-): { tokens: AttributeToken[]; length: number } | typeof CONTINUES | null {
+): { tokens: AttributeToken[]; length: number } | typeof CONTINUES | PercentAt | null {
   const tokens: AttributeToken[] = [];
   let rest = text;
   while (rest.length > 0) {
@@ -1748,6 +1838,9 @@ function tokenizeAttributeLine(
       // later line closes it — see `CONTINUES`.
       if (rest.startsWith("`") && !rest.includes("`", 1)) {
         return CONTINUES;
+      }
+      if (rest.startsWith("%%")) {
+        return { percentAt: text.length - rest.length };
       }
       return null;
     }
@@ -1793,9 +1886,9 @@ function readAttributes(
   text: string,
   at: SourcePosition,
   diagnostics: Diagnostic[],
-): { attributes: ErAttribute[]; length: number } | typeof CONTINUES | null {
+): { attributes: ErAttribute[]; length: number } | typeof CONTINUES | PercentAt | null {
   const tokenized = tokenizeAttributeLine(text);
-  if (tokenized === null || tokenized === CONTINUES) {
+  if (tokenized === null || tokenized === CONTINUES || "percentAt" in tokenized) {
     return tokenized;
   }
   const { tokens, length } = tokenized;
@@ -2047,6 +2140,37 @@ export function parseErDiagram(source: string): DiagramParseResult {
    */
   let blockOpenedAt: { line: string; lineNumber: number; column: number }[] = [];
   /**
+   * What a refused line (written `line`, on line `lineNumber` from `column`)
+   * still does to the blocks around it — `RefusedLineBlockEffect`. Absent,
+   * the reader did not know, and nothing changes.
+   */
+  const applyBlockEffect = (
+    effect: RefusedLineBlockEffect | undefined,
+    line: string,
+    lineNumber: number,
+    column: number,
+  ): void => {
+    switch (effect?.kind) {
+      case "attribute-block-open":
+        // A line that began inside a block is still inside that one.
+        if (openEntity === null) {
+          openEntity = { name: "", alias: null, attributes: [] };
+          openedAt = { line, lineNumber, column };
+        }
+        return;
+      case "attribute-block-closed":
+        openEntity = null;
+        openedAt = null;
+        return;
+      case "subgraph-opened":
+        openBlocks.push({ name: "", label: plainLabel(""), direction: null, entityNames: [], subgraphs: [] });
+        blockOpenedAt.push({ line, lineNumber, column });
+        return;
+      case undefined:
+        return;
+    }
+  };
+  /**
    * Every block's name and the header that wrote it, in source order — kept
    * for the one refusal below that cannot be a line pattern, because what
    * is wrong with the line is somewhere else in the document.
@@ -2256,8 +2380,10 @@ export function parseErDiagram(source: string): DiagramParseResult {
           message: reading?.refusal ?? `Unrecognized erDiagram attribute: "${line}"`,
           line: lineNumber,
           column,
+          ...reading?.at,
         });
         sawError = true;
+        applyBlockEffect(reading?.blockEffect, line, lineNumber, column);
         continue;
       }
       take(reading, lineNumber, column, line);
@@ -2275,6 +2401,13 @@ export function parseErDiagram(source: string): DiagramParseResult {
     // of the pattern — the rule `parseStateDiagram` already follows, so this
     // parser and the dispatcher cannot disagree about which spellings exist.
     if (!sawHeader) {
+      // Nothing after the header is a comment to Mermaid's lexer, spaced or
+      // not (measured: `erDiagram %% x` is a parse error on line 1).
+      const headerPercent = headerPercentError(rawLine, lineNumber, "er", { spacedIsComment: false });
+      if (headerPercent !== null) {
+        diagnostics.push(headerPercent);
+        return { document: null, diagnostics };
+      }
       if (matchDiagramHeader(line) !== "er") {
         diagnostics.push({
           severity: "error",
@@ -2314,6 +2447,19 @@ export function parseErDiagram(source: string): DiagramParseResult {
       } else {
         innermost.direction = namedDirection;
       }
+      continue;
+    }
+
+    // A header owns its line, and nothing in it holds a `%%` as text: a
+    // quoted name or title holding a `%` is the lexer's `WORD`, which the
+    // header does not take, and anywhere else it is the `.` rule's token
+    // (measured: each a parse error). The block is still opened, unnamed
+    // and in no document, so its body and its `end` are read as a block's
+    // rather than refused again.
+    if (!continuing && /^subgraph\b/iu.test(line) && line.includes("%%")) {
+      const percent = firstPercentIn(line, { line: lineNumber, column });
+      report([midLinePercentError(percent.line, percent.column)]);
+      applyBlockEffect({ kind: "subgraph-opened" }, line, lineNumber, column);
       continue;
     }
 
@@ -2437,6 +2583,9 @@ export function parseErDiagram(source: string): DiagramParseResult {
       continue;
     }
 
+    // A line refused inside the block it opened (`A { %% x`) still opens it.
+    applyBlockEffect(reading?.blockEffect, line, lineNumber, column);
+
     // Read last, so nothing here can shadow a construct this parser does
     // implement: a line only reaches the table once every working pattern
     // above has declined it.
@@ -2445,6 +2594,7 @@ export function parseErDiagram(source: string): DiagramParseResult {
       message: reading?.refusal ?? unimplementedIn(line) ?? `Unrecognized erDiagram line: "${line}"`,
       line: lineNumber,
       column,
+      ...reading?.at,
     });
     sawError = true;
   }

@@ -1171,20 +1171,22 @@ describe("parseStateDiagram", () => {
     }
   });
 
-  it("reads the apply-directive's class name as the whole rest of the line, as Mermaid does", () => {
+  it("reads the apply-directive's class names as the rest of the line, one per word, as Mermaid paints them", () => {
     // 01M37GQRM, measured on mermaid 12.2.0: `class Busy a,b` gives Busy
     // `classes=["a,b"]` and `class Busy u extra` gives `["u extra"]` — the
-    // name is everything after the target list. No classDef carries such a
-    // name, so nothing is painted (`resolveStyles` warns), and the picture
-    // is Mermaid's. Siren used to refuse both documents outright.
-    for (const [statement, name] of [
-      ["class Busy a,b", "a,b"],
-      ["class Busy u extra", "u extra"],
-      ["class Busy, Idle u", "u"],
-    ]) {
+    // name is everything after the target list. No classDef carries `a,b`,
+    // so nothing is painted (`resolveStyles` warns), and the picture is
+    // Mermaid's. `u extra` is drawn as `class="node u extra …"` and Busy
+    // painted with `u`'s fill (`--markup`), so the tail is split on
+    // whitespace. Siren used to refuse both documents outright.
+    for (const [statement, names] of [
+      ["class Busy a,b", ["a,b"]],
+      ["class Busy u extra", ["u", "extra"]],
+      ["class Busy, Idle u", ["u"]],
+    ] as const) {
       const document = documentOf(`stateDiagram-v2\n  classDef u fill:#00f\n  Idle --> Busy\n  ${statement}\n`);
       const apply = document.styles.filter((s) => s.styleKind === "apply");
-      expect(apply.map((s) => s.name), `for "${statement}"`).toEqual([name]);
+      expect(apply.map((s) => s.name), `for "${statement}"`).toEqual(names);
     }
   });
 
@@ -1762,5 +1764,127 @@ describe("parseStateDiagram — the `;` Mermaid drops from a style line", () => 
         (d) => `${d.severity} ${d.line}:${d.column}`,
       ),
     ).toEqual(["warning 2:33"]);
+  });
+});
+
+/**
+ * A `%%` in the middle of a state-diagram line (CONTEXT.md **Comment**),
+ * measured on Mermaid 12.2.0 (the state table in the mermaid-parity
+ * measurement). Only a whole line is a comment; the state lexer's own rule
+ * `%%(?!\{)[^\n]*` reads one wherever a token ends, and a rule that reads
+ * text — a label, a description, a note, a declaration list — reads past a
+ * `%%` to the line's end. Read through `parseSiren`, which hands a state
+ * diagram its lines as written.
+ */
+describe("a `%%` in the middle of a state-diagram line", () => {
+  const NOT_A_COMMENT =
+    'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+    "If it is a comment, move it to a line of its own.";
+
+  const stateOk = (body: string): StateDocument => {
+    const { diagnostics } = parseSiren(`stateDiagram-v2\n${body}`);
+    expect([body, diagnostics]).toEqual([body, []]);
+    return documentOf(`stateDiagram-v2\n${body}`, parseSiren);
+  };
+  const descriptionsOf = (document: StateDocument) =>
+    document.states.flatMap((state) => state.descriptions.map((label) => label.text));
+  const notesOf = (document: StateDocument) => document.states.flatMap((state) => (state.note ? [state.note.label.text] : []));
+
+  it("keeps a `%%` in every piece of text a statement holds, as Mermaid records it", () => {
+    // Measured: a transition's label, a description in either spelling, a
+    // note on one line or in a block, a declaration list and the
+    // accessibility lines all keep their `%% zz`.
+    expect(stateOk("  A --> B : go %% zz\n  B --> C").transitions.map((t) => t.label?.text ?? null)).toEqual([
+      "go %% zz",
+      null,
+    ]);
+    expect(descriptionsOf(stateOk("  A : desc %% zz\n  B"))).toEqual(["desc %% zz"]);
+    expect(descriptionsOf(stateOk("  A : %% zz"))).toEqual(["%% zz"]);
+    expect(descriptionsOf(stateOk('  state "d %% zz" as A\n  A --> B'))).toEqual(["d %% zz"]);
+    expect(notesOf(stateOk("  A\n  note right of A : n %% zz"))).toEqual(["n %% zz"]);
+    expect(notesOf(stateOk("  A\n  note right of A\n    n %% zz\n  end note"))).toEqual(["n %% zz"]);
+    const styled = stateOk("  classDef c fill:#f00 %% zz\n  A\n  style A fill:#0f0 %% zz");
+    expect(styled.styles.map((s) => [s.styleKind, s.properties])).toEqual([
+      ["classDef", [{ property: "fill", value: "#f00 %% zz" }]],
+      ["style", [{ property: "fill", value: "#0f0 %% zz" }]],
+    ]);
+    const described = stateOk("  accTitle: t %% zz\n  accDescr: d %% zz\n  A");
+    expect([described.accTitle, described.accDescr]).toEqual(["t %% zz", "d %% zz"]);
+  });
+
+  it("reads a `%%` where a token ends as a comment, on any line, as Mermaid's lexer does", () => {
+    // Measured: each of these is drawn exactly as the same document without
+    // its `%% zz` — after the header (either spelling), a state's id, a
+    // transition (last line or not, spaced or not), `state "d" as A`, a
+    // composite's `{` and `}`, a stereotype, a `--` divider, `end note`,
+    // a `[*]` and a `direction`.
+    for (const [commented, plain] of [
+      ["stateDiagram-v2 %% zz\n  A --> B", "stateDiagram-v2\n  A --> B"],
+      ["stateDiagram %% zz\n  A --> B", "stateDiagram\n  A --> B"],
+      ["stateDiagram-v2\n  A %% zz\n  B", "stateDiagram-v2\n  A\n  B"],
+      ["stateDiagram-v2\n  A%%zz\n  B", "stateDiagram-v2\n  A\n  B"],
+      ["stateDiagram-v2\n  A --> B %% zz\n  B --> C", "stateDiagram-v2\n  A --> B\n  B --> C"],
+      ["stateDiagram-v2\n  A --> B %% zz", "stateDiagram-v2\n  A --> B"],
+      ["stateDiagram-v2\n  A-->B%%zz", "stateDiagram-v2\n  A-->B"],
+      ['stateDiagram-v2\n  state "d" as A %% zz\n  A --> B', 'stateDiagram-v2\n  state "d" as A\n  A --> B'],
+      ['stateDiagram-v2\n  state "d" as A%%zz', 'stateDiagram-v2\n  state "d" as A'],
+      ["stateDiagram-v2\n  state A { %% zz\n    B --> C\n  }", "stateDiagram-v2\n  state A {\n    B --> C\n  }"],
+      [
+        "stateDiagram-v2\n  state A {\n    B --> C\n  } %% zz\n  A --> D",
+        "stateDiagram-v2\n  state A {\n    B --> C\n  }\n  A --> D",
+      ],
+      ["stateDiagram-v2\n  state A {\n    B\n  }%%zz", "stateDiagram-v2\n  state A {\n    B\n  }"],
+      ["stateDiagram-v2\n  state c <<choice>> %% zz\n  A --> c", "stateDiagram-v2\n  state c <<choice>>\n  A --> c"],
+      ["stateDiagram-v2\n  state f <<fork>> %% zz\n  A --> f", "stateDiagram-v2\n  state f <<fork>>\n  A --> f"],
+      ["stateDiagram-v2\n  state j <<join>>%%zz\n  A --> j", "stateDiagram-v2\n  state j <<join>>\n  A --> j"],
+      [
+        "stateDiagram-v2\n  state A {\n    B\n    -- %% zz\n    C\n  }",
+        "stateDiagram-v2\n  state A {\n    B\n    --\n    C\n  }",
+      ],
+      [
+        "stateDiagram-v2\n  A\n  note right of A\n    n\n  end note %% zz",
+        "stateDiagram-v2\n  A\n  note right of A\n    n\n  end note",
+      ],
+      ["stateDiagram-v2\n  [*] --> A %% zz", "stateDiagram-v2\n  [*] --> A"],
+      ["stateDiagram-v2\n  direction LR %% zz\n  A", "stateDiagram-v2\n  direction LR\n  A"],
+    ] as const) {
+      const read = parseSiren(commented);
+      expect([commented, read.diagnostics]).toEqual([commented, []]);
+      expect([commented, read.document]).toEqual([commented, parseSiren(plain).document]);
+    }
+  });
+
+  it("reads a `class` statement's `%%` as one more class name, as Mermaid paints it", () => {
+    // Measured: `class A c %% zz` records the class "c %% zz", and Mermaid
+    // draws A with `class="node c %% zz statediagram-state"` — split on
+    // whitespace, so `c` paints A (fill #f00), exactly as `class A c` does,
+    // and `%%` and `zz` paint whatever their `classDef`s say (here none).
+    const document = stateOk("  classDef c fill:#f00\n  A\n  class A c %% zz");
+    const applied = document.styles.filter((s) => s.styleKind === "apply");
+    expect(applied.map((s) => [s.targetIds, s.name])).toEqual([
+      [["A"], "c"],
+      [["A"], "%%"],
+      [["A"], "zz"],
+    ]);
+  });
+
+  it("keeps a `%%` after a block note's opener as the note's first row, as Mermaid records it", () => {
+    // Measured: `note right of A %% zz` opens a block note whose text is
+    // "%% zz\nn" — the opener's `%%` is text, as `class A { %% zz` keeps
+    // "%% zz" as a member.
+    const document = stateOk("  A\n  note right of A %% zz\n    n\n  end note");
+    expect(notesOf(document)).toEqual(["%% zz\nn"]);
+    expect(document.states.find((state) => state.id === "A")?.note?.label.rows.length).toBe(2);
+  });
+
+  it("refuses a `%%` run into the header, as Mermaid does, at its `%%`", () => {
+    // Measured: `stateDiagram-v2%%zz` is a parse error ("Expecting 'SPACE',
+    // 'NL', 'SD', got 'ID'").
+    for (const [source, line] of [["stateDiagram-v2%%zz\n  A", 1]] as const) {
+      const column = source.split("\n")[line - 1]!.indexOf("%%") + 1;
+      const { document, diagnostics } = parseSiren(source);
+      expect([source, document]).toEqual([source, null]);
+      expect([source, diagnostics]).toEqual([source, [{ severity: "error", message: NOT_A_COMMENT, line, column }]]);
+    }
   });
 });

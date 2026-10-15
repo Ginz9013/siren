@@ -4,6 +4,9 @@ status: accepted
 
 # A sequence participant is created where it is first mentioned
 
+> Amended by decision `01M4ZMH1G`: `destroy` is not a mention; it creates no participant and
+> does not set lane order.
+
 The sequence diagram slice adopted an explicit-reference rule: a message, note, `activate`,
 `deactivate` or `destroy` naming a participant with no earlier `participant` / `create
 participant` statement was an error, and the statement was dropped. Its stated reason was to

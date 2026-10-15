@@ -1537,8 +1537,77 @@ const SILENTLY_WRONG = 0;
  * after the message renders in both. `silently-wrong` does not move — the
  * row was never silent-and-wrong in Siren. `seq-destroy-two-at-end`, new
  * beside it, is `supported` and moves nothing.
+ *
+ * **15 → 16: a `supported` row moved to `rejected`, because its source was
+ * never valid Mermaid.** `01M4Z7TQRE` measured what a `%%` in the middle of
+ * a line means (CONTEXT.md **Comment**): Mermaid 12.2.0 removes whole-line
+ * comments only, and the flowchart grammar refuses a `%%` after a complete
+ * statement. `fc-comment-trailing` — `A --> B %% this edge is the point` —
+ * had been seeded `supported` on the old belief that `%%` comments run to
+ * the end of any line, and Mermaid refuses it ("got 'NODE_STRING'"). Siren
+ * refuses it too now (ADR-0017), with an error at the `%%`. What an author
+ * loses is a picture Mermaid does not draw either; the comment on its own
+ * line renders in both. `fc-comment-mid-line-text`, new beside it, is
+ * `supported` — a `%%` inside a label is kept as text, where Siren used to
+ * cut the label short — and moves nothing. `silently-wrong` does not move.
+ *
+ * **16 → 17: case (2), a refusal written down for the first time.**
+ * `01M4Z7TQZ4` read a mid-line `%%` in a sequence diagram as Mermaid 12.2.0
+ * does: text where its lexer is reading text or a name, a comment only where
+ * its own `%%` rules stand at a token boundary. `deactivate B %% x` is one
+ * place the name reading refuses the document — Mermaid deactivates a
+ * participant named `B %% x`, which has none open ("Trying to inactivate an
+ * inactive participant", measured) — and no row recorded it because nothing
+ * had measured a mid-line `%%` in a sequence. Siren used to cut the line at
+ * the `%%` and draw the deactivation; it refuses it now (ADR-0017), with an
+ * error at the `%%`. `seq-comment-after-deactivate` is that row. No
+ * `supported` row moved: no sequence row had a mid-line `%%`. The two rows
+ * new beside it, `seq-comment-mid-line-text` and
+ * `seq-comment-in-participant-name`, are `supported` and move nothing.
+ * `silently-wrong` does not move.
+ *
+ * **17 → 21: case (2), four refusals written down for the first time.**
+ * `01M4Z7TR5R` read a mid-line `%%` in class and state diagrams as Mermaid
+ * 12.2.0 does: text where the line holds text, a comment where each lexer's
+ * own `%%` rule reads one. Two of the new rows are documents Mermaid
+ * refuses: `cls-comment-mid-document` — the class lexer's comment rule
+ * swallows the line break, so a `%%` after a relationship is a comment only
+ * on the last line and refused on any other — and
+ * `st-comment-run-into-header`, a `%%` run straight into the header. Two
+ * are documents Mermaid accepts and draws as something other than what was
+ * written, refused under ADR-0001: `cls-comment-after-annotation` (Mermaid
+ * draws a member `<> %% …` for an annotation) and `st-comment-in-class-name`
+ * (Mermaid records the class name `busy %% …`, which Siren cannot paint as
+ * Mermaid does). Siren used to cut each line at the `%%` and draw it; it
+ * refuses each now, with an error at the `%%`. No `supported` row moved: no
+ * class or state row had a mid-line `%%`. The four rows new beside them,
+ * `cls-comment-mid-line-text`, `cls-comment-last-line`,
+ * `st-comment-mid-line-text` and `st-comment-after-token`, are `supported`
+ * and move nothing. `silently-wrong` does not move.
+ *
+ * **21 → 20: a construct started working.** `st-comment-in-class-name` was
+ * refused on the belief that Siren could not paint `class Busy busy %% …` as
+ * Mermaid does. Rendered (12.2.0, `--markup`), Mermaid writes the recorded
+ * name into the node's `class` attribute, so it is split on whitespace and
+ * `busy` paints Busy exactly as `class Busy busy` does. Siren now reads a
+ * state `class` statement's names one per word and draws the same picture,
+ * warning about the names no classDef defines; the row is `supported`.
+ * `st-comment-after-note-opener`, new beside it, is `supported` — a block
+ * note opener's `%% …` is the note's first row, as Mermaid records it,
+ * where `01M4Z7TR5R` had first refused it with no row — and moves nothing. `silently-wrong`
+ * does not move.
+ *
+ * **20 → 21: case (2), a refusal written down for the first time.**
+ * `01M4Z7TRCQ` read a mid-line `%%` in ER diagrams as Mermaid 12.2.0 does,
+ * the last kind to stop cutting a line at its first `%%`. The ER lexer has
+ * no `%` rule, so `er-comment-after-statement` — a `%%` after a
+ * relationship — is a document Mermaid refuses ("got '%'"); Siren used to
+ * cut the line at the `%%` and draw it, and refuses it now, with an error
+ * at the `%%`. No `supported` row moved: no ER row had a mid-line `%%`.
+ * `er-comment-mid-line-text`, new beside it, is `supported` and moves
+ * nothing. `silently-wrong` does not move.
  */
-const REJECTED = 15;
+const REJECTED = 21;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

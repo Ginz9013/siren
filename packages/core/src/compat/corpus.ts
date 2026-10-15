@@ -1058,8 +1058,8 @@ function lifelineEnd(result: SirenRenderResult, participantId: string): string {
  * participant — rather than coordinates no assert could hold still.
  */
 function createdBox(result: SirenRenderResult, participantId: string): string {
-  const rect = svgOf(result).querySelector(`g.siren-participant[data-siren-id="${participantId}"] rect`);
-  if (rect === null) return "no box";
+  const rect = participantRects(result, participantId)[0];
+  if (rect === undefined) return "no box";
   const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(rect.getAttribute(name)));
   const centre = { x: x! + width! / 2, y: y! + height! / 2 };
 
@@ -1086,11 +1086,39 @@ function createdBox(result: SirenRenderResult, participantId: string): string {
  */
 function participantRows(result: SirenRenderResult, participantId: string): string {
   const svg = svgOf(result);
-  const boxes = Array.from(svg.querySelectorAll(`g.siren-participant[data-siren-id="${participantId}"] rect`)).map(
-    (rect) => rect.getAttribute("y"),
-  );
+  const boxes = participantRects(result, participantId).map((rect) => rect.getAttribute("y"));
   const lifeline = svg.querySelector(`line.siren-lifeline[data-siren-id="${participantId}"]`);
   return `boxes at y ${boxes.join(", ")}; lifeline ${lifeline?.getAttribute("y1")}..${lifeline?.getAttribute("y2")}`;
+}
+
+/**
+ * Where a sequence participant's bottom-row box ends, as the bottom edge of
+ * the box drawn for it after its top one, or `null` when it is drawn only
+ * once. Read off `rect`s, so for a `participant` and not an `actor`.
+ */
+function bottomRowEdge(result: SirenRenderResult, participantId: string): number | null {
+  const rect = participantRects(result, participantId)[1];
+  return rect === undefined ? null : Number(rect.getAttribute("y")) + Number(rect.getAttribute("height"));
+}
+
+/** A sequence participant's top box, as its left edge and width. */
+function topBox(result: SirenRenderResult, participantId: string): { left: number; width: number } {
+  const rect = participantRects(result, participantId)[0];
+  return { left: Number(rect?.getAttribute("x")), width: Number(rect?.getAttribute("width")) };
+}
+
+/**
+ * The `rect`s drawn for a sequence participant, in document order: its top
+ * box first, then its bottom-row box when it has one. None for an `actor`.
+ */
+function participantRects(result: SirenRenderResult, participantId: string): Element[] {
+  return Array.from(svgOf(result).querySelectorAll(`g.siren-participant[data-siren-id="${participantId}"] rect`));
+}
+
+/** The horizontal gap between two neighbouring participants' top boxes, `leftId`'s right edge to `rightId`'s left. */
+function laneGap(result: SirenRenderResult, leftId: string, rightId: string): number {
+  const left = topBox(result, leftId);
+  return topBox(result, rightId).left - (left.left + left.width);
 }
 
 /** Where a sequence participant's lifeline ends, as its drawn `y2`. */
@@ -3730,11 +3758,35 @@ line2\`"]`,
     kind: "flowchart",
     source: `flowchart TB
       A --> B %% this edge is the point`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason**: until 01M4Z7TQRE " +
+      "this row was `supported`, read as an edge with a comment after it. " +
+      "Only a whole line is a comment — Mermaid 12.2.0's `cleanupComments` " +
+      "removes `^\\s*%%(?!{)[^\\n]+\\n?` and nothing mid-line — and the " +
+      "flowchart lexer has no `%%` rule of its own (`%` is a node-string " +
+      "character), so this `%%` reaches the grammar after a complete edge and " +
+      "is a parse error, measured: \"Expecting 'SEMI', 'NEWLINE', 'EOF', " +
+      "'AMP', 'START_LINK', 'LINK', 'LINK_ID', got 'NODE_STRING'\". Siren " +
+      "refuses it too (ADR-0017), with an error at the `%%` saying a mid-line " +
+      "`%%` is not a comment and, if it is one, to move it to a line of its own. A comment " +
+      "on its own line renders in both.",
+  },
+  {
+    id: "fc-comment-mid-line-text",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[50 %% done] -->|a %% b| B`,
     status: "supported",
-    meaning: "`%%` starts a comment running to the end of the line; an edge creates both nodes.",
+    meaning:
+      "A `%%` inside a label is text, not a comment: Mermaid 12.2.0 records " +
+      "the node text `50 %% done` and the edge text `a %% b` (measured). " +
+      "Siren used to cut the line at the first `%%`, refusing the truncated " +
+      "label.",
     assert: (result) => {
-      expectSame("nodes", nodes(result), ["A[A]", "B[B]"]);
+      expectSame("nodes", nodes(result), ["A[50 %% done]", "B[B]"]);
       expectSame("edges", edges(result), ["A-B"]);
+      expectSame("edge A-B's label", edgeLabel(result, "A-B"), "a %% b");
     },
   },
   // -------------------------------------------------------------------------
@@ -4409,6 +4461,85 @@ line2\`"]`,
       expectSame("Order's members", members(result, "Order"), ["+int id"]);
     },
   },
+  {
+    id: "cls-comment-mid-line-text",
+    kind: "class",
+    source: `classDiagram
+      class Order {
+        +int total %% in cents
+      }
+      Order --> Line : holds %% one or more
+      note for Order "paid %% or not"`,
+    status: "supported",
+    meaning:
+      "A `%%` in a member, a relationship's label or a note's text is text, " +
+      "not a comment: Mermaid 12.2.0's `cleanupComments` removes whole-line " +
+      "comments only, and the class grammar reads each of these to the " +
+      "line's end or the closing quote, `%%` included (measured: the member " +
+      "`+int total %% in cents`, the label `holds %% one or more`, the note " +
+      "`paid %% or not`). Siren used to cut each line at its first `%%`.",
+    assert: (result) => {
+      expectSame("Order's members", members(result, "Order"), ["+int total %% in cents"]);
+      expectSame("relationship label", texts(result, "text.siren-relationship-label"), ["holds %% one or more"]);
+      expectSame("note text", texts(result, "text.siren-note-text"), ["paid %% or not"]);
+    },
+  },
+  {
+    id: "cls-comment-last-line",
+    kind: "class",
+    source: `classDiagram
+      direction LR %% left to right
+      Animal <|-- Duck %% the last line`,
+    status: "supported",
+    meaning:
+      "The class lexer reads a `%%` as a comment where a token ends, and " +
+      "its rule swallows the line break after it. After `direction` that " +
+      "costs nothing; after a relationship the next line would run on into " +
+      "it, so the comment holds only on the document's last line, as here. " +
+      "Measured on Mermaid 12.2.0: drawn left to right, `Duck` inheriting " +
+      "from `Animal`, no trace of either comment.",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Animal", "Duck"]);
+      expectSame("relationships", relationships(result).length, 1);
+      expectSame("Duck right of Animal", classBox(result, "Duck").x > classBox(result, "Animal").x, true);
+      expectSame("no comment drawn", texts(result, "text").some((text) => text.includes("%%")), false);
+    },
+  },
+  {
+    id: "cls-comment-mid-document",
+    kind: "class",
+    source: `classDiagram
+      Animal <|-- Duck %% ducks are animals
+      Animal <|-- Fish`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** The class " +
+      "lexer's `%%` rules swallow the line break after the comment, so " +
+      "`Animal <|-- Fish` runs on into the first relationship and Mermaid " +
+      "12.2.0 refuses the document (\"Expecting 'NEWLINE', 'EOF', 'LABEL', " +
+      "got 'EXTENSION'\", measured). Siren refuses it too (ADR-0017), with an error at the `%%` " +
+      "saying a mid-line `%%` is not a comment and, if it is one, to move it " +
+      "to a line of its own. Siren used to cut the line at the `%%`. A " +
+      "comment on its own line renders in both.",
+  },
+  {
+    id: "cls-comment-after-annotation",
+    kind: "class",
+    source: `classDiagram
+      class Shape {
+        <<interface>> %% drawn as a member
+        +area() double
+      }`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** Inside a " +
+      "class block, `<<interface>> %% …` is no annotation to Mermaid 12.2.0 " +
+      "but a member, drawn `<> %% drawn as a member` with the " +
+      "`<interface>` stripped as a tag (measured) — neither the annotation " +
+      "nor the text, with no diagnostic. Siren refuses it (ADR-0001), with " +
+      "an error at the `%%`. Siren used to cut the line and draw the " +
+      "annotation. The comment on its own line renders in both.",
+  },
   // -------------------------------------------------------------------------
   // sequenceDiagram
   // -------------------------------------------------------------------------
@@ -4572,14 +4703,18 @@ line2\`"]`,
       "follows the `destroy`, so it has no destroying message to pair with. " +
       "Measured on 12.2.0: Mermaid accepts this and draws B as if it were " +
       "never destroyed — no closing box on any arrow, the lifeline running " +
-      "on to the bottom row. Siren draws the same: no X, B's lifeline down " +
-      "to where A's ends, nothing in the `destroy`'s place (nook " +
-      "01M4YWYFJ), and warns that the `destroy` draws nothing.",
+      "on to the bottom row, where B gets a box level with A's (y 234 " +
+      "both). Siren draws the same: no X, B's lifeline down to where A's " +
+      "ends and a bottom-row box there, nothing in the `destroy`'s place " +
+      "(nook 01M4YWYFJ), and warns that the `destroy` draws nothing. " +
+      "Nothing but declarations comes before the `create`, so B's lane is " +
+      "where a declared B's would be (measured: x 200 either way).",
     assert: (result) => {
       expectSame("participants", participants(result), ["A", "B"]);
       expectSame("no destroy mark was drawn", drew(result, "path.siren-destroy-mark"), false);
       expectSame("B's box is on its creating message", createdBox(result, "B"), "centred on A-B, whose arrow stops at its left edge");
       expectSame("B's lifeline runs as far down as A's", lifelineBottom(result, "B"), lifelineBottom(result, "A"));
+      expectSame("B is drawn in the bottom row, level with A", bottomRowEdge(result, "B"), bottomRowEdge(result, "A"));
     },
   },
   {
@@ -4599,10 +4734,50 @@ line2\`"]`,
       "short of the box, C's lifeline starts at the box's bottom, and the " +
       "`create` takes no row of its own. Siren draws the box there too, the " +
       "arrow ending at its edge; `again` runs on to C's lane as any message " +
-      "does.",
+      "does. Never destroyed, C also gets a box in the bottom row, level " +
+      "with A's, and — `A->>A: before` being drawn before the `create` — " +
+      "its lane sits half its width further right than a declared C's " +
+      "would (`seq-created-lane-offset`).",
     assert: (result) => {
       expectSame("messages", messages(result), ["A-A: before", "A-C: make", "A-C#2: again"]);
       expectSame("C's box is on its creating message", createdBox(result, "C"), "centred on A-C, whose arrow stops at its left edge");
+      expectSame("C is drawn in the bottom row, level with A", bottomRowEdge(result, "C"), bottomRowEdge(result, "A"));
+    },
+  },
+  {
+    id: "seq-created-lane-offset",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      A->>A: before
+      create participant B
+      A->>B: make
+      participant C
+      B->>C: pass on`,
+    status: "supported",
+    meaning:
+      "A participant created after something is already drawn. Measured on " +
+      "12.2.0 (layout stubs, 150-wide boxes, 50 between lanes): B's box " +
+      "starts at x 275 where a declared B's would start at 200 — 125 past " +
+      "A's box rather than 50, half its own width more " +
+      "(`addActorRenderingData`'s `prevMargin += actor.width / 2`) — and C " +
+      "follows it, 50 past B, the whole diagram 75 wider; `create actor B` " +
+      "moves the same. B, never destroyed, also gets a box in the bottom " +
+      "row, level with A's and C's. Mermaid moves a lane only when " +
+      "anything — a message, note, activation, block or `autonumber` — " +
+      "comes before its `create`; after declarations alone it stays put " +
+      "(`seq-create-destroy`). Siren draws the same: the gap before B's box " +
+      "is the plain gap plus half B's width, and B's bottom-row box is " +
+      "level with A's.",
+    assert: (result) => {
+      expectSame("participants", participants(result), ["A", "B", "C"]);
+      expectSame(
+        "the gap before B's box is the one after it plus half B's width",
+        laneGap(result, "A", "B") - laneGap(result, "B", "C"),
+        topBox(result, "B").width / 2,
+      );
+      expectSame("B is drawn in the bottom row, level with A", bottomRowEdge(result, "B"), bottomRowEdge(result, "A"));
+      expectSame("C is drawn in the bottom row, level with A", bottomRowEdge(result, "C"), bottomRowEdge(result, "A"));
     },
   },
   {
@@ -4677,12 +4852,92 @@ line2\`"]`,
       "though its lane sits half a box further right (`addActorRenderingData` " +
       "keeps a created actor's `prevMargin`). `create actor C` draws its " +
       "figure the same way. Siren draws C's rows exactly as it draws A's " +
-      "(nook 01M4YWYFJ) but does not model that x offset, laying C's lane " +
-      "out as a declared one's (a separate nook issue, 01M4Z6KQ91), and " +
-      "warns that the `create` draws nothing.",
+      "(nook 01M4YWYFJ), moves its lane as Mermaid does " +
+      "(`seq-create-at-end-lane-offset`), and warns that the `create` " +
+      "draws nothing.",
     assert: (result) => {
       expectSame("participants", participants(result), ["A", "C"]);
       expectSame("C is drawn as A is, top row to bottom row", participantRows(result, "C"), participantRows(result, "A"));
+    },
+  },
+  {
+    id: "seq-create-at-end-lane-offset",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      A->>A: think
+      create participant C
+      participant D`,
+    status: "supported",
+    warnings: [
+      'The created participant "C" has no creating message, so the create draws nothing: its lifeline starts at the top. A message sent to it right after the create starts it there.',
+    ],
+    meaning:
+      "A `create` with no message after it, written after something drawn. " +
+      "Measured on 12.2.0 (layout stubs, 150-wide boxes, 50 between lanes): " +
+      "C is drawn from the top as a declared participant is, but its box " +
+      "starts at x 275 where a declared C's would start at 200 — half its " +
+      "own width further right, as a created participant's with a creating " +
+      "message does (`seq-created-lane-offset`) — and D follows it, at 475. " +
+      "Siren draws the same: the gap before C's box is the one after it plus " +
+      "half C's width.",
+    assert: (result) => {
+      expectSame("participants", participants(result), ["A", "C", "D"]);
+      expectSame(
+        "the gap before C's box is the one after it plus half C's width",
+        laneGap(result, "A", "C") - laneGap(result, "C", "D"),
+        topBox(result, "C").width / 2,
+      );
+    },
+  },
+  {
+    id: "seq-create-at-end-declarations-only",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      create participant C
+      participant D`,
+    status: "supported",
+    warnings: [
+      'The created participant "C" has no creating message, so the create draws nothing: its lifeline starts at the top. A message sent to it right after the create starts it there.',
+    ],
+    meaning:
+      "A `create` with no message after it and nothing but declarations " +
+      "before it. Measured on 12.2.0: C's box starts at x 200 and D's at " +
+      "400, exactly where declared ones' would — nothing was drawn before " +
+      "the `create`, so its lane does not move. Siren draws the same: the " +
+      "gaps either side of C's box are equal.",
+    assert: (result) => {
+      expectSame("participants", participants(result), ["A", "C", "D"]);
+      expectSame("the gaps either side of C's box are equal", laneGap(result, "A", "C"), laneGap(result, "C", "D"));
+    },
+  },
+  {
+    id: "seq-create-after-autonumber-off",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      autonumber
+      autonumber off
+      create participant B
+      A->>B: make
+      participant C
+      B->>C: pass on`,
+    status: "supported",
+    meaning:
+      "`autonumber` and `autonumber off` before a `create`, with nothing " +
+      "else drawn. Measured on 12.2.0 (layout stubs, 150-wide boxes): B's " +
+      "box starts at x 275, not 200, and C follows it at 475 — Mermaid " +
+      "counts each toggle among the things drawn before the `create`, " +
+      "though no message is numbered. Siren draws the same: the gap before " +
+      "B's box is the one after it plus half B's width.",
+    assert: (result) => {
+      expectSame("participants", participants(result), ["A", "B", "C"]);
+      expectSame(
+        "the gap before B's box is the one after it plus half B's width",
+        laneGap(result, "A", "B") - laneGap(result, "B", "C"),
+        topBox(result, "B").width / 2,
+      );
     },
   },
   {
@@ -4798,6 +5053,48 @@ line2\`"]`,
       expectSame("no destroy mark was drawn", drew(result, "path.siren-destroy-mark"), false);
       expectSame("B is drawn as A is", participantRows(result, "B"), participantRows(result, "A"));
       expectSame("C is drawn as A is", participantRows(result, "C"), participantRows(result, "A"));
+    },
+  },
+  {
+    id: "seq-destroy-never-named",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: hi
+      destroy Z`,
+    status: "supported",
+    warnings: [
+      'The destroyed participant "Z" has no destroying message, so the destroy draws nothing: no other statement names "Z", so it has no lane. A message sent by or to it right after the destroy draws its lane and ends it there.',
+    ],
+    meaning:
+      "`destroy Z` where nothing else names Z. A `destroy` is not a mention " +
+      "(ADR-0013's amendment): measured on 12.2.0, Mermaid records the " +
+      "pending destroy and adds no actor, so it draws A and B only, and the " +
+      "same with the `destroy` inside a block. Siren draws no lane for Z " +
+      "and warns that the `destroy` draws nothing.",
+    assert: (result) => {
+      expectSame("participants", participants(result), ["A", "B"]);
+      expectSame("lanes", laneOrder(result), ["A", "B"]);
+      expectSame("no destroy mark was drawn", drew(result, "path.siren-destroy-mark"), false);
+    },
+  },
+  {
+    id: "seq-destroy-named-by-destroying-message",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: hi
+      destroy Z
+      C-xZ: bye`,
+    status: "supported",
+    meaning:
+      "`destroy Z` names Z before anything else does; its destroying " +
+      "message `C-xZ` is the first statement to name it. Measured on " +
+      "12.2.0 (layout-stubbed render): lanes A, B, C, Z — C before Z, in " +
+      "the order the message names them, not Z at the `destroy` — with Z's " +
+      "lifeline ending on `C-xZ`'s row and no shift of Z's lane. Siren " +
+      "draws the same lanes and Z's X on the arrow's tip.",
+    assert: (result) => {
+      expectSame("lanes", laneOrder(result), ["A", "B", "C", "Z"]);
+      expectSame("Z ends on its destroying message's tip", lifelineEnd(result, "Z"), "tip of C-Z, lifeline stops there");
     },
   },
   {
@@ -5693,6 +5990,61 @@ line2\`"]`,
         ["a<b c='d'", "e"],
       );
     },
+  },
+  {
+    id: "seq-comment-mid-line-text",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: 50%% done
+      note over B: a %% b`,
+    status: "supported",
+    meaning:
+      "A `%%` in a message's or a note's text is text, not a comment: " +
+      "Mermaid 12.2.0's `cleanupComments` removes whole-line comments only, " +
+      "and the sequence lexer's text rule reads on past a `%%`, so it " +
+      "records the message `50%% done` and the note `a %% b` (measured). " +
+      "Siren used to cut the line at the first `%%` and drew `50` and `a`.",
+    assert: (result) => {
+      expectSame("messages", messages(result), ["A-B: 50%% done"]);
+      expectSame("the note", texts(result, "g.siren-note text"), ["a %% b"]);
+    },
+  },
+  {
+    id: "seq-comment-in-participant-name",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A %% the caller
+      A->>B: hi`,
+    status: "supported",
+    meaning:
+      "Once `participant` has started a name, Mermaid 12.2.0's lexer reads " +
+      "it to the line's end, `%%` included: this declares a participant " +
+      "named `A %% the caller`, and the `A` of `A->>B` is another one — " +
+      "three lanes, measured. Siren used to cut the line at the `%%` and " +
+      "drew two.",
+    assert: (result) => {
+      expectSame("lanes", laneOrder(result), ["A %% the caller", "A", "B"]);
+      expectSame("messages", messages(result), ["A-B: hi"]);
+    },
+  },
+  {
+    id: "seq-comment-after-deactivate",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: hi
+      activate B
+      B->>A: there
+      deactivate B %% done with B`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** Mermaid 12.2.0 " +
+      "reads `deactivate B %% done with B` as deactivating a participant " +
+      "named `B %% done with B`, which has no activation, and refuses the " +
+      "document (\"Trying to inactivate an inactive participant\", " +
+      "measured). Siren refuses it too (ADR-0017), with an error at the `%%` " +
+      "saying a mid-line `%%` is not a comment and, if it is one, to move it " +
+      "to a line of its own. Siren used to cut the line at the `%%` and draw " +
+      "the deactivation. A comment on its own line renders in both.",
   },
   // -------------------------------------------------------------------------
   // stateDiagram
@@ -7311,7 +7663,7 @@ line2\`"]`,
     meaning:
       "An apply-directive's class name is the whole rest of the line. " +
       "Measured on 12.2.0: `class Busy a,b` gives Busy `classes=[\"a,b\"]` " +
-      "(and `class Busy u extra` gives `[\"u extra\"]`), and `class Idle` " +
+      "(drawn as `class=\"node a,b …\"`, one CSS class), and `class Idle` " +
       "gives `[\"\"]` — both draw, and neither paints anything, since no " +
       "classDef carries those names. Siren draws the same unstyled picture " +
       "and says why in two warnings; it used to refuse the document.",
@@ -7483,6 +7835,112 @@ line2\`"]`,
       expectSame("S's runs", labelRuns(label, "style"), ["t[style=fill: red]"]);
       const transition = svgOf(result).querySelector("text.siren-transition-label");
       expectSame("the transition's runs", labelRuns(transition, "style"), ["u[style=fill: blue]"]);
+    },
+  },
+  {
+    id: "st-comment-mid-line-text",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Busy : start %% by hand
+      Busy : working %% hard`,
+    status: "supported",
+    meaning:
+      "A `%%` in a transition's label or a state's description is text, not " +
+      "a comment: Mermaid 12.2.0's `cleanupComments` removes whole-line " +
+      "comments only, and the state lexer's text rules read on past a `%%` " +
+      "(measured: the label `start %% by hand`, the description " +
+      "`working %% hard`). Siren used to cut each line at its first `%%`.",
+    assert: (result) => {
+      expectSame("transitions", transitions(result), ["Idle-Busy: start %% by hand"]);
+      expectSame("Busy's rows", stateRows(result, "Busy"), ["working %% hard"]);
+    },
+  },
+  {
+    id: "st-comment-after-token",
+    kind: "state",
+    source: `stateDiagram-v2 %% the lifecycle
+      [*] --> Idle %% where it starts
+      state Busy { %% the busy part
+        Working
+      } %% done
+      Idle --> Busy`,
+    status: "supported",
+    meaning:
+      "The state lexer has a `%%` rule of its own, `%%(?!\\{)[^\\n]*`, " +
+      "that reads a comment wherever a token ends — after the header, a " +
+      "transition, a composite's `{` and `}` — and leaves the line break " +
+      "alone, so it holds on any line. Measured on Mermaid 12.2.0: drawn " +
+      "exactly as the document without the four comments.",
+    assert: (result) => {
+      expectSame("transitions", transitions(result), ["start:1-Idle: ", "Idle-Busy: "]);
+      expectSame("no comment drawn", texts(result, "text").some((text) => text.includes("%%")), false);
+    },
+  },
+  {
+    id: "st-comment-run-into-header",
+    kind: "state",
+    source: `stateDiagram-v2%% the lifecycle
+      Idle --> Busy`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** Run straight " +
+      "into the header, a `%%` is no comment: Mermaid 12.2.0 refuses the " +
+      "document (\"Expecting 'SPACE', 'NL', 'SD', got 'ID'\", measured). " +
+      "Siren refuses it too (ADR-0017), with an error at the `%%`. Siren " +
+      "used to cut the line at the `%%`. A space before the `%%` makes it a " +
+      "comment in both.",
+  },
+  {
+    id: "st-comment-in-class-name",
+    kind: "state",
+    source: `stateDiagram-v2
+      classDef busy fill:#f96
+      Idle --> Busy
+      class Busy busy %% while working`,
+    status: "supported",
+    meaning:
+      "A `%%` in a `class` statement is part of its class names, not a " +
+      "comment: the state lexer reads the statement to the line's end, so " +
+      "Mermaid 12.2.0 records the class `busy %% while working` and draws " +
+      "Busy with `class=\"node busy %% while working statediagram-state\"` " +
+      "(measured, `--markup`) — split on whitespace, `busy` paints Busy " +
+      "exactly as `class Busy busy` does, and `%%`, `while` and `working` " +
+      "paint nothing, since no classDef names them. Siren reads the names " +
+      "the same way, paints `busy`, and warns about the three it cannot " +
+      "find. It used to refuse the document.",
+    warnings: [
+      'class applies "%%", which no classDef defines; dropping the declaration.',
+      'class applies "while", which no classDef defines; dropping the declaration.',
+      'class applies "working", which no classDef defines; dropping the declaration.',
+    ],
+    assert: (result) => {
+      expectSame("states", states(result), ["Idle", "Busy"]);
+      expectSame("Busy is painted with busy", stateStyle(result, "Busy"), "fill:#f96");
+      expectSame("Idle is unstyled", stateStyle(result, "Idle"), "");
+    },
+  },
+  {
+    id: "st-comment-after-note-opener",
+    kind: "state",
+    source: `stateDiagram-v2
+      Idle --> Busy
+      note right of Idle %% why it waits
+        waiting for work
+      end note`,
+    status: "supported",
+    meaning:
+      "A `%%` after a block note's opener is the note's first line of text, " +
+      "not a comment: Mermaid 12.2.0 records the note text " +
+      "`%% why it waits\\nwaiting for work` (measured), the text rule " +
+      "starting where the target ends — as a class body's `{ %% …` keeps " +
+      "`%% …` as a member. Siren draws the same two rows. It used to refuse " +
+      "the document.",
+    assert: (result) => {
+      expectSame(
+        "the note's rows",
+        labelRows(svgOf(result).querySelector('g.siren-state[data-siren-id="Idle"] text.siren-note-text')),
+        ["%% why it waits", "waiting for work"],
+      );
     },
   },
   // -------------------------------------------------------------------------
@@ -7984,6 +8442,60 @@ line2\`"]`,
         false,
       );
     },
+  },
+  {
+    id: "er-comment-mid-line-text",
+    kind: "er",
+    source: `erDiagram
+      direction LR %% left to right
+      CUSTOMER ||--o{ ORDER : "places %% one or more"
+      ORDER {
+        int total "in cents %% before tax"
+        string \`ship %% to\`
+      }`,
+    status: "supported",
+    meaning:
+      "A `%%` in a relationship's quoted label, an attribute's quoted " +
+      "comment or a backticked attribute name is text, not a comment: " +
+      "Mermaid 12.2.0's `cleanupComments` removes whole-line comments only, " +
+      "and the ER lexer reads each of these to its closing quote or " +
+      "backtick, `%%` included (measured: the label `places %% one or " +
+      "more`, the comment `in cents %% before tax`, the name `ship %% to`). " +
+      "A line naming `direction LR` is swallowed whole by the lexer's " +
+      "direction rule, `%%` and all, so it is drawn left to right. Siren " +
+      "used to cut each line at its first `%%`.",
+    assert: (result) => {
+      const label = svgOf(result).querySelector(
+        'g.siren-er-relationship-labels[data-siren-id="CUSTOMER:ORDER"] text.siren-er-relationship-label',
+      );
+      expectSame("the label", labelRows(label), ["places %% one or more"]);
+      expectSame("ORDER's attributes", erAttributeRows(result, "ORDER"), [
+        "type=int | name=total | comment=in cents %% before tax",
+        "type=string | name=ship %% to | comment=",
+      ]);
+      expectSame(
+        "ORDER right of CUSTOMER",
+        erEntityRect(result, "ORDER").left > erEntityRect(result, "CUSTOMER").right,
+        true,
+      );
+    },
+  },
+  {
+    id: "er-comment-after-statement",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places %% one or more
+      ORDER ||--|{ LINE-ITEM : contains`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** The ER lexer " +
+      "has no `%` rule, so outside a quoted string or a backticked name a " +
+      "`%%` is a stray character and Mermaid 12.2.0 refuses the document " +
+      "(\"Expecting 'EOF', 'NEWLINE' …, got '%'\", measured). Siren refuses " +
+      "it too (ADR-0017), with an error at the `%%` saying a mid-line `%%` " +
+      "is not a comment and, if it is one, to move it to a line of its own. " +
+      "Siren used to cut the line at the `%%`. A comment on its own line " +
+      "renders in both.",
   },
   {
     id: "er-label-line-height",

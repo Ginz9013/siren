@@ -4,3 +4,4 @@
 {"id":"01M4YWYFBQREBSYRMFQ3MD49VF","t":4,"a":"83a1","op":"set","k":"title","v":"sequence-create-destroy/T5 actor 圖示改為固定寬度，建立訊息箭頭止於圖示邊緣"}
 {"id":"01M4YWYG6HFSCBQ67WDB2YNYS6","t":5,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4YXEC9TDKBYFH4MB66J9BEK","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M4Z7TE8K6KW3MBPQ1K0PTECG","t":7,"a":"83a1","op":"set","k":"archived","v":true}

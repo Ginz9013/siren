@@ -79,6 +79,13 @@ function coreModel(): SequenceModel {
   };
 }
 
+// The created participants built by hand in these tests leave
+// `createdAfterDrawing` unset even where a message comes before their
+// `create`, which `buildSequenceModel` would never produce: layout trusts
+// the model's flag rather than looking at the statements, so those fixtures
+// keep their lanes where a declared one's would be on purpose. The
+// lane-shift tests set the flag themselves (`createdModel` below).
+
 /** A preamble-declared participant: full-height lifeline, boxes at both ends. */
 function declaredParticipant(id: string, label: string): ResolvedSequenceParticipant {
   return {
@@ -1029,6 +1036,29 @@ describe("layoutSequence", () => {
       expect(byId.B!.bottom).toBe(bye!.y);
     });
 
+    it("leaves X out of the bottom row, at top level or inside a block, and keeps every participant nothing destroys in it", () => {
+      const inRow = (model: SequenceModel) =>
+        Object.fromEntries(
+          layoutSequence(model, { measureText: fakeMeasurer }).participants.map((p) => [p.id, p.drawnInBottomRow]),
+        );
+      expect(inRow(destroyedBy("A", "B"))).toEqual({ A: true, B: false });
+
+      const inLoop = destroyedBy("A", "B");
+      inLoop.statements = [
+        {
+          kind: "block",
+          block: {
+            id: "loop:1",
+            kind: "loop",
+            touchedParticipantIds: ["A", "B"],
+            color: null,
+            branches: [{ label: plainLabel("each"), statements: inLoop.statements }],
+          },
+        },
+      ];
+      expect(inRow(inLoop)).toEqual({ A: true, B: false });
+    });
+
     it("pairs a `destroy` inside an `alt` branch with the destroying message right after it in that branch", () => {
       // A block boundary between the two is refused by `buildSequenceModel`
       // (nook 01M4YS7DV8), so a pair inside a block sits in one branch.
@@ -1127,6 +1157,17 @@ describe("layoutSequence", () => {
         timeline: { totalSteps: 0, entries: [] },
       };
     }
+
+    it("puts X in the bottom row, as a declared participant is, when nothing destroys it", () => {
+      const positioned = layoutSequence(createdBy([declaredParticipant("A", "Alice"), carol]), {
+        measureText: fakeMeasurer,
+      });
+
+      expect(positioned.participants.map((p) => [p.id, p.drawnInBottomRow])).toEqual([
+        ["A", true],
+        ["C", true],
+      ]);
+    });
 
     it("centres X's box on the creating message's arrow, takes no row for `create`, and starts the next row below the box", () => {
       const positioned = layoutSequence(createdBy([declaredParticipant("A", "Alice"), carol]), {
@@ -2140,5 +2181,125 @@ describe("layoutSequence's participant links (01M3NM3BZ)", () => {
         expect(rows.bottom).toBeLessThanOrEqual(diagram.height);
       }
     });
+  });
+});
+
+describe("layoutSequence: a participant a message creates and nothing destroys", () => {
+  // Measured against Mermaid 12.2.0 (scratch geometry script, jsdom layout
+  // stubs): a created participant that is never destroyed gets a box in
+  // the bottom row too, level with every declared one's (`seq-create-destroy`:
+  // B's bottom box at y 234, as A's).
+  function createdModel(statementsBefore: ResolvedSequenceStatement[], createdAfterDrawing = false): SequenceModel {
+    const carol: ResolvedSequenceParticipant = {
+      id: "C",
+      label: plainLabel("Carol"),
+      participantKind: "participant",
+      origin: "created",
+      createdAt: statementsBefore.length + 2,
+      destroyedAt: null,
+      ...(createdAfterDrawing ? { createdAfterDrawing: true as const } : {}),
+    };
+    const creating = messageStatement("m2", "A", "C", "make");
+    if (creating.kind === "message") creating.message.creates = "C";
+    return {
+      title: null,
+      accTitle: null,
+      accDescr: null,
+      interactions: [],
+      participants: [declaredParticipant("A", "Alice"), carol, declaredParticipant("D", "Dave")],
+      boxes: [],
+      statements: [
+        { kind: "participant", participant: declaredParticipant("A", "Alice") },
+        ...statementsBefore,
+        { kind: "participant", participant: carol },
+        creating,
+        messageStatement("m3", "C", "D", "pass on"),
+      ],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+  }
+
+  it("reserves the bottom row for it even when every declared participant is destroyed", () => {
+    // Alice is ended by C's reply, on that reply's own row, so Carol is the
+    // only participant left for the bottom row.
+    const model = createdModel([]);
+    model.participants = [{ ...model.participants[0]!, destroyedAt: 4 }, model.participants[1]!];
+    const ending = messageStatement("m3", "C", "A", "done");
+    if (ending.kind === "message") ending.message.destroys = "A";
+    model.statements = [...model.statements.slice(0, 3), { kind: "destroy", id: "A" }, ending];
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+    const carol = positioned.participants.find((p) => p.id === "C")!;
+    const [, done] = messagesOf(positioned);
+
+    // A whole box fits between the last row and the end of C's lifeline,
+    // and that end is inside the diagram: there is room for its bottom box.
+    expect(carol.bottom - done!.y).toBeGreaterThanOrEqual(carol.height);
+    expect(carol.bottom).toBeLessThanOrEqual(positioned.height);
+  });
+
+  /** The same diagram with C a plain declared participant: where C's lane would be with no `create`. */
+  function declaredInstead(model: SequenceModel): SequenceModel {
+    const strip = (statement: ResolvedSequenceStatement): ResolvedSequenceStatement => {
+      if (statement.kind === "participant" && statement.participant.id === "C") {
+        return { kind: "participant", participant: declaredParticipant("C", "Carol") };
+      }
+      if (statement.kind === "message" && statement.message.creates !== undefined) {
+        const { creates: _creates, ...message } = statement.message;
+        return { kind: "message", message };
+      }
+      return statement;
+    };
+    return {
+      ...model,
+      participants: model.participants.map((p) => (p.id === "C" ? declaredParticipant("C", "Carol") : p)),
+      statements: model.statements.map(strip),
+    };
+  }
+
+  function lanes(model: SequenceModel) {
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+    const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+    return { byId, width: positioned.width };
+  }
+
+  // Measured against Mermaid 12.2.0 (jsdom layout stubs, 150-wide boxes):
+  // with `A->>A: x` before `create participant B`, B's box sits at x 275
+  // where a declared B's would be at 200 — half its width further right
+  // (`addActorRenderingData`: `prevMargin += actor.width / 2`) — and the
+  // lanes after it, and the diagram's width, move by the same 75.
+  it("moves its lane half its width right of where a declared participant's would be, when anything is drawn before its `create`, and every later lane with it", () => {
+    const created = createdModel([messageStatement("m1", "A", "A", "before")], true);
+    const shifted = lanes(created);
+    const reference = lanes(declaredInstead(created));
+    const half = shifted.byId.C!.width / 2;
+
+    expect(shifted.byId.A!.x).toBe(reference.byId.A!.x);
+    expect(shifted.byId.C!.x).toBe(reference.byId.C!.x + half);
+    expect(shifted.byId.D!.x).toBe(reference.byId.D!.x + half);
+    expect(shifted.width).toBe(reference.width + half);
+  });
+
+  // Measured: `participant A`, `create participant B`, `A->>B` leaves B at x
+  // 200, where a declared B's box is — declarations draw nothing.
+  it("leaves its lane where a declared participant's would be when only declarations come before its `create`", () => {
+    const plain = createdModel([]);
+    expect(lanes(plain).byId.C!.x).toBe(lanes(declaredInstead(plain)).byId.C!.x);
+  });
+
+  // The model says whether anything was drawn before the `create`
+  // (`ResolvedSequenceParticipant.createdAfterDrawing`), counting what
+  // leaves no statement of its own — an `autonumber off`, say — so layout
+  // takes its word rather than looking at the statements before it. The
+  // `untold` model, a message before the `create` with the flag unset, is
+  // one the model never produces; it is here only to show layout ignores
+  // the statements.
+  it("moves the lane exactly when the model says its `create` came after something drawn", () => {
+    const told = createdModel([], true);
+    const shifted = lanes(told);
+    expect(shifted.byId.C!.x).toBe(lanes(declaredInstead(told)).byId.C!.x + shifted.byId.C!.width / 2);
+
+    const untold = createdModel([messageStatement("m1", "A", "A", "before")]);
+    expect(lanes(untold).byId.C!.x).toBe(lanes(declaredInstead(untold)).byId.C!.x);
   });
 });

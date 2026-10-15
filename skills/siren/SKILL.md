@@ -73,13 +73,17 @@ timeline <name>:          or several named blocks instead (never both)
 - `timeline:` starts the block, and every remaining line belongs to it. Nothing closes
   it, so it must come last. With named blocks, each one runs from its header to the next
   `timeline <name>:` header, or to the end of the document.
-- `%%` starts a comment, anywhere in the document. A comment line needs text after its
-  `%%`: a line of only `%%` is refused in flowcharts and ER diagrams, so write `%% text`
-  or leave the line blank. `%%{init: ...}%%` directives (one line
-  or several) and `%%{wrap}%%` are read as Mermaid reads them, but no setting is applied
-  yet: each setting is reported as a warning, and the diagram is drawn without it. An init
-  that is not valid JSON is reported, and then, as in Mermaid, no init in the document is
-  read. Any other `%%{...}%%` directive is removed with a warning.
+- Only a whole line is a comment: a line whose first non-blank characters are `%%`. A
+  `%%` in the middle of a line is not a comment. Inside a label or other text it is kept
+  as text; elsewhere it is usually an error, depending on where it is. So put each comment
+  on a line of its own. (Inside a `timeline:` block, `%%` still starts a comment anywhere
+  on a line.) A comment line needs text after its `%%`: a line of only `%%` is refused in
+  flowcharts and ER diagrams, so write `%% text` or leave the line blank.
+  `%%{init: ...}%%` directives (one line or several) and `%%{wrap}%%` are read as Mermaid
+  reads them, but no setting is applied yet: each setting is reported as a warning, and
+  the diagram is drawn without it. An init that is not valid JSON is reported, and then,
+  as in Mermaid, no init in the document is read. Any other `%%{...}%%` directive is
+  removed with a warning.
 
 ## Timeline
 

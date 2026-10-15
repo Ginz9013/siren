@@ -869,9 +869,9 @@ end
     );
 
     // Four declared, never-destroyed participants (a box in both the top and
-    // bottom rows), plus three `create`d ones (one box each, centred on its
-    // creating message's arrow): Ledger and Retry are destroyed, Auditor
-    // survives — a created participant never gets a bottom-row box either way.
+    // bottom rows), plus three `create`d ones (a box centred on its creating
+    // message's arrow): Ledger and Retry are destroyed, so that is their only
+    // box, while Auditor survives and is drawn in the bottom row too.
     const groupCount = (id: string) =>
       svg.querySelectorAll(`g.siren-participant[data-siren-id="${id}"]`).length;
     expect(groupCount("Shopper")).toBe(2);
@@ -880,8 +880,8 @@ end
     expect(groupCount("Payments")).toBe(2);
     expect(groupCount("Ledger")).toBe(1);
     expect(groupCount("Retry")).toBe(1);
-    expect(groupCount("Auditor")).toBe(1);
-    expect(svg.querySelectorAll("g.siren-participant")).toHaveLength(11);
+    expect(groupCount("Auditor")).toBe(2);
+    expect(svg.querySelectorAll("g.siren-participant")).toHaveLength(12);
 
     // `actor` renders a stick figure, `participant` a box.
     expect(
@@ -892,7 +892,8 @@ end
     ).not.toBeNull();
 
     // Lane order is preamble declaration order, then `create` order; `create`
-    // moves a lifeline's start down the page, never its lane sideways.
+    // moves a lifeline's start down the page, and its lane at most half a box
+    // further right, never out of that order.
     const lifelines = Array.from(svg.querySelectorAll("line.siren-lifeline"));
     expect(lifelines).toHaveLength(7);
     const lanes = ["Shopper", "Web", "Orders", "Payments", "Ledger", "Retry", "Auditor"];
@@ -1651,19 +1652,28 @@ click Fish href "https://example.com/fish" "Fish facts"
     expect(fish.querySelector("title")!.textContent).toBe("Fish facts");
   });
 
-  it("ignores `%%` comments in all three diagram kinds — whole-line, indented and trailing a line of real syntax — rendering the same diagram as the same document without them", () => {
+  it("ignores `%%` comments in all three diagram kinds — whole-line and indented, and (sequence and class) a `%%` where the kind's lexer reads a comment — rendering the same diagram as the same document without them", () => {
+    // A flowchart refuses a `%%` trailing its statements (Mermaid 12.2.0's
+    // grammar does), so its comments here are whole lines only. A sequence
+    // diagram reads a `%%` after a participant's name or in a message's text
+    // as part of it (measured), so its `%%` past a line's start stands after
+    // the header, where its lexer reads a comment. A class diagram's lexer
+    // reads one after a relationship only on the document's last line (its
+    // rule swallows the line break), so that is where this one stands.
     const commented = {
       flowchart: `%% a flowchart that counts
 flowchart TD
   %% the first node
-  A[Start] --> B[End] %% and the edge to it
+  A[Start] --> B[End]
+  %% and the edge to it
 `,
       sequence: `%% a sequence that counts
-sequenceDiagram
+sequenceDiagram %% after the header
   %% the caller
-  participant Client %% trailing the declaration
+  participant Client
   participant Server
-  Client->>Server: Fetch %% trailing the message
+  %% the message
+  Client->>Server: Fetch
 `,
       class: `%% a class diagram that counts
 classDiagram

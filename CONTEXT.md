@@ -698,9 +698,10 @@ does not matter: an edge into the group counts the same as one out of it)
 **Participant**:
 One vertical lane in a sequence diagram, declared as `participant X` (drawn as a box) or
 `actor X` (drawn as a stick figure), or created implicitly, as a box labelled with its id, by the
-first message, note, `activate`, `deactivate` or `destroy` that names it. Lanes order left to
-right by first mention, declaration or reference alike; a declaration after the first mention
-gives the lane its label and kind without moving it (see
+first message, note, `activate`, `deactivate` or `link` that names it. A `destroy` is not a
+mention: it creates nothing, so a participant only a `destroy` names has no lane. Lanes order left to right by
+first mention, declaration or reference alike; a declaration after the first mention gives the
+lane its label and kind without moving it (see
 [ADR-0013](docs/adr/0013-sequence-participants-are-created-on-first-mention.md)).
 _Avoid_: actor (that is one of the two shapes a participant takes, not a synonym), lane, column,
 node
@@ -719,9 +720,11 @@ The message right after a `create participant X` statement; it must be sent *to*
 drawn where that message's arrow arrives, which is where X comes into existence. A `create` whose
 next message is not sent to X is refused, as Mermaid refuses it. Nothing may stand between the
 two: a note, an activation, an `autonumber`, a block boundary, or another `create` or `destroy` in
-between is refused too, because Mermaid then draws X as if it were never created. With no message
-after the `create` at all, X is drawn as any declared participant is — box in the top row and the
-bottom row — and the `create` is warned about.
+between is refused too, because Mermaid then draws X as if it were never created. If nothing
+destroys X, X also gets a box in the bottom row, as a declared participant does; and when anything
+is drawn before its `create`, X's lane sits half its width further right than a declared one's.
+With no message after the `create` at all, X is drawn as any declared participant is — box in the
+top row and the bottom row — and the `create` is warned about.
 _Avoid_: create message, first message (any participant has one), constructor
 
 **Destroying message**:
@@ -729,9 +732,10 @@ The message right after a `destroy X` statement; X must send or receive it. X's 
 its X mark, on that message's row — the message reaches X before X stops, so it is not "past" the
 end. A `destroy` whose next message does not touch X is refused, as Mermaid refuses it, and so is
 one with anything else in between (as for a **Creating message**), because Mermaid then draws X as
-if it were never destroyed. With no message after the `destroy` at all, X is drawn as never
-destroyed — lifeline to the bottom row, no X mark — and the `destroy` is warned about. A later
-message naming X does point past the end, and is warned about.
+if it were never destroyed. With no message after the `destroy` at all, the `destroy` is warned
+about and draws nothing: if another statement names X, X is drawn as never destroyed — lifeline to
+the bottom row, no X mark — and if nothing else does, X has no lane. A later message naming X does
+point past the end, and is warned about.
 _Avoid_: destroy message, kill message, last message
 _Avoid_: timeline (that is the animation block — a lifeline is structural; it does animate, but
 under its participant's id rather than one of its own), axis
@@ -1178,6 +1182,16 @@ reaches a stylesheet; and note that a flowchart's apply-directive is *spelled* `
 the third sense of that word in this codebase after the class-diagram box and the `siren-*` CSS
 classes — say "the apply-directive" for the statement, and see **Class**), link style (two words —
 `linkStyle` is a directive spelled one way)
+
+**Comment**:
+A whole line whose first non-blank characters are `%%` followed by at least one more character;
+it is removed before any diagram is read and draws nothing. A `%%` anywhere else on a line is not a
+comment by itself: where the line holds text (a label, a message, a description, a member, a
+participant's name) it is part of that text; where the grammar has no room for it the line is
+refused; and only where a diagram kind's own grammar reads one (a state transition, a class
+relationship on the document's last line) is the rest of the line a comment. A line of nothing
+but `%%` is refused in a flowchart or ER diagram ([ADR-0017](docs/adr/0017-a-siren-document-without-its-timeline-is-mermaid.md)).
+_Avoid_: end-of-line comment, trailing comment (Mermaid has no such general construct), remark
 
 **Document config**:
 The settings a Mermaid document carries about itself: its frontmatter (`config`, plus `title` and

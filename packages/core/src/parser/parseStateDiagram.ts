@@ -25,6 +25,7 @@ import {
   matchDiagramHeader,
 } from "./parseDirection";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
+import { headerPercentError } from "./midLinePercent";
 
 /**
  * The headers this parser accepts, asked for by kind rather than written out
@@ -329,6 +330,52 @@ const NOTE_BLOCK_RE = /^note\s+((?:left|right)\s+of)\s+(\w+|\[\*\])\s*$/i;
 const END_NOTE_RE = /^end\s+note$/i;
 
 /**
+ * Where the state lexer reads a comment on `line` (trimmed): the offset of
+ * its first `%%` that stands where a token ends, or `-1` when there is none.
+ *
+ * Mermaid 12.2.0's state lexer has a rule of its own, `%%(?!\{)[^\n]*`, that
+ * reads a comment wherever a token ends and no rule reading text has started
+ * — after the header, a state's id, a transition, a composite's braces, a
+ * stereotype, a divider, `end note`, a `[*]`, `direction` (measured, each
+ * drawn as without it). A rule that reads text reads on past a `%%` to the
+ * line's end: a quoted description, and whatever follows a `:` — a
+ * transition's label, a description, a note, the accessibility lines — and
+ * the whole of a `classDef`, `style` or `class` statement after its keyword.
+ * So the `%%` that is a comment is the first one outside quotes with no `:`
+ * before it (the `:::` of a class shorthand is no such colon), on a line
+ * that is not one of those three statements.
+ */
+function lexerCommentAt(line: string): number {
+  if (/^(?:classDef|style|class)\s/i.test(line)) return -1;
+  let quoted = false;
+  for (let at = 0; at < line.length; at++) {
+    const character = line[at];
+    if (character === '"') {
+      quoted = !quoted;
+    } else if (quoted) {
+      continue;
+    } else if (line.startsWith(":::", at)) {
+      at += 2;
+    } else if (character === ":") {
+      return -1;
+    } else if (line.startsWith("%%", at) && line[at + 2] !== "{") {
+      return at;
+    }
+  }
+  return -1;
+}
+
+/**
+ * `line` (trimmed) split at the comment the state lexer reads on it
+ * (`lexerCommentAt`): the statement before it, and where the comment
+ * starts, `-1` when there is none.
+ */
+function splitLexerComment(line: string): { statement: string; commentAt: number } {
+  const commentAt = lexerCommentAt(line);
+  return { statement: commentAt === -1 ? line : line.slice(0, commentAt).trimEnd(), commentAt };
+}
+
+/**
  * The two positions, as `StateNotePosition` spells them — and the gate that
  * keeps `NOTE_RE`'s case-insensitivity off them.
  *
@@ -397,12 +444,15 @@ const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/i;
  *     class Busy,Done urgent    →  classes=["urgent"] on *both* states
  *     class Busy, Done urgent   →  the same, so a space after the comma is spare
  *     class Busy alpha,beta     →  classes=["alpha,beta"] — one class name
- *     class Busy u extra        →  classes=["u extra"] — spaces too (12.2.0)
+ *     class Busy u extra        →  classes=["u extra"] — spaces too (12.2.0),
+ *                                  drawn as `class="node u extra …"`, so `u` paints
  *     class Busy                →  classes=[""] — no name at all (12.2.0)
  *
- * So a state wearing two classes takes them from two `class` statements
- * (measured, those *do* stack: `classes=["alpha","beta"]`), and a name
- * like `alpha,beta` matches no `classDef` and paints nothing, which
+ * So a state wears two classes from two `class` statements (measured,
+ * those *do* stack: `classes=["alpha","beta"]`) or from one naming both
+ * with a space between, which is why the name is read split on whitespace,
+ * one apply per word. A name like `alpha,beta` matches no `classDef` and
+ * paints nothing, which
  * `resolveStyles` reports as a warning. Siren used to read the name as a
  * single `\w+` and refuse the other two documents outright (01M37GQRM).
  *
@@ -522,8 +572,13 @@ function unimplementedIn(line: string): string | null {
  * so the ids in it are resolved by `buildStateModel` and validated nowhere
  * else.
  *
- * `%%` comments are already gone by the time this runs: `parseSiren` strips
- * them for every diagram kind before dispatching.
+ * Whole-line `%%` comments are already gone by the time this runs:
+ * `parseSiren` blanks them before dispatching, and hands this parser every
+ * other line as written. A `%%` later on a line is read as Mermaid 12.2.0's
+ * state lexer reads it (CONTEXT.md **Comment**): a comment where a token
+ * ends (`lexerCommentAt`), text where the line holds text, and refused at
+ * the `%%` (`headerPercentError`) where Mermaid refuses it — run into the
+ * header.
  */
 export function parseStateDiagram(source: string): DiagramParseResult {
   const lines = source.split(/\r\n|\r|\n/);
@@ -539,7 +594,14 @@ export function parseStateDiagram(source: string): DiagramParseResult {
   }
 
   const headerRawLine = lines[index];
-  const headerLine = headerRawLine.trim();
+  // A `%%` after the header and a space is a comment (`lexerCommentAt`);
+  // run into it, it is refused at the `%%` — measured, `stateDiagram-v2%%x`
+  // is "Expecting 'SPACE', 'NL', 'SD', got 'ID'".
+  const headerLine = headerRawLine.trim().replace(/\s+%%(?!\{).*$/, "");
+  const headerPercent = headerPercentError(headerRawLine, index + 1, "state", { spacedIsComment: true });
+  if (headerPercent !== null) {
+    return { document: null, diagnostics: [headerPercent] };
+  }
   if (matchDiagramHeader(headerLine) !== "state") {
     diagnostics.push({
       severity: "error",
@@ -931,7 +993,8 @@ export function parseStateDiagram(source: string): DiagramParseResult {
 
   for (; index < lines.length; index++) {
     const rawLine = lines[index];
-    const line = rawLine.trim();
+    const trimmed = rawLine.trim();
+    const { statement: line, commentAt } = splitLexerComment(trimmed);
     if (line.length === 0) {
       continue;
     }
@@ -1215,21 +1278,29 @@ export function parseStateDiagram(source: string): DiagramParseResult {
       continue;
     }
     if (classApplyMatch !== null) {
-      styles.push({
-        styleKind: "apply",
-        authoredAs: "class",
-        // The comma list is the *target* half, measured: `class Busy,Done
-        // urgent` styles both states. Empty segments are dropped so a
-        // trailing comma costs nothing.
-        targetIds: classApplyMatch[1]
-          .split(",")
-          .map((id) => id.trim())
-          .filter((id) => id.length > 0),
-        name: classApplyMatch[2],
-        properties: [],
-        line: lineNumber,
-        column,
-      });
+      // The comma list is the *target* half, measured: `class Busy,Done
+      // urgent` styles both states. Empty segments are dropped so a
+      // trailing comma costs nothing.
+      const targetIds = classApplyMatch[1]
+        .split(",")
+        .map((id) => id.trim())
+        .filter((id) => id.length > 0);
+      // The class half is split on whitespace, each word one class: Mermaid
+      // records the tail as one string and writes it into the drawn node's
+      // `class` attribute, so `class Busy u extra` paints Busy with `u`
+      // and `class A c %% x` with `c` — and with `%%` and `x` too, if a
+      // `classDef` named them (measured, 12.2.0).
+      for (const name of classApplyMatch[2].split(/\s+/)) {
+        styles.push({
+          styleKind: "apply",
+          authoredAs: "class",
+          targetIds,
+          name,
+          properties: [],
+          line: lineNumber,
+          column,
+        });
+      }
       continue;
     }
 
@@ -1287,7 +1358,9 @@ export function parseStateDiagram(source: string): DiagramParseResult {
     const noteBlockMatch = NOTE_BLOCK_RE.exec(line);
     const blockPosition = noteBlockMatch === null ? null : notePositionOf(noteBlockMatch[1]);
     if (noteBlockMatch !== null && blockPosition !== null) {
-      const close = lines.findIndex((candidate, at) => at > index && END_NOTE_RE.test(candidate.trim()));
+      const close = lines.findIndex(
+        (candidate, at) => at > index && END_NOTE_RE.test(splitLexerComment(candidate.trim()).statement),
+      );
       if (close === -1) {
         diagnostics.push({
           severity: "error",
@@ -1300,14 +1373,24 @@ export function parseStateDiagram(source: string): DiagramParseResult {
       }
       const rows: Label["rows"] = [];
       const texts: string[] = [];
-      for (let at = index + 1; at < close; at++) {
-        const text = lines[at].trim();
-        if (text.length === 0) continue;
-        const read = readTextAt(text, { line: at + 1, column: lines[at].length - lines[at].trimStart().length + 1 }, "html");
+      const readRow = (text: string, at: { line: number; column: number }) => {
+        const read = readTextAt(text, at, "html");
         diagnostics.push(...read.diagnostics);
         if (read.hasError) sawError = true;
         rows.push(...read.label.rows);
         texts.push(read.label.text);
+      };
+      // A `%%` after the opener is no comment: it starts the note's text.
+      // Measured on Mermaid 12.2.0, `note right of A %% x` opens a block
+      // note whose first row is "%% x" — the text rule starts where the
+      // target ends, as `class A { %% x` keeps "%% x" as a member.
+      if (commentAt !== -1) {
+        readRow(trimmed.slice(commentAt), { line: lineNumber, column: column + commentAt });
+      }
+      for (let at = index + 1; at < close; at++) {
+        const text = lines[at].trim();
+        if (text.length === 0) continue;
+        readRow(text, { line: at + 1, column: lines[at].length - lines[at].trimStart().length + 1 });
       }
       noteOn(
         noteBlockMatch[2],

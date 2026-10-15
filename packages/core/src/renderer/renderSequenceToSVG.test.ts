@@ -65,6 +65,7 @@ function buildParticipantsFixture(): PositionedSequenceDiagram {
     x: 60,
     top: 0,
     bottom: 300,
+    drawnInBottomRow: true,
     width: 100,
     height: 40,
     interaction: null,
@@ -78,6 +79,7 @@ function buildParticipantsFixture(): PositionedSequenceDiagram {
     x: 220,
     top: 0,
     bottom: 300,
+    drawnInBottomRow: true,
     width: 60,
     height: 50,
     interaction: null,
@@ -1038,8 +1040,9 @@ describe("renderSequenceToSVG", () => {
   it("renders a destroyed participant with a truncated lifeline, an X at the truncation point, and no second participant group at the bottom", () => {
     const diagram = buildParticipantsFixture();
     // Alice is destroyed at y=180: her lifeline stops there and the mark sits
-    // at the truncation point.
+    // at the truncation point, and layout leaves her out of the bottom row.
     diagram.participants[0]!.bottom = 180;
+    diagram.participants[0]!.drawnInBottomRow = false;
     diagram.elements = [{ kind: "destroyMark", mark: { participantId: "Alice", x: 60, y: 180 } }];
 
     const svg = renderSequenceToSVG(diagram);
@@ -1064,8 +1067,10 @@ describe("renderSequenceToSVG", () => {
   it("gives no bottom box to a participant destroyed inside a block, whose destroy mark is nested rather than top-level", () => {
     const diagram = buildParticipantsFixture();
     // Alice is destroyed inside a loop, so her mark is a child of the block
-    // element rather than a top-level one.
+    // element rather than a top-level one; layout leaves her out of the
+    // bottom row all the same.
     diagram.participants[0]!.bottom = 180;
+    diagram.participants[0]!.drawnInBottomRow = false;
     const block: PositionedBlock = {
       id: "loop:1",
       kind: "loop",
@@ -1090,9 +1095,11 @@ describe("renderSequenceToSVG", () => {
     expect(svg.querySelectorAll('g.siren-participant[data-siren-id="Bob"]')).toHaveLength(2);
   });
 
-  it("renders a created participant exactly once, at its creation point rather than the diagram's top", () => {
+  it("renders a created, never-destroyed participant at its creation point and again in the bottom row, level with a declared one", () => {
     const diagram = buildParticipantsFixture();
-    // Bob is introduced by `create participant Bob` partway down the diagram.
+    // Bob is introduced by `create participant Bob` partway down the diagram
+    // and never destroyed: Mermaid 12.2.0 draws his box a second time in the
+    // bottom row, as it does a declared participant's.
     diagram.participants[1] = {
       ...diagram.participants[1]!,
       participantKind: "participant",
@@ -1104,8 +1111,13 @@ describe("renderSequenceToSVG", () => {
     const svg = renderSequenceToSVG(diagram);
 
     const groups = svg.querySelectorAll('g.siren-participant[data-siren-id="Bob"]');
-    expect(groups).toHaveLength(1);
+    expect(groups).toHaveLength(2);
     expect(groups[0]!.querySelector("rect")!.getAttribute("y")).toBe("140");
+    // The bottom box ends where his lifeline does, as Alice's bottom box ends
+    // where hers does.
+    const bottomEdge = (rect: Element) => Number(rect.getAttribute("y")) + Number(rect.getAttribute("height"));
+    const aliceBottom = svg.querySelectorAll('g.siren-participant[data-siren-id="Alice"]')[1]!.querySelector("rect")!;
+    expect(bottomEdge(groups[1]!.querySelector("rect")!)).toBe(bottomEdge(aliceBottom));
 
     const lifeline = svg.querySelector('line.siren-lifeline[data-siren-id="Bob"]')!;
     expect(lifeline.getAttribute("y1")).toBe("140");

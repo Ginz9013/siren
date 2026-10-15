@@ -107,6 +107,14 @@ interface ResolutionState {
    * it at all, and is undone (`unpair`).
    */
   pending: PendingDeclaration[];
+  /**
+   * Whether anything drawn has been written so far — the fact behind
+   * `ResolvedSequenceParticipant.createdAfterDrawing`, whose JSDoc has the
+   * measured rule. Set in one of two places: `interrupt`, for every
+   * statement that interrupts a waiting declaration except a `create` or
+   * `destroy`, and the message branch, since a message interrupts nothing.
+   */
+  drawnSoFar: boolean;
 }
 
 /** A block kind with later branches, each opened by its own keyword. */
@@ -142,7 +150,13 @@ type InterruptingKeyword =
  */
 interface PendingDeclaration {
   kind: "create" | "destroy";
-  participant: ResolvedSequenceParticipant;
+  /**
+   * The participant the declaration is about. A `destroy` can name an id no
+   * statement has named yet, which has no participant until a later
+   * statement — its destroying message, usually — names it (ADR-0013's
+   * amendment), so the id is kept rather than the participant.
+   */
+  participantId: string;
   statement: SequenceStatement;
   /**
    * The first record written between the declaration and the next message,
@@ -191,32 +205,37 @@ const DECLARATION_RULES: Record<PendingDeclaration["kind"], DeclarationRule> = {
 /**
  * Marks every declaration still waiting as interrupted by `keyword`, a
  * record that is not a message: its message, when one comes, is no longer
- * the record right after it.
+ * the record right after it. Every such record but a `create` or `destroy`
+ * is also drawn (`ResolutionState.drawnSoFar`).
  */
 function interrupt(state: ResolutionState, keyword: InterruptingKeyword): void {
   for (const declaration of state.pending) declaration.interruptedBy ??= keyword;
+  if (keyword !== "create" && keyword !== "destroy") state.drawnSoFar = true;
 }
 
 /**
  * Settles a waiting `create` or `destroy` against the message right after
- * it. When the message `pairs` with it, the participant's lifeline end
+ * it. `paired` is the participant when the message pairs with the
+ * declaration — such a message names it, so it has a lane by then — and
+ * `undefined` when it does not. A paired participant's lifeline end
  * (`extent`: `createdAt` or `destroyedAt`) moves onto the message's
- * `position` and the participant's id is returned, for the message to carry
- * as its `creates`/`destroys` mark. Otherwise `refusal` is reported as an
- * error at the declaration's line and `null` is returned: the extent stays
- * where the declaration is written.
+ * `position` and its id is returned, for the message to carry as its
+ * `creates`/`destroys` mark. Otherwise `refusal` is reported as an error at
+ * the declaration's line and `null` is returned: the extent stays where the
+ * declaration is written — and a `destroy` of a participant nothing had
+ * named yet ends nothing, since there was no lane to end.
  */
 function settle(
   pending: PendingDeclaration,
-  pairs: boolean,
+  paired: ResolvedSequenceParticipant | undefined,
   extent: "createdAt" | "destroyedAt",
   position: number,
   refusal: string,
   diagnostics: Diagnostic[],
 ): string | null {
-  if (pairs) {
-    pending.participant[extent] = position;
-    return pending.participant.id;
+  if (paired !== undefined) {
+    paired[extent] = position;
+    return paired.id;
   }
   diagnostics.push({
     severity: "error",
@@ -232,26 +251,43 @@ function settle(
  * is over. Measured on Mermaid 12.2.0 (nook 01M4YWYFJ), such a declaration
  * pairs with nothing: a `destroy`ed participant is drawn as never destroyed,
  * and a `create`d one with its boxes in the top and bottom rows, from the
- * diagram's top — which is what origin `declared` names. Mermaid also
- * shifts that created lane right by half its width (`addActorRenderingData`
- * keeps a created actor's `prevMargin`); Siren does not model that offset
- * and lays the lane out as a declared one (a separate nook issue,
- * 01M4Z6KQ91).
+ * diagram's top — which is what origin `declared` names. Mermaid still
+ * shifts that created lane right by half its width when something was drawn
+ * before the `create` (`addActorRenderingData` keeps a created actor's
+ * `prevMargin`), so `createdAfterDrawing` is left as the `create` set it
+ * (corpus row `seq-create-at-end-lane-offset`).
  */
-function unpair(declaration: PendingDeclaration, diagnostics: Diagnostic[]): void {
-  const { kind, participant, statement } = declaration;
+function unpair(
+  declaration: PendingDeclaration,
+  participantsById: Map<string, ResolvedSequenceParticipant>,
+  diagnostics: Diagnostic[],
+): void {
+  const { kind, participantId, statement } = declaration;
+  // Once the walk is over, every participant in `participantsById` has a
+  // lane — a declared one no statement names too (only a hand-built
+  // document has one), placed after the mentioned ones — so this asks the
+  // map directly rather than `laneSoFar`, which answers mid-walk.
+  const participant = participantsById.get(participantId);
   const rule = DECLARATION_RULES[kind];
-  if (kind === "destroy") {
-    participant.destroyedAt = null;
+  let reason: string;
+  if (participant === undefined) {
+    // Only a `destroy` can name a participant that does not exist: one no
+    // other statement names, so there is no lane to say anything about.
+    reason = `no other statement names "${participantId}", so it has no lane. A message sent by or to it right after the destroy draws its lane and ends it there.`;
   } else {
-    participant.origin = "declared";
-    participant.createdAt = 0;
+    reason = rule.unpaired;
+    if (kind === "destroy") {
+      participant.destroyedAt = null;
+    } else {
+      participant.origin = "declared";
+      participant.createdAt = 0;
+    }
   }
   diagnostics.push({
     severity: "warning",
     message:
-      `The ${rule.participant} participant "${participant.id}" has no ${rule.message} message, ` +
-      `so the ${kind} draws nothing: ${rule.unpaired}`,
+      `The ${rule.participant} participant "${participantId}" has no ${rule.message} message, ` +
+      `so the ${kind} draws nothing: ${reason}`,
     line: statement.line,
     column: statement.column,
   });
@@ -300,13 +336,14 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
     autonumberCounter: 0,
     position: 0,
     pending: [],
+    drawnSoFar: false,
   };
 
   const boxes = resolveBoxes(document, diagnostics);
 
   const { statements } = resolveStatements(document.statements, participantsById, state);
   flushLinkMentions(Infinity, participantsById, state);
-  for (const declaration of state.pending) unpair(declaration, diagnostics);
+  for (const declaration of state.pending) unpair(declaration, participantsById, diagnostics);
 
   // A `link` targets a participant, not a message or a block — the same
   // narrower set `click`/`callback` resolve against on the other two kinds.
@@ -434,6 +471,21 @@ function mention(
   }
 }
 
+/**
+ * The participant `id` names if it has a lane at this point of the walk —
+ * that is, some statement has mentioned it — and `undefined` otherwise.
+ * `participantsById` alone does not answer this: it holds every declared
+ * participant from the start, including one only a later `participant` or
+ * `create participant` statement names.
+ */
+function laneSoFar(
+  id: string,
+  participantsById: Map<string, ResolvedSequenceParticipant>,
+  state: ResolutionState,
+): ResolvedSequenceParticipant | undefined {
+  return state.mentionedSoFar.has(id) ? participantsById.get(id) : undefined;
+}
+
 /** Mentions every pending link written before `line`, in document order. */
 function flushLinkMentions(
   line: number,
@@ -493,18 +545,26 @@ function resolveStatements(
       // full-height extent alone.
       participant!.origin = statement.origin;
       if (statement.origin === "created") participant!.createdAt = position;
+      if (statement.origin === "created" && state.drawnSoFar) participant!.createdAfterDrawing = true;
       // A `create` waits for the next message too, and interrupts any
       // `create` or `destroy` still waiting (`ResolutionState.pending`).
       if (statement.origin === "created") {
         interrupt(state, "create");
-        state.pending.push({ kind: "create", participant: participant!, statement, interruptedBy: null });
+        state.pending.push({ kind: "create", participantId: statement.id, statement, interruptedBy: null });
       }
       resolved.push({ kind: "participant", participant: participant! });
       continue;
     }
 
     if (statement.kind === "destroy") {
-      mention(statement.id, participantsById, state);
+      // `destroy` is not a mention (ADR-0013's amendment): measured on
+      // Mermaid 12.2.0, `destroy Z` with Z named nowhere else draws no lane
+      // for Z, and a destroying message that names Z places Z's lane where
+      // that message does. So a participant nothing has named yet is not
+      // created here, and has no lane yet for this `destroy` to end: it is
+      // undefined here even when a later statement declares it, as
+      // `destroy Z`, `create participant Z`, `A->>Z` creates Z in Mermaid.
+      //
       // A lifeline can only end once: a second `destroy` has no truncation
       // point left to name, so it is an error and is dropped, keeping the
       // first one's extent. A `destroy` still waiting for its message has
@@ -513,11 +573,11 @@ function resolveStatements(
       // `A-xB` ends B on `A-xB` exactly as one `destroy B` does, since
       // Mermaid keeps one pending destroy per participant. The earlier one
       // is dropped from `pending`, and with it whatever interrupted it.
-      const participant = participantsById.get(statement.id)!;
-      const waiting = state.pending.findIndex((p) => p.kind === "destroy" && p.participant === participant);
+      const participant = laneSoFar(statement.id, participantsById, state);
+      const waiting = state.pending.findIndex((p) => p.kind === "destroy" && p.participantId === statement.id);
       if (waiting !== -1) {
         state.pending.splice(waiting, 1);
-      } else if (participant.destroyedAt !== null) {
+      } else if (participant !== undefined && participant.destroyedAt !== null) {
         state.diagnostics.push({
           severity: "error",
           message: `destroy references participant "${statement.id}", whose lifeline already ended`,
@@ -532,12 +592,13 @@ function resolveStatements(
       // sends or receives it (the destroying message, below), or keeps it
       // here when that message is refused; with no message after it at all,
       // `unpair` takes the end away again once the walk is over.
-      participant.destroyedAt = ++state.position;
+      const position = ++state.position;
+      if (participant !== undefined) participant.destroyedAt = position;
       // It interrupts any `create` or `destroy` still waiting: measured on
       // Mermaid 12.2.0, `destroy B`, `destroy C`, `A-xC` ends C on `A-xC`
       // and draws B as if it were never destroyed (nook 01M4YS7DV8).
       interrupt(state, "destroy");
-      state.pending.push({ kind: "destroy", participant, statement, interruptedBy: null });
+      state.pending.push({ kind: "destroy", participantId: statement.id, statement, interruptedBy: null });
       resolved.push({ kind: "destroy", id: statement.id });
       continue;
     }
@@ -574,6 +635,7 @@ function resolveStatements(
       // kept and X's lifeline still ends at its `destroy`, the same partial
       // tolerance a bad `deactivate` or a late `create` gets.
       const position = ++state.position;
+      state.drawnSoFar = true;
 
       // The creating message: the message right after `create participant
       // X`, sent to X. X's lifeline starts on its row — measured against
@@ -602,16 +664,17 @@ function resolveStatements(
       const settledHere: Record<PendingDeclaration["kind"], string | null> = { create: null, destroy: null };
       for (const declaration of state.pending) {
         const rule = DECLARATION_RULES[declaration.kind];
-        const { id: declaredId } = declaration.participant;
+        const { participantId: declaredId } = declaration;
         const { interruptedBy } = declaration;
         const refusal =
           `The ${rule.participant} participant "${declaredId}" has no ${rule.message} message: ` +
           (interruptedBy === null
             ? `the next message must be ${rule.addressee}.`
             : `the message ${rule.addressee} must come right after the ${declaration.kind}, with no "${interruptedBy}" in between.`);
+        const pairs = interruptedBy === null && rule.pairs(statement, declaredId);
         settledHere[declaration.kind] = settle(
           declaration,
-          interruptedBy === null && rule.pairs(statement, declaredId),
+          pairs ? laneSoFar(declaredId, participantsById, state) : undefined,
           rule.extent,
           position,
           refusal,

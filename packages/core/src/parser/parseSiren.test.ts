@@ -1001,25 +1001,31 @@ timeline:
     ]);
   });
 
-  it("strips %% comments from an erDiagram before the kind's parser sees them", () => {
+  it("strips whole-line %% comments from an erDiagram before the kind's parser sees them, and leaves a mid-line %% to it", () => {
     // The dispatcher owns comment stripping for the whole language, so a
     // fifth kind gets it without a line of its own — and this is what says
-    // so rather than assuming it. A `%%` reaching `parseErDiagram` would be
-    // outside the entity alphabet and cost the document.
+    // so rather than assuming it. Only whole lines: a `%%` after a
+    // statement reaches `parseErDiagram`, outside the entity alphabet, and
+    // costs the document, as Mermaid 12.2.0 refuses it (see "a `%%` in the
+    // middle of an ER line" below).
     const { document, diagnostics } = parseSiren(
-      "%% the shop's records\nerDiagram\n  CUSTOMER %% the one who pays\n",
+      "%% the shop's records\nerDiagram\n  %% the one who pays\n  CUSTOMER\n",
     );
 
     expect(diagnostics).toEqual([]);
     expect(erDocument(document).entities.map((entity) => entity.name)).toEqual(["CUSTOMER"]);
+    expect(parseSiren("erDiagram\n  CUSTOMER %% the one who pays\n").diagnostics.map((d) => d.column)).toEqual([12]);
   });
 
-  it("ignores whole-line, indented and trailing %% comments in a flowchart", () => {
+  it("ignores whole-line and indented %% comments in a flowchart", () => {
+    // Only whole lines: a `%%` trailing a flowchart statement is refused
+    // (see "a `%%` in the middle of a flowchart line" below).
     const source = `%% what this diagram is for
 flowchart TD
   A[Start]
     %% the interesting bit
-  A --> B[End] %% and back again
+  A --> B[End]
+  %% and back again
 `;
 
     const { document, diagnostics } = parseFlowchartOk(source);
@@ -1031,7 +1037,9 @@ flowchart TD
     ]);
   });
 
-  it("ignores whole-line and trailing %% comments in a sequence diagram", () => {
+  it("ignores whole-line %% comments in a sequence diagram, and keeps a %% after a message's colon as its text", () => {
+    // Measured (Mermaid 12.2.0): only the whole line is a comment; the
+    // message text runs on past its `%%`. Siren used to cut it to "Sync call".
     const source = `sequenceDiagram
   %% who is involved
   participant A as Alice
@@ -1047,10 +1055,14 @@ flowchart TD
     expect(sequenceDocument.participants.map((p) => p.id)).toEqual(["A", "B"]);
     const messages = sequenceDocument.statements.filter((s) => s.kind === "message");
     expect(messages).toHaveLength(1);
-    expect(messages[0].kind === "message" && messages[0].label.text).toBe("Sync call");
+    expect(messages[0].kind === "message" && messages[0].label.text).toBe("Sync call %% the important one");
   });
 
-  it("ignores whole-line, indented and trailing %% comments in a class diagram", () => {
+  it("ignores whole-line and indented %% comments in a class diagram, and a %% after its last statement", () => {
+    // Only on the last line: the class lexer's `%%` rule swallows the line
+    // break after it, so on any other line Mermaid 12.2.0 refuses the
+    // document and Siren refuses the `%%` (see parseClassDiagram.test.ts,
+    // "a `%%` in the middle of a class-diagram line").
     const source = `%% the domain, roughly
 classDiagram
     %% ducks are animals
@@ -1066,10 +1078,11 @@ classDiagram
     expect(classDocument.relationships).toHaveLength(1);
   });
 
-  it("strips %% line-wise, so a %% inside message text starts a comment there too", () => {
-    // Documented decision (see parseSiren.ts): comments are stripped
-    // line-wise before parsing, exactly as Mermaid does, so `%%` starts a
-    // comment even inside quoted text or a label. There is no escape.
+  it("keeps a %% inside a sequence message's text as text — only a whole line is a comment", () => {
+    // Measured (Mermaid 12.2.0): `cleanupComments` removes whole-line
+    // comments only, and the sequence lexer's message-text rule
+    // (`:[^#\n;]*`) reads on past a `%%`, so `A->>B: 50%% done` draws the
+    // message "50%% done". Siren used to cut the line at the `%%` and draw "50".
     const source = `sequenceDiagram
   participant A as Alice
   participant B as Bob
@@ -1080,7 +1093,7 @@ classDiagram
 
     expect(diagnostics).toEqual([]);
     const messages = (document as SequenceDocument).statements.filter((s) => s.kind === "message");
-    expect(messages[0].kind === "message" && messages[0].label.text).toBe("50");
+    expect(messages[0].kind === "message" && messages[0].label.text).toBe("50%% done");
   });
 
   it("reports an error diagnostic, not a throw, for a document that is only comments", () => {
@@ -1101,12 +1114,13 @@ classDiagram
     // needs at least one character after its `%%`. A bare `%%` line is left
     // to the diagram's own grammar, which in a flowchart draws a node named
     // `%%` and in an ER diagram refuses the document.
+    // The messages name the cause and the fix, never Mermaid.
     const FLOWCHART_DRAWS_IT =
       'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%", ' +
-      'and Mermaid draws this line as a node named "%%". Write "%% text", or leave the line blank.';
-    const MERMAID_REFUSES_IT =
-      'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%"; ' +
-      'Mermaid refuses the document too. Write "%% text", or leave the line blank.';
+      'so this line is a node named "%%". Write "%% text", or leave the line blank.';
+    const REFUSED_OUTRIGHT =
+      'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%". ' +
+      'Write "%% text", or leave the line blank.';
 
     it("refuses a bare `%%` line below a flowchart header, where Mermaid draws a node named `%%`", () => {
       const { document, diagnostics } = parseSiren("flowchart TB\n%%\nA-->B\n");
@@ -1133,7 +1147,7 @@ classDiagram
 
       expect(document).toBeNull();
       expect(diagnostics).toEqual([
-        { severity: "error", message: MERMAID_REFUSES_IT, line: 2, column: 1 },
+        { severity: "error", message: REFUSED_OUTRIGHT, line: 2, column: 1 },
       ]);
     });
 
@@ -1144,7 +1158,7 @@ classDiagram
 
       expect(document).toBeNull();
       expect(diagnostics).toEqual([
-        { severity: "error", message: MERMAID_REFUSES_IT, line: 1, column: 1 },
+        { severity: "error", message: REFUSED_OUTRIGHT, line: 1, column: 1 },
         { severity: "error", message: FLOWCHART_DRAWS_IT, line: 3, column: 1 },
       ]);
     });
@@ -1189,15 +1203,15 @@ classDiagram
           { severity: "error", message: FLOWCHART_DRAWS_IT, line: 3, column: 1 },
         ]);
         expect(parseSiren(`erDiagram\nA ||--o{ B : has\n%%${ending}`).diagnostics).toEqual([
-          { severity: "error", message: MERMAID_REFUSES_IT, line: 3, column: 1 },
+          { severity: "error", message: REFUSED_OUTRIGHT, line: 3, column: 1 },
         ]);
       }
     });
 
-    it("leaves a `%%` trailing real syntax to the end-of-line comment rule — it is not a bare line", () => {
+    it("leaves a `%%` trailing real syntax to the mid-line rule — it is not a bare line", () => {
       // Measured: Mermaid reads `A-->B %%` exactly as it reads `A-->B %% x`
       // (a flowchart refuses both), so the bare-line rule has nothing to say
-      // about it; it means here what any end-of-line comment means.
+      // about it; it means here what any mid-line `%%` means in its kind.
       for (const [header, body] of [
         ["flowchart TB", "A-->B"],
         ["erDiagram", "A ||--o{ B : has"],
@@ -1206,8 +1220,20 @@ classDiagram
         const worded = parseSiren(`${header}\n${body} %% x\n${body} %% x`);
 
         expect([header, bare]).toEqual([header, worded]);
-        expect([header, bare.diagnostics]).toEqual([header, []]);
       }
+      // Each kind refuses each `%%` as the mid-line `%%` it is, not as a
+      // bare line.
+      const midLine =
+        'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+        "If it is a comment, move it to a line of its own.";
+      expect(parseSiren("flowchart TB\nA-->B %%\nA-->B %%").diagnostics).toEqual([
+        { severity: "error", message: midLine, line: 2, column: 7 },
+        { severity: "error", message: midLine, line: 3, column: 7 },
+      ]);
+      expect(parseSiren("erDiagram\nA ||--o{ B : has %%\nA ||--o{ B : has %%").diagnostics).toEqual([
+        { severity: "error", message: midLine, line: 2, column: 18 },
+        { severity: "error", message: midLine, line: 3, column: 18 },
+      ]);
     });
 
     it("reads a bare `%%` inside a timeline block as a comment, unnamed or named — Mermaid never sees that block", () => {
@@ -2780,10 +2806,10 @@ describe("the header spellings the dispatcher teaches", () => {
 /**
  * Mermaid's order of work before any parser reads a line (11.17.2): its
  * `cleanupComments` removes only whole-line `%%` comments, then its
- * `encodeEntities` drops a style line's last `;` — so a `;` in an
- * end-of-line comment is still on the line when that rule picks one.
+ * `encodeEntities` drops a style line's last `;` — so a `;` after a
+ * mid-line `%%` is still on the line when that rule picks one.
  */
-describe("the style-line `;` and an end-of-line comment", () => {
+describe("the style-line `;` and a mid-line `%%`", () => {
   it("drops the comment's `;`, leaving the label's color a code", () => {
     // Measured (`--html`): `state "<span style='color:#f00;'>r</span>" as A %% x;`
     // draws `<span style="color:&amp;f00;">r</span>` — uncolored.
@@ -3326,5 +3352,482 @@ describe("a document's directives", () => {
       '%%{init: {"theme": "dark"}}%%\n%%{init: {"config": {"curve": "basis"}, "look": "neo"}}%%\nflowchart TB\n  A --> B',
     );
     expect(config).toEqual({ theme: "dark", look: "neo" });
+  });
+});
+
+/**
+ * A `%%` in the middle of a flowchart line (CONTEXT.md **Comment**).
+ * Mermaid 12.2.0's `cleanupComments` removes whole-line comments only, and
+ * the flowchart lexer has no `%%` rule of its own (`%` is a node-string
+ * character), so a mid-line `%%` reaches the grammar: inside text it is
+ * text, and after a complete statement it is a parse error. Measured with
+ * `pnpm --filter siren-core probe`; the table is T1's 量測結果.
+ */
+describe("a `%%` in the middle of a flowchart line", () => {
+  const NOT_A_COMMENT =
+    'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+    "If it is a comment, move it to a line of its own.";
+
+  it("refuses a `%%` trailing an edge, at its `%%`, where the grammar has no room for it", () => {
+    // Measured: `A --> B %% x` is a parse error ("Expecting 'SEMI',
+    // 'NEWLINE', 'EOF', … got 'NODE_STRING'"), on the last line or not.
+    const { document, diagnostics } = parseSiren("flowchart TB\n  A --> B %% and back\n  B --> C");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: NOT_A_COMMENT, line: 2, column: 11 }]);
+  });
+
+  it("reads a subgraph's bare name with a `%%` after it as one title, as its grammar reads a run of words", () => {
+    // Measured: `subgraph S %% zz` records the title "S %% zz" under a
+    // generated id (`subGraph0`), so `S --> B` below names a node, not it;
+    // `subgraph S [t %% zz]` keeps "t %% zz" as the bracketed title.
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n  subgraph S %% zz\n    A\n  end\n  subgraph T [t %% zz]\n    C\n  end",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs.map((subgraph) => [subgraph.name, subgraph.label.text])).toEqual([
+      [null, "S %% zz"],
+      ["T", "t %% zz"],
+    ]);
+  });
+
+  it("refuses a `%%` after a subgraph's bracketed title, at its `%%`", () => {
+    // Measured: `subgraph S[t] %% zz` is "Expecting 'SEMI', 'NEWLINE', 'EOF', got 'SPACE'".
+    const { document, diagnostics } = parseSiren("flowchart TB\n  subgraph S[t] %% zz\n    A\n  end");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: NOT_A_COMMENT, line: 2, column: 17 }]);
+
+    // Measured: `subgraph S %% end` is read with its `end` as the block's
+    // own end, swallowing the next line into the title ("S %% end\nA") —
+    // a picture nobody wrote, so it is refused rather than drawn.
+    const swallowed = parseSiren("flowchart TB\n  subgraph S %% end\n    A\n  end");
+    expect(swallowed.document).toBeNull();
+    expect(swallowed.diagnostics).toEqual([{ severity: "error", message: NOT_A_COMMENT, line: 2, column: 14 }]);
+  });
+
+  it("reads a word that only contains `end` as a word of a subgraph's title", () => {
+    // Measured: `subgraph S %% %%end` records the title "S %% %%end" — only a
+    // word that is `end` ends the block.
+    const { document, diagnostics } = parseFlowchartOk("flowchart TB\n  subgraph S %% %%end\n    A\n  end");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs.map((subgraph) => [subgraph.name, subgraph.label.text])).toEqual([[null, "S %% %%end"]]);
+  });
+
+  it("reads a block's `direction` with a `%%` after it as that direction — its rule runs to the line's end", () => {
+    // Measured: `direction LR %% zz` inside a subgraph records `dir: "LR"` —
+    // the lexer's `.*direction\s+LR[^\n]*` takes the rest of the line.
+    const { document, diagnostics } = parseFlowchartOk(
+      "flowchart TB\n  subgraph S\n    direction LR %% across\n    A --> B\n  end",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs.map((subgraph) => subgraph.direction)).toEqual(["LR"]);
+  });
+
+  it("keeps a `%%` in a declaration list and an accessibility line as part of what they hold", () => {
+    // Measured: `style A fill:#f00 %% zz` records `fill:#f00 %% zz`,
+    // `classDef c fill:#f00 %% zz` the same, `linkStyle 0 stroke:#f00 %% zz`
+    // `stroke:#f00 %% zz`; `accTitle: t %% zz` the title "t %% zz" and
+    // `accDescr: d %% zz` the description "d %% zz".
+    const { document, diagnostics } = parseFlowchartOk(
+      [
+        "flowchart TB",
+        "  accTitle: t %% zz",
+        "  accDescr: d %% zz",
+        "  A --> B",
+        "  style A fill:#f00 %% zz",
+        "  classDef c fill:#0f0 %% zz",
+        "  linkStyle 0 stroke:#00f %% zz",
+      ].join("\n"),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect([document.accTitle, document.accDescr]).toEqual(["t %% zz", "d %% zz"]);
+    expect(document.styles.map((style) => [style.styleKind, style.properties])).toEqual([
+      ["style", [{ property: "fill", value: "#f00 %% zz" }]],
+      ["classDef", [{ property: "fill", value: "#0f0 %% zz" }]],
+    ]);
+    expect(document.linkStyles.map((style) => style.properties)).toEqual([
+      [{ property: "stroke", value: "#00f %% zz" }],
+    ]);
+  });
+
+  it("keeps a `%%` in a click's quoted tooltip, and refuses one trailing the click", () => {
+    // Measured: `click A "https://x.org" "t %% zz"` records the tooltip
+    // "t %% zz"; `click A "https://x.org" %% zz` is "Expecting 'STR',
+    // 'LINK_TARGET', got 'NODE_STRING'".
+    const kept = parseFlowchartOk('flowchart TB\n  A\n  click A "https://x.org" "t %% zz"');
+    expect(kept.diagnostics).toEqual([]);
+    expect(kept.document.interactions.map((interaction) => interaction.tooltip)).toEqual(["t %% zz"]);
+
+    const refused = parseSiren('flowchart TB\n  A\n  click A "https://x.org" %% zz');
+    expect(refused.document).toBeNull();
+    expect(refused.diagnostics).toEqual([{ severity: "error", message: NOT_A_COMMENT, line: 3, column: 27 }]);
+  });
+
+  it("refuses a `%%` after every other complete statement, at its `%%`, once", () => {
+    // Measured, each a parse error on its line: a node's declaration
+    // (`A[a] %% zz`, `A %% zz`, `A:::c %% zz`, `A@{ shape: rect } %% zz`),
+    // a statement ended by `;` (`A --> B; %% zz`), a block's `end`
+    // (`end %% zz`) and a class list (`class A c %% zz`).
+    for (const [body, line, column] of [
+      ["  A[a] %% zz", 2, 8],
+      ["  A %% zz", 2, 5],
+      ["  A:::c %% zz", 2, 9],
+      ["  A@{ shape: rect } %% zz", 2, 21],
+      ["  A --> B; %% zz", 2, 12],
+      ["  subgraph S\n    A\n  end %% zz", 4, 7],
+      ["  A\n  classDef c fill:#f00\n  class A c %% zz", 4, 13],
+    ] as const) {
+      const { document, diagnostics } = parseSiren(`flowchart TB\n${body}`);
+
+      expect([body, document]).toEqual([body, null]);
+      expect([body, diagnostics]).toEqual([body, [{ severity: "error", message: NOT_A_COMMENT, line, column }]]);
+    }
+  });
+
+  it("still cuts a `%%` in a timeline block to the line's end — that block is Siren's syntax, not Mermaid's", () => {
+    // ADR-0017: the document without its timeline blocks is the Mermaid one,
+    // so a flowchart's reading of `%%` stops at its first timeline header.
+    const commented = parseSiren("flowchart TB\n  A --> B\ntimeline: %% the reveal\n  enter B fade %% last\n");
+    const plain = parseSiren("flowchart TB\n  A --> B\ntimeline:\n  enter B fade\n");
+
+    expect(commented.diagnostics).toEqual([]);
+    expect(commented).toEqual(plain);
+  });
+
+  it("refuses a `%%` trailing the header, at its `%%`", () => {
+    // Measured: `flowchart TB %% x` is "Expecting 'NEWLINE', got 'NODE_STRING'"
+    // on line 1; so is `graph LR %% x`.
+    for (const header of ["flowchart TB", "graph LR"]) {
+      const { document, diagnostics } = parseSiren(`${header} %% what this is\n  A --> B`);
+
+      expect([header, document]).toEqual([header, null]);
+      expect([header, diagnostics]).toEqual([
+        header,
+        [{ severity: "error", message: NOT_A_COMMENT, line: 1, column: header.length + 2 }],
+      ]);
+    }
+  });
+
+  it("keeps a `%%` written inside a node's label or an edge's label as text", () => {
+    // Measured: `A[50 %% done]` → text "50 %% done"; `-->|a %% b|` → "a %% b";
+    // `-- c %% d -->` → "c %% d"; `B("e %% f")` → "e %% f".
+    const { document, diagnostics } = parseFlowchartOk(
+      'flowchart TB\n  A[50 %% done] -->|a %% b| B("e %% f")\n  B -- c %% d --> C{g %% h}',
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label.text])).toEqual([
+      ["A", "50 %% done"],
+      ["B", "e %% f"],
+      ["C", "g %% h"],
+    ]);
+    expect(document.edges.map((edge) => edge.label?.text)).toEqual(["a %% b", "c %% d"]);
+  });
+});
+
+/**
+ * A `%%` in the middle of a sequence line (CONTEXT.md **Comment**). Mermaid
+ * 12.2.0's `cleanupComments` removes whole-line comments only; the sequence
+ * lexer has `%%` rules of its own (`%(?!\{)[^\n]*` and `[^\}]%%[^\n]*`), but
+ * they only fire at a token boundary — the rules that read text (a
+ * message's or note's text after its `:`, a block's label, a participant's
+ * name, a title) read on past a `%%` first. Measured with
+ * `pnpm --filter siren-core probe`; the table is T1's 量測結果 (sequence).
+ */
+describe("a `%%` in the middle of a sequence line", () => {
+  const NOT_A_COMMENT =
+    'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+    "If it is a comment, move it to a line of its own.";
+
+  function sequenceOk(body: string): SequenceDocument {
+    const { document, diagnostics } = parseSiren(`sequenceDiagram\n${body}`);
+    expect([body, diagnostics]).toEqual([body, []]);
+    if (document === null || document.kind !== "sequence") {
+      throw new Error(`expected a sequence document for ${JSON.stringify(body)}`);
+    }
+    return document;
+  }
+
+  it("keeps a `%%` in every piece of text a statement holds, as Mermaid records it", () => {
+    // Measured: each row's text is stored with its `%% zz` — a message's and
+    // a note's text, a block's or branch's label (a label-less `loop %% zz`
+    // has the label "%% zz"), a box's label with or without a color, the
+    // title in both spellings, the accessibility lines, and a participant's
+    // `as` alias, declared or created.
+    const messageText = (document: SequenceDocument) =>
+      document.statements.flatMap((s) => (s.kind === "message" || s.kind === "note" ? [s.label.text] : []));
+    const blockLabels = (document: SequenceDocument) =>
+      document.statements.flatMap((s) =>
+        s.kind === "loop" || s.kind === "opt" || s.kind === "break"
+          ? [s.label?.text ?? null]
+          : s.kind === "alt" || s.kind === "par" || s.kind === "critical"
+            ? s.branches.map((branch) => branch.label?.text ?? null)
+            : [],
+      );
+
+    expect(messageText(sequenceOk("  A->>B: hi %% zz"))).toEqual(["hi %% zz"]);
+    expect(messageText(sequenceOk("  A-->>B: hi %% zz"))).toEqual(["hi %% zz"]);
+    expect(messageText(sequenceOk("  A->>+B: hi %% zz"))).toEqual(["hi %% zz"]);
+    expect(messageText(sequenceOk("  A->>B: m\n  note over A: n %% zz"))).toEqual(["m", "n %% zz"]);
+    expect(messageText(sequenceOk("  A->>B: m\n  note right of A: n %% zz"))).toEqual(["m", "n %% zz"]);
+    expect(messageText(sequenceOk("  A->>B: m\n  note over A,B: n %% zz"))).toEqual(["m", "n %% zz"]);
+
+    expect(blockLabels(sequenceOk("  loop L %% zz\n    A->>B: m\n  end"))).toEqual(["L %% zz"]);
+    expect(blockLabels(sequenceOk("  loop %% zz\n    A->>B: m\n  end"))).toEqual(["%% zz"]);
+    expect(blockLabels(sequenceOk("  opt O %% zz\n    A->>B: m\n  end"))).toEqual(["O %% zz"]);
+    expect(blockLabels(sequenceOk("  break B %% zz\n    A->>B: m\n  end"))).toEqual(["B %% zz"]);
+    expect(blockLabels(sequenceOk("  alt X\n    A->>B: m\n  else Y %% zz\n    A->>B: n\n  end"))).toEqual([
+      "X",
+      "Y %% zz",
+    ]);
+    expect(blockLabels(sequenceOk("  par X\n    A->>B: m\n  and Y %% zz\n    A->>B: n\n  end"))).toEqual([
+      "X",
+      "Y %% zz",
+    ]);
+    expect(
+      blockLabels(sequenceOk("  critical X\n    A->>B: m\n  option Y %% zz\n    A->>B: n\n  end")),
+    ).toEqual(["X", "Y %% zz"]);
+
+    const boxed = sequenceOk("  box aqua G %% zz\n    participant A\n  end\n  A->>B: m");
+    expect(boxed.boxes.map((box) => [box.color, box.label?.text])).toEqual([["aqua", "G %% zz"]]);
+    const plainBox = sequenceOk("  box G %% zz\n    participant A\n  end\n  A->>B: m");
+    expect(plainBox.boxes.map((box) => [box.color, box.label?.text])).toEqual([[null, "G %% zz"]]);
+
+    expect(sequenceOk("  title T %% zz\n  A->>B: m").title).toBe("T %% zz");
+    expect(sequenceOk("  title: T %% zz\n  A->>B: m").title).toBe("T %% zz");
+    expect(sequenceOk("  accTitle: T %% zz\n  A->>B: m").accTitle).toBe("T %% zz");
+    expect(sequenceOk("  accDescr: T %% zz\n  A->>B: m").accDescr).toBe("T %% zz");
+
+    const aliased = sequenceOk("  participant A as Al %% zz\n  A->>B: m");
+    expect(aliased.participants.map((p) => [p.id, p.label.text])).toEqual([["A", "Al %% zz"]]);
+    const createdAlias = sequenceOk("  A->>B: m\n  create participant C as Cee %% zz\n  A->>C: n");
+    expect(createdAlias.participants.map((p) => [p.id, p.label.text])).toEqual([["C", "Cee %% zz"]]);
+  });
+
+  it("reads a `%%` after the header as a comment, as the sequence lexer does after a keyword", () => {
+    // Measured: `sequenceDiagram %% zz` is accepted and nothing stores "zz".
+    const commented = parseSiren("sequenceDiagram %% what this is\n  A->>B: m");
+    const plain = parseSiren("sequenceDiagram\n  A->>B: m");
+
+    expect(commented.diagnostics).toEqual([]);
+    expect(commented).toEqual(plain);
+  });
+
+  it("refuses a `%%` after `activate` or `deactivate` names its participant, at its `%%`", () => {
+    // Measured: `deactivate B %% zz` is refused ("Trying to inactivate an
+    // inactive participant (B %% zz)"); `activate B %% zz` activates a
+    // participant "B %% zz" that no lane has, and Mermaid fails to draw it
+    // ("Cannot read properties of undefined (reading 'x')").
+    for (const [body, line, column] of [
+      ["  A->>B: m\n  activate B %% zz\n  A->>B: n", 3, 14],
+      ["  A->>B: m\n  activate B\n  A->>B: n\n  deactivate B %% zz", 5, 16],
+    ] as const) {
+      const { document, diagnostics } = parseSiren(`sequenceDiagram\n${body}`);
+
+      expect([body, document]).toEqual([body, null]);
+      expect([body, diagnostics]).toEqual([body, [{ severity: "error", message: NOT_A_COMMENT, line, column }]]);
+    }
+  });
+
+  it("refuses a `%%` after a `rect`'s color, at its `%%` — Mermaid fills the block with it as written", () => {
+    // Measured: `rect rgb(0,0,0) %% zz` records the color "rgb(0,0,0) %% zz"
+    // and draws `<rect fill="rgb(0,0,0) %% zz">` — not a color, so the block
+    // is not filled as written: a wrong picture with no diagnostic, which
+    // Siren refuses (ADR-0001).
+    const { document, diagnostics } = parseSiren("sequenceDiagram\n  rect rgb(0,0,0) %% zz\n    A->>B: m\n  end");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: NOT_A_COMMENT, line: 2, column: 19 }]);
+  });
+
+  it("reads a `%%` after `end`, `autonumber` or `autonumber off` as a comment, as the sequence lexer does after a keyword", () => {
+    // Measured: `end %% zz`, `end%%zz`, `autonumber %% zz` and
+    // `autonumber off %% zz` are accepted, and nothing stores "zz".
+    for (const [commented, plain] of [
+      ["  loop L\n    A->>B: m\n  end %% the loop", "  loop L\n    A->>B: m\n  end"],
+      ["  loop L\n    A->>B: m\n  end%%the loop", "  loop L\n    A->>B: m\n  end"],
+      ["  autonumber %% from here\n  A->>B: m", "  autonumber\n  A->>B: m"],
+      ["  autonumber\n  A->>B: m\n  autonumber off %% no more\n  B->>A: n", "  autonumber\n  A->>B: m\n  autonumber off\n  B->>A: n"],
+    ]) {
+      const read = parseSiren(`sequenceDiagram\n${commented}`);
+
+      expect([commented, read.diagnostics]).toEqual([commented, []]);
+      expect([commented, read]).toEqual([commented, parseSiren(`sequenceDiagram\n${plain}`)]);
+    }
+  });
+
+  it("reads a `%%` after a `;` as a comment, as the sequence lexer does once a `;` ends the text", () => {
+    // Measured: `A->>B: hi; %% zz` and `note over A: n; %% zz` are accepted
+    // and nothing stores "zz" — the text rule stops at `;`. What Siren makes
+    // of the `;` itself is unchanged here.
+    for (const [commented, plain] of [
+      ["  A->>B: hi; %% zz", "  A->>B: hi;"],
+      ["  A->>B: hi;%% zz", "  A->>B: hi;"],
+      ["  A->>B: m\n  note over A: n; %% zz", "  A->>B: m\n  note over A: n;"],
+    ]) {
+      const read = parseSiren(`sequenceDiagram\n${commented}`);
+
+      expect([commented, read.diagnostics]).toEqual([commented, []]);
+      expect([commented, read]).toEqual([commented, parseSiren(`sequenceDiagram\n${plain}`)]);
+    }
+  });
+
+  it("keeps a `%%` after a `link`'s url as part of the url, as Mermaid records it", () => {
+    // Measured: `link A: D @ https://x.org %% zz` records the link
+    // {"D": "https://x.org %% zz"}.
+    const document = sequenceOk("  participant A\n  link A: D @ https://x.org %% zz");
+
+    expect(document.interactions.map((link) => [link.targetId, link.tooltip, link.action])).toEqual([
+      ["A", "D", "https://x.org %% zz"],
+    ]);
+  });
+
+  it("reads a `%%` after a `links` object as part of its JSON, so the statement adds no link, as in Mermaid", () => {
+    // Measured: `links A: {"D": "https://x.org"} %% zz` records no link —
+    // the text after the colon, `%%` and all, is not JSON.
+    const { document, diagnostics } = parseSiren(
+      'sequenceDiagram\n  participant A\n  links A: {"D": "https://x.org"} %% zz',
+    );
+
+    expect((document as SequenceDocument).interactions).toEqual([]);
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: "links A: the text after the colon is not JSON; no link is added",
+        line: 3,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("still cuts a `%%` in a timeline block to the line's end — that block is Siren's syntax, not Mermaid's", () => {
+    // ADR-0017: the document without its timeline blocks is the Mermaid one,
+    // so a sequence diagram's reading of `%%` stops at its first timeline header.
+    const commented = parseSiren("sequenceDiagram\n  A->>B: m\ntimeline: %% the reveal\n  enter B fade %% last\n");
+    const plain = parseSiren("sequenceDiagram\n  A->>B: m\ntimeline:\n  enter B fade\n");
+
+    expect(commented.diagnostics).toEqual([]);
+    expect(commented).toEqual(plain);
+  });
+
+  it("refuses a `%%` written right after a one-character name where the lexer reads a name, at its `%%`", () => {
+    // The sequence lexer's `[^\}]%%[^\n]*` rule fires where a name starts:
+    // a name of one character followed at once by `%%` is a comment from that
+    // character on. Measured: `A->>B%% zz: m`, `A->>B%%zz: m`, `A->>+B%%x: m`,
+    // `note over A%%x: n`, `note over A,B%%x: n` are parse errors and
+    // `destroy B%%x` is refused ("The destroyed participant undefined …");
+    // `A%%x->>B: m` is accepted and draws nothing for the line — a wrong
+    // picture with no diagnostic, which Siren refuses (ADR-0001).
+    for (const [body, line, column] of [
+      ["  A->>B%% zz: m", 2, 8],
+      ["  A->>B%%zz: m", 2, 8],
+      ["  A->>+B%%x: m", 2, 9],
+      ["  A%%x->>B: m", 2, 4],
+      ["  A->>B: m\n  note over A%%x: n", 3, 14],
+      ["  A->>B: m\n  note over A,B%%x: n", 3, 16],
+      ["  A->>B: m\n  destroy B%%x\n  A->>B: n", 3, 12],
+    ] as const) {
+      const { document, diagnostics } = parseSiren(`sequenceDiagram\n${body}`);
+
+      expect([body, document]).toEqual([body, null]);
+      expect([body, diagnostics]).toEqual([body, [{ severity: "error", message: NOT_A_COMMENT, line, column }]]);
+    }
+  });
+
+  it("reads a `%%` written right after a longer name, or after a space, as part of the name", () => {
+    // Measured: `A->>BC%% zz: m` sends to "BC%% zz", `AB%%x->>B: m` sends
+    // from "AB%%x", `note over AB%%x: n` stands over "AB%%x", and
+    // `destroy BC%%x` then `A->>BC%%x: n` destroys "BC%%x".
+    const named = (body: string) =>
+      sequenceOk(body).statements.map((s) =>
+        s.kind === "message" || s.kind === "note" ? [s.from, s.to] : s.kind === "destroy" ? [s.id] : [],
+      );
+
+    expect(named("  A->>BC%% zz: m")).toEqual([["A", "BC%% zz"]]);
+    expect(named("  AB%%x->>B: m")).toEqual([["AB%%x", "B"]]);
+    expect(named("  note over AB%%x: n")).toEqual([["AB%%x", "AB%%x"]]);
+    expect(named("  A->>B: m\n  destroy BC%%x\n  A->>BC%%x: n")).toEqual([["A", "B"], ["BC%%x"], ["A", "BC%%x"]]);
+  });
+});
+
+describe("a `%%` in the middle of a class or state line", () => {
+  it("still cuts a `%%` in a timeline block to the line's end — that block is Siren's syntax, not Mermaid's", () => {
+    // ADR-0017: the document without its timeline blocks is the Mermaid one,
+    // so a class or state diagram's reading of `%%` stops at its first
+    // timeline header, as a sequence diagram's does.
+    for (const [header, body, id] of [
+      ["classDiagram", "  Animal <|-- Duck", "Duck"],
+      ["stateDiagram-v2", "  Idle --> Busy", "Busy"],
+    ] as const) {
+      const commented = parseSiren(`${header}\n${body}\ntimeline: %% the reveal\n  enter ${id} fade %% last\n`);
+      const plain = parseSiren(`${header}\n${body}\ntimeline:\n  enter ${id} fade\n`);
+
+      expect([header, commented.diagnostics]).toEqual([header, []]);
+      expect([header, commented]).toEqual([header, plain]);
+    }
+  });
+});
+
+/**
+ * The dispatcher hands an ER diagram its lines as Mermaid's grammar is
+ * handed them — only whole-line comments removed — so the ER parser decides
+ * what a mid-line `%%` means (see parseErDiagram.test.ts, "a `%%` in the
+ * middle of a line"). Measured on Mermaid 12.2.0: the ER lexer has no `%`
+ * rule, so a `%%` is text only inside a relationship's quoted label, an
+ * attribute's quoted comment, a backticked name, a generic type, the
+ * accessibility lines, and a line `direction` swallows whole.
+ */
+describe("a `%%` in the middle of an ER line", () => {
+  const erOk = (body: string) => {
+    const { document, diagnostics } = parseSiren(`erDiagram\n${body}`);
+    expect(diagnostics).toEqual([]);
+    return erDocument(document);
+  };
+
+  it("keeps a `%%` in every piece of text an ER statement holds, as Mermaid records it", () => {
+    expect(erOk('  A ||--o{ B : "r %% zz"\n  C').relationships.map((r) => r.label.text)).toEqual(["r %% zz"]);
+    const attributes = erOk('  A {\n    int x "c %% zz"\n    string `a %% b`\n    list~a %% b~ y\n  }').entities[0]!
+      .attributes;
+    expect(attributes.map((a) => [a.type, a.name, a.comment.text])).toEqual([
+      ["int", "x", "c %% zz"],
+      ["string", "a %% b", ""],
+      ["list~a %% b~", "y", ""],
+    ]);
+    const described = erOk("  accTitle: t %% zz\n  accDescr: d %% zz\n  A");
+    expect([described.accTitle, described.accDescr]).toEqual(["t %% zz", "d %% zz"]);
+    expect(erOk("  accDescr {\n    d %% zz\n  }\n  A").accDescr).toBe("d %% zz");
+  });
+
+  it("reads a line `direction` swallows whole as that direction, `%%` and all, as Mermaid's lexer does", () => {
+    // Measured: the direction rules are `.*direction\s+LR[^\n]*`, so
+    // `direction LR %% zz` and `A %% direction LR` each set `LR` and
+    // declare nothing.
+    for (const body of ["  direction LR %% zz\n  A", "  A %% direction LR\n  A"]) {
+      const document = erOk(body);
+      expect([body, document.direction, document.entities.map((e) => e.name)]).toEqual([body, "LR", ["A"]]);
+    }
+  });
+
+  it("refuses a `%%` after a complete statement, at its `%%`", () => {
+    const midLine =
+      'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+      "If it is a comment, move it to a line of its own.";
+    const { document, diagnostics } = parseSiren("erDiagram\n  A ||--o{ B : r %% zz\n  C");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: midLine, line: 2, column: 18 }]);
+  });
+
+  it("still cuts a `%%` in a timeline block to the line's end — that block is Siren's syntax, not Mermaid's", () => {
+    const commented = parseSiren("erDiagram\n  A ||--o{ B : r\ntimeline: %% the reveal\n  enter B fade %% last\n");
+    const plain = parseSiren("erDiagram\n  A ||--o{ B : r\ntimeline:\n  enter B fade\n");
+
+    expect(commented.diagnostics).toEqual([]);
+    expect(commented).toEqual(plain);
   });
 });

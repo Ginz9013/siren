@@ -2643,3 +2643,99 @@ describe("parseErDiagram — a cluster name also declared as an entity with attr
     expect(refusalsFor(`erDiagram\n${relationship}${cluster}${entity}`)).toEqual([refusal]);
   });
 });
+
+/**
+ * CONTEXT.md's **Comment**: only a whole line is a comment, and Mermaid
+ * 12.2.0's `cleanupComments` removes nothing mid-line. The ER lexer has no
+ * `%` rule at all — outside a quoted string or a backticked name a `%`
+ * falls to its catch-all `.` rule and the grammar refuses it — so a mid-line
+ * `%%` is refused here at its `%%`, everywhere but the few places measured
+ * to hold it as text.
+ */
+describe("parseErDiagram — a `%%` in the middle of a line", () => {
+  const NOT_A_COMMENT =
+    'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+    "If it is a comment, move it to a line of its own.";
+  const refusedAt = (body: string) =>
+    parseErDiagram(`erDiagram\n${body}`).diagnostics.map(({ message, line, column }) => ({ message, line, column }));
+
+  it("refuses a `%%` after a complete statement, at its `%%`", () => {
+    // Measured on Mermaid 12.2.0, each a parse error at the `%%` ("got
+    // '%'", or "Expecting 'EOF', 'NEWLINE' …"); each renders without it.
+    for (const [body, line, column] of [
+      ["A %% zz", 2, 3],
+      ["A%%zz", 2, 2],
+      ['A["al"] %% zz', 2, 9],
+      ["  A ||--o{ B : r %% zz", 2, 18],
+      ["A ||--o{ B : r %% zz\nC", 2, 16],
+      ['A ||--o{ B : "r" %% zz', 2, 18],
+      ["A:::c %% zz", 2, 7],
+      ["A\nclassDef c fill:#f00\nclass A c %% zz", 4, 11],
+      ["A {\n  int x\n} %% zz", 4, 3],
+      ["A { int x } %% zz", 2, 13],
+      ["title t %% zz\nA", 2, 9],
+    ] as const) {
+      expect(refusedAt(body), body).toEqual([{ message: NOT_A_COMMENT, line, column }]);
+    }
+  });
+
+  it("refuses a `%%` inside an attribute block, at its `%%`, outside a comment's quotes or a backticked name", () => {
+    // Measured: the block condition's catch-all `.` takes the `%` ("got
+    // '%'") after the block's `{`, after an attribute and after its keys.
+    for (const [body, line, column] of [
+      ["A { %% zz\n  int x\n}", 2, 5],
+      ["A {\n  int x %% zz\n}", 3, 9],
+      ["A {\n  int x PK %% zz\n}", 3, 12],
+      ['A {\n  int x "c" %% zz\n}', 3, 13],
+      ["A {\n  int x%%zz\n}", 3, 8],
+    ] as const) {
+      expect(refusedAt(body), body).toEqual([{ message: NOT_A_COMMENT, line, column }]);
+    }
+  });
+
+  it("refuses a `%%` in a quoted name, an alias or a subgraph's header, at its `%%`", () => {
+    // Measured: a quoted string holding a `%` is the lexer's `WORD`, not an
+    // `ENTITY_NAME`, and only a relationship's label takes a `WORD` ("got
+    // 'WORD'"); a subgraph header's bare title reaches the `.` rule.
+    for (const [body, line, column] of [
+      ['"A %% b"', 2, 4],
+      ['"A %% b" ||--o{ B : r', 2, 4],
+      ['A ||--o{ "B %% c" : r', 2, 13],
+      ['A["al %% zz"]', 2, 7],
+      ['subgraph "s %% t"\n  A\nend', 2, 13],
+      ['subgraph s1["t %% u"]\n  A\nend', 2, 16],
+      ["subgraph s1[t %% u]\n  A\nend", 2, 15],
+      ["subgraph s1 %% zz\n  A\nend", 2, 13],
+    ] as const) {
+      expect(refusedAt(body), body).toEqual([{ message: NOT_A_COMMENT, line, column }]);
+    }
+  });
+
+  it("refuses a `%%` in a `style` or `classDef` declaration list, at its `%%`, quoted or not", () => {
+    // Measured: the `style` condition has no quote rule, and Mermaid
+    // refuses each ("Lexical error … Unrecognized text").
+    for (const [body, line, column] of [
+      ["A\nstyle A fill:#f00 %% zz", 3, 19],
+      ["A\nclassDef c fill:#f00 %% zz", 3, 22],
+      ['A\nstyle A font-family:"a %% b"', 3, 24],
+      ["A style A fill:#f00 %% zz", 2, 21],
+    ] as const) {
+      expect(refusedAt(body), body).toEqual([{ message: NOT_A_COMMENT, line, column }]);
+    }
+  });
+
+  it("refuses a `%%` on the header line, at its `%%`, spaced or run into it", () => {
+    // Measured: `erDiagram %% zz` is "Parse error on line 1: Expecting
+    // 'EOF', 'NEWLINE' …"; the header has no comment rule after it.
+    for (const [header, column] of [
+      ["erDiagram %% zz", 11],
+      ["erDiagram%%zz", 10],
+      ["  erDiagram %% zz", 13],
+    ] as const) {
+      expect(
+        parseErDiagram(`${header}\nA ||--o{ B : r`).diagnostics.map(({ message, line, column }) => ({ message, line, column })),
+        header,
+      ).toEqual([{ message: NOT_A_COMMENT, line: 1, column }]);
+    }
+  });
+});

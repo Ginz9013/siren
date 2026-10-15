@@ -294,7 +294,7 @@ function layoutNote(
  * Computes participant lane x-positions (`model.participants` order — first
  * mention, ADR-0013 — sized
  * from measured label width) and their box `width`/`height`. `top`/`bottom`
- * are filled in afterward, once the statement walk has found the diagram's
+ * and `drawnInBottomRow` are filled in afterward, once the statement walk has found the diagram's
  * full vertical extent and any `create`/`destroy` row that truncates this
  * particular lifeline.
  */
@@ -314,6 +314,8 @@ function layoutParticipants(
       decl.participantKind === "actor"
         ? ACTOR_FIGURE_HEIGHT + labelBox.height
         : labelBox.height + PARTICIPANT_PADDING_Y * 2;
+    // A lane created after something drawn moves right (`createdAfterDrawing`).
+    if (decl.createdAfterDrawing === true) nextLeft += width / 2;
     const x = nextLeft + width / 2;
 
     participants.push({
@@ -325,6 +327,7 @@ function layoutParticipants(
       x,
       top: 0,
       bottom: 0,
+      drawnInBottomRow: true,
       width,
       height,
       ...linksOf(linksByParticipantId.get(decl.id) ?? [], width, options),
@@ -778,7 +781,7 @@ function layoutMessage(
 
 /**
  * Computes participant lane x-positions, each lifeline's y-extent —
- * full-height (ending at the reserved bottom row where a declared,
+ * full-height (ending at the reserved bottom row where a
  * never-destroyed participant's box is drawn again), or truncated to its
  * creating message's row and its destroying message's row (a refused
  * `create` or `destroy`, with no such message, to its own row) — each
@@ -824,15 +827,17 @@ export function layoutSequence(
     titleHeight + boxLabelBoxes.reduce((max, box) => Math.max(max, box?.height ?? 0), 0);
 
   const { elements, endY } = layoutStatements(model.statements, ctx, topRowTop + topRowHeight);
-  // The bottom row exists only for participants drawn there — declared and
-  // never destroyed (see spec.md's "SVG conventions"). A diagram whose lanes
-  // are all `create`d or destroyed reserves nothing, rather than trailing an
-  // empty band the renderer never fills.
+  // Every participant never destroyed, declared or `create`d, is drawn in
+  // the bottom row (measured on Mermaid 12.2.0: a created participant's
+  // bottom box is level with a declared one's); a destroyed one is not.
+  for (const participant of participants) {
+    participant.drawnInBottomRow = !ctx.destroyedBottomById.has(participant.id);
+  }
+  // The bottom row exists only for participants drawn there. A diagram whose
+  // lanes are all destroyed reserves nothing, rather than trailing an empty
+  // band the renderer never fills.
   const bottomRowHeight = participants.reduce(
-    (max, p) =>
-      p.origin === "declared" && !ctx.destroyedBottomById.has(p.id)
-        ? Math.max(max, p.height)
-        : max,
+    (max, p) => (p.drawnInBottomRow ? Math.max(max, p.height) : max),
     0,
   );
   // A bottom-row box's link menu opens upward, ending at that box's top edge
@@ -841,7 +846,7 @@ export function layoutSequence(
   // between the top box and the bottom one.
   const lifelineBottom = participants.reduce(
     (bottom, p) =>
-      p.linkMenu && p.origin === "declared" && !ctx.destroyedBottomById.has(p.id)
+      p.linkMenu && p.drawnInBottomRow
         ? Math.max(bottom, topRowTop + p.height + p.linkMenu.rowHeight * p.linkMenu.links.length + p.height)
         : bottom,
     endY + BOTTOM_MARGIN + bottomRowHeight,

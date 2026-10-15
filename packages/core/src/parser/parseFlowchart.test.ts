@@ -872,3 +872,84 @@ describe("a flowchart's `linkStyle … interpolate` statement", () => {
     ]);
   });
 });
+
+/**
+ * A `%%` in the middle of a flowchart line (CONTEXT.md **Comment**): text
+ * inside text, a refusal after a complete statement — measured on Mermaid
+ * 12.2.0, whose flowchart lexer has no `%%` rule of its own.
+ */
+describe("a `%%` in the middle of a flowchart line", () => {
+  it("keeps a `%%` on every row of a Markdown string label that spans lines", () => {
+    // Measured: "A[\"`a %% b\nc %% d`\"]" records the text "a %% b\nc %% d".
+    const { document, diagnostics } = parseOk('flowchart TB\n  A["`a %% b\nc %% d`"] --> B', parseSiren);
+
+    expect(diagnostics).toEqual([]);
+    expect(markdownRows(document.nodes[0])).toEqual([
+      [{ text: "a %% b", bold: false, italic: false }],
+      [{ text: "c %% d", bold: false, italic: false }],
+    ]);
+  });
+
+  it("keeps a `%%` in an asymmetric node's label, which opens with `>`", () => {
+    // Measured: `A>a %% zz]` records the text "a %% zz".
+    const { document, diagnostics } = parseOk("flowchart TB\n  A>a %% zz] --> B>b %% c]", parseSiren);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.label.text)).toEqual(["a %% zz", "b %% c"]);
+  });
+
+  it("refuses a `%%` after an edge at the `%%`, read by the flowchart parser itself", () => {
+    // `parseFlowchart` is handed the line as Mermaid's grammar is: it is the
+    // flowchart's own reading that refuses the `%%`, not the dispatcher's.
+    expect(positions("flowchart TB\n  A -->|a %% b| B[c %% d] %% e")).toEqual(["error 2:27"]);
+  });
+});
+
+/**
+ * Where a flowchart statement's text runs, for every reader that cuts a
+ * line — at `;`, at `&`, at an arrow, at a `%%` — measured on Mermaid
+ * 12.2.0 with `pnpm --filter siren-core probe`.
+ */
+describe("the text a flowchart line holds, which no separator cuts", () => {
+  it("reads an asymmetric node's label, opened by the `>` right after its id, as one label whatever separator it holds", () => {
+    // Measured: `A>a;b] --> B`, `A>a-->b] --> B` and `A>a&b] --> B` record
+    // the texts "a;b", "a-->b" and "a&b", each with one edge to B.
+    for (const [source, text] of [
+      ["A>a;b] --> B", "a;b"],
+      ["A>a-->b] --> B", "a-->b"],
+      ["A>a&b] --> B", "a&b"],
+    ] as const) {
+      const { document, diagnostics } = parseOk(`flowchart TB\n  ${source}`);
+
+      expect([source, diagnostics]).toEqual([source, []]);
+      expect([source, document.nodes.map((node) => [node.id, node.label.text, node.shape])]).toEqual([
+        source,
+        [
+          ["A", text, "asymmetric"],
+          ["B", "B", "rect"],
+        ],
+      ]);
+      expect([source, document.edges.map((edge) => [edge.from, edge.to])]).toEqual([source, [["A", "B"]]]);
+    }
+  });
+
+  it("lets any closer close a label, so a label holding another bracket's closer is not read whole", () => {
+    // Measured: Mermaid refuses `A[a)-->b] --> B` ("got 'PE'") and
+    // `A>a)-->b] --> B` alike — a closer that is not the label's own is
+    // never a character of it — so neither is read here as one node.
+    for (const source of ["A[a)-->b] --> B", "A>a)-->b] --> B", "A[a}-->b] --> B"]) {
+      expect([source, parseFlowchart(`flowchart TB\n  ${source}`).document]).toEqual([source, null]);
+    }
+  });
+
+  it("reads a quoted string outside any bracket as one piece of text, as a `click`'s link and tooltip are", () => {
+    // Measured: `click A "https://x.org/a;b" "t;u"` is accepted — the `;`
+    // inside each string is a character, not the end of the statement.
+    const { document, diagnostics } = parseOk('flowchart TB\n  A\n  click A "https://x.org/a;b" "t;u"');
+
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions.map(({ action, tooltip }) => [action, tooltip])).toEqual([
+      ["https://x.org/a;b", "t;u"],
+    ]);
+  });
+});
