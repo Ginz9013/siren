@@ -1058,8 +1058,8 @@ function lifelineEnd(result: SirenRenderResult, participantId: string): string {
  * participant — rather than coordinates no assert could hold still.
  */
 function createdBox(result: SirenRenderResult, participantId: string): string {
-  const rect = svgOf(result).querySelector(`g.siren-participant[data-siren-id="${participantId}"] rect`);
-  if (rect === null) return "no box";
+  const rect = participantRects(result, participantId)[0];
+  if (rect === undefined) return "no box";
   const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(rect.getAttribute(name)));
   const centre = { x: x! + width! / 2, y: y! + height! / 2 };
 
@@ -1086,9 +1086,7 @@ function createdBox(result: SirenRenderResult, participantId: string): string {
  */
 function participantRows(result: SirenRenderResult, participantId: string): string {
   const svg = svgOf(result);
-  const boxes = Array.from(svg.querySelectorAll(`g.siren-participant[data-siren-id="${participantId}"] rect`)).map(
-    (rect) => rect.getAttribute("y"),
-  );
+  const boxes = participantRects(result, participantId).map((rect) => rect.getAttribute("y"));
   const lifeline = svg.querySelector(`line.siren-lifeline[data-siren-id="${participantId}"]`);
   return `boxes at y ${boxes.join(", ")}; lifeline ${lifeline?.getAttribute("y1")}..${lifeline?.getAttribute("y2")}`;
 }
@@ -1099,14 +1097,22 @@ function participantRows(result: SirenRenderResult, participantId: string): stri
  * once. Read off `rect`s, so for a `participant` and not an `actor`.
  */
 function bottomRowEdge(result: SirenRenderResult, participantId: string): number | null {
-  const rect = svgOf(result).querySelectorAll(`g.siren-participant[data-siren-id="${participantId}"] rect`)[1];
+  const rect = participantRects(result, participantId)[1];
   return rect === undefined ? null : Number(rect.getAttribute("y")) + Number(rect.getAttribute("height"));
 }
 
 /** A sequence participant's top box, as its left edge and width. */
 function topBox(result: SirenRenderResult, participantId: string): { left: number; width: number } {
-  const rect = svgOf(result).querySelector(`g.siren-participant[data-siren-id="${participantId}"] rect`);
+  const rect = participantRects(result, participantId)[0];
   return { left: Number(rect?.getAttribute("x")), width: Number(rect?.getAttribute("width")) };
+}
+
+/**
+ * The `rect`s drawn for a sequence participant, in document order: its top
+ * box first, then its bottom-row box when it has one. None for an `actor`.
+ */
+function participantRects(result: SirenRenderResult, participantId: string): Element[] {
+  return Array.from(svgOf(result).querySelectorAll(`g.siren-participant[data-siren-id="${participantId}"] rect`));
 }
 
 /** The horizontal gap between two neighbouring participants' top boxes, `leftId`'s right edge to `rightId`'s left. */

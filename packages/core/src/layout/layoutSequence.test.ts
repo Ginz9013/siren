@@ -1029,6 +1029,29 @@ describe("layoutSequence", () => {
       expect(byId.B!.bottom).toBe(bye!.y);
     });
 
+    it("leaves X out of the bottom row, at top level or inside a block, and keeps every participant nothing destroys in it", () => {
+      const inRow = (model: SequenceModel) =>
+        Object.fromEntries(
+          layoutSequence(model, { measureText: fakeMeasurer }).participants.map((p) => [p.id, p.drawnInBottomRow]),
+        );
+      expect(inRow(destroyedBy("A", "B"))).toEqual({ A: true, B: false });
+
+      const inLoop = destroyedBy("A", "B");
+      inLoop.statements = [
+        {
+          kind: "block",
+          block: {
+            id: "loop:1",
+            kind: "loop",
+            touchedParticipantIds: ["A", "B"],
+            color: null,
+            branches: [{ label: plainLabel("each"), statements: inLoop.statements }],
+          },
+        },
+      ];
+      expect(inRow(inLoop)).toEqual({ A: true, B: false });
+    });
+
     it("pairs a `destroy` inside an `alt` branch with the destroying message right after it in that branch", () => {
       // A block boundary between the two is refused by `buildSequenceModel`
       // (nook 01M4YS7DV8), so a pair inside a block sits in one branch.
@@ -1127,6 +1150,17 @@ describe("layoutSequence", () => {
         timeline: { totalSteps: 0, entries: [] },
       };
     }
+
+    it("puts X in the bottom row, as a declared participant is, when nothing destroys it", () => {
+      const positioned = layoutSequence(createdBy([declaredParticipant("A", "Alice"), carol]), {
+        measureText: fakeMeasurer,
+      });
+
+      expect(positioned.participants.map((p) => [p.id, p.drawnInBottomRow])).toEqual([
+        ["A", true],
+        ["C", true],
+      ]);
+    });
 
     it("centres X's box on the creating message's arrow, takes no row for `create`, and starts the next row below the box", () => {
       const positioned = layoutSequence(createdBy([declaredParticipant("A", "Alice"), carol]), {

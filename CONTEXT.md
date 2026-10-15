@@ -719,9 +719,11 @@ The message right after a `create participant X` statement; it must be sent *to*
 drawn where that message's arrow arrives, which is where X comes into existence. A `create` whose
 next message is not sent to X is refused, as Mermaid refuses it. Nothing may stand between the
 two: a note, an activation, an `autonumber`, a block boundary, or another `create` or `destroy` in
-between is refused too, because Mermaid then draws X as if it were never created. With no message
-after the `create` at all, X is drawn as any declared participant is — box in the top row and the
-bottom row — and the `create` is warned about.
+between is refused too, because Mermaid then draws X as if it were never created. If nothing
+destroys X, X also gets a box in the bottom row, as a declared participant does; and when anything
+is drawn before its `create`, X's lane sits half its width further right than a declared one's.
+With no message after the `create` at all, X is drawn as any declared participant is — box in the
+top row and the bottom row — and the `create` is warned about.
 _Avoid_: create message, first message (any participant has one), constructor
 
 **Destroying message**:

@@ -251,8 +251,9 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
   own; X now runs to the bottom row with its box there and no X (`destroyedAt: null`). A `create
   participant X` (or `create actor X`) there used to put X's box on a row of its own; X now has
   boxes in the top and bottom rows and a full-height lifeline (`origin: "declared"`,
-  `createdAt: 0`). Mermaid also shifts such a lane right by half its width, which Siren does not
-  model yet (a separate nook issue, `01M4Z6KQ91`). Neither declaration takes a row any more, also
+  `createdAt: 0`). Mermaid also shifts such a lane right by half its width; Siren now draws that
+  shift for a created participant (see below), but not yet for a `create` with no creating
+  message, which it reads as a declaration. Neither declaration takes a row any more, also
   when only a note, an activation, an `autonumber`, a block boundary or another declaration
   follows it. A repeated `destroy X` while X's is still waiting is the same declaration, so
   `destroy B`, `destroy B`, `A-xB` ends B on `A-xB`, as in Mermaid. Each unpaired declaration gets a

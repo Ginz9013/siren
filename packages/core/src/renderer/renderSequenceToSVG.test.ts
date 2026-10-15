@@ -65,6 +65,7 @@ function buildParticipantsFixture(): PositionedSequenceDiagram {
     x: 60,
     top: 0,
     bottom: 300,
+    drawnInBottomRow: true,
     width: 100,
     height: 40,
     interaction: null,
@@ -78,6 +79,7 @@ function buildParticipantsFixture(): PositionedSequenceDiagram {
     x: 220,
     top: 0,
     bottom: 300,
+    drawnInBottomRow: true,
     width: 60,
     height: 50,
     interaction: null,
@@ -1038,8 +1040,9 @@ describe("renderSequenceToSVG", () => {
   it("renders a destroyed participant with a truncated lifeline, an X at the truncation point, and no second participant group at the bottom", () => {
     const diagram = buildParticipantsFixture();
     // Alice is destroyed at y=180: her lifeline stops there and the mark sits
-    // at the truncation point.
+    // at the truncation point, and layout leaves her out of the bottom row.
     diagram.participants[0]!.bottom = 180;
+    diagram.participants[0]!.drawnInBottomRow = false;
     diagram.elements = [{ kind: "destroyMark", mark: { participantId: "Alice", x: 60, y: 180 } }];
 
     const svg = renderSequenceToSVG(diagram);
@@ -1064,8 +1067,10 @@ describe("renderSequenceToSVG", () => {
   it("gives no bottom box to a participant destroyed inside a block, whose destroy mark is nested rather than top-level", () => {
     const diagram = buildParticipantsFixture();
     // Alice is destroyed inside a loop, so her mark is a child of the block
-    // element rather than a top-level one.
+    // element rather than a top-level one; layout leaves her out of the
+    // bottom row all the same.
     diagram.participants[0]!.bottom = 180;
+    diagram.participants[0]!.drawnInBottomRow = false;
     const block: PositionedBlock = {
       id: "loop:1",
       kind: "loop",

@@ -93,11 +93,10 @@ const HEAD_MARKER_NAME: Record<SequenceArrowHead, string | null> = {
 };
 
 /**
- * Builds a real `SVGSVGElement` from a `PositionedSequenceDiagram`, per the
- * frozen SVG conventions in spec.md ("SVG conventions" bullet list): a
+ * Builds a real `SVGSVGElement` from a `PositionedSequenceDiagram`: a
  * `<g class="siren-participant">` per participant at the top of its lifeline
  * (box for `participant`, stick figure for `actor`) plus a second one at the
- * diagram's bottom row for each never-destroyed participant, one
+ * diagram's bottom row for each participant `drawnInBottomRow`, one
  * `<line class="siren-lifeline">` per participant, one
  * `<g class="siren-message">` per message (all ten
  * arrow-marker/dash combinations), a `<g class="siren-block">` per
@@ -175,13 +174,10 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
     );
   }
 
-  // A participant that survives to the end of the diagram, declared or
-  // `create`d, is drawn a second time at the far end of its lifeline
-  // (Mermaid's own bottom row); a destroyed one is drawn only once. See
-  // spec.md's "SVG conventions".
-  const destroyedIds = collectDestroyedParticipantIds(diagram.elements);
+  // A participant layout put in the bottom row (Mermaid's own) is drawn a
+  // second time, at the far end of its lifeline; any other only once.
   for (const participant of diagram.participants) {
-    if (destroyedIds.has(participant.id)) {
+    if (!participant.drawnInBottomRow) {
       continue;
     }
     svg.appendChild(
@@ -205,7 +201,7 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
   for (const participant of diagram.participants) {
     if (!participant.linkMenu) continue;
     svg.appendChild(buildSequenceLinkMenu(participant, participant.linkMenu, participant.top, false));
-    if (!destroyedIds.has(participant.id)) {
+    if (participant.drawnInBottomRow) {
       svg.appendChild(
         buildSequenceLinkMenu(
           participant,
@@ -612,27 +608,6 @@ function buildActivationBar(activation: PositionedActivation): SVGRectElement {
   rect.setAttribute("width", String(activation.width));
   rect.setAttribute("height", String(activation.height));
   return rect;
-}
-
-/**
- * Every participant id carrying a destroy mark anywhere in the diagram — the
- * renderer's way of telling a destroyed lifeline from a surviving one, since
- * the frozen `PositionedParticipant` shape carries `origin` but no destroyed
- * flag. Recurses into block children, because a `destroy` written inside a
- * `loop`/`alt`/... body puts its mark there rather than at the top level.
- */
-function collectDestroyedParticipantIds(
-  elements: PositionedSequenceElement[],
-  ids: Set<string> = new Set<string>(),
-): Set<string> {
-  for (const element of elements) {
-    if (element.kind === "destroyMark") {
-      ids.add(element.mark.participantId);
-    } else if (element.kind === "block") {
-      collectDestroyedParticipantIds(element.block.children, ids);
-    }
-  }
-  return ids;
 }
 
 /**

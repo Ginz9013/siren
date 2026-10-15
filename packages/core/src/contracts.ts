@@ -1046,6 +1046,13 @@ export interface PositionedParticipant {
   top: number;
   /** Lifeline's bottom y-coordinate (diagram bottom, or the destroy mark's y if destroyed). */
   bottom: number;
+  /**
+   * Whether the participant's box is drawn a second time, in the diagram's
+   * bottom row, ending at `bottom`: true for every participant nothing
+   * destroys, declared or `create`d (as Mermaid 12.2.0 draws it), false for
+   * one a destroying message ends, which is drawn only once.
+   */
+  drawnInBottomRow: boolean;
   width: number;
   height: number;
   /**

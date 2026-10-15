@@ -294,7 +294,7 @@ function layoutNote(
  * Computes participant lane x-positions (`model.participants` order — first
  * mention, ADR-0013 — sized
  * from measured label width) and their box `width`/`height`. `top`/`bottom`
- * are filled in afterward, once the statement walk has found the diagram's
+ * and `drawnInBottomRow` are filled in afterward, once the statement walk has found the diagram's
  * full vertical extent and any `create`/`destroy` row that truncates this
  * particular lifeline.
  */
@@ -306,7 +306,7 @@ function layoutParticipants(
   let nextLeft = LEFT_MARGIN;
 
   const linksByParticipantId = mergeLinks(model.interactions);
-  const shifted = createdAfterRecord(model.statements);
+  const createdAfterDrawing = createdAfterDrawingIds(model.statements);
 
   for (const decl of model.participants) {
     const labelBox = layoutLabel(decl.label, options.measureText, SEQUENCE_PARTICIPANT_LINE);
@@ -319,8 +319,8 @@ function layoutParticipants(
     // half its own width further right than a declared one's would, and
     // every lane after it follows (`addActorRenderingData`'s `prevMargin +=
     // actor.width / 2`) — but only when anything was drawn before its
-    // `create`; see `createdAfterRecord`.
-    if (shifted.has(decl.id)) nextLeft += width / 2;
+    // `create`; see `createdAfterDrawingIds`.
+    if (createdAfterDrawing.has(decl.id)) nextLeft += width / 2;
     const x = nextLeft + width / 2;
 
     participants.push({
@@ -332,6 +332,7 @@ function layoutParticipants(
       x,
       top: 0,
       bottom: 0,
+      drawnInBottomRow: true,
       width,
       height,
       ...linksOf(linksByParticipantId.get(decl.id) ?? [], width, options),
@@ -831,13 +832,17 @@ export function layoutSequence(
     titleHeight + boxLabelBoxes.reduce((max, box) => Math.max(max, box?.height ?? 0), 0);
 
   const { elements, endY } = layoutStatements(model.statements, ctx, topRowTop + topRowHeight);
-  // The bottom row exists only for participants drawn there — every one
-  // never destroyed, declared or `create`d (measured on Mermaid 12.2.0: a
-  // created participant's bottom box is level with a declared one's). A
-  // diagram whose lanes are all destroyed reserves nothing, rather than
-  // trailing an empty band the renderer never fills.
+  // Every participant never destroyed, declared or `create`d, is drawn in
+  // the bottom row (measured on Mermaid 12.2.0: a created participant's
+  // bottom box is level with a declared one's); a destroyed one is not.
+  for (const participant of participants) {
+    participant.drawnInBottomRow = !ctx.destroyedBottomById.has(participant.id);
+  }
+  // The bottom row exists only for participants drawn there. A diagram whose
+  // lanes are all destroyed reserves nothing, rather than trailing an empty
+  // band the renderer never fills.
   const bottomRowHeight = participants.reduce(
-    (max, p) => (ctx.destroyedBottomById.has(p.id) ? max : Math.max(max, p.height)),
+    (max, p) => (p.drawnInBottomRow ? Math.max(max, p.height) : max),
     0,
   );
   // A bottom-row box's link menu opens upward, ending at that box's top edge
@@ -846,7 +851,7 @@ export function layoutSequence(
   // between the top box and the bottom one.
   const lifelineBottom = participants.reduce(
     (bottom, p) =>
-      p.linkMenu && !ctx.destroyedBottomById.has(p.id)
+      p.linkMenu && p.drawnInBottomRow
         ? Math.max(bottom, topRowTop + p.height + p.linkMenu.rowHeight * p.linkMenu.links.length + p.height)
         : bottom,
     endY + BOTTOM_MARGIN + bottomRowHeight,
@@ -922,19 +927,19 @@ function pairedByMessage(
  * The `create`d participants whose `create` comes after something drawn —
  * a message, a note, an `activate`/`deactivate`, or a block, at any depth —
  * the ones whose lane Mermaid 12.2.0 moves right (`layoutParticipants`).
- * Mermaid keys that move on the count of drawn records before the `create`
- * and skips it when the count is 0, so a participant created before
+ * Mermaid keys that move on how many things it has drawn before the
+ * `create` and skips it when that count is 0, so a participant created before
  * anything is drawn — after nothing but declarations — stays where a
  * declared one would be (measured: `participant A`, `create participant B`,
  * `A->>B` puts B's box at x 200, as a declared B's).
  *
- * Mermaid counts an `autonumber` among those records too (measured: with
+ * Mermaid counts an `autonumber` among those drawn things too (measured: with
  * `autonumber` first, B moves to 275). The model keeps no `autonumber`
  * statement, but nothing may stand between a `create` and its creating
  * message, so a numbered creating message says autonumbering was turned on
  * before the `create`.
  */
-function createdAfterRecord(statements: readonly ResolvedSequenceStatement[]): Set<string> {
+function createdAfterDrawingIds(statements: readonly ResolvedSequenceStatement[]): Set<string> {
   const ids = new Set<string>();
   const createdFirst = new Set<string>();
   let drawnBefore = false;

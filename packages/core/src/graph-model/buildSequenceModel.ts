@@ -234,9 +234,9 @@ function settle(
  * and a `create`d one with its boxes in the top and bottom rows, from the
  * diagram's top — which is what origin `declared` names. Mermaid also
  * shifts that created lane right by half its width (`addActorRenderingData`
- * keeps a created actor's `prevMargin`); Siren does not model that offset
- * and lays the lane out as a declared one (a separate nook issue,
- * 01M4Z6KQ91).
+ * keeps a created actor's `prevMargin`); reading the unpaired `create` as a declaration keeps no
+ * trace of it, so Siren lays the lane out as a declared one, without that
+ * shift (corpus row `seq-create-at-end`).
  */
 function unpair(declaration: PendingDeclaration, diagnostics: Diagnostic[]): void {
   const { kind, participant, statement } = declaration;
