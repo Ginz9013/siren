@@ -1,3 +1,4 @@
 {"id":"01M4ZKR8WJX33HDZ5THAKT6ARY","t":1,"a":"83a1","op":"create","title":"mermaid-parity-comments-lanes/T12 被摧毀的參與者在摧毀列畫底部方框"}
 {"id":"01M4ZKR8WVCKP6H046KSSFMWJ1","t":2,"a":"83a1","op":"set","k":"description","v":"# T12 被摧毀的參與者在摧毀列畫底部方框（T5 review 發現，backlog）\n\n## 背景\n\nMermaid 12.2.0 對被摧毀的參與者（宣告的或建立的都一樣）在摧毀那一列畫一個 `actor-bottom` 方框，lifeline 在那裡結束\n（T5 實測：y 226／256）。Siren 在那裡畫 X 記號、不畫方框。這是先前 board 就有的畫法，與 T5／T6 無關。\n修正時要一併決定 X 記號與方框的關係，並實測 actor 種類。\n\n## Status\n\nskipped（backlog，待規劃；不屬本 board 範圍）"}
 {"id":"01M4ZKR99C5NR4ND1WDJXKAG2Z","t":3,"a":"83a1","op":"set","k":"status","v":"backlog"}
+{"id":"01M4ZWVBP6HTK1T8CXEHPE9KJW","t":4,"a":"83a1","op":"comment","body":"由 board mermaid-parity-backlog 接手：T6 01M4ZWT9BH0V7CW6P3FFFD18T9（spec 01M4ZWT82JCZZEC9Y02E9ZR126）。"}
