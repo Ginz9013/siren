@@ -708,8 +708,24 @@ node
 **Lifeline**:
 The dashed vertical line running down a participant's lane, spanning the extent between where the
 participant comes into existence and where it stops. A `create participant X` statement starts it
-partway down instead of at the top; a `destroy X` statement ends it early with an X mark instead
-of at the bottom.
+partway down instead of at the top, at its **creating message**; a `destroy X` statement ends it
+early with an X mark instead of at the bottom, at its **destroying message**. A `create` or
+`destroy` with no message after it in the document starts or ends the lifeline where it is written.
+
+**Creating message**:
+The first message after a `create participant X` statement, in document order and whatever block
+it sits in; it must be sent *to* X. X's box is drawn where that message's arrow arrives, which is
+where X comes into existence. A `create` whose next message is not sent to X is refused, as
+Mermaid refuses it. Notes and other statements between the two do not count.
+_Avoid_: create message, first message (any participant has one), constructor
+
+**Destroying message**:
+The first message after a `destroy X` statement, in document order and whatever block it sits in;
+X must send or receive it. X's lifeline ends, with its X mark, on that message's row — the message
+reaches X before X stops, so it is not "past" the end. A `destroy` whose next message does not
+touch X is refused, as Mermaid refuses it. A later message naming X does point past the end, and
+is warned about.
+_Avoid_: destroy message, kill message, last message
 _Avoid_: timeline (that is the animation block — a lifeline is structural; it does animate, but
 under its participant's id rather than one of its own), axis
 
