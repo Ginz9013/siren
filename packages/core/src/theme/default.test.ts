@@ -57,6 +57,7 @@ Web->>Payments: Check balance
 deactivate Web
 
 create participant Retry
+Web->>Retry: Schedule a retry
 Web->Payments: Quote fees
 Web-)Payments: Notify
 Web-xPayments: Cancel

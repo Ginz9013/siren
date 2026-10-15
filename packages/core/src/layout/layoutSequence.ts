@@ -115,7 +115,11 @@ const BLOCK_DIVIDER_HEIGHT = 30;
 const BLOCK_DIVIDER_TOP_GAP = 10;
 /** Vertical gap between a block's last content and its own frame's bottom edge. */
 const BLOCK_MARGIN_BOTTOM = 20;
-/** Vertical gap above a `create`d participant's box, separating it from the preceding row. */
+/**
+ * Vertical gap above a `create`d participant's box, separating it from the
+ * preceding row — only for a `create` with no creating message after it, the
+ * one case whose box still sits where `create` is written.
+ */
 const CREATE_ROW_GAP = 20;
 /**
  * Vertical distance a `destroy` statement's X mark sits below the preceding
@@ -152,6 +156,12 @@ interface SequenceLayoutContext {
    * destroyed at most once, so the id alone says which `destroy` is paired.
    */
   destroyedByMessage: Set<string>;
+  /**
+   * Participants some message creates (`ResolvedSequenceMessage.creates`),
+   * collected before the walk: their `create` statement takes no row,
+   * because the creating message's row is where their box is drawn.
+   */
+  createdByMessage: Set<string>;
   /** Activations not yet closed, per participant id — a stack, since Mermaid stacks repeat activations rather than merging them. */
   openActivationsByParticipantId: Map<string, OpenActivation[]>;
   /** Every closed bar, in the order it closed — `layoutSequence` sorts nothing further, since draw order does not depend on it. */
@@ -376,9 +386,11 @@ function placeLinkMenus(
  * Assigns a y-coordinate to each message and a bounding box to each block,
  * walking `statements` recursively (block bodies included) in document
  * order, so the whole diagram shares one strictly-increasing time axis
- * regardless of nesting. A `create` statement claims a row of its own —
- * enough for the created participant's box — and records where that
- * participant's lifeline begins.
+ * regardless of nesting. A created participant's box is centred on its
+ * creating message's arrow, and the next row starts below the box; a
+ * `create` with no creating message claims a row of its own instead —
+ * enough for the box — and records where that participant's lifeline
+ * begins.
  */
 function layoutStatements(
   statements: ResolvedSequenceStatement[],
@@ -416,12 +428,36 @@ function layoutStatements(
           mark: { participantId: destroyed, x: destroyed === message.from ? message.fromX : message.toX, y },
         });
       }
+
+      // The creating message starts its participant's lifeline on its own
+      // row. Measured against Mermaid 12.2.0: the created actor's `starty`
+      // is this message's `lineStartY` less half the box, so the box is
+      // centred on the arrow, and the next row starts half a box lower
+      // (`bumpVerticalPos(actor.height / 2)`) to clear the box's lower half.
+      //
+      // Its arrow stops at the box's near edge rather than running under the
+      // box to the lane (Mermaid's `receiverAdjustment` pulls the arrow's end
+      // back by half the box); the label stays centred between the lanes, as
+      // Mermaid places it before that adjustment. A message X sends itself
+      // loops out from its lane and is left as it is.
+      const created = statement.message.creates;
+      if (created !== undefined) {
+        const box = ctx.participantsById.get(created);
+        const height = box?.height ?? 0;
+        if (box !== undefined && message.from !== message.to) {
+          message.toX += message.toX > message.fromX ? -box.width / 2 : box.width / 2;
+        }
+        ctx.createdTopById.set(created, y - height / 2);
+        y += height / 2;
+      }
       continue;
     }
 
     if (statement.kind === "participant") {
       const participant = ctx.participantsById.get(statement.participant.id);
-      if (participant !== undefined && participant.origin === "created") {
+      // Paired with a creating message: that message's row is where the box
+      // goes, and `create` itself takes no row, as it takes none in Mermaid.
+      if (participant !== undefined && participant.origin === "created" && !ctx.createdByMessage.has(participant.id)) {
         y += CREATE_ROW_GAP;
         ctx.createdTopById.set(participant.id, y);
         y += participant.height;
@@ -709,7 +745,8 @@ function layoutMessage(
  * Computes participant lane x-positions, each lifeline's y-extent —
  * full-height (ending at the reserved bottom row where a declared,
  * never-destroyed participant's box is drawn again), or truncated to its
- * `create` row and its destroying message's row (its `destroy` row when no
+ * creating message's row (its `create` row when no message follows the
+ * `create`) and its destroying message's row (its `destroy` row when no
  * message follows the `destroy`) — each message's
  * y-coordinate and arrow endpoint x-coordinates, every nested control-flow
  * block's bounding box (recursively, so time flows strictly top-to-bottom
@@ -726,7 +763,8 @@ export function layoutSequence(
     participantsById: new Map(participants.map((p) => [p.id, p])),
     createdTopById: new Map(),
     destroyedBottomById: new Map(),
-    destroyedByMessage: destroyedByMessage(model.statements),
+    destroyedByMessage: pairedByMessage(model.statements, "destroys"),
+    createdByMessage: pairedByMessage(model.statements, "creates"),
     openActivationsByParticipantId: new Map(),
     closedActivations: [],
     measureText: options.measureText,
@@ -819,15 +857,21 @@ export function layoutSequence(
   };
 }
 
-/** Every participant a message destroys, anywhere in the statement tree (block bodies included). */
-function destroyedByMessage(statements: readonly ResolvedSequenceStatement[]): Set<string> {
+/**
+ * Every participant a message destroys (`"destroys"`) or creates
+ * (`"creates"`), anywhere in the statement tree (block bodies included).
+ */
+function pairedByMessage(
+  statements: readonly ResolvedSequenceStatement[],
+  mark: "destroys" | "creates",
+): Set<string> {
   const ids = new Set<string>();
   for (const statement of statements) {
-    if (statement.kind === "message" && statement.message.destroys !== undefined) {
-      ids.add(statement.message.destroys);
+    if (statement.kind === "message" && statement.message[mark] !== undefined) {
+      ids.add(statement.message[mark]);
     } else if (statement.kind === "block") {
       for (const branch of statement.block.branches) {
-        for (const id of destroyedByMessage(branch.statements)) ids.add(id);
+        for (const id of pairedByMessage(branch.statements, mark)) ids.add(id);
       }
     }
   }

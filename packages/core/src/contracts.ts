@@ -877,7 +877,13 @@ export interface ResolvedSequenceParticipant {
   label: Label;
   participantKind: SequenceParticipantKind;
   origin: SequenceParticipantOrigin;
-  /** Flattened-statement-order index the lifeline begins at (0 for a preamble declaration). */
+  /**
+   * Flattened-statement-order index the lifeline begins at: 0 for a preamble
+   * declaration; for `create participant X`, the position of X's creating
+   * message — the first message after the `create`, which must be sent to X
+   * — or, when no message follows the `create`, that statement's own
+   * position.
+   */
   createdAt: number;
   /**
    * Flattened-statement-order index the lifeline ends at, or `null` if never
@@ -905,9 +911,18 @@ export interface ResolvedSequenceMessage {
    * `destroy` statement, which it sends or receives; absent on every other
    * message. Its lifeline and destroy mark end on this message's row, so
    * `layoutSequence` reads the pairing here rather than working it out
-   * again. (A creating message, once paired, is marked the same way.)
+   * again. A creating message is marked the same way, with `creates`.
    */
   destroys?: string;
+  /**
+   * The id of the participant this message creates, when it is that
+   * participant's **creating message** — the first message after its
+   * `create participant` statement, which must be sent to it; absent on
+   * every other message. Its box is drawn centred on this message's arrow
+   * and its lifeline starts there, so `layoutSequence` reads the pairing
+   * here rather than working it out again.
+   */
+  creates?: string;
 }
 
 /** One resolved branch of a block, mirroring `SequenceAltBranch`/`SequenceParBranch`/`SequenceCriticalBranch` post-resolution. */
@@ -1021,7 +1036,12 @@ export interface PositionedParticipant {
   origin: SequenceParticipantOrigin;
   /** Lane center x-coordinate. */
   x: number;
-  /** Lifeline's top y-coordinate (box/icon top, or the `create` statement's y if `origin: "created"`). */
+  /**
+   * Lifeline's top y-coordinate: the box/icon top. For `origin: "created"`
+   * that box is centred on the creating message's arrow, or sits on the
+   * `create` statement's own row when no message follows it. The lifeline
+   * is drawn from here, under the box, so it shows from the box's bottom.
+   */
   top: number;
   /** Lifeline's bottom y-coordinate (diagram bottom, or the destroy mark's y if destroyed). */
   bottom: number;

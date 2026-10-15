@@ -1030,6 +1030,35 @@ function lifelineEnd(result: SirenRenderResult, participantId: string): string {
   return `below ${above?.id ?? "the top row"}${stops}`;
 }
 
+/**
+ * Where a created participant's box is drawn, read off the picture:
+ * `centred on <message>, whose arrow stops at its left edge` (or right edge,
+ * or `runs to its lane` when it does not stop short) when the box's centre
+ * is on a message's arrow ending at that participant, `below <message>` when
+ * it sits on no arrow (on a row of its own, under the last arrow above it).
+ * The words name what a reader sees — the box on the arrow that creates the
+ * participant — rather than coordinates no assert could hold still.
+ */
+function createdBox(result: SirenRenderResult, participantId: string): string {
+  const rect = svgOf(result).querySelector(`g.siren-participant[data-siren-id="${participantId}"] rect`);
+  if (rect === null) return "no box";
+  const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(rect.getAttribute(name)));
+  const centre = { x: x! + width! / 2, y: y! + height! / 2 };
+
+  const arrows = elements(result, "g.siren-message").map((g) => {
+    const [, arrowY, toX] = [...(g.querySelector("path.siren-message-arrow")?.getAttribute("d") ?? "").matchAll(/-?[\d.]+/g)].map(Number);
+    return { id: idOf(g), toX: toX!, y: arrowY! };
+  });
+  for (const arrow of arrows) {
+    if (arrow.y !== centre.y) continue;
+    const end =
+      arrow.toX === x ? "stops at its left edge" : arrow.toX === x! + width! ? "stops at its right edge" : arrow.toX === centre.x ? "runs to its lane" : `ends at x ${arrow.toX}`;
+    return `centred on ${arrow.id}, whose arrow ${end}`;
+  }
+  const above = arrows.filter((arrow) => arrow.y < centre.y).sort((a, b) => b.y - a.y)[0];
+  return `below ${above?.id ?? "the top row"}`;
+}
+
 /** Every control-flow block as `kind:id`, in draw order. */
 function blocks(result: SirenRenderResult): string[] {
   return elements(result, "g.siren-block").map(
@@ -4469,6 +4498,8 @@ line2\`"]`,
     status: "supported",
     meaning:
       "`create` starts a lifeline partway down; `destroy` ends it with an X. " +
+      "`A->>B: are you there` is B's creating message, so B's box is drawn " +
+      "on that arrow. " +
       "Nothing follows the `destroy`, so there is no destroying message and " +
       "the lifeline ends where `destroy` is written. Measured on 12.2.0: " +
       "Mermaid accepts this and, with no message for the `destroy` to " +
@@ -4476,7 +4507,102 @@ line2\`"]`,
     assert: (result) => {
       expectSame("participants", participants(result), ["A", "B"]);
       expectSame("a destroy mark was drawn", drew(result, "path.siren-destroy-mark"), true);
+      expectSame("B's box is on its creating message", createdBox(result, "B"), "centred on A-B, whose arrow stops at its left edge");
       expectSame("B ends on a row of its own, under the last message", lifelineEnd(result, "B"), "below B-A, lifeline stops there");
+    },
+  },
+  {
+    id: "seq-creating-message",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      A->>A: before
+      create participant C
+      A->>C: make
+      A->>C: again`,
+    status: "supported",
+    meaning:
+      "`create participant C` is a declaration about the next message, which " +
+      "must be sent to C: its creating message. Measured on 12.2.0: " +
+      "accepted; C's box is centred on `A->>C: make`'s arrow, which stops " +
+      "short of the box, C's lifeline starts at the box's bottom, and the " +
+      "`create` takes no row of its own. Siren draws the box there too, the " +
+      "arrow ending at its edge; `again` runs on to C's lane as any message " +
+      "does.",
+    assert: (result) => {
+      expectSame("messages", messages(result), ["A-A: before", "A-C: make", "A-C#2: again"]);
+      expectSame("C's box is on its creating message", createdBox(result, "C"), "centred on A-C, whose arrow stops at its left edge");
+    },
+  },
+  {
+    id: "seq-create-next-message-sent-by-created",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      create participant C
+      C->>A: hi`,
+    status: "rejected",
+    meaning:
+      "`create participant C` declares that the next message is C's " +
+      "creating message, which must be sent to C; one C sends does not " +
+      "count. Measured on 12.2.0: Mermaid refuses the document (\"The " +
+      "created participant … does not have an associated creating message " +
+      "after its declaration\"). Siren refuses it too, with an error at the " +
+      "`create` line saying the next message must be sent to C.",
+  },
+  {
+    id: "seq-create-without-creating-message",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      participant B
+      create participant C
+      A->>B: hi`,
+    status: "rejected",
+    meaning:
+      "The next message after `create participant C` joins A and B, so C " +
+      "has no creating message. Measured on 12.2.0: Mermaid refuses the " +
+      "document, as for a message C sends. Siren refuses it with the same " +
+      "error at the `create` line. Refused documents cost an author nothing " +
+      "Mermaid gave them.",
+  },
+  {
+    id: "seq-create-at-end",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      A->>A: think
+      create participant C`,
+    status: "supported",
+    meaning:
+      "A `create` with no message after it has nothing to pair with. " +
+      "Measured on 12.2.0: accepted, with no error. Siren keeps what it " +
+      "always drew: C's box on a row of its own, where `create` is written, " +
+      "below the last message.",
+    assert: (result) => {
+      expectSame("participants", participants(result), ["A", "C"]);
+      expectSame("C's box is on a row of its own", createdBox(result, "C"), "below A-A");
+    },
+  },
+  {
+    id: "seq-create-note-before-creating-message",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      create participant C
+      note over A: aside
+      A->>C: make`,
+    status: "supported",
+    meaning:
+      "Only a message pairs with a `create`: a note in between does not " +
+      "count, so `A->>C: make` is C's creating message. Measured on 12.2.0: " +
+      "accepted, with no error. Mermaid then draws C's box at the top and " +
+      "does not stop the arrow short, because its drawing counts the note " +
+      "as a record; whether Siren should refuse that (Mermaid's picture " +
+      "disagrees with its own pairing, in silence) is nook 01M4YS7DV8's to " +
+      "decide. Until then Siren pairs them and draws C's box on the arrow.",
+    assert: (result) => {
+      expectSame("C's box is on its creating message", createdBox(result, "C"), "centred on A-C, whose arrow stops at its left edge");
     },
   },
   {

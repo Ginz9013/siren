@@ -14,6 +14,9 @@ blocks, which is now refused (see **Changed**).
 Breaking for a sequence document whose `destroy X` is followed by a message X neither sends nor
 receives, which is now refused (see **Changed**).
 
+Breaking for a sequence document whose `create participant X` is followed by a message not sent to
+X, which is now refused (see **Changed**).
+
 ### Added
 
 - A document may open with a Mermaid frontmatter (`---` … `---`), read as Mermaid 12.2.0 reads it,
@@ -85,6 +88,21 @@ receives, which is now refused (see **Changed**).
 
 ### Changed
 
+- **A sequence `create participant X` draws X's box on its creating message**: the first message
+  after it, in document order and whatever block it is in, which must be sent to X (nook
+  `01M4YS7DMG`). X's box is now centred on that message's arrow, the arrow stops at the box's near
+  edge, X's lifeline starts at the box's bottom, and `create` no longer takes a row of its own; the
+  next row starts below the box. Measured against Mermaid 12.2.0, which reads `create` the same way
+  and centres X's box on that arrow. Notes, activations and block boundaries in between do not
+  count, only messages. A `create` with no message after it still draws X's box where it is
+  written.
+- **A `create participant X` whose next message is not sent to X is refused** — including one X
+  sends — with an error at the `create` line: `The created participant "X" has no creating
+  message: the next message must be sent to it.` Siren used to draw such a document in silence;
+  Mermaid 12.2.0 refuses it. As with Siren's other sequence errors, the diagram is still drawn
+  beside the error, with X's box where `create` is written. As in Mermaid, a waiting `create` is
+  checked before a waiting `destroy`, so a `destroy` written between a `create` and its creating
+  message waits for the message after that one.
 - **A sequence `destroy X` ends X's lifeline at its destroying message**: the first message after
   it, in document order and whatever block it is in, which X must send or receive (nook
   `01M4YS7DDX`). X's lifeline and X mark now sit on that message's row, on the arrow's tip when X

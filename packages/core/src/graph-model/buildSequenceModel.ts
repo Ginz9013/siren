@@ -13,6 +13,7 @@ import type {
   SequenceCriticalStatement,
   SequenceDestroyStatement,
   SequenceDocument,
+  SequenceParticipantStatement,
   SequenceLoopStatement,
   SequenceModel,
   SequenceModelResult,
@@ -103,6 +104,16 @@ interface ResolutionState {
    * itself is kept so a missing destroying message is reported at its line.
    */
   pendingDestroy: { participant: ResolvedSequenceParticipant; statement: SequenceDestroyStatement } | null;
+  /**
+   * The participant the latest `create` named, while no message has been
+   * resolved since — the **creating message** it is waiting for, which must
+   * be sent to it. Mermaid 12.2.0 reads `create participant X` as a
+   * declaration about the next message, the same way it reads `destroy`
+   * (`addMessage` checks `lastCreated` against the next message alone).
+   * `null` when nothing is waiting. The `create` statement itself is kept so
+   * a missing creating message is reported at its line.
+   */
+  pendingCreate: { participant: ResolvedSequenceParticipant; statement: SequenceParticipantStatement } | null;
 }
 
 /**
@@ -148,6 +159,7 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
     autonumberCounter: 0,
     position: 0,
     pendingDestroy: null,
+    pendingCreate: null,
   };
 
   const boxes = resolveBoxes(document, diagnostics);
@@ -345,7 +357,10 @@ function resolveStatements(
       // replaced `destroy` is still unmeasured (nook 01M4YS7DV8); until it
       // is, that `destroy` keeps the end it was written at — the same as a
       // `destroy` with no message after it — rather than guessing.
-      if (statement.origin === "created") state.pendingDestroy = null;
+      if (statement.origin === "created") {
+        state.pendingDestroy = null;
+        state.pendingCreate = { participant: participant!, statement };
+      }
       resolved.push({ kind: "participant", participant: participant! });
       continue;
     }
@@ -413,12 +428,47 @@ function resolveStatements(
       // it does not send the author to Mermaid for the rule. The message is
       // kept and X's lifeline still ends at its `destroy`, the same partial
       // tolerance a bad `deactivate` or a late `create` gets.
-      const pending = state.pendingDestroy;
-      state.pendingDestroy = null;
       const position = ++state.position;
+
+      // The creating message: the first message after `create participant
+      // X`, sent to X. X's lifeline starts on its row — measured against
+      // Mermaid 12.2.0, `adjustCreatedDestroyedData` sets the created actor's
+      // `starty` from this message's own `lineStartY`, centring X's box on
+      // the arrow. A next message not sent to X — X sending it does not
+      // count — is refused at the `create` line, as Mermaid refuses the
+      // document ("The created participant C does not have an associated
+      // creating message after its declaration"). As with a missing
+      // destroying message, the message is kept and X's box stays where
+      // `create` is written.
+      //
+      // Mermaid checks a waiting `create` first and a waiting `destroy` only
+      // when no `create` is waiting (`addMessage`: `if (lastCreated) … else
+      // if (lastDestroyed)`), so a `destroy` written after a `create` waits
+      // past the creating message for the one after it. What Mermaid then
+      // draws for that `destroy` is still unmeasured (nook 01M4YS7DV8).
+      let createdHere: string | null = null;
       let destroyedHere: string | null = null;
-      if (pending !== null) {
-        const destroyed = pending.participant;
+      const pendingCreate = state.pendingCreate;
+      const pendingDestroy = state.pendingDestroy;
+      if (pendingCreate !== null) {
+        state.pendingCreate = null;
+        const created = pendingCreate.participant;
+        if (statement.to === created.id) {
+          created.createdAt = position;
+          createdHere = created.id;
+        } else {
+          state.diagnostics.push({
+            severity: "error",
+            message:
+              `The created participant "${created.id}" has no creating message: ` +
+              `the next message must be sent to it.`,
+            line: pendingCreate.statement.line,
+            column: pendingCreate.statement.column,
+          });
+        }
+      } else if (pendingDestroy !== null) {
+        state.pendingDestroy = null;
+        const destroyed = pendingDestroy.participant;
         if (statement.from === destroyed.id || statement.to === destroyed.id) {
           destroyed.destroyedAt = position;
           destroyedHere = destroyed.id;
@@ -428,8 +478,8 @@ function resolveStatements(
             message:
               `The destroyed participant "${destroyed.id}" has no destroying message: ` +
               `the next message must be sent by or to it.`,
-            line: pending.statement.line,
-            column: pending.statement.column,
+            line: pendingDestroy.statement.line,
+            column: pendingDestroy.statement.column,
           });
         }
       }
@@ -460,6 +510,7 @@ function resolveStatements(
         arrow: statement.arrow,
         autonumber: state.autonumbering ? state.autonumberCounter : null,
         ...(destroyedHere === null ? {} : { destroys: destroyedHere }),
+        ...(createdHere === null ? {} : { creates: createdHere }),
       };
       resolved.push({ kind: "message", message });
       touched.add(statement.from);

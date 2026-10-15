@@ -1047,6 +1047,100 @@ describe("layoutSequence", () => {
     });
   });
 
+  describe("a creating message (the message right after `create participant X`, sent to X)", () => {
+    // Measured against Mermaid 12.2.0 (probe, jsdom layout stubs, 76px
+    // boxes): for `A->>A`, `create participant C`, `A->>C: make`, `A->>C:
+    // again`, C's box spans y 168–244 and `make`'s arrow is at y 206 — the
+    // box is centred on the arrow; C's lifeline starts at 244, the box's
+    // bottom; `make`'s arrow stops at x 265, short of the box's near edge
+    // at 275 (`receiverAdjustment` pulls it back half the box plus 3), while
+    // `again` runs on to the lane at 350 less its arrowhead; and `again` is
+    // 88 below `make`, a plain row plus half the box (`bumpVerticalPos(
+    // actor.height / 2)`). `create` itself claims no row.
+    const carol: ResolvedSequenceParticipant = {
+      id: "C",
+      label: plainLabel("Carol"),
+      participantKind: "participant",
+      origin: "created",
+      createdAt: 3,
+      destroyedAt: null,
+    };
+    function createdBy(participants: ResolvedSequenceParticipant[]): SequenceModel {
+      // `buildSequenceModel` marks the creating message with the id it
+      // creates; that mark is the pairing layout reads.
+      const creating = messageStatement("m2", "A", "C", "make");
+      if (creating.kind === "message") creating.message.creates = "C";
+      return {
+        title: null,
+        accTitle: null,
+        accDescr: null,
+        interactions: [],
+        // Positions: 1 before, 2 create C, 3 the creating message, 4 again.
+        participants,
+        boxes: [],
+        statements: [
+          messageStatement("m1", "A", "A", "before"),
+          { kind: "participant", participant: carol },
+          creating,
+          messageStatement("m3", "A", "C", "again"),
+        ],
+        timeline: { totalSteps: 0, entries: [] },
+      };
+    }
+
+    it("centres X's box on the creating message's arrow, takes no row for `create`, and starts the next row below the box", () => {
+      const positioned = layoutSequence(createdBy([declaredParticipant("A", "Alice"), carol]), {
+        measureText: fakeMeasurer,
+      });
+
+      const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+      const [before, make, again] = messagesOf(positioned);
+      // The box (and the lifeline under it, which starts at its bottom edge)
+      // is centred on the arrow.
+      expect(byId.C!.top + byId.C!.height / 2).toBe(make!.y);
+      // `make` follows `before` by a plain message row, the same as with no
+      // `create` at all: `create` claims no row.
+      const [plainBefore, plainMake] = messagesOf(
+        layoutSequence(
+          {
+            ...createdBy([declaredParticipant("A", "Alice"), declaredParticipant("C", "Carol")]),
+            statements: [messageStatement("m1", "A", "A", "before"), messageStatement("m2", "A", "C", "make")],
+          },
+          { measureText: fakeMeasurer },
+        ),
+      );
+      const plainRow = plainMake!.y - plainBefore!.y;
+      expect(make!.y - before!.y).toBe(plainRow);
+      // The next row is a plain row below the box's centre plus its lower half.
+      expect(again!.y - make!.y).toBe(plainRow + byId.C!.height / 2);
+      expect(byId.C!.top + byId.C!.height).toBeLessThan(again!.y);
+    });
+
+    it("stops the creating arrow at the box's near edge, and only that arrow", () => {
+      const positioned = layoutSequence(createdBy([declaredParticipant("A", "Alice"), carol]), {
+        measureText: fakeMeasurer,
+      });
+
+      const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+      const [, make, again] = messagesOf(positioned);
+      // C's lane is right of A's, so the near edge is the box's left one.
+      expect(make!.fromX).toBe(byId.A!.x);
+      expect(make!.toX).toBe(byId.C!.x - byId.C!.width / 2);
+      expect(again!.toX).toBe(byId.C!.x);
+    });
+
+    it("stops the creating arrow at the box's right edge when X's lane is left of the sender's", () => {
+      const positioned = layoutSequence(createdBy([carol, declaredParticipant("A", "Alice")]), {
+        measureText: fakeMeasurer,
+      });
+
+      const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+      const [, make] = messagesOf(positioned);
+      expect(byId.C!.x).toBeLessThan(byId.A!.x);
+      expect(make!.toX).toBe(byId.C!.x + byId.C!.width / 2);
+    });
+  });
+
   it("spans an activation bar from its activate statement's row to its deactivate statement's row, centered on the participant's lane", () => {
     const model: SequenceModel = {
       title: null,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { plainLabel } from "../label/label";
-import type { SequenceDocument, SequenceStatement } from "../contracts";
+import type { ResolvedSequenceMessage, SequenceDocument, SequenceStatement } from "../contracts";
 import { buildSequenceModel } from "./buildSequenceModel";
 import { parseSequenceDiagram } from "../parser/parseSequenceDiagram";
 
@@ -742,7 +742,7 @@ describe("buildSequenceModel", () => {
     expect(block.branches[0]!.label).toBeNull();
   });
 
-  it("resolves a create-declared participant with origin created and createdAt at its create statement's position", () => {
+  it("resolves a create-declared participant with origin created and createdAt at its creating message's position", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
@@ -755,7 +755,8 @@ describe("buildSequenceModel", () => {
       ],
       boxes: [],
       // Resolved-statement positions, 1-based in flattened order:
-      //   1 participant A, 2 message A->A, 3 create actor B, 4 message A->B.
+      //   1 participant A, 2 message A->A, 3 create actor B, 4 message A->B
+      //   — B's creating message, where its lifeline starts.
       statements: [
         { kind: "participant", id: "A", label: plainLabel("A"), participantKind: "participant", origin: "declared" },
         { kind: "message", from: "A", to: "A", label: plainLabel("self"), arrow: { line: "solid", head: "filled" } },
@@ -782,7 +783,7 @@ describe("buildSequenceModel", () => {
         label: plainLabel("Bob"),
         participantKind: "actor",
         origin: "created",
-        createdAt: 3,
+        createdAt: 4,
         destroyedAt: null,
       },
     ]);
@@ -1592,6 +1593,124 @@ describe("buildSequenceModel", () => {
       const destroyThenCreate = build("participant A\nparticipant B\ndestroy B\ncreate participant C\nA->>C: hello");
       expect(destroyThenCreate.diagnostics).toEqual([]);
       expect(destroyThenCreate.destroyedAt).toEqual({ A: null, B: 3, C: null });
+    });
+  });
+
+  describe("creating messages (the first message after `create participant X`, which must be sent to X)", () => {
+    function build(body: string) {
+      const { document } = parseSequenceDiagram(`sequenceDiagram\n${body}\n`);
+      if (document === null || document.kind !== "sequence") throw new Error("expected a sequence document");
+      const { model, diagnostics } = buildSequenceModel(document);
+      const messages = (statements: typeof model.statements): ResolvedSequenceMessage[] =>
+        statements.flatMap((s) =>
+          s.kind === "message"
+            ? [s.message]
+            : s.kind === "block"
+              ? s.block.branches.flatMap((b) => messages(b.statements))
+              : [],
+        );
+      return {
+        model,
+        createdAt: Object.fromEntries(model.participants.map((p) => [p.id, p.createdAt])),
+        creates: messages(model.statements).map((m) => [m.id, m.creates ?? null]),
+        diagnostics: diagnostics.map((d) => `${d.severity} ${d.line}:${d.column}: ${d.message}`),
+      };
+    }
+
+    it("starts X's lifeline at the message sent to X right after `create participant X`, and marks that message alone", () => {
+      // Positions: 1 participant A, 2 create C, 3 A->>C make — the creating
+      // message, 4 A->>C again.
+      const result = build("participant A\ncreate participant C\nA->>C: make\nA->>C: again");
+
+      expect(result.diagnostics).toEqual([]);
+      expect(result.createdAt).toEqual({ A: 0, C: 3 });
+      expect(result.creates).toEqual([
+        ["A-C", "C"],
+        ["A-C#2", null],
+      ]);
+    });
+
+    it("refuses a `create participant X` whose next message is sent by X, at the `create` line and column, saying why without naming Mermaid", () => {
+      const result = build("participant A\n  create participant C\nC->>A: hi");
+
+      expect(result.diagnostics).toEqual([
+        'error 3:3: The created participant "C" has no creating message: the next message must be sent to it.',
+      ]);
+      expect(result.diagnostics.join("\n")).not.toMatch(/mermaid/i);
+      expect(result.creates).toEqual([["C-A", null]]);
+    });
+
+    it("refuses a `create participant X` whose next message does not touch X, keeping X's lifeline at the `create`", () => {
+      // Positions: 1–2 participants, 3 create C, 4 A->>B.
+      const result = build("participant A\nparticipant B\ncreate participant C\nA->>B: hi");
+
+      expect(result.diagnostics).toEqual([
+        'error 4:1: The created participant "C" has no creating message: the next message must be sent to it.',
+      ]);
+      expect(result.createdAt).toEqual({ A: 0, B: 0, C: 3 });
+    });
+
+    it("accepts a `create participant X` with no message after it, starting X's lifeline at the `create`", () => {
+      // Positions: 1 participant A, 2 A->>A, 3 create C.
+      const result = build("participant A\nA->>A: x\ncreate participant C");
+
+      expect(result.diagnostics).toEqual([]);
+      expect(result.createdAt).toEqual({ A: 0, C: 3 });
+    });
+
+    it("pairs in document order across blocks, and only a message counts: a note or an activation in between does not", () => {
+      // Positions: 1 participant A, 2 alt, 3 create C, 4 note, 5 activate A,
+      // 6 A->>C (the `else` branch's first statement), 7 deactivate A.
+      const result = build(
+        [
+          "participant A",
+          "alt first",
+          "create participant C",
+          "Note over A: aside",
+          "activate A",
+          "else second",
+          "A->>C: make",
+          "deactivate A",
+          "end",
+        ].join("\n"),
+      );
+
+      expect(result.diagnostics).toEqual([]);
+      expect(result.createdAt).toEqual({ A: 0, C: 6 });
+      expect(result.creates).toEqual([["A-C", "C"]]);
+    });
+
+    it("checks a pending `create` before a pending `destroy`, as Mermaid does: the `destroy` waits for the message after the creating one (provisional, nook 01M4YS7DV8)", () => {
+      // Measured on Mermaid 12.2.0: `addMessage` checks `lastCreated` first
+      // and only otherwise `lastDestroyed`, so `create C`, `destroy B`,
+      // `A->>C` is accepted, and B is checked against the message after it.
+      // What Mermaid then draws for B is open (nook 01M4YS7DV8).
+      // Positions: 1–2 participants, 3 create C, 4 destroy B, 5 A->>C, 6 B->>A.
+      const paired = build("participant A\nparticipant B\ncreate participant C\ndestroy B\nA->>C: make\nB->>A: bye");
+      expect(paired.diagnostics).toEqual([]);
+      expect(paired.createdAt).toEqual({ A: 0, B: 0, C: 5 });
+      expect(paired.model.participants.map((p) => [p.id, p.destroyedAt])).toEqual([
+        ["A", null],
+        ["B", 6],
+        ["C", null],
+      ]);
+
+      // The message after the creating one must then touch B — Mermaid
+      // refuses `create C`, `destroy B`, `A->>C`, `A->>A`.
+      const unpaired = build("participant A\nparticipant B\ncreate participant C\ndestroy B\nA->>C: make\nA->>A: other");
+      expect(unpaired.diagnostics).toEqual([
+        'error 5:1: The destroyed participant "B" has no destroying message: the next message must be sent by or to it.',
+      ]);
+    });
+
+    it("lets a later `create` replace a pending `create` before any message: the replaced one starts where it is written, unchecked (nook 01M4YS7DV8)", () => {
+      // Mermaid's `lastCreated` holds one participant, so `create C`,
+      // `create D`, `A->>D` is accepted and C is never checked.
+      // Positions: 1 participant A, 2 create C, 3 create D, 4 A->>D.
+      const result = build("participant A\ncreate participant C\ncreate participant D\nA->>D: make");
+
+      expect(result.diagnostics).toEqual([]);
+      expect(result.createdAt).toEqual({ A: 0, C: 2, D: 4 });
     });
   });
 });

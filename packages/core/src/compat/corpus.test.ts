@@ -1507,8 +1507,19 @@ const SILENTLY_WRONG = 0;
  * measured what `destroy` declares about the message after it.
  * `seq-destroy-without-destroying-message` is that row. Nothing that rendered
  * in Mermaid stopped rendering, and `silently-wrong` does not move.
+ *
+ * **12 → 14: case (2) again, the `create` side of the same declaration.**
+ * `01M4YS7DMG` made `create participant X` wait for its creating message —
+ * the next message, which must be sent to X — and refuses a `create` whose
+ * next message X sends or that does not touch X, as Mermaid 12.2.0 refuses
+ * the document ("The created participant … does not have an associated
+ * creating message"). Siren used to draw both in silence; no row recorded
+ * them because nothing measured what `create` declares about the message
+ * after it. `seq-create-next-message-sent-by-created` and
+ * `seq-create-without-creating-message` are those rows. Nothing that
+ * rendered in Mermaid stopped rendering, and `silently-wrong` does not move.
  */
-const REJECTED = 12;
+const REJECTED = 14;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
