@@ -324,7 +324,7 @@ the user it hasn't been validated.
 | `A document declares at most one unnamed "timeline:" block` | Name each block: `timeline <name>:`.                                    |
 | `Timeline "X" is already declared on line N`                | Give each block a different name.                                       |
 | `Invalid timeline name "X"`                                 | Use only letters, digits, `_` and `-` in the name.                      |
-| `linkStyle interpolate "X" is a curve Mermaid draws but Siren does not implement yet` | Use `basis`, `linear`, `step`, `stepBefore`, `stepAfter` or `rounded`. |
+| `linkStyle interpolate "X" is a curve Siren does not draw yet` | Use `basis`, `linear`, `step`, `stepBefore`, `stepAfter` or `rounded`. |
 | `linkStyle interpolate "X" names no curve`                  | Check the spelling and case: `stepBefore`, not `stepbefore`.            |
 
 ## Using the result

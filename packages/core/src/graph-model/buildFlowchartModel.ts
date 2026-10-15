@@ -506,7 +506,7 @@ function drawableCurve(
   if (isMermaidOnlyCurve(name)) {
     diagnostics.push({
       severity: "error",
-      message: `linkStyle interpolate "${name}" is a curve Mermaid draws but Siren does not implement yet; the edges it addresses keep their fallback curve.`,
+      message: `linkStyle interpolate "${name}" is a curve Siren does not draw yet; the edges it addresses keep their fallback curve. Curves: ${CURVES.join(", ")}.`,
       line,
       column,
     });
@@ -520,7 +520,7 @@ function drawableCurve(
     // so this is a picture Siren *can* match, and only a warning.
     diagnostics.push({
       severity: "warning",
-      message: `linkStyle interpolate "${name}" names no curve; drawing ${FLOWCHART_DEFAULT_CURVE}, as Mermaid does. Curves: ${CURVES.join(", ")}.`,
+      message: `linkStyle interpolate "${name}" names no curve; drawing ${FLOWCHART_DEFAULT_CURVE}. Curves: ${CURVES.join(", ")}.`,
       line,
       column,
     });

@@ -62,7 +62,7 @@ export function refusalOf({ name, rule, attributes }: StartTag, offset: number):
 const REFUSED_KINDS: Readonly<Record<RefusedKind, { phrase: string; instead?: string }>> = {
   table: { phrase: "tables" },
   ruby: { phrase: "ruby annotations" },
-  image: { phrase: "images", instead: 'Draw an image with Mermaid\'s image shape, A@{ img: "…" }, instead.' },
+  image: { phrase: "images", instead: 'Draw an image as a node with A@{ img: "…" } instead.' },
   embedded: { phrase: "embedded content" },
   form: { phrase: "form controls" },
   media: { phrase: "media" },

@@ -1377,10 +1377,10 @@ describe("readLabel's refused tags", () => {
     }
   }
 
-  // ADR-0015: `<img>`'s diagnostic names Mermaid's own image shape.
-  it("points <img> at Mermaid's image shape", () => {
+  // ADR-0015: `<img>`'s diagnostic points at the image shape, by its syntax.
+  it("points <img> at the image shape, A@{ img: \"…\" }", () => {
     expect(readLabel("<img src='x.png'>", { dialect: "html" }).problems[0]!.message).toBe(
-      `${refusal("img", "images")} Draw an image with Mermaid's image shape, A@{ img: "…" }, instead.`,
+      `${refusal("img", "images")} Draw an image as a node with A@{ img: "…" } instead.`,
     );
   });
 

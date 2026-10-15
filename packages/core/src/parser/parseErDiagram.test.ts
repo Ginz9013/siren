@@ -2428,8 +2428,8 @@ describe("parseErDiagram — a `style` aimed at a relationship id", () => {
 
 describe("parseErDiagram — a reserved word in a class list", () => {
   const reserved = (word: string, line: string) =>
-    `Reserved word "${word}" cannot stand in a class list in erDiagram: Mermaid reads it as a keyword ` +
-    `and refuses the line, in "${line}"`;
+    `Reserved word "${word}" cannot stand in a class list in erDiagram: it is read as a keyword, ` +
+    `so the line is refused; rename the class, in "${line}"`;
 
   it("refuses `class A end` by name, as Mermaid refuses it", () => {
     // Measured (12.2.0): `class\b` switches no lexer condition, so `end` is
@@ -2482,8 +2482,8 @@ describe("parseErDiagram — a reserved word in a class list", () => {
 
 describe("parseErDiagram — a cardinality or body keyword in a class list", () => {
   const reserved = (word: string, line: string) =>
-    `Reserved word "${word}" cannot stand in a class list in erDiagram: Mermaid reads it as a keyword ` +
-    `and refuses the line, in "${line}"`;
+    `Reserved word "${word}" cannot stand in a class list in erDiagram: it is read as a keyword, ` +
+    `so the line is refused; rename the class, in "${line}"`;
 
   it("refuses one by name in every class-list position, as Mermaid refuses it", () => {
     // Measured (12.2.0), one probe per word per position — `class A w`,
@@ -2540,8 +2540,8 @@ describe("parseErDiagram — a cardinality or body keyword in a class list", () 
 
 describe("parseErDiagram — a number in a class list", () => {
   const number = (head: string, line: string) =>
-    `Number "${head}" cannot stand in a class list in erDiagram: a class name in Mermaid cannot begin ` +
-    `with a digit, and it refuses the line, in "${line}"`;
+    `Number "${head}" cannot stand in a class list in erDiagram: a class name cannot begin ` +
+    `with a digit, so the line is refused; rename the class, in "${line}"`;
 
   it("refuses a digit-headed member by name in every class-list position, as Mermaid refuses it", () => {
     // Measured (12.2.0): an `idList` member is `UNICODE_TEXT` only, and the

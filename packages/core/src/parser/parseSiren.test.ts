@@ -2927,7 +2927,7 @@ describe("a document's frontmatter", () => {
             severity: "error",
             message:
               `Frontmatter displayMode cannot be written into ${where}, which is not a mapping; ` +
-              "Mermaid refuses the document too.",
+              "the document is not drawn until the frontmatter is fixed.",
             line: 1,
             column: 1,
           },
@@ -2947,7 +2947,7 @@ describe("a document's frontmatter", () => {
           severity: "error",
           message:
             "Frontmatter is not valid YAML (unexpected end of the stream within a flow collection); " +
-            "Mermaid refuses the document too.",
+            "the document is not drawn until the frontmatter is fixed.",
           line: 1,
           column: 1,
         },
@@ -3212,8 +3212,8 @@ describe("a document's directives", () => {
       {
         severity: "warning",
         message:
-          "Init directive is not valid JSON; Mermaid then ignores every init directive in the document, " +
-          "and so does Siren — the diagram is drawn without them.",
+          "Init directive is not valid JSON, so every init directive in the document is ignored and " +
+          "the diagram is drawn without them; fix this directive's JSON to apply them.",
         line: 2,
         column: 3,
       },
@@ -3253,13 +3253,13 @@ describe("a document's directives", () => {
     expect(diagnostics).toEqual([
       {
         severity: "warning",
-        message: 'Directive "foo" is removed unread, as Mermaid removes it; the diagram is drawn without it.',
+        message: 'Directive "foo" is removed unread; the diagram is drawn without it.',
         line: 1,
         column: 1,
       },
       {
         severity: "warning",
-        message: 'Directive "bar" is removed unread, as Mermaid removes it; the diagram is drawn without it.',
+        message: 'Directive "bar" is removed unread; the diagram is drawn without it.',
         line: 3,
         column: 11,
       },
@@ -3337,7 +3337,8 @@ describe("a document's directives", () => {
           severity: "error",
           message:
             'Wrap directive cannot be written into the init directive "dark", which is not a mapping; ' +
-            "Mermaid refuses the document too.",
+            'the document is not drawn until that init directive is a mapping, such as {"theme": "dark"}, ' +
+            "or the wrap directive is removed.",
           line: 2,
           column: 3,
         },

@@ -8561,14 +8561,14 @@ A --> C
       {
         severity: "error",
         message:
-          'linkStyle interpolate "natural" is a curve Mermaid draws but Siren does not implement yet; the edges it addresses keep their fallback curve.',
+          'linkStyle interpolate "natural" is a curve Siren does not draw yet; the edges it addresses keep their fallback curve. Curves: basis, linear, step, stepBefore, stepAfter, rounded.',
         line: 4,
         column: 3,
       },
       {
         severity: "warning",
         message:
-          'linkStyle interpolate "wobbly" names no curve; drawing rounded, as Mermaid does. Curves: basis, linear, step, stepBefore, stepAfter, rounded.',
+          'linkStyle interpolate "wobbly" names no curve; drawing rounded. Curves: basis, linear, step, stepBefore, stepAfter, rounded.',
         line: 5,
         column: 3,
       },

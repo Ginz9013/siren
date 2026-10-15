@@ -3484,7 +3484,7 @@ line2\`"]`,
       "curve, as it did under 11.17.2. Siren also warns that the name " +
       "exists nowhere.",
     warnings: [
-      'linkStyle interpolate "zigzag" names no curve; drawing rounded, as Mermaid does. ' +
+      'linkStyle interpolate "zigzag" names no curve; drawing rounded. ' +
         "Curves: basis, linear, step, stepBefore, stepAfter, rounded.",
     ],
     assert: (result) => {

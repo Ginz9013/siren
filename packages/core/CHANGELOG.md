@@ -112,6 +112,16 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
 
 ### Changed
 
+- **Diagnostic messages no longer mention Mermaid** (nook `01M4ZJZ3FT`). Each says what is wrong
+  and how to fix it. Reworded: a frontmatter refusal now ends "the document is not drawn until the
+  frontmatter is fixed"; a wrap directive that cannot be written into a non-mapping init asks for
+  a mapping or for the wrap directive to be removed; an init that is not valid JSON says every init
+  is ignored and asks for its JSON to be fixed; a removed directive drops "as Mermaid removes it";
+  an ER class-list number or reserved word says the line is refused and asks to rename the class;
+  an `<img>` in a label points at `A@{ img: "…" }` directly; a `linkStyle interpolate` curve Siren
+  does not draw is now "a curve Siren does not draw yet" and lists the curves it does, and an
+  unknown curve name drops "as Mermaid does". Code that matches diagnostic text exactly must be
+  updated.
 - **A `%%` in the middle of a flowchart line is no longer a comment** (nook `01M4Z7TQRE`). Only a
   whole line whose first non-blank characters are `%%` is a comment, as in Mermaid 12.2.0, whose
   flowchart grammar has no comment of its own. Inside text a `%%` is now kept as text — a node's

@@ -83,7 +83,7 @@ export function readFrontmatter(text: string): FrontmatterRead {
   const refuse = (why: string): FrontmatterRead => ({
     source: text,
     config: {},
-    diagnostics: [{ severity: "error", message: `${why}; Mermaid refuses the document too.`, ...openingFence }],
+    diagnostics: [{ severity: "error", message: `${why}; the document is not drawn until the frontmatter is fixed.`, ...openingFence }],
     position: openingFence,
   });
   let loaded: unknown;
@@ -299,8 +299,8 @@ const MERMAID_DIAGRAM_TYPE: Record<DiagramKind, string> = {
 };
 
 const INIT_NOT_JSON =
-  "Init directive is not valid JSON; Mermaid then ignores every init directive in the document, " +
-  "and so does Siren — the diagram is drawn without them.";
+  "Init directive is not valid JSON, so every init directive in the document is ignored and " +
+  "the diagram is drawn without them; fix this directive's JSON to apply them.";
 
 /** Mermaid's `detectInit` type test: a type word holding `init` or `initialize` at a word's end. */
 const INIT_TYPE = /(?:init\b)|(?:initialize\b)/;
@@ -359,7 +359,8 @@ export function readDirectives(text: string): DirectivesRead {
       severity: "error",
       message:
         `Wrap directive cannot be written into the init directive "${String(inits[0]!.args)}", ` +
-        "which is not a mapping; Mermaid refuses the document too.",
+        "which is not a mapping; the document is not drawn until that init directive is a mapping, " +
+        'such as {"theme": "dark"}, or the wrap directive is removed.',
       ...wrap.position,
     };
     return { source, init: undefined, wrap: undefined, positions: new Map(), diagnostics: [refusal] };
@@ -558,7 +559,7 @@ function define(target: object, key: string, value: unknown): void {
  * nothing.
  */
 function removedUnread(type: string): string {
-  return `Directive "${type}" is removed unread, as Mermaid removes it; the diagram is drawn without it.`;
+  return `Directive "${type}" is removed unread; the diagram is drawn without it.`;
 }
 
 /** `diagnostics` by line and then column, those at one place in the order given. */
