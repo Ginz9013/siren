@@ -50,6 +50,9 @@ is drawn with a closing box instead of an X mark, the `siren-destroy-mark` path 
 `PositionedDestroyMark` are gone, and the rows after a destroying message move down (see
 **Changed**).
 
+Breaking for a class document with a `;` between two members of a class block where the text
+reads as one member (`+int x; y`, `+foo(); +bar()`), which is now refused (see **Changed**).
+
 ### Added
 
 - A flowchart subgraph title of several words is read as Mermaid 12.2.0 reads it (nook
@@ -358,9 +361,13 @@ is drawn with a closing box instead of an X mark, the `siren-destroy-mark` path 
   `destroy Z` is no longer refused as naming `Z` a second time; the `destroy`, interrupted by the
   `create`, is refused instead, and `Z` is drawn created and never destroyed, as Mermaid draws it.
 
-- A class member with a `;` that Siren cannot read (`+int x; +foo()`) is now refused saying that a
-  `;` does not separate members and to write each on a line of its own; Mermaid 12.2.0 draws such
-  text as one member (nook `01M4ZWT8XF`).
+- A `;` between members in a class block (`+int x; +foo()`, `+foo(); +bar()`, `+int x; y`) is now
+  refused saying that a `;` does not separate members and to write each on a line of its own;
+  Mermaid 12.2.0 draws such text as one member (nook `01M4ZWT8XF`). Where Siren could read the text
+  as one member — `+int x; y`, `+int x; int y`, `+foo(); +bar()` — it used to draw that one member,
+  as Mermaid does, and now refuses it. A `;` inside a method's parentheses (`+foo(a; b)`) or a
+  `~generic~` is kept as written.
+
 - **A destroyed sequence participant ends with a closing box, not an X mark** (Breaking; nook
   decision `01M4ZXTTY3`, superseding the X-mark convention of the sequence-create-destroy board).
   As in Mermaid 12.2.0, `destroy X` draws X's box (or actor figure) a second time, centred on its

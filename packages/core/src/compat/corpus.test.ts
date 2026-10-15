@@ -1696,8 +1696,19 @@ const SILENTLY_WRONG = 0;
  * `er-percent-in-subgraph-name` and `er-percent-in-subgraph-title` write
  * them down. No `supported` row moved: no ER row had a `%` in a subgraph
  * header. `silently-wrong` does not move.
+ *
+ * **32 → 33: case (2), a refusal written down for the first time.**
+ * `01M4ZWT8XF`'s review refused a `;` between two class members wherever
+ * it stands outside a method's parentheses and a `~generic~`, not only
+ * where Siren could not read the text: Mermaid 12.2.0 draws
+ * `+int age; int legs` as one attribute and `+run(); +stop()` as one
+ * method (measured), a picture of neither pair of members, refused under
+ * ADR-0001. Siren used to draw each as that one member, as Mermaid does,
+ * with no row to say so; `cls-class-block-semicolon-readable-members`
+ * writes it down. No `supported` row moved: no supported row has a `;`
+ * between members. `silently-wrong` does not move.
  */
-const REJECTED = 32;
+const REJECTED = 33;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

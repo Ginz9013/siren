@@ -4047,6 +4047,26 @@ line2\`"]`,
       "One member per line renders in both.",
   },
   {
+    id: "cls-class-block-semicolon-readable-members",
+    kind: "class",
+    source: `classDiagram
+      class Animal {
+        +int age; int legs
+        +run(); +stop()
+      }`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** Each line is " +
+      "two members run together with `;`, and Mermaid 12.2.0 draws each as " +
+      "one: the attribute `+int age; int legs` and the method " +
+      "`+run(); +stop()` (measured) — in a multi-line block as in a one-line " +
+      "one, with no diagnostic. Siren used to draw them the same way, since " +
+      "it could read each line as one member. It refuses each now (ADR-0001), " +
+      "with an error at the member saying to write each member on a line of " +
+      "its own. A `;` inside a method's parentheses or a `~generic~` is " +
+      "kept as written. One member per line renders in both.",
+  },
+  {
     id: "cls-inline-member",
     kind: "class",
     source: `classDiagram

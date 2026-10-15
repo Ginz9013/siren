@@ -1070,15 +1070,18 @@ export function parseClassDiagram(source: string): DiagramParseResult {
           return;
         }
 
-        const member = parseMember(text, memberLine, memberColumn);
+        // A `;` outside a method's parentheses and a `~generic~` is two
+        // members run together, which Mermaid 12.2.0 draws as one:
+        // `+int x; +foo()` is the single method `+int x; +foo()`, and
+        // `+int x; y` the single attribute `+int x; y` (measured) — so it is
+        // refused even where Siren could read the text as one member, and
+        // the error says how to write two (ADR-0001). Inside `(…)` or `~…~`
+        // it is what was written: `+foo(a; b)` keeps the parameters `a; b`.
+        const separated = /;/.test(text.replace(/\([^)]*\)|~[^~]*~/g, ""))
+          ? '. A ";" does not separate members: write each member on a line of its own.'
+          : "";
+        const member = separated === "" ? parseMember(text, memberLine, memberColumn) : null;
         if (member === null) {
-          // A `;` in a member Siren cannot read is most likely two members
-          // run together, which Mermaid 12.2.0 draws as one: `+int x; +foo()`
-          // is the single method `+int x; +foo()` (measured), so the error
-          // says how to write two (ADR-0001).
-          const separated = text.includes(";")
-            ? '. A ";" does not separate members: write each member on a line of its own.'
-            : "";
           diagnostics.push({
             severity: "error",
             message: `Unrecognized class member: "${text}"${separated}`,

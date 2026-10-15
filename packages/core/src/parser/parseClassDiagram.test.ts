@@ -1571,6 +1571,39 @@ describe("parseClassDiagram — a class block closed on a member's line", () => 
     }
   });
 
+  it("refuses a `;` between members even where the text reads as one member", () => {
+    // Measured: Mermaid draws `+foo(); +bar()` as the one method
+    // `+foo(); +bar()`, `+int x; int y` and `+int x; y` as one attribute
+    // each, and `+foo() int; x` as the method `+foo() : int; x` — in a
+    // one-line and a multi-line block alike, with no diagnostic. The author
+    // wrote two members, so each is refused (ADR-0001).
+    const separated = (text: string) =>
+      `Unrecognized class member: "${text}". A ";" does not separate members: write each member on a line of its own.`;
+    for (const [body, text, line] of [
+      ["  class A { +foo(); +bar() }", "+foo(); +bar()", 2],
+      ["  class A { +int x; int y }", "+int x; int y", 2],
+      ["  class A {\n    +int x; int y\n  }", "+int x; int y", 3],
+      ["  class A {\n    +int x; y\n  }", "+int x; y", 3],
+      ["  class A {\n    +foo() int; x }", "+foo() int; x", 3],
+    ] as const) {
+      const source = `classDiagram\n${body}`;
+      const column = source.split("\n")[line - 1]!.indexOf(text) + 1;
+      const { document, diagnostics } = parseClassDiagram(source);
+      expect([body, document]).toEqual([body, null]);
+      expect([body, diagnostics]).toEqual([body, [{ severity: "error", message: separated(text), line, column }]]);
+    }
+  });
+
+  it("still reads a `;` inside a method's parentheses or a `~generic~`", () => {
+    // Measured: Mermaid reads `+foo(a; b)` as the method foo with the
+    // parameters `a; b`, and `List~int; x~ y` as the attribute
+    // `List<int; x> y` — what was written, so nothing is refused.
+    expect(membersOf(classOk("  class A {\n    +foo(a; b)\n    List~int; x~ y\n  }"))).toEqual([
+      "+foo(a; b)",
+      "List~int; x~ y",
+    ]);
+  });
+
   it("reads a one-line block inside a namespace, and beside other statements", () => {
     const document = classOk("  namespace N {\n    class A { +int x }\n  }\n  class B { }\n  A <|-- B");
     expect(document.namespaces.map((n) => n.classIds)).toEqual([["A"]]);
