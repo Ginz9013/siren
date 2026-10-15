@@ -43,6 +43,16 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
 
 ### Added
 
+- A flowchart subgraph title of several words is read as Mermaid 12.2.0 reads it (nook
+  `01M4ZWT89B`): a quoted title with words after it (`subgraph "t" zz`) is the title `t zz`, and
+  an unquoted run (`subgraph S a & b`, `subgraph S a b c`) is the whole run, both under a generated
+  id, so the block has no handle of its own and a timeline reaches it by that generated id, as it
+  does any subgraph without one. An unquoted word may hold letters and digits in any script, the
+  punctuation `_&.!:?/#*+'$^\%-` and a backtick, the characters Mermaid reads there. Such a line
+  used to be refused.
+- A flowchart `direction LR` outside any subgraph is drawn as Mermaid 12.2.0 draws it, in the
+  header's direction, with a warning that the line does nothing and that the direction belongs on
+  the header (`flowchart LR`). It used to be refused.
 - A document may open with a Mermaid frontmatter (`---` … `---`), read as Mermaid 12.2.0 reads it,
   each rule measured with the probe: only at the very top, optionally indented, closed by the first
   `---` at the same indent, and parsed as YAML under the JSON schema (with `js-yaml`, now a
@@ -111,6 +121,15 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
   `01M4WS1P6`). ER used to refuse the block by name; a flowchart refused it.
 
 ### Changed
+
+- A flowchart subgraph title Siren cannot read is now refused with an error saying how to fix it,
+  instead of "Unrecognized flowchart line", and its `end` no longer reports a second error: words
+  after a bracketed title (`subgraph s1 ["t"] zz`, refused by Mermaid 12.2.0) are pointed at and
+  asked to move inside the brackets; a character an unquoted title cannot hold (`subgraph S a, b`,
+  also `(`, `[`, `{`, `|`, `<`, `=`, `~`, `@`, `--`, `-.`, `:::`, each refused by Mermaid) is
+  pointed at and the title asked to be quoted; and a title whose last word is `end`, which
+  Mermaid reads as the block's end and swallows the next line into the title, is asked to be
+  quoted (nook `01M4ZWT89B`).
 
 - **Diagnostic messages no longer mention Mermaid** (nook `01M4ZJZ3FT`). Each says what is wrong
   and how to fix it. Reworded: frontmatter that is not YAML is refused "until the frontmatter is

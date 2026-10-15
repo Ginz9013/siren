@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { parseFlowchart } from "./parseFlowchart";
 import { parseSiren } from "./parseSiren";
 import type { Diagnostic, DiagramParseResult, FlowchartDocument, SirenNode } from "../contracts";
-import { plainRun } from "../label/label";
+import { plainLabel, plainRun } from "../label/label";
 
 /**
  * Asserts a `parseFlowchart` call (or `parse`'s, when given) produced a
@@ -288,6 +288,134 @@ describe("a flowchart node id's alphabet", () => {
     expect(document.subgraphs).toEqual([expect.objectContaining({ name: "a.b", nodeIds: ["c.d"] })]);
     expect(document.interactions).toEqual([
       expect.objectContaining({ interactionKind: "href", targetId: "c.d" }),
+    ]);
+  });
+});
+
+/**
+ * A subgraph title written as more than one word, read the way Mermaid
+ * 12.2.0 reads it (measured with `scripts/mermaid-probe.mjs`): the whole
+ * run after `subgraph` is the title, and the block gets no handle of its
+ * own — Mermaid records it under a generated `subGraph0`.
+ */
+describe("a subgraph title written as more than one word", () => {
+  it("joins a quoted title and the words after it into one title, with no handle", () => {
+    const source = `flowchart TB
+  subgraph "t" zz
+    A
+  end`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs).toEqual([
+      expect.objectContaining({ name: null, label: plainLabel("t zz"), nodeIds: ["A"] }),
+    ]);
+  });
+
+  it.each(["S a & b", "S a b c", "S a. b! c?", "S 日本 語"])(
+    "reads `subgraph %s` as one title, the whole run, with no handle",
+    (title) => {
+      const source = `flowchart TB
+  subgraph ${title}
+    A
+  end`;
+
+      const { document, diagnostics } = parseOk(source);
+
+      expect(diagnostics).toEqual([]);
+      expect(document.subgraphs).toEqual([
+        expect.objectContaining({ name: null, label: plainLabel(title), nodeIds: ["A"] }),
+      ]);
+    },
+  );
+
+  it("refuses words after a bracketed title, at the words, saying to move them inside the brackets", () => {
+    // Measured: `subgraph s1 ["t"] zz` is "Expecting 'SEMI', 'NEWLINE', 'EOF', got 'SPACE'".
+    const { document, diagnostics } = parseFlowchart('flowchart TB\n  subgraph s1 ["t"] zz\n    A\n  end');
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'Text after a subgraph\'s bracketed title: "zz". A title in brackets ends the line; ' +
+          'move the text inside the brackets: subgraph s1["t zz"]',
+        line: 2,
+        column: 21,
+      },
+    ]);
+  });
+
+  // Measured: each is a parse error — `got 'COMMA'`, `'COMMA'`, `'LINK'`.
+  it.each([
+    ["S a, b. c!", ",", 15],
+    ['"t" a,b', ",", 17],
+    ["S a --> b", "--", 16],
+  ])("refuses `subgraph %s` at its %j, saying to quote the title", (tail, character, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  subgraph ${tail}\n    A\n  end`);
+
+    const title = tail.replaceAll('"', "");
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          `A subgraph title without quotes cannot hold "${character}". ` +
+          `Put the whole title in quotes: subgraph "${title}"`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  // Measured: Mermaid reads a last word `end` as the block's own end and
+  // swallows the next line into the title — `subgraph S a end` records the
+  // title "S a end\nA" and leaves `A` outside the frame, with no error.
+  it.each([
+    ["S a end", 16],
+    ['"t" end', 16],
+  ])("refuses `subgraph %s` at its last word `end`, saying to quote the title", (tail, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  subgraph ${tail}\n    A\n  end`);
+
+    const title = tail.replaceAll('"', "");
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'A subgraph title cannot end with the word "end", which closes the block. ' +
+          `Put the whole title in quotes: subgraph "${title}"`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+});
+
+/**
+ * `direction LR` outside any `subgraph` block. Measured: Mermaid 12.2.0
+ * accepts it on any line and ignores it — the recorded direction stays the
+ * header's (`TB`), whether the line comes first or last.
+ */
+describe("a direction written outside any subgraph", () => {
+  it.each([
+    ["first", "flowchart TB\n  direction LR\n  A --> B", 2],
+    ["last", "flowchart TB\n  A --> B\n  direction LR", 3],
+  ])("is drawn in the header's direction when it is the %s line, with a warning that it does nothing", (_, source, line) => {
+    const { document, diagnostics } = parseOk(source);
+
+    expect(document.direction).toBe("TB");
+    expect(document.edges).toHaveLength(1);
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message:
+          '"direction LR" outside a subgraph has no effect. ' +
+          "Set the diagram's direction on its first line instead: flowchart LR",
+        line,
+        column: 3,
+      },
     ]);
   });
 });

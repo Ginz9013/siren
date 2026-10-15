@@ -1643,8 +1643,26 @@ const SILENTLY_WRONG = 0;
  * at the `%%`. No `supported` row moved: no ER row had a mid-line `%%`.
  * `er-comment-mid-line-text`, new beside it, is `supported` and moves
  * nothing. `silently-wrong` does not move.
+ *
+ * **21 → 24: case (2), three refusals written down for the first time.**
+ * `01M4ZWT89B` read a flowchart subgraph title as Mermaid 12.2.0 does: a
+ * quoted title with words after it, or several unquoted words, is one
+ * title under a generated id. Two of the new rows are documents Mermaid
+ * refuses: `fc-subgraph-title-bracket-then-words` (words after a bracketed
+ * title, "got 'SPACE'") and `fc-subgraph-title-unquoted-comma` (a `,` in an
+ * unquoted title, "got 'COMMA'"). One is a document Mermaid accepts and
+ * draws as something other than what was written, refused under ADR-0001:
+ * `fc-subgraph-title-trailing-end`, whose last word `end` Mermaid reads as
+ * the block's end, swallowing the next line into the title. Siren refused
+ * all three before with a generic "Unrecognized flowchart line" and no row;
+ * it refuses each now with an error saying how to fix it. No `supported`
+ * row moved. The three rows new beside them,
+ * `fc-subgraph-title-quoted-then-words`, `fc-subgraph-title-bare-words` and
+ * `fc-direction-top-level` (a `direction` outside any subgraph, drawn in
+ * the header's direction with a warning), are `supported` and move
+ * nothing. `silently-wrong` does not move.
  */
-const REJECTED = 21;
+const REJECTED = 24;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

@@ -2759,6 +2759,111 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "fc-subgraph-title-quoted-then-words",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph "t" zz
+        A
+      end`,
+    status: "supported",
+    meaning:
+      "A quoted subgraph title with words after it is one title: Mermaid " +
+      "12.2.0 joins the two into `t zz` and gives the block a generated id " +
+      "(measured, `subGraph0`). Siren used to refuse the line.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]"]);
+      expectSame("t zz encloses A", encloses(subgraphBox(result, "t zz"), nodeBox(result, "A")), true);
+    },
+  },
+  {
+    id: "fc-subgraph-title-bare-words",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph S a & b
+        A
+      end`,
+    status: "supported",
+    meaning:
+      "An unquoted subgraph title of several words, punctuation among them, " +
+      "is one title, the whole run: Mermaid 12.2.0 records `S a & b` under a " +
+      "generated id (measured, `subGraph0`), so `S` is no handle. Siren used " +
+      "to refuse the line.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]"]);
+      expectSame("S a & b encloses A", encloses(subgraphBox(result, "S a & b"), nodeBox(result, "A")), true);
+    },
+  },
+  {
+    id: "fc-subgraph-title-bracket-then-words",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph s1 ["t"] zz
+        A
+      end`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A bracketed " +
+      "title ends the statement: Mermaid 12.2.0 refuses the words after it " +
+      "(\"Expecting 'SEMI', 'NEWLINE', 'EOF', got 'SPACE'\", measured). " +
+      "Siren refuses it too (ADR-0017), at the words, saying to move them " +
+      "inside the brackets.",
+  },
+  {
+    id: "fc-subgraph-title-unquoted-comma",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph S a, b. c!
+        A
+      end`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** An unquoted " +
+      "title cannot hold a `,`: Mermaid 12.2.0 refuses it (\"got 'COMMA'\", " +
+      "measured), as it does `(`, `[`, `{`, `|`, `<`, `=`, `~`, `@` and a " +
+      "`--`. Siren refuses it too (ADR-0017), at the `,`, saying to quote " +
+      "the title.",
+  },
+  {
+    id: "fc-subgraph-title-trailing-end",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph S a end
+        A
+      end`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A title's last " +
+      "word `end` is read as the block's own end: Mermaid 12.2.0 records the " +
+      "title `S a end\\nA` and leaves `A` outside the frame (measured), with " +
+      "no diagnostic. Siren refuses it (ADR-0001), at the `end`, saying to " +
+      "quote the title. An `end` anywhere else in a title is an ordinary " +
+      "word in both.",
+  },
+  {
+    id: "fc-direction-top-level",
+    kind: "flowchart",
+    source: `flowchart TB
+      direction LR
+      A --> B`,
+    status: "supported",
+    meaning:
+      "`direction LR` outside any subgraph is accepted and ignored: Mermaid " +
+      "12.2.0 keeps the header's `TB` (measured, whether the line comes " +
+      "first or last). Siren draws the same top-to-bottom picture and warns " +
+      "that the line does nothing. Siren used to refuse the line.",
+    warnings: [
+      '"direction LR" outside a subgraph has no effect. ' +
+        "Set the diagram's direction on its first line instead: flowchart LR",
+    ],
+    assert: (result) => {
+      expectSame("edges", edges(result), ["A-B"]);
+      const from = nodeCenter(result, "A");
+      const to = nodeCenter(result, "B");
+      expectSame("B is drawn below A", to.y > from.y, true);
+      expectSame("and in the same column", to.x === from.x, true);
+    },
+  },
+  {
     id: "fc-subgraph-edge",
     kind: "flowchart",
     source: `flowchart TB

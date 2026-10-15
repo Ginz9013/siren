@@ -1217,6 +1217,18 @@ function readSubgraphTitle(
       ...readLabelAt({ text: fenced[1], at: LABEL_FENCE.length }, { dialect: "html" }),
     };
   }
+  const quotedWithWords = QUOTED_TITLE_WITH_WORDS_RE.exec(tail);
+  if (quotedWithWords !== null && !endsWithEnd(tail)) {
+    // `subgraph "t" zz`: the quoted text and the words after it are one
+    // title, `t zz`, under no handle (measured, `subGraph0`).
+    return {
+      name: null,
+      ...readLabelAt(
+        { text: quotedWithWords[1] + quotedWithWords[2], at: LABEL_FENCE.length },
+        { dialect: "html" },
+      ),
+    };
+  }
   if (AUTHORED_ID_RE.test(tail)) {
     // A bare word is the handle and the title at once, and has no tag in it.
     return { name: tail, label: plainLabel(tail), problems: [] };
@@ -1225,7 +1237,81 @@ function readSubgraphTitle(
     // `subgraph S %% zz`: no handle at all, and the whole run is the title.
     return titleWithoutHandle(tail);
   }
+  if (BARE_TITLE_WORDS_RE.test(tail) && !endsWithEnd(tail)) {
+    // `subgraph S a & b`: several words are one title, the whole run, under
+    // no handle (measured, `subGraph0`).
+    return titleWithoutHandle(tail);
+  }
   return null;
+}
+
+/**
+ * `subgraph s1 ["t"] zz` — a bracketed title with more after it. Mermaid
+ * 12.2.0 refuses it (measured, "Expecting 'SEMI', 'NEWLINE', 'EOF', got
+ * 'SPACE'"): the bracket closes the statement.
+ */
+const SUBGRAPH_TITLED_THEN_MORE_RE = new RegExp(
+  String.raw`^(${ID_RUN})\s*\[(${LABEL_CONTENT})\]\s+(\S.*)$`,
+  "d",
+);
+
+/**
+ * Why a `subgraph` statement's tail that `readSubgraphTitle` cannot read is
+ * refused, and where in the tail to point — or `null` when the tail is
+ * nothing this can explain, left to the generic "Unrecognized" error.
+ */
+function refuseSubgraphTitle(tail: string): { message: string; offset: number } | null {
+  const titledThenMore = SUBGRAPH_TITLED_THEN_MORE_RE.exec(tail);
+  if (titledThenMore !== null) {
+    const [, name, content, more] = titledThenMore;
+    return {
+      message:
+        `Text after a subgraph's bracketed title: "${more}". A title in brackets ends the line; ` +
+        `move the text inside the brackets: subgraph ${name}["${labelSpan(content).text} ${more}"]`,
+      offset: titledThenMore.indices![3]![0],
+    };
+  }
+  if (!/\s/.test(tail)) {
+    return null;
+  }
+  // Past a leading quoted title, which holds anything: `"t" a,b` breaks at
+  // its `,`, not inside the quotes.
+  const wordsAt = LEADING_QUOTED_TITLE_RE.exec(tail)?.[0].length ?? 0;
+  const broken = TITLE_WORD_BREAK_RE.exec(tail.slice(wordsAt));
+  if (broken === null && endsWithEnd(tail)) {
+    return {
+      message:
+        `A subgraph title cannot end with the word "${SUBGRAPH_END}", which closes the block. ` +
+        `Put the whole title in quotes: subgraph "${tail.replaceAll(LABEL_FENCE, "")}"`,
+      offset: tail.lastIndexOf(SUBGRAPH_END),
+    };
+  }
+  // A `"` is no break Mermaid makes (`a"b` is text there), so no fix is
+  // offered for it here; the generic error stands.
+  if (broken === null || broken[0] === LABEL_FENCE) {
+    return null;
+  }
+  return {
+    message:
+      `A subgraph title without quotes cannot hold "${broken[0]}". ` +
+      `Put the whole title in quotes: subgraph "${tail.replaceAll(LABEL_FENCE, "")}"`,
+    offset: wordsAt + broken.index,
+  };
+}
+
+/** The quoted title a `QUOTED_TITLE_WITH_WORDS_RE` tail starts with. */
+const LEADING_QUOTED_TITLE_RE = /^"[^"]*"(?=\s)/;
+
+/**
+ * Whether a subgraph title's last word is `end`. Mermaid 12.2.0 reads that
+ * word as the block's own end, swallowing the next line into the title
+ * (measured: `subgraph S a end` records the title "S a end\nA" and leaves
+ * `A` outside the frame) — a picture nobody wrote, so no title Siren draws
+ * ends with it. An `end` anywhere else is an ordinary word (measured:
+ * `subgraph S end b` is the title "S end b").
+ */
+function endsWithEnd(tail: string): boolean {
+  return tail.split(/\s+/).at(-1) === SUBGRAPH_END;
 }
 
 /**
@@ -1251,6 +1337,47 @@ function titleWithoutHandle(text: string): { name: null } & ReadLabelResult {
  */
 const BARE_TITLE_WITH_PERCENTS_RE = new RegExp(String.raw`^${ID_RUN}\s+%%[\w%]*(?:\s+[\w%]+)*$`);
 
+/** The characters a `TITLE_WORD` is made of, as a character-class body. */
+const TITLE_WORD_CHARS = String.raw`\p{L}\p{N}_&.!:?/#*+'$^\\\x60%-`;
+
+/** The spellings no `TITLE_WORD` holds, though each is made of its characters. */
+const TITLE_WORD_BREAKS = String.raw`(?:--|-\.|:::)`;
+
+/**
+ * One word of a subgraph title written without quotes: the characters
+ * Mermaid 12.2.0's `textNoTags` reads into a title, measured one probe per
+ * character — letters and digits in any script, and `_ & . ! : ? / # * + '
+ * $ ^ \ \` % -`. Every other character is a parse error there (`,` `(` `)`
+ * `[` `]` `{` `|` `<` `>` `=` `~` `@`), and so are the link and class
+ * spellings `--`, `-.` and `:::` even inside a word (`got 'EDGE_TEXT'`,
+ * `'STYLE_SEPARATOR'`). A `"` inside a word is left out: Mermaid reads
+ * `a"b` as text, but a quote here is where this file's label fences start.
+ */
+const TITLE_WORD = String.raw`(?!\S*${TITLE_WORD_BREAKS})[${TITLE_WORD_CHARS}]+`;
+
+/**
+ * The first thing in a run of unquoted title words that no `TITLE_WORD`
+ * holds — what `refuseSubgraphTitle` points at.
+ */
+const TITLE_WORD_BREAK_RE = new RegExp(String.raw`${TITLE_WORD_BREAKS}|[^\s${TITLE_WORD_CHARS}]`, "u");
+
+/** One or more `TITLE_WORD`s, each after whitespace. */
+const TITLE_WORDS = String.raw`(?:\s+${TITLE_WORD})+`;
+
+/**
+ * `subgraph "t" zz` — a quoted title with words after it. Mermaid 12.2.0
+ * joins the two into one title, `t zz`, under a generated id (measured).
+ */
+const QUOTED_TITLE_WITH_WORDS_RE = new RegExp(String.raw`^"([^"]*)"(${TITLE_WORDS})$`, "u");
+
+/**
+ * `subgraph S a & b`, `subgraph S a b c` — a title of several words with no
+ * quotes. Mermaid 12.2.0 reads the whole run as the title and gives the
+ * block a generated id (measured, `subGraph0`): the first word is no handle
+ * once another word follows it.
+ */
+const BARE_TITLE_WORDS_RE = new RegExp(String.raw`^${TITLE_WORD}${TITLE_WORDS}$`, "u");
+
 /**
  * `direction LR` written inside a `subgraph` block — a per-cluster rank
  * direction, read onto that block alone.
@@ -1269,9 +1396,10 @@ const BARE_TITLE_WITH_PERCENTS_RE = new RegExp(String.raw`^${ID_RUN}\s+%%[\w%]*(
  * would only give the two a chance to drift.
  *
  * Scoped to *inside* a block on purpose. At the top level of a flowchart
- * mermaid 11.17.2 accepts `direction LR` and ignores it — the recorded
- * direction stays `TB`, measured — so there is nothing there for Siren to
- * read either, and it stays an unrecognized line.
+ * Mermaid 12.2.0 accepts `direction LR` on any line and ignores it — the
+ * recorded direction stays the header's, measured first line and last — so
+ * Siren draws the same picture and warns that the line does nothing, naming
+ * the header that would.
  */
 
 /** The window target mermaid 11.17.2's grammar accepts as an `href` interaction's fourth argument — see `LinkTarget`. */
@@ -1939,6 +2067,19 @@ export function parseFlowchart(source: string): DiagramParseResult {
           refusePercent();
           title = titleWithoutHandle(subgraphOpenMatch[1]);
         }
+        const refusal = title === null ? refuseSubgraphTitle(subgraphOpenMatch[1]) : null;
+        if (refusal !== null) {
+          // Refused, but still a block, as a `%%` above is: its `end` closes
+          // it, so the one mistake is reported once.
+          diagnostics.push({
+            severity: "error",
+            message: refusal.message,
+            line: lineNumber,
+            column: column + subgraphOpenMatch.indices![1]![0] + refusal.offset,
+          });
+          sawError = true;
+          title = titleWithoutHandle(subgraphOpenMatch[1]);
+        }
         if (title === null) {
           diagnostics.push({
             severity: "error",
@@ -1980,15 +2121,24 @@ export function parseFlowchart(source: string): DiagramParseResult {
         continue;
       }
 
-      if (openBlocks.length > 0) {
-        // Read up to a `%%`: Mermaid's direction token is
-        // `.*direction\s+LR[^\n]*`, so whatever trails it on the line is
-        // taken with it (measured, `direction LR %% x` is `dir: "LR"`).
-        const blockDirection = matchClassDirection(beforePercent);
-        if (blockDirection !== null) {
+      // Read up to a `%%`: Mermaid's direction token is
+      // `.*direction\s+LR[^\n]*`, so whatever trails it on the line is
+      // taken with it (measured, `direction LR %% x` is `dir: "LR"`).
+      const blockDirection = matchClassDirection(beforePercent);
+      if (blockDirection !== null) {
+        if (openBlocks.length > 0) {
           openBlocks[openBlocks.length - 1].subgraph.direction = blockDirection;
-          continue;
+        } else {
+          diagnostics.push({
+            severity: "warning",
+            message:
+              `"${beforePercent}" outside a subgraph has no effect. ` +
+              `Set the diagram's direction on its first line instead: flowchart ${blockDirection}`,
+            line: lineNumber,
+            column,
+          });
         }
+        continue;
       }
 
       // A `%%` after a complete statement, with no text around it to belong
