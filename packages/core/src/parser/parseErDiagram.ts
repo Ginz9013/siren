@@ -1258,12 +1258,36 @@ interface ErLineRefusal {
   /** Where the refused construct stands, when that is not where the line starts. */
   at?: SourcePosition;
   /**
-   * Whether an attribute block was still open where the reader stopped,
-   * when it knows — so a block the line closed before its refused `%%`
-   * (`} %% x`) is not reported unclosed as well.
+   * What the line still does to the blocks around it, when the reader
+   * knows; absent, it changes nothing.
    */
-  blockOpen?: boolean;
+  blockEffect?: RefusedLineBlockEffect;
 }
+
+/**
+ * What a refused line still does to the block structure, so the lines after
+ * it are read as the block they stand in — neither refused a second time as
+ * lines nor reported unclosed. Applied in one place, `applyBlockEffect` in
+ * `parseErDiagram`.
+ *
+ * - `attribute-block-open` — the reader stopped inside an attribute block
+ *   (`A { %% x`): its lines up to the `}` are still the block's, read as
+ *   attributes of an entity no document will hold.
+ * - `attribute-block-closed` — the reader stopped outside every attribute
+ *   block, so a block the line closed before its `%%` (`} %% x`) is closed.
+ * - `subgraph-opened` — a refused `subgraph` header: the block is opened
+ *   unnamed and in no document, so its body and its `end` are a block's.
+ */
+type RefusedLineBlockEffect =
+  | { kind: "attribute-block-open" }
+  | { kind: "attribute-block-closed" }
+  | { kind: "subgraph-opened" };
+
+/** `at` moved `offset` columns along its line. */
+const columnsAfter = (at: SourcePosition, offset: number): SourcePosition => ({
+  line: at.line,
+  column: at.column + offset,
+});
 
 /**
  * The refusal for a `%%` at `at` that no rule of Mermaid 12.2.0's ER lexer
@@ -1272,15 +1296,18 @@ interface ErLineRefusal {
  * rule, and no production takes that token, so the document is refused at
  * the `%%` ("got '%'"). CONTEXT.md's **Comment**: it is not a comment.
  */
-const midLinePercentRefusal = (at: SourcePosition, blockOpen: boolean): ErLineRefusal => ({
+const midLinePercentRefusal = (at: SourcePosition, insideAttributeBlock: boolean): ErLineRefusal => ({
   refusal: MID_LINE_PERCENT_MESSAGE,
   at,
-  blockOpen,
+  blockEffect: { kind: insideAttributeBlock ? "attribute-block-open" : "attribute-block-closed" },
 });
+
+/** Where the first `%%` in `text` stands, `text` beginning at `at`. */
+const firstPercentIn = (text: string, at: SourcePosition): SourcePosition => columnsAfter(at, text.indexOf("%%"));
 
 /** `midLinePercentRefusal` at the first `%%` in `text`, which begins at `at`, outside every block. */
 const midLinePercentAt = (text: string, at: SourcePosition): ErLineRefusal =>
-  midLinePercentRefusal({ line: at.line, column: at.column + text.indexOf("%%") }, false);
+  midLinePercentRefusal(firstPercentIn(text, at), false);
 
 /**
  * Everything `line` declares, given the block it began inside — or `null`
@@ -1382,8 +1409,7 @@ function readLine(
         return CONTINUES;
       }
       if ("percentAt" in read) {
-        const at = restAt();
-        return midLinePercentRefusal({ line: at.line, column: at.column + read.percentAt }, true);
+        return midLinePercentRefusal(columnsAfter(restAt(), read.percentAt), true);
       }
       appends.push({ entity: open, attributes: read.attributes });
       rest = rest.slice(read.length).trimStart();
@@ -2114,6 +2140,37 @@ export function parseErDiagram(source: string): DiagramParseResult {
    */
   let blockOpenedAt: { line: string; lineNumber: number; column: number }[] = [];
   /**
+   * What a refused line (written `line`, on line `lineNumber` from `column`)
+   * still does to the blocks around it — `RefusedLineBlockEffect`. Absent,
+   * the reader did not know, and nothing changes.
+   */
+  const applyBlockEffect = (
+    effect: RefusedLineBlockEffect | undefined,
+    line: string,
+    lineNumber: number,
+    column: number,
+  ): void => {
+    switch (effect?.kind) {
+      case "attribute-block-open":
+        // A line that began inside a block is still inside that one.
+        if (openEntity === null) {
+          openEntity = { name: "", alias: null, attributes: [] };
+          openedAt = { line, lineNumber, column };
+        }
+        return;
+      case "attribute-block-closed":
+        openEntity = null;
+        openedAt = null;
+        return;
+      case "subgraph-opened":
+        openBlocks.push({ name: "", label: plainLabel(""), direction: null, entityNames: [], subgraphs: [] });
+        blockOpenedAt.push({ line, lineNumber, column });
+        return;
+      case undefined:
+        return;
+    }
+  };
+  /**
    * Every block's name and the header that wrote it, in source order — kept
    * for the one refusal below that cannot be a line pattern, because what
    * is wrong with the line is somewhere else in the document.
@@ -2326,10 +2383,7 @@ export function parseErDiagram(source: string): DiagramParseResult {
           ...reading?.at,
         });
         sawError = true;
-        if (reading?.blockOpen === false) {
-          openEntity = null;
-          openedAt = null;
-        }
+        applyBlockEffect(reading?.blockEffect, line, lineNumber, column);
         continue;
       }
       take(reading, lineNumber, column, line);
@@ -2403,9 +2457,9 @@ export function parseErDiagram(source: string): DiagramParseResult {
     // and in no document, so its body and its `end` are read as a block's
     // rather than refused again.
     if (!continuing && /^subgraph\b/iu.test(line) && line.includes("%%")) {
-      report([midLinePercentError(lineNumber, column + line.indexOf("%%"))]);
-      openBlocks.push({ name: "", label: plainLabel(""), direction: null, entityNames: [], subgraphs: [] });
-      blockOpenedAt.push({ line, lineNumber, column });
+      const percent = firstPercentIn(line, { line: lineNumber, column });
+      report([midLinePercentError(percent.line, percent.column)]);
+      applyBlockEffect({ kind: "subgraph-opened" }, line, lineNumber, column);
       continue;
     }
 
@@ -2529,13 +2583,8 @@ export function parseErDiagram(source: string): DiagramParseResult {
       continue;
     }
 
-    // A line refused inside the block it opened (`A { %% x`): its lines up
-    // to the `}` are still the block's, read as attributes of an entity no
-    // document will hold, so they are not refused a second time as lines.
-    if (reading?.blockOpen === true) {
-      openEntity = { name: "", alias: null, attributes: [] };
-      openedAt = { line, lineNumber, column };
-    }
+    // A line refused inside the block it opened (`A { %% x`) still opens it.
+    applyBlockEffect(reading?.blockEffect, line, lineNumber, column);
 
     // Read last, so nothing here can shadow a construct this parser does
     // implement: a line only reaches the table once every working pattern

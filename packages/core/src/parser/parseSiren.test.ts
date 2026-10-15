@@ -2806,10 +2806,10 @@ describe("the header spellings the dispatcher teaches", () => {
 /**
  * Mermaid's order of work before any parser reads a line (11.17.2): its
  * `cleanupComments` removes only whole-line `%%` comments, then its
- * `encodeEntities` drops a style line's last `;` — so a `;` in an
- * end-of-line comment is still on the line when that rule picks one.
+ * `encodeEntities` drops a style line's last `;` — so a `;` after a
+ * mid-line `%%` is still on the line when that rule picks one.
  */
-describe("the style-line `;` and an end-of-line comment", () => {
+describe("the style-line `;` and a mid-line `%%`", () => {
   it("drops the comment's `;`, leaving the label's color a code", () => {
     // Measured (`--html`): `state "<span style='color:#f00;'>r</span>" as A %% x;`
     // draws `<span style="color:&amp;f00;">r</span>` — uncolored.

@@ -182,7 +182,7 @@ const SELF_TEST_CASES = [
     expected: '%%{init: {\n  "theme": "dark"\ntimeline:\n}}%%\nflowchart TB\n  A --> B\n',
   },
   {
-    name: "an end-of-line comment after a header does not stop it opening a block",
+    name: "a %% after a header does not stop it opening a block",
     source: "flowchart TB\n  A --> B\ntimeline: %% steps\n  enter A fade\n",
     expected: "flowchart TB\n  A --> B\n",
   },
