@@ -196,7 +196,7 @@ describe("buildSequenceModel", () => {
     expect(diagnostics).toEqual([]);
   });
 
-  it("creates a participant first named by a destroy, whose lifeline that `destroy` alone, with no message after it, does not end", () => {
+  it("creates no participant for an id only a destroy names, keeping the destroy statement and warning that it draws nothing", () => {
     const document: SequenceDocument = {
       kind: "sequence",
       title: null,
@@ -215,7 +215,7 @@ describe("buildSequenceModel", () => {
     const { model, diagnostics } = buildSequenceModel(document);
 
     expect(model.statements.some((s) => s.kind === "destroy")).toBe(true);
-    expect(model.participants.find((p) => p.id === "does-not-exist")?.destroyedAt).toBeNull();
+    expect(model.participants.map((p) => p.id)).toEqual(["A"]);
     expect(diagnostics.map((d) => d.severity)).toEqual(["warning"]);
   });
 
@@ -1861,6 +1861,76 @@ describe("buildSequenceModel", () => {
       expect(result.diagnostics).toEqual([
         'warning 5:3: The destroyed participant "B" has no destroying message, so the destroy draws nothing: its lifeline runs to the bottom. A message sent by or to it right after the destroy ends it there.',
         'warning 6:1: The created participant "C" has no creating message, so the create draws nothing: its lifeline starts at the top. A message sent to it right after the create starts it there.',
+      ]);
+      expect(result.diagnostics.join("\n")).not.toMatch(/mermaid/i);
+    });
+  });
+
+  describe("a `destroy` naming a participant nothing else has named yet (ADR-0013 amendment)", () => {
+    // Measured on Mermaid 12.2.0: `destroy Z` records a pending destroy and
+    // nothing else; it does not add Z to the actors. Z gets a lane only from
+    // a statement that does name it — typically its destroying message.
+    it("gives Z no lane when nothing but its `destroy` names it, at the end or inside a block", () => {
+      const atEnd = build("A->>B: hi\ndestroy Z");
+      expect(atEnd.lanes).toEqual(["A", "B"]);
+
+      const inBlock = build("A->>B: hi\nloop again\ndestroy Z\nend");
+      expect(inBlock.lanes).toEqual(["A", "B"]);
+    });
+
+    it("places Z's lane where its destroying message first names it, and ends Z on that message", () => {
+      // Measured on Mermaid 12.2.0 (layout-stubbed render): `A->>B`,
+      // `destroy Z`, `C-xZ` draws lanes A, B, C, Z — C before Z, the order
+      // the message names them in — with Z's lifeline ending on `C-xZ`.
+      // Positions: 1 A->>B, 2 destroy Z, 3 C-xZ.
+      const result = build("A->>B: hi\ndestroy Z\nC-xZ: bye");
+
+      expect(result.diagnostics).toEqual([]);
+      expect(result.lanes).toEqual(["A", "B", "C", "Z"]);
+      expect(result.destroyedAt).toEqual({ A: null, B: null, C: null, Z: 3 });
+      const messages = result.model.statements.flatMap((s) => (s.kind === "message" ? [s.message] : []));
+      expect(messages.map((m) => [m.id, m.destroys ?? null])).toEqual([
+        ["A-B", null],
+        ["C-Z", "Z"],
+      ]);
+    });
+
+    it("refuses a `destroy Z` whose next message does not touch Z, and still gives Z no lane", () => {
+      // Mermaid 12.2.0 refuses the document ("The destroyed participant …
+      // does not have an associated destroying message").
+      const result = build("A->>B: hi\ndestroy Z\nA->>B: again");
+
+      expect(result.diagnostics).toEqual([
+        'error 3:1: The destroyed participant "Z" has no destroying message: the next message must be sent by or to it.',
+      ]);
+      expect(result.lanes).toEqual(["A", "B"]);
+    });
+
+    it("lets `create participant Z` follow `destroy Z`, since the `destroy` did not name Z, refusing the interrupted `destroy`", () => {
+      // Measured on Mermaid 12.2.0 (layout-stubbed render): `destroy Z`,
+      // `create participant Z`, `A->>Z` is accepted — Mermaid's "actors with
+      // the same id" check finds no Z — and draws Z created on `A->>Z`, never
+      // destroyed. The `destroy` is interrupted by the `create`, so Siren
+      // refuses it as it refuses any interrupted declaration.
+      // Positions: 1 A->>B, 2 destroy Z, 3 create Z, 4 A->>Z.
+      const result = build("A->>B: hi\ndestroy Z\ncreate participant Z\nA->>Z: new");
+
+      expect(result.diagnostics).toEqual([
+        'error 3:1: The destroyed participant "Z" has no destroying message: the message sent by or to it must come right after the destroy, with no "create" in between.',
+      ]);
+      expect(result.lanes).toEqual(["A", "B", "Z"]);
+      expect(result.model.participants.find((p) => p.id === "Z")).toMatchObject({
+        origin: "created",
+        createdAt: 4,
+        destroyedAt: null,
+      });
+    });
+
+    it("warns that a `destroy` with no message after it draws nothing, saying Z has no lane when nothing else names it", () => {
+      const result = build("A->>B: hi\n  destroy Z");
+
+      expect(result.diagnostics).toEqual([
+        'warning 3:3: The destroyed participant "Z" has no destroying message, so the destroy draws nothing: no other statement names "Z", so it has no lane. A message sent by or to it right after the destroy draws its lane and ends it there.',
       ]);
       expect(result.diagnostics.join("\n")).not.toMatch(/mermaid/i);
     });

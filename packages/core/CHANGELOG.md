@@ -288,6 +288,16 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
   move with it; created after nothing but declarations, it stays put, as in Mermaid. A `create`
   with no message after it is still laid out as a declaration, without that offset.
 
+- **A sequence `destroy` no longer creates the participant it names** (nook `01M4Z7TRT0`,
+  ADR-0013 amended). Every other reference still creates an undeclared participant on first
+  mention, but `destroy Z`, as in Mermaid 12.2.0, does not: a `Z` that nothing else names gets no
+  lane, where it used to get one ending at the `destroy`, and the warning for the unpaired `destroy`
+  now says `Z` has no lane. When the destroying message is the first statement to name `Z`, `Z`'s
+  lane is placed where that message names it, so `A->>B`, `destroy Z`, `C-xZ` draws lanes A, B, C,
+  Z, where it used to draw A, B, Z, C; Z still ends on `C-xZ`. A `create participant Z` after
+  `destroy Z` is no longer refused as naming `Z` a second time; the `destroy`, interrupted by the
+  `create`, is refused instead, and `Z` is drawn created and never destroyed, as Mermaid draws it.
+
 ### Fixed
 
 - An init directive spread over several lines no longer breaks the document. It used to be

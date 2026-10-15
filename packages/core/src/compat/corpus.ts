@@ -4979,6 +4979,48 @@ line2\`"]`,
     },
   },
   {
+    id: "seq-destroy-never-named",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: hi
+      destroy Z`,
+    status: "supported",
+    warnings: [
+      'The destroyed participant "Z" has no destroying message, so the destroy draws nothing: no other statement names "Z", so it has no lane. A message sent by or to it right after the destroy draws its lane and ends it there.',
+    ],
+    meaning:
+      "`destroy Z` where nothing else names Z. A `destroy` is not a mention " +
+      "(ADR-0013's amendment): measured on 12.2.0, Mermaid records the " +
+      "pending destroy and adds no actor, so it draws A and B only, and the " +
+      "same with the `destroy` inside a block. Siren draws no lane for Z " +
+      "and warns that the `destroy` draws nothing.",
+    assert: (result) => {
+      expectSame("participants", participants(result), ["A", "B"]);
+      expectSame("lanes", laneOrder(result), ["A", "B"]);
+      expectSame("no destroy mark was drawn", drew(result, "path.siren-destroy-mark"), false);
+    },
+  },
+  {
+    id: "seq-destroy-named-by-destroying-message",
+    kind: "sequence",
+    source: `sequenceDiagram
+      A->>B: hi
+      destroy Z
+      C-xZ: bye`,
+    status: "supported",
+    meaning:
+      "`destroy Z` names Z before anything else does; its destroying " +
+      "message `C-xZ` is the first statement to name it. Measured on " +
+      "12.2.0 (layout-stubbed render): lanes A, B, C, Z — C before Z, in " +
+      "the order the message names them, not Z at the `destroy` — with Z's " +
+      "lifeline ending on `C-xZ`'s row and no shift of Z's lane. Siren " +
+      "draws the same lanes and Z's X on the arrow's tip.",
+    assert: (result) => {
+      expectSame("lanes", laneOrder(result), ["A", "B", "C", "Z"]);
+      expectSame("Z ends on its destroying message's tip", lifelineEnd(result, "Z"), "tip of C-Z, lifeline stops there");
+    },
+  },
+  {
     id: "seq-autonumber",
     kind: "sequence",
     source: `sequenceDiagram

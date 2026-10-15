@@ -698,9 +698,10 @@ does not matter: an edge into the group counts the same as one out of it)
 **Participant**:
 One vertical lane in a sequence diagram, declared as `participant X` (drawn as a box) or
 `actor X` (drawn as a stick figure), or created implicitly, as a box labelled with its id, by the
-first message, note, `activate`, `deactivate` or `destroy` that names it. Lanes order left to
-right by first mention, declaration or reference alike; a declaration after the first mention
-gives the lane its label and kind without moving it (see
+first message, note, `activate` or `deactivate` that names it. A `destroy` is not a mention: it
+creates nothing, so a participant only a `destroy` names has no lane. Lanes order left to right by
+first mention, declaration or reference alike; a declaration after the first mention gives the
+lane its label and kind without moving it (see
 [ADR-0013](docs/adr/0013-sequence-participants-are-created-on-first-mention.md)).
 _Avoid_: actor (that is one of the two shapes a participant takes, not a synonym), lane, column,
 node

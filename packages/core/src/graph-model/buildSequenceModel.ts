@@ -142,7 +142,13 @@ type InterruptingKeyword =
  */
 interface PendingDeclaration {
   kind: "create" | "destroy";
-  participant: ResolvedSequenceParticipant;
+  /**
+   * The participant the declaration is about. A `destroy` can name an id no
+   * statement has named yet, which has no participant until a later
+   * statement — its destroying message, usually — names it (ADR-0013's
+   * amendment), so the id is kept rather than the participant.
+   */
+  participantId: string;
   statement: SequenceStatement;
   /**
    * The first record written between the declaration and the next message,
@@ -204,19 +210,22 @@ function interrupt(state: ResolutionState, keyword: InterruptingKeyword): void {
  * `position` and the participant's id is returned, for the message to carry
  * as its `creates`/`destroys` mark. Otherwise `refusal` is reported as an
  * error at the declaration's line and `null` is returned: the extent stays
- * where the declaration is written.
+ * where the declaration is written — and a `destroy` of a participant
+ * nothing had named yet ends nothing, since there was no lane to end.
  */
 function settle(
   pending: PendingDeclaration,
+  participant: ResolvedSequenceParticipant | undefined,
   pairs: boolean,
   extent: "createdAt" | "destroyedAt",
   position: number,
   refusal: string,
   diagnostics: Diagnostic[],
 ): string | null {
+  // A message that pairs names the participant, so it exists by now.
   if (pairs) {
-    pending.participant[extent] = position;
-    return pending.participant.id;
+    participant![extent] = position;
+    return participant!.id;
   }
   diagnostics.push({
     severity: "error",
@@ -238,20 +247,31 @@ function settle(
  * trace of it, so Siren lays the lane out as a declared one, without that
  * shift (corpus row `seq-create-at-end`).
  */
-function unpair(declaration: PendingDeclaration, diagnostics: Diagnostic[]): void {
-  const { kind, participant, statement } = declaration;
+function unpair(
+  declaration: PendingDeclaration,
+  participantsById: Map<string, ResolvedSequenceParticipant>,
+  diagnostics: Diagnostic[],
+): void {
+  const { kind, participantId, statement } = declaration;
+  const participant = participantsById.get(participantId);
   const rule = DECLARATION_RULES[kind];
-  if (kind === "destroy") {
+  // Only a `destroy` can name a participant that does not exist: one no
+  // other statement names, so there is no lane to say anything about.
+  const unpaired =
+    participant === undefined
+      ? `no other statement names "${participantId}", so it has no lane. A message sent by or to it right after the destroy draws its lane and ends it there.`
+      : rule.unpaired;
+  if (participant !== undefined && kind === "destroy") {
     participant.destroyedAt = null;
-  } else {
+  } else if (participant !== undefined) {
     participant.origin = "declared";
     participant.createdAt = 0;
   }
   diagnostics.push({
     severity: "warning",
     message:
-      `The ${rule.participant} participant "${participant.id}" has no ${rule.message} message, ` +
-      `so the ${kind} draws nothing: ${rule.unpaired}`,
+      `The ${rule.participant} participant "${participantId}" has no ${rule.message} message, ` +
+      `so the ${kind} draws nothing: ${unpaired}`,
     line: statement.line,
     column: statement.column,
   });
@@ -306,7 +326,7 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
 
   const { statements } = resolveStatements(document.statements, participantsById, state);
   flushLinkMentions(Infinity, participantsById, state);
-  for (const declaration of state.pending) unpair(declaration, diagnostics);
+  for (const declaration of state.pending) unpair(declaration, participantsById, diagnostics);
 
   // A `link` targets a participant, not a message or a block — the same
   // narrower set `click`/`callback` resolve against on the other two kinds.
@@ -497,14 +517,21 @@ function resolveStatements(
       // `create` or `destroy` still waiting (`ResolutionState.pending`).
       if (statement.origin === "created") {
         interrupt(state, "create");
-        state.pending.push({ kind: "create", participant: participant!, statement, interruptedBy: null });
+        state.pending.push({ kind: "create", participantId: statement.id, statement, interruptedBy: null });
       }
       resolved.push({ kind: "participant", participant: participant! });
       continue;
     }
 
     if (statement.kind === "destroy") {
-      mention(statement.id, participantsById, state);
+      // `destroy` is not a mention (ADR-0013's amendment): measured on
+      // Mermaid 12.2.0, `destroy Z` with Z named nowhere else draws no lane
+      // for Z, and a destroying message that names Z places Z's lane where
+      // that message does. So a participant nothing has named yet is not
+      // created here, and has no lane yet for this `destroy` to end: it is
+      // undefined here even when a later statement declares it, as
+      // `destroy Z`, `create participant Z`, `A->>Z` creates Z in Mermaid.
+      //
       // A lifeline can only end once: a second `destroy` has no truncation
       // point left to name, so it is an error and is dropped, keeping the
       // first one's extent. A `destroy` still waiting for its message has
@@ -513,11 +540,11 @@ function resolveStatements(
       // `A-xB` ends B on `A-xB` exactly as one `destroy B` does, since
       // Mermaid keeps one pending destroy per participant. The earlier one
       // is dropped from `pending`, and with it whatever interrupted it.
-      const participant = participantsById.get(statement.id)!;
-      const waiting = state.pending.findIndex((p) => p.kind === "destroy" && p.participant === participant);
+      const participant = state.mentionedSoFar.has(statement.id) ? participantsById.get(statement.id) : undefined;
+      const waiting = state.pending.findIndex((p) => p.kind === "destroy" && p.participantId === statement.id);
       if (waiting !== -1) {
         state.pending.splice(waiting, 1);
-      } else if (participant.destroyedAt !== null) {
+      } else if (participant !== undefined && participant.destroyedAt !== null) {
         state.diagnostics.push({
           severity: "error",
           message: `destroy references participant "${statement.id}", whose lifeline already ended`,
@@ -532,12 +559,13 @@ function resolveStatements(
       // sends or receives it (the destroying message, below), or keeps it
       // here when that message is refused; with no message after it at all,
       // `unpair` takes the end away again once the walk is over.
-      participant.destroyedAt = ++state.position;
+      const position = ++state.position;
+      if (participant !== undefined) participant.destroyedAt = position;
       // It interrupts any `create` or `destroy` still waiting: measured on
       // Mermaid 12.2.0, `destroy B`, `destroy C`, `A-xC` ends C on `A-xC`
       // and draws B as if it were never destroyed (nook 01M4YS7DV8).
       interrupt(state, "destroy");
-      state.pending.push({ kind: "destroy", participant, statement, interruptedBy: null });
+      state.pending.push({ kind: "destroy", participantId: statement.id, statement, interruptedBy: null });
       resolved.push({ kind: "destroy", id: statement.id });
       continue;
     }
@@ -602,7 +630,7 @@ function resolveStatements(
       const settledHere: Record<PendingDeclaration["kind"], string | null> = { create: null, destroy: null };
       for (const declaration of state.pending) {
         const rule = DECLARATION_RULES[declaration.kind];
-        const { id: declaredId } = declaration.participant;
+        const { participantId: declaredId } = declaration;
         const { interruptedBy } = declaration;
         const refusal =
           `The ${rule.participant} participant "${declaredId}" has no ${rule.message} message: ` +
@@ -611,6 +639,7 @@ function resolveStatements(
             : `the message ${rule.addressee} must come right after the ${declaration.kind}, with no "${interruptedBy}" in between.`);
         settledHere[declaration.kind] = settle(
           declaration,
+          participantsById.get(declaredId),
           interruptedBy === null && rule.pairs(statement, declaredId),
           rule.extent,
           position,
