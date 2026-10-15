@@ -130,6 +130,9 @@ describe("a bracket character inside an unquoted node label", () => {
     ["A[a]b]", "]", 6, 'A["a]b"]'],
     ["A{a}b}", "}", 6, 'A{"a}b"}'],
     ["A((a(b))", "(", 7, 'A(("a(b"))'],
+    // Measured: "got 'DIAMOND_START'" — an `@{` inside a label is a brace
+    // there, not the `@{ … }` node syntax.
+    ["A{a@{b}}", "{", 7, 'A{"a@{b}"}'],
   ])("refuses %s at the bracket, saying to quote the label", (written, char, column, fixed) => {
     const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
 
@@ -201,6 +204,9 @@ describe("a bracket character inside an unquoted node label", () => {
     ["A[/f(x)/]", "parallelogram"],
     ["A{f(x)}", "rhombus"],
     ["A{{f(x)}}", "hexagon"],
+    // A cylinder is a `[`-family spelling too; this used to be drawn as the
+    // rect `(f(x))`, a shape nobody wrote.
+    ["A[(f(x))]", "cylinder"],
   ])("still draws %s, whose parentheses pair up", (written, shape) => {
     const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
 
@@ -225,6 +231,21 @@ describe("a bracket character inside an unquoted node label", () => {
       },
     ]);
   });
+
+  it.each([["A[x] B[y]"], ["A{x} B{y}"], ["A[x] B[y] --> C"]])(
+    "offers no quoting fix for %s, which would merge two nodes into one label",
+    (written) => {
+      // Measured: Mermaid 12.2.0 refuses `A[x] B[y]` ("got 'NODE_STRING'"):
+      // the first `]` ends `A`'s label, so `B[y]` is a second node written
+      // where none may stand, not text of the first.
+      const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        { severity: "error", message: `Unrecognized flowchart line: "${written}"`, line: 2, column: 3 },
+      ]);
+    },
+  );
 });
 
 /**
@@ -267,6 +288,10 @@ describe("an edge written with an id", () => {
     ["A e1@-->|yes| B", "e1", 5, "A -->|yes| B"],
     ["A e1@--> B e2@--> C", "e1", 5, "A --> B --> C"],
     ["A & C e1@==> B", "e1", 9, "A & C ==> B"],
+    // Measured: both labels are valid Mermaid, `p q@-->r` and `x y@-z`; a
+    // label's text is no edge id, and the fix leaves it as written.
+    ['A["p q@-->r"] e1@--> B', "e1", 17, 'A["p q@-->r"] --> B'],
+    ["A[x y@-z] e1@--> B", "e1", 13, "A[x y@-z] --> B"],
   ])("refuses %s at the id, saying to leave it out", (written, id, column, fixed) => {
     const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
 
@@ -278,6 +303,16 @@ describe("an edge written with an id", () => {
         line: 2,
         column,
       },
+    ]);
+  });
+
+  it("takes no edge id from a label's text, so a later `@{ … }` on that word is a node's", () => {
+    const { diagnostics } = parseFlowchart("flowchart TB\n  A[x y@-z] e1@--> B\n  y@{ shape: rect }");
+
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Siren does not support edge ids ("e1@") yet. Leave the id out: A[x y@-z] --> B',
+      'Siren does not support the "@{ … }" node syntax yet. ' +
+        "Write the shape with brackets instead, such as y[text], y((text)) or y{text}",
     ]);
   });
 

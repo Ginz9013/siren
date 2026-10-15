@@ -162,13 +162,17 @@ between), which is now refused (see **Changed**).
   `A{a)b}`, `A[a (b) (c]`), used to be drawn; each is now an error at the bracket asking to quote
   the label (`A["a}b"]`), on a line of its own or at an edge endpoint. `A[(a)b)]` used to be drawn
   as the rect `(a)b)`. A balanced pair of parentheses outside a round shape (`A[f(x)]`, `A{f(x)}`)
-  is still drawn, a recorded divergence (nook `01M4R3RVV`). A label that was already refused
-  (`A[a]b]`, `A(a)b)`, `A{{a}b}}`) now gets the same error instead of "Unrecognized flowchart line".
+  is still drawn, a recorded divergence (nook `01M4R3RVV`), and so is one inside a cylinder:
+  `A[(f(x))]` is the cylinder `f(x)`, where it used to be drawn as the rect `(f(x))`. A label that
+  was already refused (`A[a]b]`, `A(a)b)`, `A{{a}b}}`, `A{a@{b}}`) now gets the same error instead
+  of "Unrecognized flowchart line". Two nodes written side by side (`A[x] B[y]`) are offered no
+  quoting fix, since quoting would merge them; they keep the generic error.
 - A flowchart refusal that used to read "Unrecognized flowchart line" now says what Siren does not
   support yet and what to write instead (nook `01M4ZWT8G2`): a node's `@{ … }` data
   (`A@{ shape: rect }`, on a line of its own or at either end of an edge) is pointed at its `@` and
   asked to write the shape with brackets (`A[text]`, `A((text))`, `A{text}`); an edge id
-  (`A e1@--> B`) is pointed at and asked to be left out, with the line rewritten without it; and an
+  (`A e1@--> B`) is pointed at and asked to be left out, with the line rewritten without it (a
+  label's own text, such as `A["p q@-->r"]`, is left as written); and an
   `@{ … }` on an id an edge was given (`e1@{ animate: true }`) is asked to be left out.
 - A flowchart `style`, `classDef` or `linkStyle` declaration with no `:` (`linkStyle 0 zz`,
   `linkStyle 0 interpolate basis zz`) is still refused, now saying how a declaration is written

@@ -460,8 +460,9 @@ timeline:
   });
 
   it("reads `A{{text}}` as a hexagon, not as a diamond labelled `{text}`", () => {
-    // Ticket 01 excluded `{` from `BRACE_LABEL_CONTENT` precisely so this
-    // spelling could not be swallowed as a rhombus labelled `{Hexagon}`.
+    // Ticket 01 excluded `{` from the brace label content (now
+    // `LABEL_CONTENT`) so this spelling could not be swallowed as a rhombus
+    // labelled `{Hexagon}`.
     // Now that a hexagon is drawn, the exclusion earns its keep the other
     // way round: it is what lets the two brace spellings be told apart at
     // all, since `\{…\}` can never reach across an inner brace.
