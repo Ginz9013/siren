@@ -1317,10 +1317,15 @@ const midLinePercentRefusal = (at: SourcePosition, insideAttributeBlock: boolean
  * takes a `WORD`, so even one `%` in a name or an alias refuses the document
  * (measured: `A["50% off"]`, `"A % b"`, `A ||--o{ "B % c" : r`, "got
  * 'WORD'"). Siren drew each until 01M4ZWT94S; it refuses them now (ADR-0017).
+ * A `%%` there is the same `WORD` (`A["50%% off"]`, `"A %% b"`, measured) —
+ * inside quotes it is no comment — so it gets this error, at its first `%`,
+ * rather than the mid-line `%%` refusal and its advice to move a comment.
+ * A subgraph header's quoted name or title is the same `WORD` (`subgraph
+ * "s % t"`, `subgraph s1["t % u"]`, measured), so it passes its own `what`.
  * An error on the line rather than a refusal of it, so the line is still
  * read through and an attribute block it opens stays the block's.
  */
-function quotedPercentErrors(text: string, at: SourcePosition): Diagnostic[] {
+function quotedPercentErrors(text: string, at: SourcePosition, what = "entity name or alias"): Diagnostic[] {
   return [...text.matchAll(/"([^"]*)"/g)].flatMap((quoted) => {
     const percent = quoted[1]!.indexOf("%");
     if (percent === -1) return [];
@@ -1329,7 +1334,7 @@ function quotedPercentErrors(text: string, at: SourcePosition): Diagnostic[] {
       {
         severity: "error" as const,
         message:
-          `A quoted entity name or alias cannot contain "%" ("${quoted[1]}"): remove it or spell it out, ` +
+          `A quoted ${what} cannot contain "%" ("${quoted[1]}"): remove it or spell it out, ` +
           `for example as "percent". A relationship's label and an attribute's comment may contain "%".`,
         line,
         column,
@@ -1574,12 +1579,6 @@ function readLine(
       if (relationship.reservedClass !== null) {
         return reservedClassRefusal(relationship.reservedClass, line);
       }
-      // A quoted end holding a `%` is the lexer's `WORD`, which only the
-      // label takes; the ends come before the label, so the first `%%` on
-      // what is left of the line is the end's.
-      if (relationship.decl.left.includes("%%") || relationship.decl.right.includes("%%")) {
-        return midLinePercentAt(rest, restAt());
-      }
       // Both endpoints join the one entity list, in the order the line names
       // them — measured, a relationship declares its entities exactly as a
       // bare name does and Mermaid's table interleaves the two kinds of
@@ -1617,12 +1616,9 @@ function readLine(
     if (head.reservedClass !== null) {
       return reservedClassRefusal(head.reservedClass, line);
     }
-    // A quoted name or alias holding a `%` is the lexer's `WORD`, which no
-    // entity production takes (measured: `"A %% b"` and `A["al %% zz"]`,
-    // "got 'WORD'").
-    if (rest.slice(0, head.length).includes("%%")) {
-      return midLinePercentAt(rest, restAt());
-    }
+    // A quoted name or alias holding a `%` — or a `%%`, which inside quotes
+    // is no comment — is the lexer's `WORD`, which no entity production
+    // takes; see `quotedPercentErrors`.
     diagnostics.push(...quotedPercentErrors(rest.slice(0, head.length), restAt()));
     const declared: ErEntityDecl = { name: head.name, alias: head.alias, attributes: [] };
     entities.push(declared);
@@ -2487,17 +2483,24 @@ export function parseErDiagram(source: string): DiagramParseResult {
       continue;
     }
 
-    // A header owns its line, and nothing in it holds a `%%` as text: a
-    // quoted name or title holding a `%` is the lexer's `WORD`, which the
-    // header does not take, and anywhere else it is the `.` rule's token
-    // (measured: each a parse error). The block is still opened, unnamed
-    // and in no document, so its body and its `end` are read as a block's
-    // rather than refused again.
-    if (!continuing && /^subgraph\b/iu.test(line) && line.includes("%%")) {
-      const percent = firstPercentIn(line, { line: lineNumber, column });
-      report([midLinePercentError(percent.line, percent.column)]);
-      applyBlockEffect({ kind: "subgraph-opened" }, line, lineNumber, column);
-      continue;
+    // A header owns its line, and nothing in it holds a `%` as text: a
+    // quoted name or title holding one or two is the lexer's `WORD`, which
+    // the header does not take, and a `%%` anywhere else is the `.` rule's
+    // token (measured: each a parse error). Whichever comes first is the
+    // error. The block is still opened, unnamed and in no document, so its
+    // body and its `end` are read as a block's rather than refused again.
+    if (!continuing && /^subgraph\b/iu.test(line)) {
+      const outsideQuotes = line.replace(/"[^"]*"/g, (quoted) => " ".repeat(quoted.length)).indexOf("%%");
+      const quoted = quotedPercentErrors(
+        outsideQuotes === -1 ? line : line.slice(0, outsideQuotes),
+        { line: lineNumber, column },
+        "subgraph name or title",
+      );
+      if (quoted.length > 0 || outsideQuotes !== -1) {
+        report(quoted.length > 0 ? quoted : [midLinePercentError(lineNumber, column + outsideQuotes)]);
+        applyBlockEffect({ kind: "subgraph-opened" }, line, lineNumber, column);
+        continue;
+      }
     }
 
     // The cluster's opening line, read after `direction` for the reason

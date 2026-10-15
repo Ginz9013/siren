@@ -8832,6 +8832,37 @@ line2\`"]`,
       "refuses it now (ADR-0017), with an error at the `%`.",
   },
   {
+    id: "er-percent-in-subgraph-name",
+    kind: "er",
+    source: `erDiagram
+      subgraph "Sales % team"
+        CUSTOMER
+      end`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A subgraph's " +
+      "quoted name holding a `%` is the lexer's `WORD`, which the header " +
+      "does not take, so Mermaid 12.2.0 refuses the document (\"Expecting " +
+      "'UNICODE_TEXT', 'NUM', 'ENTITY_NAME', …, got 'WORD'\", measured; " +
+      "`%%` too). Siren used to draw the cluster; it refuses it now " +
+      "(ADR-0017), with an error at the `%`.",
+  },
+  {
+    id: "er-percent-in-subgraph-title",
+    kind: "er",
+    source: `erDiagram
+      subgraph sales["50% off"]
+        CUSTOMER
+      end`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A subgraph's " +
+      "quoted title holding a `%` is the lexer's `WORD` too, and Mermaid " +
+      "12.2.0 refuses the document (\"… got 'WORD'\", measured; `%%` " +
+      "too). Siren used to draw the cluster titled `50% off`; it refuses " +
+      "it now (ADR-0017), with an error at the `%`.",
+  },
+  {
     id: "er-label-line-height",
     kind: "er",
     source: `erDiagram

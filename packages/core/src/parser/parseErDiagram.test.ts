@@ -2693,17 +2693,10 @@ describe("parseErDiagram — a `%%` in the middle of a line", () => {
     }
   });
 
-  it("refuses a `%%` in a quoted name, an alias or a subgraph's header, at its `%%`", () => {
-    // Measured: a quoted string holding a `%` is the lexer's `WORD`, not an
-    // `ENTITY_NAME`, and only a relationship's label takes a `WORD` ("got
-    // 'WORD'"); a subgraph header's bare title reaches the `.` rule.
+  it("refuses a `%%` in a subgraph header's bare title or after its name, at its `%%`", () => {
+    // Measured: outside quotes the `%` reaches the `.` rule ("got '%'"). A
+    // quoted one is the lexer's `WORD` instead — see the `%` describe below.
     for (const [body, line, column] of [
-      ['"A %% b"', 2, 4],
-      ['"A %% b" ||--o{ B : r', 2, 4],
-      ['A ||--o{ "B %% c" : r', 2, 13],
-      ['A["al %% zz"]', 2, 7],
-      ['subgraph "s %% t"\n  A\nend', 2, 13],
-      ['subgraph s1["t %% u"]\n  A\nend', 2, 16],
       ["subgraph s1[t %% u]\n  A\nend", 2, 15],
       ["subgraph s1 %% zz\n  A\nend", 2, 13],
     ] as const) {
@@ -2745,7 +2738,8 @@ describe("parseErDiagram — a `%%` in the middle of a line", () => {
  * `WORD` token rather than an `ENTITY_NAME`, and only a relationship's label
  * takes a `WORD` — so a quoted entity name or alias with even one `%` is a
  * parse error ("got 'WORD'"), measured for each spelling below. A `%%` in
- * the same place keeps the mid-line `%%` refusal above.
+ * the same place is the same `WORD` — inside quotes it is no comment — so it
+ * gets this error too, at its first `%`.
  */
 describe("parseErDiagram — a `%` in a quoted entity name or alias", () => {
   const percentIn = (text: string) =>
@@ -2783,6 +2777,53 @@ describe("parseErDiagram — a `%` in a quoted entity name or alias", () => {
       expect(refusedAt(body), body).toEqual(
         expected.map(([text, column]) => ({ message: percentIn(text), line: 2, column })),
       );
+    }
+  });
+
+  it("refuses a `%%` in a quoted name, an alias or a relationship's quoted end as it does a `%`, at its first `%`", () => {
+    // Measured: `A["50%% off"]`, `"A %% b"` and `A ||--o{ "B %% c" : r` are
+    // each "got 'WORD'", as with a single `%`.
+    for (const [body, text, column] of [
+      ['A["50%% off"]', "50%% off", 6],
+      ['A["al %% zz"]', "al %% zz", 7],
+      ['"A %% b"', "A %% b", 4],
+      ['"A %% b" ||--o{ B : r', "A %% b", 4],
+      ['A ||--o{ "B %% c" : r', "B %% c", 13],
+    ] as const) {
+      expect(refusedAt(body), body).toEqual([{ message: percentIn(text), line: 2, column }]);
+    }
+  });
+
+  it("keeps the mid-line `%%` refusal for a `%%` after the quoted name, at that `%%`", () => {
+    // A refused line answers its refusal alone, as it does after a single `%`.
+    const NOT_A_COMMENT =
+      'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+      "If it is a comment, move it to a line of its own.";
+    for (const [body, column] of [
+      ['A["50% off"] %% zz', 14],
+      ['A["50%% off"] %% zz', 15],
+      ['"A %% b" %% zz', 10],
+    ] as const) {
+      expect(refusedAt(body), body).toEqual([{ message: NOT_A_COMMENT, line: 2, column }]);
+    }
+  });
+
+  it("refuses a `%` or `%%` in a subgraph's quoted name or title, at its first `%`, and still reads the block", () => {
+    // Measured: `subgraph "s % t"` and `subgraph s1["t % u"]` are each "got
+    // 'WORD'", with one `%` or two, at the start, the end or alone.
+    const inSubgraph = (text: string) =>
+      `A quoted subgraph name or title cannot contain "%" ("${text}"): remove it or spell it out, ` +
+      `for example as "percent". A relationship's label and an attribute's comment may contain "%".`;
+    for (const [header, text, column] of [
+      ['subgraph "s % t"', "s % t", 13],
+      ['subgraph "%"', "%", 11],
+      ['subgraph "s %% t"', "s %% t", 13],
+      ['subgraph s1["t % u"]', "t % u", 16],
+      ['subgraph s1["100%"]', "100%", 17],
+      ['subgraph s1["%off"]', "%off", 14],
+      ['subgraph s1["t %% u"]', "t %% u", 16],
+    ] as const) {
+      expect(refusedAt(`${header}\n  A\nend\nB`), header).toEqual([{ message: inSubgraph(text), line: 2, column }]);
     }
   });
 

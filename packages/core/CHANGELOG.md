@@ -42,7 +42,8 @@ Breaking for an ER document with a `%%` on the same line after a statement
 quoted comment or a backticked name. Each is now refused (see **Changed**).
 
 Breaking for an ER document with a `%` in a quoted entity name or an alias (`A["50% off"]`,
-`"A % b"`, `A ||--o{ "B % c" : r`), which is now refused (see **Changed**).
+`"A % b"`, `A ||--o{ "B % c" : r`) or in a subgraph's quoted name or title (`subgraph "s % t"`,
+`subgraph s1["t % u"]`), which is now refused (see **Changed**).
 
 Breaking for code that reads a sequence diagram's SVG or positioned layout: a destroyed participant
 is drawn with a closing box instead of an X mark, the `siren-destroy-mark` path and
@@ -150,8 +151,11 @@ is drawn with a closing box instead of an X mark, the `siren-destroy-mark` path 
   12.2.0 refuses it: its ER lexer reads a quoted string holding a `%` as a word only a
   relationship's label takes. `A["50% off"]`, `"A % b"` and `"B % c"` at either end of a
   relationship used to be drawn; each is now an error at the `%`, asking to remove it or spell it
-  out. A `%` in a relationship's quoted label or an attribute's quoted comment is still text, as in
-  Mermaid. A `%%` in the same places keeps its mid-line `%%` error.
+  out. A subgraph's quoted name or title (`subgraph "s % t"`, `subgraph s1["t % u"]`), which
+  Mermaid refuses the same way, used to be drawn too and gets the same error. A `%%` in any of
+  these quoted strings gets this error as well, at its first `%`, instead of the mid-line `%%`
+  error's advice to move a comment to its own line: inside quotes it is not a comment. A `%` in a
+  relationship's quoted label or an attribute's quoted comment is still text, as in Mermaid.
 
 - **Diagnostic messages no longer mention Mermaid** (nook `01M4ZJZ3FT`). Each says what is wrong
   and how to fix it. Reworded: frontmatter that is not YAML is refused "until the frontmatter is

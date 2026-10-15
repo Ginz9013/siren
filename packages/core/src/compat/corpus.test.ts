@@ -1688,8 +1688,16 @@ const SILENTLY_WRONG = 0;
  * moved: no ER row had a `%` in a quoted name. `er-percent-in-label-and-comment`,
  * new beside them, is `supported` and moves nothing. `silently-wrong` does
  * not move.
+ *
+ * **30 → 32: case (2), two refusals written down for the first time.**
+ * `01M4ZWT94S`'s review found the same `WORD` in an ER subgraph header:
+ * Mermaid 12.2.0 refuses a `%` in its quoted name or title ("got 'WORD'",
+ * measured), and Siren drew the cluster, with no row to say so;
+ * `er-percent-in-subgraph-name` and `er-percent-in-subgraph-title` write
+ * them down. No `supported` row moved: no ER row had a `%` in a subgraph
+ * header. `silently-wrong` does not move.
  */
-const REJECTED = 30;
+const REJECTED = 32;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
