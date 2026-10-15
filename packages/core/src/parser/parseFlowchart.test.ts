@@ -546,6 +546,89 @@ describe("a flowchart node id's alphabet", () => {
     ]);
   });
 
+  it("reads an `o` or `x` right after a `%` as the id's, not as an arrow's marker", () => {
+    // Measured on Mermaid 12.2.0: `A%x--xB` is the nodes `A%x` and `B` with
+    // a cross-headed edge, and `A%o-->B` and `A%x-->B` plain arrows from
+    // `A%o` and `A%x`.
+    const { document, diagnostics } = parseOk("flowchart TB\n  A%x--xB\n  C%o-->D\n  E%x-->F");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => [edge.from, edge.fromEnd, edge.toEnd, edge.to])).toEqual([
+      ["A%x", "none", "cross", "B"],
+      ["C%o", "none", "arrow", "D"],
+      ["E%x", "none", "arrow", "F"],
+    ]);
+  });
+
+  it("reads a `.-` right after a `%` as the id's, not as a dotted arrow", () => {
+    // Measured on Mermaid 12.2.0: `A%.-B` and `A%x.-xB` are each one node
+    // with that id, and `A%.->B` is a parse error, no edge at all.
+    const { document, diagnostics } = parseOk("flowchart TB\n  A%.-B\n  C%x.-xD");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A%.-B", "C%x.-xD"]);
+    expect(document.edges).toEqual([]);
+    expect(parseFlowchart("flowchart TB\n  A%.->B").document).toBeNull();
+  });
+
+  it("opens an asymmetric label at a `>` right after a `%`, so no separator inside it cuts the line", () => {
+    // Measured on Mermaid 12.2.0: `A%>a;b] --> B` and `C%>c-->d] --> D` are
+    // asymmetric nodes `A%` and `C%` labelled "a;b" and "c-->d", each with
+    // one edge.
+    const { document, diagnostics } = parseOk("flowchart TB\n  A%>a;b] --> B\n  C%>c-->d] --> D");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label.text, node.shape])).toEqual([
+      ["A%", "a;b", "asymmetric"],
+      ["B", "B", "rect"],
+      ["C%", "c-->d", "asymmetric"],
+      ["D", "D", "rect"],
+    ]);
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([
+      ["A%", "B"],
+      ["C%", "D"],
+    ]);
+  });
+
+  it.each([
+    // Measured on Mermaid 12.2.0: an `&` glued to an id is a character of
+    // it — `A%&B-->C`, `A&B-->C` and `A & B&C --> D` record the single ids
+    // `A%&B`, `A&B` and `B&C`, a picture of no group — and one with a space
+    // on one side only, or after a bracket, is a parse error (`A &B-->C`,
+    // `B& C`, `A[x]&B-->C`, `A --> B[x]&C`).
+    ["A%&B-->C", 5, "A% & B-->C"],
+    ["A&B-->C", 4, "A & B-->C"],
+    ["A & B&C --> D", 8, "A & B & C --> D"],
+    ["A &B-->C", 5, "A & B-->C"],
+    ["A& B-->C", 4, "A & B-->C"],
+    ["A[x]&B-->C", 7, "A[x] & B-->C"],
+    ["A --> B[x]&C", 13, "A --> B[x] & C"],
+  ])("refuses %s at the `&`, which joins nodes only with a space on each side", (written, column, fixed) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `An "&" joins nodes only with a space on each side. Write: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it("accepts a `-` in a `class` statement's targets, as every other statement naming an id does", () => {
+    // Measured on Mermaid 12.2.0: `class a-b,c hot` and `class d.-e hot`
+    // give `a-b`, `c` and `d.-e` the class `hot`.
+    const { document, diagnostics } = parseOk("flowchart TB\n  a-b\n  c\n  d.-e\n  class a-b,c hot\n  class d.-e hot");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles).toEqual([
+      expect.objectContaining({ styleKind: "apply", targetIds: ["a-b", "c"], name: "hot" }),
+      expect.objectContaining({ styleKind: "apply", targetIds: ["d.-e"], name: "hot" }),
+    ]);
+  });
+
   it("accepts a `%` in every statement that names an id: `class`, `style`, `click`, `:::` and a subgraph's handle", () => {
     // Measured on Mermaid 12.2.0: `class A%B foo`, `style A%B fill:#f00`,
     // `click A%B "http://x"` and `A%B:::c` reach the node `A%B`, and

@@ -61,6 +61,11 @@ reads as one member (`+int x; y`, `+foo(); +bar()`), which is now refused (see *
 Breaking for a class document with an empty namespace (`namespace N {` and `}` with nothing
 between), which is now refused (see **Changed**).
 
+Breaking for a flowchart document with an `&` between nodes that lacks a space on either side
+(`A&B-->C`, `A &B-->C`, `A[x]&B-->C`), which is now refused (see **Changed**); and for a timeline
+line with a `%%` glued to the end of a word (`enter B fade%%note`), whose `%%` is no longer a
+comment there (see **Added**).
+
 ### Added
 
 - A flowchart subgraph title of several words is read as Mermaid 12.2.0 reads it (nook
@@ -79,8 +84,11 @@ between), which is now refused (see **Changed**).
   names an id (`class`, `style`, `click`, `:::`, a subgraph's handle), and a `%%` glued to the end
   of an id is the id's (`A%%B`, `A%%B --> C`, `A-->B%%C`, `A%%`). Such a line used to be refused,
   a glued `%%` as a mid-line comment. A `%%` written after a space or a bracket (`A %% x`,
-  `A[x]%%B`) is still refused as one. A timeline names such a node by its id (`enter A%B`), but a
-  timeline line is still cut at its first `%%`, so it cannot name `A%%B` yet.
+  `A[x]%%B`) is still refused as one. An `o`, `x` or `.-` right after a `%` is the id's too
+  (`A%x--xB` is the node `A%x`, `A%.-B` one node), and `A%>a]` is an asymmetric node `A%`. A
+  `class` statement's targets also take a `-` (`class a-b,c hot`), as every other statement naming
+  an id already did. A timeline names such a node by its id: a timeline line is now cut only at a
+  `%%` that does not continue an id, so `enter A%%B fade` names `A%%B`, where it used to name `A`.
 - A document may open with a Mermaid frontmatter (`---` … `---`), read as Mermaid 12.2.0 reads it,
   each rule measured with the probe: only at the very top, optionally indented, closed by the first
   `---` at the same indent, and parsed as YAML under the JSON schema (with `js-yaml`, now a
@@ -163,6 +171,11 @@ between), which is now refused (see **Changed**).
 
 ### Changed
 
+- **A flowchart `&` between nodes needs a space on each side** (nook `01M4ZWT8PR`). Mermaid 12.2.0
+  reads an `&` glued to an id as a character of it (`A&B-->C` is the one node `A&B`, `A%&B-->C` the
+  node `A%&B`) and refuses one spaced on a single side or written after a bracket (`A &B-->C`,
+  `B& C`, `A[x]&B-->C`). Siren used to draw each as a group; it now refuses the line at the `&`,
+  with the line rewritten spaced (`A & B-->C`). An `&` inside a label is text, as before.
 - **An unquoted bracket inside a flowchart node label is refused** (nook `01M4ZWT8G2`), as Mermaid
   12.2.0 refuses every unquoted `( ) [ ] { }` in any shape's label. An `[`, `]`, `{` or `}` that is
   not the shape's own (`A[a}b]`, `A{a]b}`, `A>a{b]`), and a `(` or `)` with no partner (`A[a)b]`,

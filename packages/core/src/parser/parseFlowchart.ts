@@ -136,7 +136,21 @@ const ID_DASH = String.raw`-(?=[^>\-.]|$)`;
  * written, and `%` alone is a node. Its `%%` is the id's too where it is
  * glued to the id (`midLinePercentAt`).
  */
-const ID_CHAR = String.raw`[\w%]`;
+const ID_CHAR_SET = String.raw`\w%`;
+const ID_CHAR = `[${ID_CHAR_SET}]`;
+/**
+ * Every character an id may hold anywhere: `ID_CHAR`'s, and the `.` and `-`
+ * `ID_RUN` admits between them — the one alphabet each hand-written id
+ * boundary below is built from, so a character added to an id cannot be
+ * missed at one of them.
+ */
+const ID_ALPHABET_SET = String.raw`${ID_CHAR_SET}.\-`;
+/**
+ * Where an id cannot be continuing: the character before is none of
+ * `ID_ALPHABET_SET`'s. What tells an arrow's `o`/`x` marker, a dotted body's
+ * `.` and a `%%` from the characters of an id they are glued to.
+ */
+const NOT_AFTER_ID = `(?<![${ID_ALPHABET_SET}])`;
 const ID_RUN = String.raw`(?:-(?=${ID_CHAR}))?${ID_CHAR}+(?:\.+-?${ID_CHAR}*|${ID_DASH}${ID_CHAR}*)*`;
 
 /**
@@ -450,8 +464,9 @@ const PIPE_LABEL = String.raw`(?:\s*\|(${EDGE_LABEL_CONTENT})\|)?`;
 // `a-o-->b` and `a.o-->b` are the nodes `a-o` and `a.o` with plain arrows in
 // mermaid 12.2.0 (measured, 01M2SVAFT), since both `-` and `.` are in its id
 // alphabet. Only `\w` was guarded before, which read `a.o-->b` as `a.` and
-// a circle-headed arrow, silently.
-const FROM_MARKER = String.raw`<|(?<![\w.-])[ox]`;
+// a circle-headed arrow, silently — and so is `%` (`A%x--xB` is the node
+// `A%x`, measured, 01M4ZWT8PR).
+const FROM_MARKER = `<|${NOT_AFTER_ID}[ox]`;
 const TO_MARKER = String.raw`[>ox]`;
 
 /**
@@ -494,7 +509,10 @@ const DOTTED_BODY = String.raw`-?\.+-`;
  * exception restates `FROM_MARKER`'s own condition — a marker, itself not
  * inside an id — rather than simply allowing any `o` or `x`. That is what
  * keeps `Ax.-xB` refused, which is one node id in Mermaid and no edge at
- * all, measured, exactly as `Ax--xB` already was.
+ * all, measured, exactly as `Ax--xB` already was. Both guards are built
+ * from the id alphabet, so a `%` is an id character to them too: `A%.-B`
+ * and `A%x.-xB` are one node each, and `A%.->B` no edge (measured,
+ * 01M4ZWT8PR).
  *
  * **Only a run's start needs it**, which is why there are two constants
  * rather than one guarded body everywhere. An inline label's closer cannot
@@ -504,7 +522,7 @@ const DOTTED_BODY = String.raw`-?\.+-`;
  * closer too refused both, and refused them for the dotted stroke alone,
  * which is a rule no author could predict.
  */
-const RUN_OPENING_DOTTED_BODY = String.raw`(?:-|(?<=(?<![\w.-])[ox])|(?<!\w))\.+-`;
+const RUN_OPENING_DOTTED_BODY = `(?:-|(?<=${NOT_AFTER_ID}[ox])|(?<!${ID_CHAR}))\\.+-`;
 
 /**
  * An arrow written as one run: a marker, a body, a marker.
@@ -687,6 +705,42 @@ const OPENER_LINE: Record<string, EdgeLine> = {
  * line may name at one end of an arrow, as in `A & B --> C`.
  */
 const GROUP_SEPARATOR = "&";
+
+/**
+ * Where in `line` — cut at its arrows as `parts`, starting at `partAt` —
+ * stands each group separator without whitespace on both sides. Mermaid
+ * 12.2.0 joins a group only at a spaced `&`, measured: one glued to an id is
+ * a character of it (`A%&B-->C`, `A&B-->C` and `A & B&C --> D` record the
+ * single ids `A%&B`, `A&B` and `B&C`, drawing no group), and one with a
+ * space on one side only, or after a bracket, is a parse error (`A &B-->C`,
+ * `B& C`, `A[x]&B-->C`). The first is a picture other than the one written,
+ * refused under ADR-0001; the rest are refused as Mermaid refuses them
+ * (ADR-0017). An `&` inside a label is text, and `cutOutsideLabel` never
+ * cuts there.
+ */
+function unspacedGroupSeparators(line: string, parts: readonly string[], partAt: readonly number[]): number[] {
+  return parts.flatMap((part, index) => {
+    const { parts: pieces, separators } = cutOutsideLabel(part, GROUP_SEPARATOR);
+    const pieceAt = offsetsOf(pieces, separators);
+    return separators
+      .map((_, at) => partAt[index]! + pieceAt[at + 1]! - GROUP_SEPARATOR.length)
+      .filter((at) => !/\s/.test(line[at - 1] ?? "") || !/\s/.test(line[at + 1] ?? ""));
+  });
+}
+
+/** `line` with one space on each side of every group separator at `unspaced`. */
+function spacedGroupSeparators(line: string, unspaced: readonly number[]): string {
+  let spaced = "";
+  let from = 0;
+  for (const at of unspaced) {
+    spaced += `${line.slice(from, at).trimEnd()} ${GROUP_SEPARATOR} `;
+    from = at + GROUP_SEPARATOR.length;
+    while (/\s/.test(line[from] ?? "")) {
+      from++;
+    }
+  }
+  return spaced + line.slice(from);
+}
 
 /**
  * What ends a statement written inside a line, so that a line is not
@@ -1251,7 +1305,7 @@ function cutOutsideLabel(
     if (quoted) {
       continue;
     }
-    if (LABEL_OPENERS.includes(char) || (depth === 0 && char === ASYMMETRIC_OPENER && i > 0 && /\w/.test(text[i - 1]!))) {
+    if (LABEL_OPENERS.includes(char) || (depth === 0 && char === ASYMMETRIC_OPENER && i > 0 && ID_CHAR_RE.test(text[i - 1]!))) {
       depth++;
       continue;
     }
@@ -1289,6 +1343,12 @@ const LABEL_CLOSERS = "]})";
 
 /** What opens an asymmetric node's label, right after its id (`A>a]`). */
 const ASYMMETRIC_OPENER = ">";
+
+/**
+ * One id character (`ID_CHAR`), the kind an asymmetric opener must follow:
+ * `A%>a;b]` is the node `A%` labelled "a;b" (measured, 01M4ZWT8PR).
+ */
+const ID_CHAR_RE = new RegExp(ID_CHAR);
 
 /** `cutOutsideLabel` for the two callers whose separator says nothing worth keeping. */
 function splitOutsideLabel(text: string, separator: string): string[] {
@@ -1376,7 +1436,7 @@ function midLinePercentAt(text: string): number | null {
  * (01M4ZWT8PR). Written after a space or a bracket it begins no id this
  * parser reads: `A %% x` and `A %%B` are parse errors there, measured.
  */
-const MID_LINE_PERCENT_RE = /(?<![\w%.-])%%/y;
+const MID_LINE_PERCENT_RE = new RegExp(`${NOT_AFTER_ID}%%`, "y");
 
 /**
  * The opening statement of a `subgraph` block, and everything the author
@@ -1406,11 +1466,10 @@ const SUBGRAPH_TITLED_RE = new RegExp(String.raw`^(${ID_RUN})\s*\[(${LABEL_CONTE
  * `ID_RUN` is this file's own answer to the shape ADR-0010 leans on: neither
  * a `\w` nor a `%` nor a `.` nor the one dash this pattern admits is a
  * colon, which is what still makes a generated id unspellable by an
- * authored one here. Read
- * in two places here, for two different things that are both that shape — a
- * subgraph written with a bare title
- * (mermaid 11.17.2 records it as both id and title) and a node written as
- * nothing but its id inside a block.
+ * authored one here. Read in two places here, for two different things that
+ * are both that shape — a subgraph written with a bare title (mermaid
+ * 11.17.2 records it as both id and title) and a node written as nothing but
+ * its id inside a block.
  */
 const AUTHORED_ID_RE = new RegExp(`^${ID_RUN}$`);
 
@@ -1832,15 +1891,19 @@ const LINK_STYLE_INTERPOLATE_RE = /^linkStyle\s+([\w,\s]*?[\w,])\s+interpolate\s
  * one `apply` kind here, so no model, renderer or test downstream learns
  * that two spellings exist.
  *
- * The target list is greedy up to the trailing name: `[\w\s,.]` swallows the
+ * The target list is greedy up to the trailing name: its class swallows the
  * whole tail and backtracks until a bare `\w+` is left for the definition
  * name, which is what lets `class A, B emphasis` be read the same as
  * `class A,B emphasis` without a second pattern. The `.` in that class is
  * this ticket's: `class a.b,c.d hot` is a target list of two dotted ids,
  * matching what `STYLE_RE`'s single target and `NODE_CLASS_RE`'s shorthand
- * already accept. So is the `%` (`ID_CHAR`): `class A%B,C%%D hot`.
+ * already accept. The whole id alphabet is (`ID_ALPHABET_SET`), so a `%`
+ * and a `-` are too: `class A%B,C%%D hot`, `class a-b,c hot` (measured,
+ * 01M4ZWT8PR).
  */
-const CLASS_APPLY_RE = /^class\s+([\w\s,.%]*[\w,.%])\s+(\w+)\s*$/;
+const CLASS_APPLY_RE = new RegExp(
+  String.raw`^class\s+([${ID_ALPHABET_SET}\s,]*[${ID_ALPHABET_SET},])\s+(\w+)\s*$`,
+);
 
 /**
  * Splits the comma-separated target list an apply-directive (`class A,B
@@ -2458,6 +2521,19 @@ export function parseFlowchart(source: string): DiagramParseResult {
         // label's problem is reported at its own column: the pieces and the
         // separators that cut them lie end to end, and add up to the line.
         const partAt = offsetsOf(arrowParts, arrowTokens);
+        const unspaced = unspacedGroupSeparators(line, arrowParts, partAt);
+        if (unspaced.length > 0) {
+          diagnostics.push({
+            severity: "error",
+            message:
+              `An "${GROUP_SEPARATOR}" joins nodes only with a space on each side. ` +
+              `Write: ${spacedGroupSeparators(line, unspaced)}`,
+            line: lineNumber,
+            column: column + unspaced[0]!,
+          });
+          sawError = true;
+          continue;
+        }
         // Each piece kept beside what it read as, so an unreadable one can be
         // explained in its own words, at its own column.
         const pieces: { text: string; at: number }[] = [];

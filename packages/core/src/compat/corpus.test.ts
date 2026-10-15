@@ -1734,8 +1734,17 @@ const SILENTLY_WRONG = 0;
  * (`fc-linkstyle-not-a-declaration`), none of which had a row. No
  * `supported` row moved: none held such a label. `silently-wrong` does not
  * move.
+ *
+ * **40 → 41: case (2), a refusal written down for the first time.**
+ * `01M4ZWT8PR`'s review refused an `&` without a space on each side
+ * (`fc-group-ampersand-unspaced`). Mermaid 12.2.0 reads one glued to an id
+ * as a character of it — `A&B-->C` is the one node `A&B` (measured), a
+ * picture other than the group written, refused under ADR-0001 — and one
+ * spaced on a single side as a parse error. Siren used to draw the group,
+ * with no row to say so. No `supported` row moved: none glued an `&`.
+ * `silently-wrong` does not move.
  */
-const REJECTED = 40;
+const REJECTED = 41;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

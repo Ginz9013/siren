@@ -60,7 +60,8 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = 
  * where a kind's lexer reads one. So `lines` keeps every line of the
  * diagram as Mermaid's grammar is handed it, and each kind's parser decides.
  * A timeline block is Siren's own syntax, not Mermaid's (ADR-0017), and
- * its lines are still cut at their first `%%`.
+ * its lines are still cut at their first `%%` that does not continue an id
+ * (`cutTimelineComment`).
  *
  * Except a line that is nothing but `%%` (`bareCommentLines`). Mermaid's
  * `cleanupComments` removes `^\s*%%(?!{)[^\n]+\n?`, so a whole-line
@@ -126,11 +127,12 @@ function asMermaidReads(source: string): {
   // cut at their first `%%`: `flowchart TB %% x` still names a flowchart,
   // whose own parser then refuses the `%%`, and `timeline: %% x` still
   // opens a block. A timeline block is Siren's own syntax, not Mermaid's
-  // (ADR-0017), so its lines keep the cut.
+  // (ADR-0017), so its lines keep a cut — at a `%%` that does not continue
+  // an id (`cutTimelineComment`).
   const cut = linesAsRead.map(cutAtDoublePercent);
   const header = headerOf(cut);
   const timelineStart = header === null ? Infinity : firstTimelineHeader(cut, header.index);
-  const lines = linesAsRead.map((line, index) => (index < timelineStart ? line : cut[index]!));
+  const lines = linesAsRead.map((line, index) => (index < timelineStart ? line : cutTimelineComment(line)));
   return { lines, header, timelineStart, asWritten: read.asWritten, frontmatter, directives, bareCommentLines };
 }
 
@@ -139,6 +141,22 @@ function cutAtDoublePercent(line: string): string {
   const at = line.indexOf("%%");
   return at === -1 ? line : line.slice(0, at);
 }
+
+/**
+ * A timeline line without its comment: everything from its first `%%` that
+ * does not continue an id. A `%%` glued to the end of an id is the id's in a
+ * flowchart (`A%%x` is one node, measured on Mermaid 12.2.0, 01M4ZWT8PR),
+ * so it is the target's here too — `unhighlight A%%x` names that node,
+ * where cutting at the `%%` aimed it at `A`, silently. The characters that
+ * continue an id are the flowchart's id alphabet, `\w`, `%`, `.` and `-`.
+ */
+function cutTimelineComment(line: string): string {
+  const at = line.search(TIMELINE_COMMENT_RE);
+  return at === -1 ? line : line.slice(0, at);
+}
+
+/** The `%%` that opens a comment in a timeline line (`cutTimelineComment`). */
+const TIMELINE_COMMENT_RE = /(?<![\w%.-])%%/;
 
 /** Where a line that is nothing but `%%` starts its `%%`, as the author wrote it. */
 interface BareCommentLine {

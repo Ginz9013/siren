@@ -3522,6 +3522,22 @@ describe("a `%%` in the middle of a flowchart line", () => {
     expect(commented).toEqual(plain);
   });
 
+  it("reads a `%%` glued to the end of a timeline target as the target's, as the flowchart reads the id", () => {
+    // `A%%x` is one node id (measured on Mermaid 12.2.0), so a timeline
+    // must be able to name it; cutting the line at its `%%` used to aim
+    // every action at `A` instead, silently.
+    const { document, diagnostics } = parseSiren(
+      "flowchart TB\n  A --> A%%x\ntimeline:\n  enter A%%x fade\n  highlight A%%x glow\n  unhighlight A%%x %% back\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document?.timeline?.entries.map((entry) => [entry.kind, entry.targetId])).toEqual([
+      ["enter", "A%%x"],
+      ["highlight", "A%%x"],
+      ["unhighlight", "A%%x"],
+    ]);
+  });
+
   it("refuses a `%%` trailing the header, at its `%%`", () => {
     // Measured: `flowchart TB %% x` is "Expecting 'NEWLINE', got 'NODE_STRING'"
     // on line 1; so is `graph LR %% x`.

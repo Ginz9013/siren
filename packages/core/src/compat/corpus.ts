@@ -4016,6 +4016,39 @@ line2\`"]`,
       expectSame("edges", edges(result), ["A%%B-C", "C-D%%E"]);
     },
   },
+  {
+    id: "fc-id-percent-marker",
+    kind: "flowchart",
+    source: `flowchart TB
+      A%x--xB`,
+    status: "supported",
+    meaning:
+      "An `x` right after a `%` is the id's, not a cross marker on the " +
+      "line's from-end: Mermaid 12.2.0 records the nodes `A%x` and `B` and " +
+      "one solid edge with a cross at `B` (measured). Before 01M4ZWT8PR's " +
+      "review Siren drew it as the node `A%` with a cross at both ends, " +
+      "silently.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A%x[A%x]", "B[B]"]);
+      expectSame("edge", edgeDrawing(result, "A%x-B"), "solid none cross");
+    },
+  },
+  {
+    id: "fc-group-ampersand-unspaced",
+    kind: "flowchart",
+    source: `flowchart TB
+      A&B-->C`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid draws this, and not as written**: an `&` glued to an id " +
+      "is a character of it, so Mermaid 12.2.0 records the single node " +
+      "`A&B` and one edge to `C` (measured; `A%&B-->C` is the node `A%&B`), " +
+      "where the `&` reads as joining `A` and `B`. One spaced on a single " +
+      "side (`A &B-->C`, `B& C`) or written after a bracket (`A[x]&B-->C`) " +
+      "is a parse error there. Siren used to draw the group `A & B --> C`; " +
+      "it now refuses the line (ADR-0001), at the `&`, saying an `&` joins " +
+      "nodes only with a space on each side and showing the line spaced.",
+  },
   // -------------------------------------------------------------------------
   // classDiagram
   // -------------------------------------------------------------------------
