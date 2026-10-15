@@ -306,7 +306,6 @@ function layoutParticipants(
   let nextLeft = LEFT_MARGIN;
 
   const linksByParticipantId = mergeLinks(model.interactions);
-  const createdAfterDrawing = createdAfterDrawingIds(model.statements);
 
   for (const decl of model.participants) {
     const labelBox = layoutLabel(decl.label, options.measureText, SEQUENCE_PARTICIPANT_LINE);
@@ -319,8 +318,14 @@ function layoutParticipants(
     // half its own width further right than a declared one's would, and
     // every lane after it follows (`addActorRenderingData`'s `prevMargin +=
     // actor.width / 2`) — but only when anything was drawn before its
-    // `create`; see `createdAfterDrawingIds`.
-    if (createdAfterDrawing.has(decl.id)) nextLeft += width / 2;
+    // `create` — which the model says (`createdAfterDrawing`). Mermaid keys
+    // that move on how many things it has drawn before the `create` and
+    // skips it when there are none, so a participant created after nothing
+    // but declarations stays where a declared one would be (measured:
+    // `participant A`, `create participant B`, `A->>B` puts B's box at x
+    // 200, as a declared B's). A `create` with no creating message moves
+    // too, though its participant is drawn from the top as a declared one is.
+    if (decl.createdAfterDrawing === true) nextLeft += width / 2;
     const x = nextLeft + width / 2;
 
     participants.push({
@@ -920,47 +925,6 @@ function pairedByMessage(
       }
     }
   }
-  return ids;
-}
-
-/**
- * The `create`d participants whose `create` comes after something drawn —
- * a message, a note, an `activate`/`deactivate`, or a block, at any depth —
- * the ones whose lane Mermaid 12.2.0 moves right (`layoutParticipants`).
- * Mermaid keys that move on how many things it has drawn before the
- * `create` and skips it when that count is 0, so a participant created before
- * anything is drawn — after nothing but declarations — stays where a
- * declared one would be (measured: `participant A`, `create participant B`,
- * `A->>B` puts B's box at x 200, as a declared B's).
- *
- * Mermaid counts an `autonumber` among those drawn things too (measured: with
- * `autonumber` first, B moves to 275). The model keeps no `autonumber`
- * statement, but nothing may stand between a `create` and its creating
- * message, so a numbered creating message says autonumbering was turned on
- * before the `create`.
- */
-function createdAfterDrawingIds(statements: readonly ResolvedSequenceStatement[]): Set<string> {
-  const ids = new Set<string>();
-  const createdFirst = new Set<string>();
-  let drawnBefore = false;
-  const walk = (list: readonly ResolvedSequenceStatement[]): void => {
-    for (const statement of list) {
-      if (statement.kind === "participant") {
-        if (statement.participant.origin !== "created") continue;
-        (drawnBefore ? ids : createdFirst).add(statement.participant.id);
-      } else if (statement.kind !== "destroy") {
-        if (statement.kind === "message") {
-          const { creates, autonumber } = statement.message;
-          if (creates !== undefined && autonumber !== null && createdFirst.has(creates)) ids.add(creates);
-        }
-        drawnBefore = true;
-        if (statement.kind === "block") {
-          for (const branch of statement.block.branches) walk(branch.statements);
-        }
-      }
-    }
-  };
-  walk(statements);
   return ids;
 }
 

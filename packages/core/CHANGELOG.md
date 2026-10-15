@@ -251,9 +251,8 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
   own; X now runs to the bottom row with its box there and no X (`destroyedAt: null`). A `create
   participant X` (or `create actor X`) there used to put X's box on a row of its own; X now has
   boxes in the top and bottom rows and a full-height lifeline (`origin: "declared"`,
-  `createdAt: 0`). Mermaid also shifts such a lane right by half its width; Siren now draws that
-  shift for a created participant (see below), but not yet for a `create` with no creating
-  message, which it reads as a declaration. Neither declaration takes a row any more, also
+  `createdAt: 0`), its lane shifted right as any created participant's is (see below). Neither
+  declaration takes a row any more, also
   when only a note, an activation, an `autonumber`, a block boundary or another declaration
   follows it. A repeated `destroy X` while X's is still waiting is the same declaration, so
   `destroy B`, `destroy B`, `A-xB` ends B on `A-xB`, as in Mermaid. Each unpaired declaration gets a
@@ -283,10 +282,12 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
   A participant a `create participant X` / `create actor X` introduces and nothing destroys is now
   drawn in the bottom row as well, level with every declared participant, where it used to be drawn
   only once, on its creating message. And when anything — a message, a note, an activation, a
-  block, or `autonumber` — comes before its `create`, its lane sits half its own width further
-  right than a declared participant's would, and every lane after it, and the diagram's width,
-  move with it; created after nothing but declarations, it stays put, as in Mermaid. A `create`
-  with no message after it is still laid out as a declaration, without that offset.
+  block, or an `autonumber` or `autonumber off` — comes before its `create`, its lane sits half
+  its own width further right than a declared participant's would, and every lane after it, and
+  the diagram's width, move with it; created after nothing but declarations, a `destroy` or a
+  `link`, it stays put, as in Mermaid. A `create` with no message after it moves the same way,
+  though its participant is drawn from the top. The resolved participant says which: its
+  `createdAfterDrawing` is `true` when something drawn comes before its `create`.
 
 - **A sequence `destroy` no longer creates the participant it names** (nook `01M4Z7TRT0`,
   ADR-0013 amended). Every other reference still creates an undeclared participant on first

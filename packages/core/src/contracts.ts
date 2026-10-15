@@ -894,6 +894,17 @@ export interface ResolvedSequenceParticipant {
    * no message after the `destroy` at all, it ends nothing: `null`.
    */
   destroyedAt: number | null;
+  /**
+   * `true` when the participant's `create participant` statement comes after
+   * something drawn — a message, a note, an `activate`/`deactivate`, a block's
+   * start, later branch or `end`, or an `autonumber`/`autonumber off`, at any
+   * depth; a declaration, a `destroy` or a `link` draws nothing. Absent
+   * otherwise, and always for a participant with no `create`. Kept when the
+   * `create` has no creating message and the participant is drawn from the
+   * top with origin `declared`: its lane still sits half its width further
+   * right than a declared one's would, as `layoutSequence` places it.
+   */
+  createdAfterDrawing?: true;
 }
 
 /** A message after graph-model resolution: assigned id and resolved autonumber. */

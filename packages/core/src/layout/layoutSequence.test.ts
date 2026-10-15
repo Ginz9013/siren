@@ -2182,7 +2182,7 @@ describe("layoutSequence: a participant a message creates and nothing destroys",
   // stubs): a created participant that is never destroyed gets a box in
   // the bottom row too, level with every declared one's (`seq-create-destroy`:
   // B's bottom box at y 234, as A's).
-  function createdModel(statementsBefore: ResolvedSequenceStatement[], creatingAutonumber: number | null = null): SequenceModel {
+  function createdModel(statementsBefore: ResolvedSequenceStatement[], createdAfterDrawing = false): SequenceModel {
     const carol: ResolvedSequenceParticipant = {
       id: "C",
       label: plainLabel("Carol"),
@@ -2190,12 +2190,10 @@ describe("layoutSequence: a participant a message creates and nothing destroys",
       origin: "created",
       createdAt: statementsBefore.length + 2,
       destroyedAt: null,
+      ...(createdAfterDrawing ? { createdAfterDrawing: true as const } : {}),
     };
     const creating = messageStatement("m2", "A", "C", "make");
-    if (creating.kind === "message") {
-      creating.message.creates = "C";
-      creating.message.autonumber = creatingAutonumber;
-    }
+    if (creating.kind === "message") creating.message.creates = "C";
     return {
       title: null,
       accTitle: null,
@@ -2264,7 +2262,7 @@ describe("layoutSequence: a participant a message creates and nothing destroys",
   // (`addActorRenderingData`: `prevMargin += actor.width / 2`) — and the
   // lanes after it, and the diagram's width, move by the same 75.
   it("moves its lane half its width right of where a declared participant's would be, when anything is drawn before its `create`, and every later lane with it", () => {
-    const created = createdModel([messageStatement("m1", "A", "A", "before")]);
+    const created = createdModel([messageStatement("m1", "A", "A", "before")], true);
     const shifted = lanes(created);
     const reference = lanes(declaredInstead(created));
     const half = shifted.byId.C!.width / 2;
@@ -2276,17 +2274,22 @@ describe("layoutSequence: a participant a message creates and nothing destroys",
   });
 
   // Measured: `participant A`, `create participant B`, `A->>B` leaves B at x
-  // 200, where a declared B's box is — declarations draw nothing — while
-  // `autonumber` first moves it to 275, as a message would: Mermaid records
-  // `autonumber` as a drawn step. The model keeps no `autonumber` statement,
-  // but the creating message comes right after the `create`, so its number
-  // says autonumbering was turned on before it.
-  it("leaves its lane where a declared participant's would be when only declarations come before its `create`, unless `autonumber` does", () => {
+  // 200, where a declared B's box is — declarations draw nothing.
+  it("leaves its lane where a declared participant's would be when only declarations come before its `create`", () => {
     const plain = createdModel([]);
     expect(lanes(plain).byId.C!.x).toBe(lanes(declaredInstead(plain)).byId.C!.x);
+  });
 
-    const numbered = createdModel([], 1);
-    const shifted = lanes(numbered);
-    expect(shifted.byId.C!.x).toBe(lanes(declaredInstead(numbered)).byId.C!.x + shifted.byId.C!.width / 2);
+  // The model says whether anything was drawn before the `create`
+  // (`ResolvedSequenceParticipant.createdAfterDrawing`), counting what
+  // leaves no statement of its own — an `autonumber off`, say — so layout
+  // takes its word rather than looking at the statements before it.
+  it("moves the lane exactly when the model says its `create` came after something drawn", () => {
+    const told = createdModel([], true);
+    const shifted = lanes(told);
+    expect(shifted.byId.C!.x).toBe(lanes(declaredInstead(told)).byId.C!.x + shifted.byId.C!.width / 2);
+
+    const untold = createdModel([messageStatement("m1", "A", "A", "before")]);
+    expect(lanes(untold).byId.C!.x).toBe(lanes(declaredInstead(untold)).byId.C!.x);
   });
 });

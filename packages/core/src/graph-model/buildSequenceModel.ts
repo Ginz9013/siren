@@ -107,6 +107,18 @@ interface ResolutionState {
    * it at all, and is undone (`unpair`).
    */
   pending: PendingDeclaration[];
+  /**
+   * Whether anything drawn has been written so far — the fact behind
+   * `ResolvedSequenceParticipant.createdAfterDrawing`. Measured on Mermaid
+   * 12.2.0, a created lane moves right when its `create` comes after any
+   * message, note, `activate`/`deactivate`, block start, later branch or
+   * `end`, `autonumber` or `autonumber off`, and stays put after nothing but
+   * declarations, `destroy`s and `link`s. Every statement that interrupts a
+   * waiting declaration sets it, except a `create` or `destroy`; so does a
+   * message. A block's later branches and `end` always come after its start,
+   * which has already set it.
+   */
+  drawnSoFar: boolean;
 }
 
 /** A block kind with later branches, each opened by its own keyword. */
@@ -241,11 +253,11 @@ function settle(
  * is over. Measured on Mermaid 12.2.0 (nook 01M4YWYFJ), such a declaration
  * pairs with nothing: a `destroy`ed participant is drawn as never destroyed,
  * and a `create`d one with its boxes in the top and bottom rows, from the
- * diagram's top — which is what origin `declared` names. Mermaid also
- * shifts that created lane right by half its width (`addActorRenderingData`
- * keeps a created actor's `prevMargin`); reading the unpaired `create` as a declaration keeps no
- * trace of it, so Siren lays the lane out as a declared one, without that
- * shift (corpus row `seq-create-at-end`).
+ * diagram's top — which is what origin `declared` names. Mermaid still
+ * shifts that created lane right by half its width when something was drawn
+ * before the `create` (`addActorRenderingData` keeps a created actor's
+ * `prevMargin`), so `createdAfterDrawing` is left as the `create` set it
+ * (corpus row `seq-create-at-end-lane-offset`).
  */
 function unpair(
   declaration: PendingDeclaration,
@@ -326,6 +338,7 @@ export function buildSequenceModel(document: SequenceDocument): SequenceModelRes
     autonumberCounter: 0,
     position: 0,
     pending: [],
+    drawnSoFar: false,
   };
 
   const boxes = resolveBoxes(document, diagnostics);
@@ -500,12 +513,14 @@ function resolveStatements(
     if (statement.kind === "autonumberOn") {
       state.autonumbering = true;
       interrupt(state, "autonumber");
+      state.drawnSoFar = true;
       continue;
     }
 
     if (statement.kind === "autonumberOff") {
       state.autonumbering = false;
       interrupt(state, "autonumber");
+      state.drawnSoFar = true;
       continue;
     }
 
@@ -534,6 +549,7 @@ function resolveStatements(
       // full-height extent alone.
       participant!.origin = statement.origin;
       if (statement.origin === "created") participant!.createdAt = position;
+      if (statement.origin === "created" && state.drawnSoFar) participant!.createdAfterDrawing = true;
       // A `create` waits for the next message too, and interrupts any
       // `create` or `destroy` still waiting (`ResolutionState.pending`).
       if (statement.origin === "created") {
@@ -623,6 +639,7 @@ function resolveStatements(
       // kept and X's lifeline still ends at its `destroy`, the same partial
       // tolerance a bad `deactivate` or a late `create` gets.
       const position = ++state.position;
+      state.drawnSoFar = true;
 
       // The creating message: the message right after `create participant
       // X`, sent to X. X's lifeline starts on its row — measured against
@@ -707,6 +724,7 @@ function resolveStatements(
     if (statement.kind === "activate") {
       mention(statement.id, participantsById, state);
       interrupt(state, "activate");
+      state.drawnSoFar = true;
       state.openActivationCounts.set(
         statement.id,
         (state.openActivationCounts.get(statement.id) ?? 0) + 1,
@@ -722,6 +740,7 @@ function resolveStatements(
     if (statement.kind === "deactivate") {
       mention(statement.id, participantsById, state);
       interrupt(state, "deactivate");
+      state.drawnSoFar = true;
       // Matches Mermaid's own rejection ("Trying to inactivate an inactive
       // participant") — a `deactivate` with nothing open is dropped rather
       // than drawing a bar with no start, the same partial-failure
@@ -746,6 +765,7 @@ function resolveStatements(
     if (statement.kind === "note") {
       for (const id of new Set([statement.from, statement.to])) mention(id, participantsById, state);
       interrupt(state, "note");
+      state.drawnSoFar = true;
 
       state.noteCounter += 1;
       ++state.position;
@@ -796,6 +816,7 @@ function resolveBlock(
   // `end` — is a record of its own in Mermaid's drawing, so none may stand
   // between a `create` or `destroy` and its message.
   interrupt(state, statement.kind);
+  state.drawnSoFar = true;
 
   // `opens` is the keyword that starts a later branch, and an interruption
   // like any other boundary; the first branch opens with the block itself.

@@ -4852,15 +4852,92 @@ line2\`"]`,
       "though its lane sits half a box further right (`addActorRenderingData` " +
       "keeps a created actor's `prevMargin`). `create actor C` draws its " +
       "figure the same way. Siren draws C's rows exactly as it draws A's " +
-      "(nook 01M4YWYFJ) but does not model that x offset for a `create` " +
-      "with no creating message — the model reads it as a declaration, " +
-      "keeping no trace of the `create` — laying C's lane out as a " +
-      "declared one's, and warns that the `create` draws nothing. A " +
-      "created participant with a creating message does move " +
-      "(`seq-created-lane-offset`).",
+      "(nook 01M4YWYFJ), moves its lane as Mermaid does " +
+      "(`seq-create-at-end-lane-offset`), and warns that the `create` " +
+      "draws nothing.",
     assert: (result) => {
       expectSame("participants", participants(result), ["A", "C"]);
       expectSame("C is drawn as A is, top row to bottom row", participantRows(result, "C"), participantRows(result, "A"));
+    },
+  },
+  {
+    id: "seq-create-at-end-lane-offset",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      A->>A: think
+      create participant C
+      participant D`,
+    status: "supported",
+    warnings: [
+      'The created participant "C" has no creating message, so the create draws nothing: its lifeline starts at the top. A message sent to it right after the create starts it there.',
+    ],
+    meaning:
+      "A `create` with no message after it, written after something drawn. " +
+      "Measured on 12.2.0 (layout stubs, 150-wide boxes, 50 between lanes): " +
+      "C is drawn from the top as a declared participant is, but its box " +
+      "starts at x 275 where a declared C's would start at 200 — half its " +
+      "own width further right, as a created participant's with a creating " +
+      "message does (`seq-created-lane-offset`) — and D follows it, at 475. " +
+      "Siren draws the same: the gap before C's box is the one after it plus " +
+      "half C's width.",
+    assert: (result) => {
+      expectSame("participants", participants(result), ["A", "C", "D"]);
+      expectSame(
+        "the gap before C's box is the one after it plus half C's width",
+        laneGap(result, "A", "C") - laneGap(result, "C", "D"),
+        topBox(result, "C").width / 2,
+      );
+    },
+  },
+  {
+    id: "seq-create-at-end-declarations-only",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      create participant C
+      participant D`,
+    status: "supported",
+    warnings: [
+      'The created participant "C" has no creating message, so the create draws nothing: its lifeline starts at the top. A message sent to it right after the create starts it there.',
+    ],
+    meaning:
+      "A `create` with no message after it and nothing but declarations " +
+      "before it. Measured on 12.2.0: C's box starts at x 200 and D's at " +
+      "400, exactly where declared ones' would — nothing was drawn before " +
+      "the `create`, so its lane does not move. Siren draws the same: the " +
+      "gaps either side of C's box are equal.",
+    assert: (result) => {
+      expectSame("participants", participants(result), ["A", "C", "D"]);
+      expectSame("the gaps either side of C's box are equal", laneGap(result, "A", "C"), laneGap(result, "C", "D"));
+    },
+  },
+  {
+    id: "seq-create-after-autonumber-off",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      autonumber
+      autonumber off
+      create participant B
+      A->>B: make
+      participant C
+      B->>C: pass on`,
+    status: "supported",
+    meaning:
+      "`autonumber` and `autonumber off` before a `create`, with nothing " +
+      "else drawn. Measured on 12.2.0 (layout stubs, 150-wide boxes): B's " +
+      "box starts at x 275, not 200, and C follows it at 475 — Mermaid " +
+      "counts each toggle among the things drawn before the `create`, " +
+      "though no message is numbered. Siren draws the same: the gap before " +
+      "B's box is the one after it plus half B's width.",
+    assert: (result) => {
+      expectSame("participants", participants(result), ["A", "B", "C"]);
+      expectSame(
+        "the gap before B's box is the one after it plus half B's width",
+        laneGap(result, "A", "B") - laneGap(result, "B", "C"),
+        topBox(result, "B").width / 2,
+      );
     },
   },
   {

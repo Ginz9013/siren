@@ -811,6 +811,8 @@ describe("buildSequenceModel", () => {
         origin: "created",
         createdAt: 4,
         destroyedAt: null,
+        // `A->>A: self` is drawn before `create actor B`.
+        createdAfterDrawing: true,
       },
     ]);
   });
@@ -1933,6 +1935,42 @@ describe("buildSequenceModel", () => {
         'warning 3:3: The destroyed participant "Z" has no destroying message, so the destroy draws nothing: no other statement names "Z", so it has no lane. A message sent by or to it right after the destroy draws its lane and ends it there.',
       ]);
       expect(result.diagnostics.join("\n")).not.toMatch(/mermaid/i);
+    });
+  });
+
+  describe("whether a participant's `create` comes after something drawn", () => {
+    // Measured on Mermaid 12.2.0 (layout-stubbed render, 150-wide boxes): a
+    // created B's box sits at x 275, half its width right of the 200 a
+    // declared B's would have, when anything was drawn before its `create`,
+    // and at 200 when only declarations came before it.
+    const createdAfterDrawing = (body: string, id = "B") =>
+      build(body).model.participants.find((p) => p.id === id)?.createdAfterDrawing ?? false;
+
+    it("says so for a `create` after a message, and not for one after nothing but declarations", () => {
+      expect(createdAfterDrawing("participant A\nA->>A: x\ncreate participant B\nA->>B: hi")).toBe(true);
+      expect(createdAfterDrawing("participant A\ncreate participant B\nA->>B: hi")).toBe(false);
+      expect(createdAfterDrawing("participant A\nparticipant B\nA->>B: hi")).toBe(false);
+    });
+
+    it("counts a note, an activation and a block's start or end as drawn, at any depth, but not a `destroy` or a `link`", () => {
+      // Measured: B at 275 after `note over A`, after `activate A`, first
+      // inside a `loop`, and after an empty `loop`; at 200 after a `link`
+      // only, and at 400 — where a declared B's would be, after C — after
+      // `destroy C` only.
+      expect(createdAfterDrawing("participant A\nnote over A: n\ncreate participant B\nA->>B: hi")).toBe(true);
+      expect(createdAfterDrawing("participant A\nactivate A\ncreate participant B\nA->>B: hi\ndeactivate A")).toBe(true);
+      expect(createdAfterDrawing("participant A\nloop L\ncreate participant B\nA->>B: hi\nend")).toBe(true);
+      expect(createdAfterDrawing("participant A\nloop L\nend\ncreate participant B\nA->>B: hi")).toBe(true);
+      expect(createdAfterDrawing("participant A\nlink A: x @ https://e.x\ncreate participant B\nA->>B: hi")).toBe(false);
+      expect(createdAfterDrawing("participant A\nparticipant C\ndestroy C\ncreate participant B")).toBe(false);
+    });
+
+    it("counts an `autonumber` and an `autonumber off` as drawn, though neither numbers anything", () => {
+      // Measured: `autonumber`, `autonumber off`, `create participant B`,
+      // `A->>B` puts B at 275, and so does a lone `autonumber off`, with or
+      // without the `A->>B`.
+      expect(createdAfterDrawing("participant A\nautonumber\nautonumber off\ncreate participant B\nA->>B: hi")).toBe(true);
+      expect(createdAfterDrawing("participant A\nautonumber off\ncreate participant B")).toBe(true);
     });
   });
 });
