@@ -698,8 +698,8 @@ does not matter: an edge into the group counts the same as one out of it)
 **Participant**:
 One vertical lane in a sequence diagram, declared as `participant X` (drawn as a box) or
 `actor X` (drawn as a stick figure), or created implicitly, as a box labelled with its id, by the
-first message, note, `activate` or `deactivate` that names it. A `destroy` is not a mention: it
-creates nothing, so a participant only a `destroy` names has no lane. Lanes order left to right by
+first message, note, `activate`, `deactivate` or `link` that names it. A `destroy` is not a
+mention: it creates nothing, so a participant only a `destroy` names has no lane. Lanes order left to right by
 first mention, declaration or reference alike; a declaration after the first mention gives the
 lane its label and kind without moving it (see
 [ADR-0013](docs/adr/0013-sequence-participants-are-created-on-first-mention.md)).
@@ -732,9 +732,10 @@ The message right after a `destroy X` statement; X must send or receive it. X's 
 its X mark, on that message's row — the message reaches X before X stops, so it is not "past" the
 end. A `destroy` whose next message does not touch X is refused, as Mermaid refuses it, and so is
 one with anything else in between (as for a **Creating message**), because Mermaid then draws X as
-if it were never destroyed. With no message after the `destroy` at all, X is drawn as never
-destroyed — lifeline to the bottom row, no X mark — and the `destroy` is warned about. A later
-message naming X does point past the end, and is warned about.
+if it were never destroyed. With no message after the `destroy` at all, the `destroy` is warned
+about and draws nothing: if another statement names X, X is drawn as never destroyed — lifeline to
+the bottom row, no X mark — and if nothing else does, X has no lane. A later message naming X does
+point past the end, and is warned about.
 _Avoid_: destroy message, kill message, last message
 _Avoid_: timeline (that is the animation block — a lifeline is structural; it does animate, but
 under its participant's id rather than one of its own), axis

@@ -205,27 +205,27 @@ function interrupt(state: ResolutionState, keyword: InterruptingKeyword): void {
 
 /**
  * Settles a waiting `create` or `destroy` against the message right after
- * it. When the message `pairs` with it, the participant's lifeline end
+ * it. `paired` is the participant when the message pairs with the
+ * declaration — such a message names it, so it has a lane by then — and
+ * `undefined` when it does not. A paired participant's lifeline end
  * (`extent`: `createdAt` or `destroyedAt`) moves onto the message's
- * `position` and the participant's id is returned, for the message to carry
- * as its `creates`/`destroys` mark. Otherwise `refusal` is reported as an
- * error at the declaration's line and `null` is returned: the extent stays
- * where the declaration is written — and a `destroy` of a participant
- * nothing had named yet ends nothing, since there was no lane to end.
+ * `position` and its id is returned, for the message to carry as its
+ * `creates`/`destroys` mark. Otherwise `refusal` is reported as an error at
+ * the declaration's line and `null` is returned: the extent stays where the
+ * declaration is written — and a `destroy` of a participant nothing had
+ * named yet ends nothing, since there was no lane to end.
  */
 function settle(
   pending: PendingDeclaration,
-  participant: ResolvedSequenceParticipant | undefined,
-  pairs: boolean,
+  paired: ResolvedSequenceParticipant | undefined,
   extent: "createdAt" | "destroyedAt",
   position: number,
   refusal: string,
   diagnostics: Diagnostic[],
 ): string | null {
-  // A message that pairs names the participant, so it exists by now.
-  if (pairs) {
-    participant![extent] = position;
-    return participant!.id;
+  if (paired !== undefined) {
+    paired[extent] = position;
+    return paired.id;
   }
   diagnostics.push({
     severity: "error",
@@ -253,25 +253,31 @@ function unpair(
   diagnostics: Diagnostic[],
 ): void {
   const { kind, participantId, statement } = declaration;
+  // Once the walk is over, every participant in `participantsById` has a
+  // lane — a declared one no statement names too (only a hand-built
+  // document has one), placed after the mentioned ones — so this asks the
+  // map directly rather than `laneSoFar`, which answers mid-walk.
   const participant = participantsById.get(participantId);
   const rule = DECLARATION_RULES[kind];
-  // Only a `destroy` can name a participant that does not exist: one no
-  // other statement names, so there is no lane to say anything about.
-  const unpaired =
-    participant === undefined
-      ? `no other statement names "${participantId}", so it has no lane. A message sent by or to it right after the destroy draws its lane and ends it there.`
-      : rule.unpaired;
-  if (participant !== undefined && kind === "destroy") {
-    participant.destroyedAt = null;
-  } else if (participant !== undefined) {
-    participant.origin = "declared";
-    participant.createdAt = 0;
+  let reason: string;
+  if (participant === undefined) {
+    // Only a `destroy` can name a participant that does not exist: one no
+    // other statement names, so there is no lane to say anything about.
+    reason = `no other statement names "${participantId}", so it has no lane. A message sent by or to it right after the destroy draws its lane and ends it there.`;
+  } else {
+    reason = rule.unpaired;
+    if (kind === "destroy") {
+      participant.destroyedAt = null;
+    } else {
+      participant.origin = "declared";
+      participant.createdAt = 0;
+    }
   }
   diagnostics.push({
     severity: "warning",
     message:
       `The ${rule.participant} participant "${participantId}" has no ${rule.message} message, ` +
-      `so the ${kind} draws nothing: ${unpaired}`,
+      `so the ${kind} draws nothing: ${reason}`,
     line: statement.line,
     column: statement.column,
   });
@@ -454,6 +460,21 @@ function mention(
   }
 }
 
+/**
+ * The participant `id` names if it has a lane at this point of the walk —
+ * that is, some statement has mentioned it — and `undefined` otherwise.
+ * `participantsById` alone does not answer this: it holds every declared
+ * participant from the start, including one only a later `participant` or
+ * `create participant` statement names.
+ */
+function laneSoFar(
+  id: string,
+  participantsById: Map<string, ResolvedSequenceParticipant>,
+  state: ResolutionState,
+): ResolvedSequenceParticipant | undefined {
+  return state.mentionedSoFar.has(id) ? participantsById.get(id) : undefined;
+}
+
 /** Mentions every pending link written before `line`, in document order. */
 function flushLinkMentions(
   line: number,
@@ -540,7 +561,7 @@ function resolveStatements(
       // `A-xB` ends B on `A-xB` exactly as one `destroy B` does, since
       // Mermaid keeps one pending destroy per participant. The earlier one
       // is dropped from `pending`, and with it whatever interrupted it.
-      const participant = state.mentionedSoFar.has(statement.id) ? participantsById.get(statement.id) : undefined;
+      const participant = laneSoFar(statement.id, participantsById, state);
       const waiting = state.pending.findIndex((p) => p.kind === "destroy" && p.participantId === statement.id);
       if (waiting !== -1) {
         state.pending.splice(waiting, 1);
@@ -637,10 +658,10 @@ function resolveStatements(
           (interruptedBy === null
             ? `the next message must be ${rule.addressee}.`
             : `the message ${rule.addressee} must come right after the ${declaration.kind}, with no "${interruptedBy}" in between.`);
+        const pairs = interruptedBy === null && rule.pairs(statement, declaredId);
         settledHere[declaration.kind] = settle(
           declaration,
-          participantsById.get(declaredId),
-          interruptedBy === null && rule.pairs(statement, declaredId),
+          pairs ? laneSoFar(declaredId, participantsById, state) : undefined,
           rule.extent,
           position,
           refusal,
