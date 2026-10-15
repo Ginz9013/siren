@@ -148,11 +148,11 @@ const BLOCK_MARGIN_BOTTOM = 20;
  */
 const CREATE_ROW_GAP = 20;
 /**
- * Vertical distance a `destroy` statement's X mark sits below the preceding
- * row — only for a `destroy` whose destroying message was refused, the one
- * case whose lifeline still ends where `destroy` is written.
+ * Vertical gap above a `destroy`ed participant's closing box, separating it
+ * from the preceding row — only for a `destroy` whose destroying message was
+ * refused, the one case whose lifeline still ends where `destroy` is written.
  */
-const DESTROY_ROW_HEIGHT = 30;
+const DESTROY_ROW_GAP = 20;
 /**
  * Horizontal padding a box's background rect extends beyond its outermost
  * member lane's own box. Kept below `LEFT_MARGIN` so a box grouping the
@@ -243,6 +243,15 @@ function closeActivation(
     width: ACTIVATION_BAR_WIDTH,
     height,
   };
+}
+
+/**
+ * How far from its lane an arrow meeting a created or destroyed
+ * participant's box stops: the box's near edge, or for an actor its
+ * figure's near arm tip, whatever its label.
+ */
+function nearEdgeOffset(participant: PositionedParticipant): number {
+  return participant.participantKind === "actor" ? ACTOR_FIGURE_HALF_WIDTH : participant.width / 2;
 }
 
 /**
@@ -445,21 +454,31 @@ function layoutStatements(
       elements.push({ kind: "message", message });
 
       // The destroying message ends its participant's lifeline on its own
-      // row. Measured against Mermaid 12.2.0: the destroyed actor's `stopy`
-      // is taken from this message's `lineStartY`, and the closing box it
-      // draws there is centred on the arrow (`adjustCreatedDestroyedData`).
-      // Siren draws its X instead of a closing box, so the X goes where that
-      // box's centre is: on X's lane, on this arrow — its tip when X
-      // receives the message, its tail when X sends it (a message X sends to
-      // itself counts as sent, as Mermaid checks the sender first, so the X
-      // stays on X's lane rather than at the self-loop's far end).
-      const destroyed = statement.message.destroys;
+      // row, with X's closing box. Measured against Mermaid 12.2.0: the
+      // destroyed actor's `stopy` — the top of the box it draws a second
+      // time — is this message's `lineStartY` less half the box
+      // (`adjustCreatedDestroyedData`), so the box is centred on the arrow,
+      // whether X sends or receives it. The lifeline runs under the box to
+      // its bottom edge, as every lifeline runs under the box at its ends.
+      // The next row starts half a box lower (`bumpVerticalPos(actor.height
+      // / 2)`), clearing the box's lower half, as after a creating message.
+      //
+      // The arrow stops at the box's near edge at X's end, tip or tail, as a
+      // creating arrow does (`receiverAdjustment` / `senderAdjustment`); a
+      // message X sends itself loops out from its lane and is left as it is.
+      const destroyedId = statement.message.destroys;
+      const destroyed = destroyedId === undefined ? undefined : ctx.participantsById.get(destroyedId);
       if (destroyed !== undefined) {
-        ctx.destroyedBottomById.set(destroyed, y);
-        elements.push({
-          kind: "destroyMark",
-          mark: { participantId: destroyed, x: destroyed === message.from ? message.fromX : message.toX, y },
-        });
+        if (message.from !== message.to) {
+          const halfWidth = nearEdgeOffset(destroyed);
+          if (destroyed.id === message.to) {
+            message.toX += message.toX > message.fromX ? -halfWidth : halfWidth;
+          } else {
+            message.fromX += message.fromX < message.toX ? halfWidth : -halfWidth;
+          }
+        }
+        ctx.destroyedBottomById.set(destroyed.id, y + destroyed.height / 2);
+        y += destroyed.height / 2;
       }
 
       // The creating message starts its participant's lifeline on its own
@@ -480,7 +499,7 @@ function layoutStatements(
       const created = createdId === undefined ? undefined : ctx.participantsById.get(createdId);
       if (created === undefined) continue;
       if (message.from !== message.to) {
-        const halfWidth = created.participantKind === "actor" ? ACTOR_FIGURE_HALF_WIDTH : created.width / 2;
+        const halfWidth = nearEdgeOffset(created);
         message.toX += message.toX > message.fromX ? -halfWidth : halfWidth;
       }
       ctx.createdTopById.set(created.id, y - created.height / 2);
@@ -506,17 +525,13 @@ function layoutStatements(
       // Paired with a destroying message later on, that message's row is the
       // end; with no message after it, it ends nothing. Either way `destroy`
       // itself takes no row, as it takes none in Mermaid.
-      if (!ctx.destroyedOnOwnRow.has(statement.id)) continue;
-      y += DESTROY_ROW_HEIGHT;
+      // A `destroy` refused for its missing destroying message takes a row
+      // of its own instead, enough for the closing box, as a refused
+      // `create` does for its box.
+      const participant = ctx.participantsById.get(statement.id);
+      if (participant === undefined || !ctx.destroyedOnOwnRow.has(statement.id)) continue;
+      y += DESTROY_ROW_GAP + participant.height;
       ctx.destroyedBottomById.set(statement.id, y);
-      elements.push({
-        kind: "destroyMark",
-        mark: {
-          participantId: statement.id,
-          x: ctx.laneCenterById.get(statement.id) ?? 0,
-          y,
-        },
-      });
       continue;
     }
 

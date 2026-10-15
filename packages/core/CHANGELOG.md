@@ -44,6 +44,11 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
 Breaking for an ER document with a `%` in a quoted entity name or an alias (`A["50% off"]`,
 `"A % b"`, `A ||--o{ "B % c" : r`), which is now refused (see **Changed**).
 
+Breaking for code that reads a sequence diagram's SVG or positioned layout: a destroyed participant
+is drawn with a closing box instead of an X mark, the `siren-destroy-mark` path and
+`PositionedDestroyMark` are gone, and the rows after a destroying message move down (see
+**Changed**).
+
 ### Added
 
 - A flowchart subgraph title of several words is read as Mermaid 12.2.0 reads it (nook
@@ -351,6 +356,18 @@ Breaking for an ER document with a `%` in a quoted entity name or an alias (`A["
 - A class member with a `;` that Siren cannot read (`+int x; +foo()`) is now refused saying that a
   `;` does not separate members and to write each on a line of its own; Mermaid 12.2.0 draws such
   text as one member (nook `01M4ZWT8XF`).
+
+- **A destroyed sequence participant ends with a closing box, not an X mark** (Breaking; nook
+  decision `01M4ZXTTY3`, superseding the X-mark convention of the sequence-create-destroy board).
+  As in Mermaid 12.2.0, `destroy X` draws X's box (or actor figure) a second time, centred on its
+  destroying message's arrow, whether X sends or receives it; X's lifeline ends there, under the
+  box, and X still gets no box in the bottom row. The arrow stops at the box's near edge (an
+  actor's arm tip), as a creating message's arrow does, whatever the arrowhead. Every row after the
+  destroying message, the bottom row and the diagram's height move down by half the box, and a
+  block around the pair grows with it. The SVG no longer has a `path.siren-destroy-mark`; the
+  closing box is a `g.siren-participant` wearing the participant's `data-siren-id`, so a timeline
+  action on the participant still reaches it. `PositionedDestroyMark` and the `destroyMark` element
+  kind are removed from the positioned layout, and the default theme drops their styles.
 
 ### Fixed
 

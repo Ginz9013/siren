@@ -634,7 +634,7 @@ A->>GHOST: Hello
     }
   });
 
-  it("starts a `create`d participant's lifeline at its create statement with no top-row box, and ends a `destroy`ed one at its destroying message with an X mark and no bottom-row box", () => {
+  it("starts a `create`d participant's lifeline at its create statement with no top-row box, and ends a `destroy`ed one at its destroying message with a closing box and no bottom-row box", () => {
     const container = document.createElement("div");
     const source = `sequenceDiagram
 participant Client
@@ -655,10 +655,11 @@ Server-->>Client: Finished
       result.svg!.querySelectorAll(`g.siren-participant[data-siren-id="${id}"]`);
     // Client and Server are declared and survive, so each is drawn at both the
     // top and the bottom row; Worker is created and then destroyed, so it is
-    // drawn exactly once, at its `create` statement's row.
+    // drawn on its creating message and again, as its closing box, on its
+    // destroying message — never in the bottom row.
     expect(groupsFor("Client")).toHaveLength(2);
     expect(groupsFor("Server")).toHaveLength(2);
-    expect(groupsFor("Worker")).toHaveLength(1);
+    expect(groupsFor("Worker")).toHaveLength(2);
 
     const lifeline = (id: string) =>
       result.svg!.querySelector(`line.siren-lifeline[data-siren-id="${id}"]`)!;
@@ -669,15 +670,15 @@ Server-->>Client: Finished
     expect(y1("Worker")).toBeGreaterThan(y1("Client"));
     expect(y2("Worker")).toBeLessThan(y2("Client"));
 
-    // Worker's one box sits at the top of its own (truncated) lifeline.
+    // Worker's first box sits at the top of its own (truncated) lifeline.
     const workerBoxY = Number(groupsFor("Worker")[0]!.querySelector("rect")!.getAttribute("y"));
     expect(workerBoxY).toBeGreaterThanOrEqual(y1("Client"));
     expect(workerBoxY).toBeLessThanOrEqual(y1("Worker"));
 
-    const destroyMarks = result.svg!.querySelectorAll("path.siren-destroy-mark");
-    expect(
-      Array.from(destroyMarks).map((p) => p.getAttribute("data-siren-id")),
-    ).toEqual(["Worker"]);
+    // The closing box ends Worker's lifeline, above the bottom row.
+    const closing = groupsFor("Worker")[1]!.querySelector("rect")!;
+    expect(Number(closing.getAttribute("y")) + Number(closing.getAttribute("height"))).toBe(y2("Worker"));
+    expect(result.svg!.querySelectorAll(".siren-destroy-mark")).toHaveLength(0);
   });
 
   it("renders a `box <color> <label> ... end` grouping as one siren-box background spanning only its member lanes, painted before (behind) the participants it groups", () => {
@@ -870,18 +871,19 @@ end
 
     // Four declared, never-destroyed participants (a box in both the top and
     // bottom rows), plus three `create`d ones (a box centred on its creating
-    // message's arrow): Ledger and Retry are destroyed, so that is their only
-    // box, while Auditor survives and is drawn in the bottom row too.
+    // message's arrow): Ledger and Retry are destroyed, so their second box is
+    // their closing box on their destroying message, while Auditor survives
+    // and is drawn in the bottom row too.
     const groupCount = (id: string) =>
       svg.querySelectorAll(`g.siren-participant[data-siren-id="${id}"]`).length;
     expect(groupCount("Shopper")).toBe(2);
     expect(groupCount("Web")).toBe(2);
     expect(groupCount("Orders")).toBe(2);
     expect(groupCount("Payments")).toBe(2);
-    expect(groupCount("Ledger")).toBe(1);
-    expect(groupCount("Retry")).toBe(1);
+    expect(groupCount("Ledger")).toBe(2);
+    expect(groupCount("Retry")).toBe(2);
     expect(groupCount("Auditor")).toBe(2);
-    expect(svg.querySelectorAll("g.siren-participant")).toHaveLength(12);
+    expect(svg.querySelectorAll("g.siren-participant")).toHaveLength(14);
 
     // `actor` renders a stick figure, `participant` a box.
     expect(
@@ -957,14 +959,9 @@ end
     expect(boxes).toHaveLength(1);
     expect(boxes[0]!.querySelector("text.siren-box-label")!.textContent).toBe("Storefront");
 
-    // Destroy marks for the two destroyed lifelines only — `destroy Retry`
-    // inside the `alt approved` branch and `destroy Ledger` at the top level,
-    // each followed by its destroying message.
-    expect(
-      Array.from(svg.querySelectorAll("path.siren-destroy-mark"))
-        .map((p) => p.getAttribute("data-siren-id"))
-        .sort(),
-    ).toEqual(["Ledger", "Retry"]);
+    // No X anywhere: `destroy Retry` inside the `alt approved` branch and
+    // `destroy Ledger` at the top level each draw a closing box instead.
+    expect(svg.querySelectorAll(".siren-destroy-mark")).toHaveLength(0);
     // Both created lifelines start below the top row; both destroyed ones end
     // above the bottom row.
     const y1 = (id: string) =>
@@ -982,10 +979,11 @@ end
       expect(y2(destroyed)).toBeLessThan(y2("Web"));
     }
     expect(y2("Auditor")).toBe(y2("Web"));
-    // Each destroyed lifeline ends exactly on its destroying message's arrow:
-    // Retry's on `Web-xRetry: Cancel the retry`, which sits inside the `alt`
-    // block's frame (in its first, `approved`, branch, above the first
-    // divider); Ledger's on `Web-xLedger: Close ledger entry`.
+    // Each destroyed participant's closing box is centred on its destroying
+    // message's arrow, its lifeline ending under the box: Retry's on
+    // `Web-xRetry: Cancel the retry`, which sits inside the `alt` block's
+    // frame (in its first, `approved`, branch, above the first divider), the
+    // whole box with it; Ledger's on `Web-xLedger: Close ledger entry`.
     const messageLabelled = (label: string) =>
       messages.find((g) => g.querySelector("text.siren-message-label")!.textContent === label)!;
     const arrowY = (label: string) => {
@@ -995,16 +993,23 @@ end
     };
     expect(messageLabelled("Cancel the retry").getAttribute("data-siren-id")).toBe("Web-Retry#2");
     const cancelRetryY = arrowY("Cancel the retry");
-    expect(y2("Retry")).toBe(cancelRetryY);
-    expect(y2("Ledger")).toBe(arrowY("Close ledger entry"));
+    const closingBox = (id: string) => {
+      const rect = svg.querySelectorAll(`g.siren-participant[data-siren-id="${id}"]`)[1]!.querySelector("rect")!;
+      return { top: Number(rect.getAttribute("y")), bottom: Number(rect.getAttribute("y")) + Number(rect.getAttribute("height")) };
+    };
+    for (const [id, label] of [["Retry", "Cancel the retry"], ["Ledger", "Close ledger entry"]] as const) {
+      const box = closingBox(id);
+      expect((box.top + box.bottom) / 2).toBe(arrowY(label));
+      expect(y2(id)).toBe(box.bottom);
+    }
     const altFrame = block("alt:1").querySelector("rect.siren-block-frame")!;
     const altTop = Number(altFrame.getAttribute("y"));
     const altBottom = altTop + Number(altFrame.getAttribute("height"));
     const firstDividerY = Number(
       block("alt:1").querySelector(":scope > line.siren-block-divider")!.getAttribute("y1"),
     );
-    expect(cancelRetryY).toBeGreaterThan(altTop);
-    expect(cancelRetryY).toBeLessThan(firstDividerY);
+    expect(closingBox("Retry").top).toBeGreaterThan(altTop);
+    expect(closingBox("Retry").bottom).toBeLessThan(firstDividerY);
     expect(cancelRetryY).toBeLessThan(altBottom);
   });
 
@@ -2582,7 +2587,7 @@ timeline:
     ).toEqual([false, false, false]);
   });
 
-  it("reaches a destroyed participant's destroy mark too, since the mark carries the participant's id", () => {
+  it("reaches a destroyed participant's closing box too, since the box carries the participant's id", () => {
     const container = document.createElement("div");
     const source = `sequenceDiagram
 participant A
@@ -2600,13 +2605,13 @@ timeline:
     const controller = result.controller!;
 
     // B is destroyed, so it has no bottom-row box: its top-row box, its
-    // lifeline, and its destroy mark are the three elements wearing its id.
+    // lifeline, and its closing box are the three elements wearing its id.
     const elementsForB = () =>
       Array.from(result.svg!.querySelectorAll('[data-siren-id="B"]'));
     expect(elementsForB()).toHaveLength(3);
     expect(
-      result.svg!.querySelectorAll('path.siren-destroy-mark[data-siren-id="B"]'),
-    ).toHaveLength(1);
+      result.svg!.querySelectorAll('g.siren-participant[data-siren-id="B"]'),
+    ).toHaveLength(2);
 
     controller.next();
 

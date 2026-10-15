@@ -1022,30 +1022,44 @@ function belowArrow(arrows: readonly DrawnArrow[], y: number): string {
 }
 
 /**
- * Where a destroyed participant's lifeline ends, read off the drawn picture:
- * `tip of <message>` or `tail of <message>` when its X mark sits on that end
- * of a message's arrow, `below <message>` when it sits on no arrow (on a row
- * of its own, under the last arrow above it), each followed by
- * `, lifeline stops there` when the lifeline's bottom is the mark's centre.
- * The words name the relation a reader sees — the X on the arrow the
- * participant receives or sends — rather than coordinates no assert could
- * hold still.
+ * Where a destroyed participant's closing box is drawn, read off the picture:
+ * its box drawn a second time, after its top one. `centred on <message>,
+ * whose tip stops at its left edge` (or `tail starts`, or `right edge`, or
+ * `runs to its lane` when the arrow does not stop short) when the box's
+ * centre is on that message's arrow and the arrow's end at the participant
+ * meets the box, `below <message>` when it sits on no arrow (on a row of its
+ * own, under the last arrow above it), each followed by `, lifeline ends
+ * under it` when the lifeline's bottom is the box's bottom edge. Read off
+ * `rect`s, so for a `participant` and not an `actor`. The words name what a
+ * reader sees — the closing box on the arrow the participant receives or
+ * sends — rather than coordinates no assert could hold still.
  */
-function lifelineEnd(result: SirenRenderResult, participantId: string): string {
-  const mark = svgOf(result).querySelector(`path.siren-destroy-mark[data-siren-id="${participantId}"]`);
-  if (mark === null) return "no destroy mark";
-  const [left, top, right, bottom] = [...(mark.getAttribute("d") ?? "").matchAll(/-?[\d.]+/g)].map(Number);
-  const centre = { x: (left! + right!) / 2, y: (top! + bottom!) / 2 };
-  const lifeline = svgOf(result).querySelector(`line.siren-lifeline[data-siren-id="${participantId}"]`);
-  const stops = Number(lifeline?.getAttribute("y2")) === centre.y ? ", lifeline stops there" : "";
+function closingBox(result: SirenRenderResult, participantId: string): string {
+  const rect = participantRects(result, participantId)[1];
+  if (rect === undefined) return "no closing box";
+  const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(rect.getAttribute(name)));
+  const centre = { x: x! + width! / 2, y: y! + height! / 2 };
+  const under = Number(lifelineBottom(result, participantId)) === y! + height! ? ", lifeline ends under it" : "";
 
+  const edges: [number, string][] = [
+    [x!, "at its left edge"],
+    [x! + width!, "at its right edge"],
+  ];
   const arrows = messageArrows(result);
   for (const arrow of arrows) {
     if (arrow.y !== centre.y) continue;
-    if (arrow.toX === centre.x) return `tip of ${arrow.id}${stops}`;
-    if (arrow.fromX === centre.x) return `tail of ${arrow.id}${stops}`;
+    for (const [end, verb] of [[arrow.toX, "tip stops"], [arrow.fromX, "tail starts"]] as const) {
+      const edge = edges.find(([at]) => at === end)?.[1];
+      if (edge !== undefined) return `centred on ${arrow.id}, whose ${verb} ${edge}${under}`;
+    }
+    return `centred on ${arrow.id}, whose arrow runs to its lane${under}`;
   }
-  return `${belowArrow(arrows, centre.y)}${stops}`;
+  return `${belowArrow(arrows, centre.y)}${under}`;
+}
+
+/** The y of each drawn message's arrow, by message id. */
+function arrowRows(result: SirenRenderResult): Record<string, number> {
+  return Object.fromEntries(messageArrows(result).map((arrow) => [arrow.id, arrow.y]));
 }
 
 /**
@@ -4891,14 +4905,14 @@ line2\`"]`,
       "Measured on 12.2.0: Mermaid accepts this and draws B as if it were " +
       "never destroyed — no closing box on any arrow, the lifeline running " +
       "on to the bottom row, where B gets a box level with A's (y 234 " +
-      "both). Siren draws the same: no X, B's lifeline down to where A's " +
-      "ends and a bottom-row box there, nothing in the `destroy`'s place " +
+      "both). Siren draws the same: no closing box on an arrow, B's " +
+      "lifeline down to where A's ends and a bottom-row box there, nothing " +
+      "in the `destroy`'s place " +
       "(nook 01M4YWYFJ), and warns that the `destroy` draws nothing. " +
       "Nothing but declarations comes before the `create`, so B's lane is " +
       "where a declared B's would be (measured: x 200 either way).",
     assert: (result) => {
       expectSame("participants", participants(result), ["A", "B"]);
-      expectSame("no destroy mark was drawn", drew(result, "path.siren-destroy-mark"), false);
       expectSame("B's box is on its creating message", createdBox(result, "B"), "centred on A-B, whose arrow stops at its left edge");
       expectSame("B's lifeline runs as far down as A's", lifelineBottom(result, "B"), lifelineBottom(result, "A"));
       expectSame("B is drawn in the bottom row, level with A", bottomRowEdge(result, "B"), bottomRowEdge(result, "A"));
@@ -5162,13 +5176,65 @@ line2\`"]`,
     meaning:
       "`destroy B` is a declaration about the next message, which B must " +
       "send or receive: its destroying message. Measured on 12.2.0: " +
-      "accepted, and B's lifeline ends on `A->>B: bye`'s own row (Mermaid " +
-      "centres B's closing box on that arrow), with no row for the " +
-      "`destroy` itself. Siren draws its X there, on the arrow's tip, and " +
-      "says nothing — the arrow reaches B before B stops.",
+      "accepted, and B's lifeline ends on `A->>B: bye`'s own row: B's box " +
+      "is drawn a second time centred on that arrow, which stops short of " +
+      "it, with no row for the `destroy` itself. Siren draws the same " +
+      "closing box, the arrow ending at its edge, and says nothing — the " +
+      "arrow reaches B before B stops.",
     assert: (result) => {
       expectSame("messages", messages(result), ["A-B: hi", "A-B#2: bye", "A-A: carry on"]);
-      expectSame("B ends on the destroying message's tip", lifelineEnd(result, "B"), "tip of A-B#2, lifeline stops there");
+      expectSame(
+        "B's closing box is on the destroying message",
+        closingBox(result, "B"),
+        "centred on A-B#2, whose tip stops at its left edge, lifeline ends under it",
+      );
+    },
+  },
+  {
+    id: "seq-destroy-closing-box",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      participant B
+      A->>B: hi
+      destroy B
+      A-xB: bye
+      A->>A: after`,
+    status: "supported",
+    meaning:
+      "A destroyed participant's closing box takes room on the timeline. " +
+      "Measured on 12.2.0 (layout stubs, 76-tall boxes): B's box is drawn a " +
+      "second time at y 138–214, centred on `A-xB: bye`'s arrow at 176; " +
+      "B's lifeline stops at the box's top; the arrow stops 10 short of " +
+      "the box's left edge (with no destroy it runs to the lane); and " +
+      "`A->>A: after` is 38 lower than with no destroy — half the box — " +
+      "with A's bottom-row box and the diagram 38 lower and taller too. No " +
+      "X is drawn anywhere. Siren draws the same closing box, its lifeline " +
+      "running under it as at either end, the arrow ending at its edge, " +
+      "and every row after it half the box lower, down to the diagram's " +
+      "bottom.",
+    assert: (result) => {
+      expectSame(
+        "B's closing box is on the destroying message",
+        closingBox(result, "B"),
+        "centred on A-B#2, whose tip stops at its left edge, lifeline ends under it",
+      );
+      const rows = arrowRows(result);
+      const closing = participantRects(result, "B")[1]!;
+      expectSame(
+        "the row after the destroying message is half B's box further down than the pitch before it",
+        rows["A-A"]! - rows["A-B#2"]! - (rows["A-B#2"]! - rows["A-B"]!),
+        Number(closing.getAttribute("height")) / 2,
+      );
+      // The canvas grows with the rows: only its gutter (as far below the
+      // diagram as the viewBox starts above it) lies below A's bottom row.
+      const [, minY, , spanY] = (svgOf(result).getAttribute("viewBox") ?? "").split(" ").map(Number);
+      expectSame(
+        "only the canvas gutter lies below A's bottom-row box",
+        minY! + spanY! - bottomRowEdge(result, "A")!,
+        -minY!,
+      );
+      expectSame("no X mark is drawn", drew(result, ".siren-destroy-mark"), false);
     },
   },
   {
@@ -5204,10 +5270,15 @@ line2\`"]`,
     meaning:
       "A destroying message may be sent by the destroyed participant as " +
       "well as to it. Measured on 12.2.0: accepted, B's lifeline ends on " +
-      "`B-->>A: bye`'s row. Siren's X sits on the arrow's tail, on B's lane.",
+      "`B-->>A: bye`'s row, B's closing box centred on that arrow, whose " +
+      "tail starts at the box's edge. Siren draws the same.",
     assert: (result) => {
       expectSame("messages", messages(result), ["A-B: hi", "B-A: bye"]);
-      expectSame("B ends on the destroying message's tail", lifelineEnd(result, "B"), "tail of B-A, lifeline stops there");
+      expectSame(
+        "B's closing box is on the destroying message",
+        closingBox(result, "B"),
+        "centred on B-A, whose tail starts at its left edge, lifeline ends under it",
+      );
     },
   },
   {
@@ -5233,11 +5304,10 @@ line2\`"]`,
       "at the end is — B and C as if never destroyed, boxes in the top and " +
       "bottom rows, no row for either `destroy`. A note or a block's `end` " +
       "after a lone `destroy` draws the same. Siren draws B and C exactly " +
-      "as it draws A, with no X (nook 01M4YWYFJ), and warns at each " +
+      "as it draws A (nook 01M4YWYFJ), and warns at each " +
       "`destroy`. A message after the two would refuse the first, which " +
       "Mermaid would not draw (nook 01M4YS7DV8).",
     assert: (result) => {
-      expectSame("no destroy mark was drawn", drew(result, "path.siren-destroy-mark"), false);
       expectSame("B is drawn as A is", participantRows(result, "B"), participantRows(result, "A"));
       expectSame("C is drawn as A is", participantRows(result, "C"), participantRows(result, "A"));
     },
@@ -5261,7 +5331,6 @@ line2\`"]`,
     assert: (result) => {
       expectSame("participants", participants(result), ["A", "B"]);
       expectSame("lanes", laneOrder(result), ["A", "B"]);
-      expectSame("no destroy mark was drawn", drew(result, "path.siren-destroy-mark"), false);
     },
   },
   {
@@ -5278,10 +5347,14 @@ line2\`"]`,
       "12.2.0 (layout-stubbed render): lanes A, B, C, Z — C before Z, in " +
       "the order the message names them, not Z at the `destroy` — with Z's " +
       "lifeline ending on `C-xZ`'s row and no shift of Z's lane. Siren " +
-      "draws the same lanes and Z's X on the arrow's tip.",
+      "draws the same lanes and Z's closing box on the arrow.",
     assert: (result) => {
       expectSame("lanes", laneOrder(result), ["A", "B", "C", "Z"]);
-      expectSame("Z ends on its destroying message's tip", lifelineEnd(result, "Z"), "tip of C-Z, lifeline stops there");
+      expectSame(
+        "Z's closing box is on its destroying message",
+        closingBox(result, "Z"),
+        "centred on C-Z, whose tip stops at its left edge, lifeline ends under it",
+      );
     },
   },
   {
@@ -5801,14 +5874,18 @@ line2\`"]`,
       "`create` and `destroy` are read in any case (measured: `Box … END`, " +
       "`Autonumber`, `AUTONUMBER`, `Activate`, `DEACTIVATE`, `Create " +
       "participant`, `Destroy`). `C-->>A: four` is C's destroying message, " +
-      "so `DESTROY C` draws its X (measured on 12.2.0: C's closing box on " +
-      "that arrow); with no message after it, it would draw nothing.",
+      "so `DESTROY C` draws C's closing box on that arrow (measured on " +
+      "12.2.0); with no message after it, it would draw nothing.",
     assert: (result) => {
       expectSame("the box grouping is drawn", drew(result, 'g.siren-box[data-siren-id="box:1"]'), true);
       expectSame("the two numbered messages", texts(result, "text.siren-autonumber"), ["1", "2"]);
       expectSame("one activation bar", elements(result, "rect.siren-activation-bar").length, 1);
       expectSame("C is created", participants(result), ["A", "B", "C"]);
-      expectSame("C is destroyed", drew(result, 'path.siren-destroy-mark[data-siren-id="C"]'), true);
+      expectSame(
+        "C is destroyed",
+        closingBox(result, "C"),
+        "centred on C-A, whose tail starts at its left edge, lifeline ends under it",
+      );
     },
   },
   {

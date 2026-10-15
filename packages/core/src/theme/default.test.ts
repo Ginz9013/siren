@@ -574,14 +574,18 @@ link B: Wiki @ https://w.com
 });
 
 describe("default theme's outline on sequence-diagram targets", () => {
-  it("outlines a participant everywhere it is drawn: both rows, the lifeline, and the destroy mark", () => {
+  it("outlines a participant everywhere it is drawn: both rows, the lifeline, and a destroyed one's closing box", () => {
     const svg = renderThemedSVG(EVERY_FEATURE);
 
     // Web is a box participant; Shopper an actor (circle and lines); Retry is
-    // created and destroyed, so it also wears a destroy mark.
+    // created and destroyed, so its second box is its closing box.
     expect(outlineFailures(svg, "Web")).toEqual([]);
     expect(outlineFailures(svg, "Shopper")).toEqual([]);
     expect(outlineFailures(svg, "Retry")).toEqual([]);
+  });
+
+  it("styles no destroy mark: a destroyed participant ends with its closing box, a participant box like any other", () => {
+    expect(themeRules).not.toMatch(/siren-destroy-mark/);
   });
 
   it("outlines a message's line, solid or dotted, keeping its dash", () => {
