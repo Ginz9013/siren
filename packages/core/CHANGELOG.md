@@ -278,6 +278,15 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
   drawn with the target unstyled, as Mermaid 12.2.0 draws it, instead of not at all. A target that
   does not exist is still dropped in silence (nook `01M39FAVK`).
 
+- **A created sequence participant is laid out as Mermaid 12.2.0 lays it out** (nook `01M4Z7TRKD`).
+  A participant a `create participant X` / `create actor X` introduces and nothing destroys is now
+  drawn in the bottom row as well, level with every declared participant, where it used to be drawn
+  only once, on its creating message. And when anything — a message, a note, an activation, a
+  block, or `autonumber` — comes before its `create`, its lane sits half its own width further
+  right than a declared participant's would, and every lane after it, and the diagram's width,
+  move with it; created after nothing but declarations, it stays put, as in Mermaid. A `create`
+  with no message after it is still laid out as a declaration, without that offset.
+
 ### Fixed
 
 - An init directive spread over several lines no longer breaks the document. It used to be

@@ -1090,9 +1090,11 @@ describe("renderSequenceToSVG", () => {
     expect(svg.querySelectorAll('g.siren-participant[data-siren-id="Bob"]')).toHaveLength(2);
   });
 
-  it("renders a created participant exactly once, at its creation point rather than the diagram's top", () => {
+  it("renders a created, never-destroyed participant at its creation point and again in the bottom row, level with a declared one", () => {
     const diagram = buildParticipantsFixture();
-    // Bob is introduced by `create participant Bob` partway down the diagram.
+    // Bob is introduced by `create participant Bob` partway down the diagram
+    // and never destroyed: Mermaid 12.2.0 draws his box a second time in the
+    // bottom row, as it does a declared participant's.
     diagram.participants[1] = {
       ...diagram.participants[1]!,
       participantKind: "participant",
@@ -1104,8 +1106,13 @@ describe("renderSequenceToSVG", () => {
     const svg = renderSequenceToSVG(diagram);
 
     const groups = svg.querySelectorAll('g.siren-participant[data-siren-id="Bob"]');
-    expect(groups).toHaveLength(1);
+    expect(groups).toHaveLength(2);
     expect(groups[0]!.querySelector("rect")!.getAttribute("y")).toBe("140");
+    // The bottom box ends where his lifeline does, as Alice's bottom box ends
+    // where hers does.
+    const bottomEdge = (rect: Element) => Number(rect.getAttribute("y")) + Number(rect.getAttribute("height"));
+    const aliceBottom = svg.querySelectorAll('g.siren-participant[data-siren-id="Alice"]')[1]!.querySelector("rect")!;
+    expect(bottomEdge(groups[1]!.querySelector("rect")!)).toBe(bottomEdge(aliceBottom));
 
     const lifeline = svg.querySelector('line.siren-lifeline[data-siren-id="Bob"]')!;
     expect(lifeline.getAttribute("y1")).toBe("140");

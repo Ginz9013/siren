@@ -2142,3 +2142,117 @@ describe("layoutSequence's participant links (01M3NM3BZ)", () => {
     });
   });
 });
+
+describe("layoutSequence: a participant a message creates and nothing destroys", () => {
+  // Measured against Mermaid 12.2.0 (scratch geometry script, jsdom layout
+  // stubs): a created participant that is never destroyed gets a box in
+  // the bottom row too, level with every declared one's (`seq-create-destroy`:
+  // B's bottom box at y 234, as A's).
+  function createdModel(statementsBefore: ResolvedSequenceStatement[], creatingAutonumber: number | null = null): SequenceModel {
+    const carol: ResolvedSequenceParticipant = {
+      id: "C",
+      label: plainLabel("Carol"),
+      participantKind: "participant",
+      origin: "created",
+      createdAt: statementsBefore.length + 2,
+      destroyedAt: null,
+    };
+    const creating = messageStatement("m2", "A", "C", "make");
+    if (creating.kind === "message") {
+      creating.message.creates = "C";
+      creating.message.autonumber = creatingAutonumber;
+    }
+    return {
+      title: null,
+      accTitle: null,
+      accDescr: null,
+      interactions: [],
+      participants: [declaredParticipant("A", "Alice"), carol, declaredParticipant("D", "Dave")],
+      boxes: [],
+      statements: [
+        { kind: "participant", participant: declaredParticipant("A", "Alice") },
+        ...statementsBefore,
+        { kind: "participant", participant: carol },
+        creating,
+        messageStatement("m3", "C", "D", "pass on"),
+      ],
+      timeline: { totalSteps: 0, entries: [] },
+    };
+  }
+
+  it("reserves the bottom row for it even when every declared participant is destroyed", () => {
+    // Alice is ended by C's reply, on that reply's own row, so Carol is the
+    // only participant left for the bottom row.
+    const model = createdModel([]);
+    model.participants = [{ ...model.participants[0]!, destroyedAt: 4 }, model.participants[1]!];
+    const ending = messageStatement("m3", "C", "A", "done");
+    if (ending.kind === "message") ending.message.destroys = "A";
+    model.statements = [...model.statements.slice(0, 3), { kind: "destroy", id: "A" }, ending];
+
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+    const carol = positioned.participants.find((p) => p.id === "C")!;
+    const [, done] = messagesOf(positioned);
+
+    // A whole box fits between the last row and the end of C's lifeline,
+    // and that end is inside the diagram: there is room for its bottom box.
+    expect(carol.bottom - done!.y).toBeGreaterThanOrEqual(carol.height);
+    expect(carol.bottom).toBeLessThanOrEqual(positioned.height);
+  });
+
+  /** The same diagram with C a plain declared participant: where C's lane would be with no `create`. */
+  function declaredInstead(model: SequenceModel): SequenceModel {
+    const strip = (statement: ResolvedSequenceStatement): ResolvedSequenceStatement => {
+      if (statement.kind === "participant" && statement.participant.id === "C") {
+        return { kind: "participant", participant: declaredParticipant("C", "Carol") };
+      }
+      if (statement.kind === "message" && statement.message.creates !== undefined) {
+        const { creates: _creates, ...message } = statement.message;
+        return { kind: "message", message };
+      }
+      return statement;
+    };
+    return {
+      ...model,
+      participants: model.participants.map((p) => (p.id === "C" ? declaredParticipant("C", "Carol") : p)),
+      statements: model.statements.map(strip),
+    };
+  }
+
+  function lanes(model: SequenceModel) {
+    const positioned = layoutSequence(model, { measureText: fakeMeasurer });
+    const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+    return { byId, width: positioned.width };
+  }
+
+  // Measured against Mermaid 12.2.0 (jsdom layout stubs, 150-wide boxes):
+  // with `A->>A: x` before `create participant B`, B's box sits at x 275
+  // where a declared B's would be at 200 — half its width further right
+  // (`addActorRenderingData`: `prevMargin += actor.width / 2`) — and the
+  // lanes after it, and the diagram's width, move by the same 75.
+  it("moves its lane half its width right of where a declared participant's would be, when anything is drawn before its `create`, and every later lane with it", () => {
+    const created = createdModel([messageStatement("m1", "A", "A", "before")]);
+    const shifted = lanes(created);
+    const reference = lanes(declaredInstead(created));
+    const half = shifted.byId.C!.width / 2;
+
+    expect(shifted.byId.A!.x).toBe(reference.byId.A!.x);
+    expect(shifted.byId.C!.x).toBe(reference.byId.C!.x + half);
+    expect(shifted.byId.D!.x).toBe(reference.byId.D!.x + half);
+    expect(shifted.width).toBe(reference.width + half);
+  });
+
+  // Measured: `participant A`, `create participant B`, `A->>B` leaves B at x
+  // 200, where a declared B's box is — declarations draw nothing — while
+  // `autonumber` first moves it to 275, as a message would: Mermaid records
+  // `autonumber` as a drawn step. The model keeps no `autonumber` statement,
+  // but the creating message comes right after the `create`, so its number
+  // says autonumbering was turned on before it.
+  it("leaves its lane where a declared participant's would be when only declarations come before its `create`, unless `autonumber` does", () => {
+    const plain = createdModel([]);
+    expect(lanes(plain).byId.C!.x).toBe(lanes(declaredInstead(plain)).byId.C!.x);
+
+    const numbered = createdModel([], 1);
+    const shifted = lanes(numbered);
+    expect(shifted.byId.C!.x).toBe(lanes(declaredInstead(numbered)).byId.C!.x + shifted.byId.C!.width / 2);
+  });
+});

@@ -97,7 +97,7 @@ const HEAD_MARKER_NAME: Record<SequenceArrowHead, string | null> = {
  * frozen SVG conventions in spec.md ("SVG conventions" bullet list): a
  * `<g class="siren-participant">` per participant at the top of its lifeline
  * (box for `participant`, stick figure for `actor`) plus a second one at the
- * diagram's bottom row for each declared, never-destroyed participant, one
+ * diagram's bottom row for each never-destroyed participant, one
  * `<line class="siren-lifeline">` per participant, one
  * `<g class="siren-message">` per message (all ten
  * arrow-marker/dash combinations), a `<g class="siren-block">` per
@@ -175,13 +175,13 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
     );
   }
 
-  // A preamble-declared participant that survives to the end of the diagram is
-  // drawn a second time at the far end of its lifeline (Mermaid's own bottom
-  // row); a `create`d or destroyed one is drawn only once. See spec.md's "SVG
-  // conventions".
+  // A participant that survives to the end of the diagram, declared or
+  // `create`d, is drawn a second time at the far end of its lifeline
+  // (Mermaid's own bottom row); a destroyed one is drawn only once. See
+  // spec.md's "SVG conventions".
   const destroyedIds = collectDestroyedParticipantIds(diagram.elements);
   for (const participant of diagram.participants) {
-    if (participant.origin !== "declared" || destroyedIds.has(participant.id)) {
+    if (destroyedIds.has(participant.id)) {
       continue;
     }
     svg.appendChild(
@@ -205,7 +205,7 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
   for (const participant of diagram.participants) {
     if (!participant.linkMenu) continue;
     svg.appendChild(buildSequenceLinkMenu(participant, participant.linkMenu, participant.top, false));
-    if (participant.origin === "declared" && !destroyedIds.has(participant.id)) {
+    if (!destroyedIds.has(participant.id)) {
       svg.appendChild(
         buildSequenceLinkMenu(
           participant,
@@ -640,7 +640,7 @@ function collectDestroyedParticipantIds(
  * shape's top edge at `top`: a `<rect>`+`<text>` box for
  * `kind: "participant"`, or a stick-figure `<g>` (head circle + body/arm/leg
  * lines) + `<text>` label for `kind: "actor"`. `top` is a parameter rather
- * than read off the participant because a surviving declared participant is
+ * than read off the participant because a surviving participant is
  * drawn twice — once at its lifeline's top, once at the bottom row.
  */
 function buildParticipant(participant: PositionedParticipant, top: number): SVGGElement {

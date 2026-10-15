@@ -1093,6 +1093,28 @@ function participantRows(result: SirenRenderResult, participantId: string): stri
   return `boxes at y ${boxes.join(", ")}; lifeline ${lifeline?.getAttribute("y1")}..${lifeline?.getAttribute("y2")}`;
 }
 
+/**
+ * Where a sequence participant's bottom-row box ends, as the bottom edge of
+ * the box drawn for it after its top one, or `null` when it is drawn only
+ * once. Read off `rect`s, so for a `participant` and not an `actor`.
+ */
+function bottomRowEdge(result: SirenRenderResult, participantId: string): number | null {
+  const rect = svgOf(result).querySelectorAll(`g.siren-participant[data-siren-id="${participantId}"] rect`)[1];
+  return rect === undefined ? null : Number(rect.getAttribute("y")) + Number(rect.getAttribute("height"));
+}
+
+/** A sequence participant's top box, as its left edge and width. */
+function topBox(result: SirenRenderResult, participantId: string): { left: number; width: number } {
+  const rect = svgOf(result).querySelector(`g.siren-participant[data-siren-id="${participantId}"] rect`);
+  return { left: Number(rect?.getAttribute("x")), width: Number(rect?.getAttribute("width")) };
+}
+
+/** The horizontal gap between two neighbouring participants' top boxes, `leftId`'s right edge to `rightId`'s left. */
+function laneGap(result: SirenRenderResult, leftId: string, rightId: string): number {
+  const left = topBox(result, leftId);
+  return topBox(result, rightId).left - (left.left + left.width);
+}
+
 /** Where a sequence participant's lifeline ends, as its drawn `y2`. */
 function lifelineBottom(result: SirenRenderResult, participantId: string): string | null {
   return svgOf(result).querySelector(`line.siren-lifeline[data-siren-id="${participantId}"]`)?.getAttribute("y2") ?? null;
@@ -4675,14 +4697,18 @@ line2\`"]`,
       "follows the `destroy`, so it has no destroying message to pair with. " +
       "Measured on 12.2.0: Mermaid accepts this and draws B as if it were " +
       "never destroyed — no closing box on any arrow, the lifeline running " +
-      "on to the bottom row. Siren draws the same: no X, B's lifeline down " +
-      "to where A's ends, nothing in the `destroy`'s place (nook " +
-      "01M4YWYFJ), and warns that the `destroy` draws nothing.",
+      "on to the bottom row, where B gets a box level with A's (y 234 " +
+      "both). Siren draws the same: no X, B's lifeline down to where A's " +
+      "ends and a bottom-row box there, nothing in the `destroy`'s place " +
+      "(nook 01M4YWYFJ), and warns that the `destroy` draws nothing. " +
+      "Nothing but declarations comes before the `create`, so B's lane is " +
+      "where a declared B's would be (measured: x 200 either way).",
     assert: (result) => {
       expectSame("participants", participants(result), ["A", "B"]);
       expectSame("no destroy mark was drawn", drew(result, "path.siren-destroy-mark"), false);
       expectSame("B's box is on its creating message", createdBox(result, "B"), "centred on A-B, whose arrow stops at its left edge");
       expectSame("B's lifeline runs as far down as A's", lifelineBottom(result, "B"), lifelineBottom(result, "A"));
+      expectSame("B is drawn in the bottom row, level with A", bottomRowEdge(result, "B"), bottomRowEdge(result, "A"));
     },
   },
   {
@@ -4702,10 +4728,50 @@ line2\`"]`,
       "short of the box, C's lifeline starts at the box's bottom, and the " +
       "`create` takes no row of its own. Siren draws the box there too, the " +
       "arrow ending at its edge; `again` runs on to C's lane as any message " +
-      "does.",
+      "does. Never destroyed, C also gets a box in the bottom row, level " +
+      "with A's, and — `A->>A: before` being drawn before the `create` — " +
+      "its lane sits half its width further right than a declared C's " +
+      "would (`seq-created-lane-offset`).",
     assert: (result) => {
       expectSame("messages", messages(result), ["A-A: before", "A-C: make", "A-C#2: again"]);
       expectSame("C's box is on its creating message", createdBox(result, "C"), "centred on A-C, whose arrow stops at its left edge");
+      expectSame("C is drawn in the bottom row, level with A", bottomRowEdge(result, "C"), bottomRowEdge(result, "A"));
+    },
+  },
+  {
+    id: "seq-created-lane-offset",
+    kind: "sequence",
+    source: `sequenceDiagram
+      participant A
+      A->>A: before
+      create participant B
+      A->>B: make
+      participant C
+      B->>C: pass on`,
+    status: "supported",
+    meaning:
+      "A participant created after something is already drawn. Measured on " +
+      "12.2.0 (layout stubs, 150-wide boxes, 50 between lanes): B's box " +
+      "starts at x 275 where a declared B's would start at 200 — 125 past " +
+      "A's box rather than 50, half its own width more " +
+      "(`addActorRenderingData`'s `prevMargin += actor.width / 2`) — and C " +
+      "follows it, 50 past B, the whole diagram 75 wider; `create actor B` " +
+      "moves the same. B, never destroyed, also gets a box in the bottom " +
+      "row, level with A's and C's. Mermaid moves a lane only when " +
+      "anything — a message, note, activation, block or `autonumber` — " +
+      "comes before its `create`; after declarations alone it stays put " +
+      "(`seq-create-destroy`). Siren draws the same: the gap before B's box " +
+      "is the plain gap plus half B's width, and B's bottom-row box is " +
+      "level with A's.",
+    assert: (result) => {
+      expectSame("participants", participants(result), ["A", "B", "C"]);
+      expectSame(
+        "the gap before B's box is the one after it plus half B's width",
+        laneGap(result, "A", "B") - laneGap(result, "B", "C"),
+        topBox(result, "B").width / 2,
+      );
+      expectSame("B is drawn in the bottom row, level with A", bottomRowEdge(result, "B"), bottomRowEdge(result, "A"));
+      expectSame("C is drawn in the bottom row, level with A", bottomRowEdge(result, "C"), bottomRowEdge(result, "A"));
     },
   },
   {
@@ -4780,9 +4846,12 @@ line2\`"]`,
       "though its lane sits half a box further right (`addActorRenderingData` " +
       "keeps a created actor's `prevMargin`). `create actor C` draws its " +
       "figure the same way. Siren draws C's rows exactly as it draws A's " +
-      "(nook 01M4YWYFJ) but does not model that x offset, laying C's lane " +
-      "out as a declared one's (a separate nook issue, 01M4Z6KQ91), and " +
-      "warns that the `create` draws nothing.",
+      "(nook 01M4YWYFJ) but does not model that x offset for a `create` " +
+      "with no creating message — the model reads it as a declaration, " +
+      "keeping no trace of the `create` — laying C's lane out as a " +
+      "declared one's, and warns that the `create` draws nothing. A " +
+      "created participant with a creating message does move " +
+      "(`seq-created-lane-offset`).",
     assert: (result) => {
       expectSame("participants", participants(result), ["A", "C"]);
       expectSame("C is drawn as A is, top row to bottom row", participantRows(result, "C"), participantRows(result, "A"));
