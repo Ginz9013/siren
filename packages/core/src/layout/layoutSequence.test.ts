@@ -1172,6 +1172,35 @@ describe("layoutSequence", () => {
         }
       }
     });
+
+    // An actor whose label is narrower than its figure (here none at all:
+    // a row of padding only, 32 wide) still gets the 36-wide figure, so the
+    // arrow stops 18 from the lane rather than at the narrower row's edge,
+    // and the figure overhangs the row by 2 a side — inside the 20 left
+    // margin and the 40 lane gap, clear of the neighbouring lane's row.
+    it("stops the creating arrow 18 from an actor's lane when its label is narrower than its figure, and keeps the figure clear of its neighbours", () => {
+      const unlabelled: ResolvedSequenceParticipant = { ...carol, label: plainLabel(""), participantKind: "actor" };
+      for (const participants of [
+        [declaredParticipant("A", "Alice"), unlabelled],
+        [unlabelled, declaredParticipant("A", "Alice")],
+      ]) {
+        const positioned = layoutSequence(createdBy(participants), { measureText: fakeMeasurer });
+        const byId = Object.fromEntries(positioned.participants.map((p) => [p.id, p]));
+        const [, make] = messagesOf(positioned);
+        expect(byId.C!.width).toBeLessThan(36);
+        expect(Math.abs(make!.toX - byId.C!.x)).toBe(18);
+
+        const figureLeft = byId.C!.x - 18;
+        const figureRight = byId.C!.x + 18;
+        expect(figureLeft).toBeGreaterThanOrEqual(0);
+        const alice = byId.A!;
+        if (alice.x > byId.C!.x) {
+          expect(figureRight).toBeLessThan(alice.x - alice.width / 2);
+        } else {
+          expect(figureLeft).toBeGreaterThan(alice.x + alice.width / 2);
+        }
+      }
+    });
   });
 
   it("spans an activation bar from its activate statement's row to its deactivate statement's row, centered on the participant's lane", () => {

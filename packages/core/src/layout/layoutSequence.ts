@@ -37,17 +37,29 @@ const ACTOR_FIGURE_HEIGHT = 2 * PARTICIPANT_PADDING_Y;
 /**
  * Width of an `actor`'s stick figure, arm tip to arm tip: fixed, whatever
  * its label. Mermaid 12.2.0's `ACTOR_TYPE_WIDTH` (`18 * 2`, svgDraw.js),
- * which spans its arms at `±ACTOR_TYPE_WIDTH / 2` and which
- * `adjustCreatedDestroyedData` stops a creating message's arrow against for
- * every figure kind rather than the label's width. The label keeps its own
- * width under the figure and may be wider than it; the participant's
- * `width`, and with it lane spacing, stays the label's. Exported because the
- * renderer draws the figure at this width (`renderSequenceToSVG`'s
- * `buildActorIcon`), as `layoutGraph`'s `SHAPE_LEAN` is shared with
- * `renderToSVG`: one number the layout stops arrows at and the renderer
- * draws to.
+ * which `adjustCreatedDestroyedData` stops a creating message's arrow
+ * against for every figure kind rather than the label's width
+ * (`ACTOR_TYPE_WIDTH / 2 + 3`; measured: lane 275, arrow line ends at 247
+ * with its 7px marker). Its classic glyph, measured from `drawActorTypeActor`
+ * as offsets from the actor's top and lane: head `cy 10`, `r 15`; torso
+ * 25 to 45; arms at 33, `±18`; legs from the torso's foot at 45 to `-18`
+ * and `+16` at 60 — 65 tall in all (`ACTOR_GLYPH_TOP` -5 to
+ * `ACTOR_GLYPH_BOTTOM` 60). The default `neo` look scales that glyph by
+ * 44/65 (arms `±12.18`, head `r 10.15`) but still stops the arrow by the
+ * unscaled 36. Siren keeps the 36 and its own shorter figure
+ * (`ACTOR_FIGURE_HEIGHT`). The label keeps its own width under the figure
+ * and may be wider than it; the participant's `width`, and with it lane
+ * spacing, stays the label's. Exported because the renderer draws the
+ * figure at this width (`renderSequenceToSVG`'s `buildActorIcon`), as
+ * `layoutGraph`'s `SHAPE_LEAN` is shared with `renderToSVG`: one number the
+ * layout stops arrows at and the renderer draws to.
  */
 export const ACTOR_FIGURE_WIDTH = 36;
+/**
+ * Half of `ACTOR_FIGURE_WIDTH`: how far each arm tip reaches from the lane,
+ * and so how far short of the lane a created actor's creating arrow stops.
+ */
+export const ACTOR_FIGURE_HALF_WIDTH = ACTOR_FIGURE_WIDTH / 2;
 /** Minimum horizontal gap between adjacent participant lane boxes. */
 const LANE_GAP = 40;
 /** Horizontal room either side of a link-menu entry's label. */
@@ -452,20 +464,20 @@ function layoutStatements(
       // Its arrow stops at the box's near edge rather than running under the
       // box to the lane (Mermaid's `receiverAdjustment` pulls the arrow's end
       // back by half the box) — for an actor, at its figure's near arm tip,
-      // `ACTOR_FIGURE_WIDTH / 2` from the lane whatever its label, as Mermaid
-      // pulls it back by `ACTOR_TYPE_WIDTH / 2` for every figure kind; the
-      // label stays centred between the lanes, as Mermaid places it before
-      // that adjustment. A message X sends itself
-      // loops out from its lane and is left as it is.
-      const created = statement.message.creates;
-      const box = created === undefined ? undefined : ctx.participantsById.get(created);
-      if (box === undefined) continue;
+      // `ACTOR_FIGURE_HALF_WIDTH` from the lane whatever its label, as
+      // Mermaid pulls it back by `ACTOR_TYPE_WIDTH / 2` for every figure
+      // kind; the label stays centred between the lanes, as Mermaid places it
+      // before that adjustment. A message X sends itself loops out from its
+      // lane and is left as it is.
+      const createdId = statement.message.creates;
+      const created = createdId === undefined ? undefined : ctx.participantsById.get(createdId);
+      if (created === undefined) continue;
       if (message.from !== message.to) {
-        const halfWidth = box.participantKind === "actor" ? ACTOR_FIGURE_WIDTH / 2 : box.width / 2;
+        const halfWidth = created.participantKind === "actor" ? ACTOR_FIGURE_HALF_WIDTH : created.width / 2;
         message.toX += message.toX > message.fromX ? -halfWidth : halfWidth;
       }
-      ctx.createdTopById.set(box.id, y - box.height / 2);
-      y += box.height / 2;
+      ctx.createdTopById.set(created.id, y - created.height / 2);
+      y += created.height / 2;
       continue;
     }
 
