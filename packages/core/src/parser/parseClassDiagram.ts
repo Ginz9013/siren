@@ -91,9 +91,12 @@ const CLASS_DECL_RE = new RegExp(
  * line is the block's first member line (the last capture): Mermaid 12.2.0
  * reads `class A { +int x` with the member `+int x`, and `class A { %% x`
  * with the member "%% x" — its block state has no comment rule (measured).
+ * A `}` on the line closes the block there, its text after it the sixth
+ * capture: `class A { +int x }` and `class A {}` are whole blocks to
+ * Mermaid, which reads members up to a `}` wherever it stands (measured).
  */
 const CLASS_BLOCK_OPEN_RE = new RegExp(
-  String.raw`^class\s+(\w+)(?:~(.+)~)?\s*${BRACKETED_LABEL}${STYLE_SHORTHAND}\s*\{([^}]*)$`,
+  String.raw`^class\s+(\w+)(?:~(.+)~)?\s*${BRACKETED_LABEL}${STYLE_SHORTHAND}\s*\{([^}]*)(?:\}(.*))?$`,
   "d",
 );
 /**
@@ -519,6 +522,12 @@ export function parseClassDiagram(source: string): DiagramParseResult {
    * next stage.
    */
   let sawError = false;
+  /**
+   * The class block closed last, and the index of the line its `}` stands
+   * on — so a member on the next line can be refused as the misplaced `}`
+   * it most likely is, rather than as an unrecognized line.
+   */
+  let lastClosedBlock: { id: string; closedAt: number } | null = null;
   let accTitle: string | null = null;
   let accDescr: string | null = null;
   /**
@@ -667,6 +676,33 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     diagnostics.push(midLinePercentError(lineIndex + 1, match[1].length + 1));
     sawError = true;
     return true;
+  };
+
+  /**
+   * Refuses what follows the `}` closing class `id`'s block on its line —
+   * `after`, starting at `line`:`column` — unless it is only whitespace.
+   * Mermaid 12.2.0 refuses a statement there ("… got 'ALPHA'"), a second
+   * `}` ("… got 'STRUCT_STOP'") and a `%%` ("… got 'PCT'"), on the last
+   * line too (measured), so each is an error (ADR-0017): a `%%` at the
+   * `%%`, as everywhere a mid-line one is refused, anything else at the text.
+   */
+  const refuseTextAfterBrace = (id: string, after: string, line: number, column: number): void => {
+    const text = after.trim();
+    if (text.length === 0) return;
+    const at = column + after.length - after.trimStart().length;
+    diagnostics.push(
+      text.startsWith("%%")
+        ? midLinePercentError(line, at)
+        : {
+            severity: "error",
+            message:
+              `Unexpected text after the "}" that closes class "${id}": "${text}". ` +
+              "Remove it, or start the next statement on a line of its own.",
+            line,
+            column: at,
+          },
+    );
+    sawError = true;
   };
 
   /**
@@ -1036,9 +1072,16 @@ export function parseClassDiagram(source: string): DiagramParseResult {
 
         const member = parseMember(text, memberLine, memberColumn);
         if (member === null) {
+          // A `;` in a member Siren cannot read is most likely two members
+          // run together, which Mermaid 12.2.0 draws as one: `+int x; +foo()`
+          // is the single method `+int x; +foo()` (measured), so the error
+          // says how to write two (ADR-0001).
+          const separated = text.includes(";")
+            ? '. A ";" does not separate members: write each member on a line of its own.'
+            : "";
           diagnostics.push({
             severity: "error",
-            message: `Unrecognized class member: "${text}"`,
+            message: `Unrecognized class member: "${text}"${separated}`,
             line: memberLine,
             column: memberColumn,
           });
@@ -1054,20 +1097,38 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         readMemberLine(firstMember.trim(), lineNumber, column + offset);
       }
 
-      for (; bodyIndex < lines.length; bodyIndex++) {
+      // A block closed on its own opening line consumes no line after it.
+      if (blockOpenMatch[6] !== undefined) {
+        refuseTextAfterBrace(blockOpenMatch[1], blockOpenMatch[6], lineNumber, column + blockOpenMatch.indices![6]![0]);
+        closed = true;
+        bodyIndex = startIndex;
+      }
+
+      for (; !closed && bodyIndex < lines.length; bodyIndex++) {
         const bodyRawLine = lines[bodyIndex];
         const bodyLine = bodyRawLine.trim();
         if (bodyLine.length === 0) {
           continue;
         }
-        if (bodyLine === "}" || refusedAfterClosingBrace(bodyRawLine, bodyIndex)) {
+        const bodyColumn = bodyRawLine.length - bodyRawLine.trimStart().length + 1;
+        // A `}` closes the block wherever it stands, after a member on that
+        // member's line too, as Mermaid 12.2.0 reads `+int y }` (measured).
+        const brace = bodyLine.indexOf("}");
+        if (brace !== -1) {
+          const member = bodyLine.slice(0, brace).trimEnd();
+          if (member.length > 0) {
+            readMemberLine(member, bodyIndex + 1, bodyColumn);
+          }
+          refuseTextAfterBrace(blockOpenMatch[1], bodyLine.slice(brace + 1), bodyIndex + 1, bodyColumn + brace + 1);
           closed = true;
           break;
         }
-        readMemberLine(bodyLine, bodyIndex + 1, bodyRawLine.length - bodyRawLine.trimStart().length + 1);
+        readMemberLine(bodyLine, bodyIndex + 1, bodyColumn);
       }
 
-      if (!closed) {
+      if (closed) {
+        lastClosedBlock = { id: blockOpenMatch[1], closedAt: bodyIndex };
+      } else {
         diagnostics.push({
           severity: "error",
           message: `Unterminated "class ${blockOpenMatch[1]}" block: missing matching "}"`,
@@ -1176,6 +1237,28 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         lines[startIndex] = rawLine.slice(0, column - 1) + before;
         return parseStatement(startIndex, namespaceMembers);
       }
+    }
+
+    // A member on the line after a class block's `}` (blank lines aside) is
+    // most likely a `}` written too early — Mermaid 12.2.0 refuses it
+    // ("… got 'PLUS'", measured) — so the error says which `}` to move.
+    let previous = startIndex - 1;
+    while (previous >= 0 && lines[previous].trim().length === 0) previous--;
+    if (
+      lastClosedBlock !== null &&
+      lastClosedBlock.closedAt === previous &&
+      parseMember(line, lineNumber, column) !== null
+    ) {
+      diagnostics.push({
+        severity: "error",
+        message:
+          `Member "${line}" is outside class "${lastClosedBlock.id}": the "}" on line ${previous + 1} already closed its block. ` +
+          'Move the "}" below the class\'s last member.',
+        line: lineNumber,
+        column,
+      });
+      sawError = true;
+      return startIndex;
     }
 
     diagnostics.push({

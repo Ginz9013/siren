@@ -120,6 +120,12 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
   flowcharts read `accTitle : text` and `accDescr : text` with a space before the colon (nook
   `01M4WS1P6`). ER used to refuse the block by name; a flowchart refused it.
 
+- A class block may open and close on one line — `class A { +int x }`, `class A {}`, with a
+  generic, a label or `:::name` — and its `}` may end its last member's line (`+int y }`), as
+  Mermaid 12.2.0 reads both (nook `01M4ZWT8XF`). Such a block used to be refused as an unrecognized
+  line or member. Text after the `}` on its line, and a member on the line below it, are refused
+  as Mermaid refuses them, each error saying what to move.
+
 ### Changed
 
 - A flowchart subgraph title Siren cannot read is now refused with an error saying how to fix it,
@@ -331,6 +337,10 @@ quoted comment or a backticked name. Each is now refused (see **Changed**).
   Z, where it used to draw A, B, Z, C; Z still ends on `C-xZ`. A `create participant Z` after
   `destroy Z` is no longer refused as naming `Z` a second time; the `destroy`, interrupted by the
   `create`, is refused instead, and `Z` is drawn created and never destroyed, as Mermaid draws it.
+
+- A class member with a `;` that Siren cannot read (`+int x; +foo()`) is now refused saying that a
+  `;` does not separate members and to write each on a line of its own; Mermaid 12.2.0 draws such
+  text as one member (nook `01M4ZWT8XF`).
 
 ### Fixed
 

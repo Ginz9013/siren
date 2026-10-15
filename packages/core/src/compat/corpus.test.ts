@@ -1661,8 +1661,25 @@ const SILENTLY_WRONG = 0;
  * `fc-direction-top-level` (a `direction` outside any subgraph, drawn in
  * the header's direction with a warning), are `supported` and move
  * nothing. `silently-wrong` does not move.
+ *
+ * **24 → 27: case (2), three refusals written down for the first time.**
+ * `01M4ZWT8XF` read a class block closed on a member's line
+ * as Mermaid 12.2.0 does: `class A { +int x }` is a whole block, and a `}`
+ * may end the last member's line. No row had recorded the documents around
+ * that `}`, because Siren refused every one-line block as an unrecognized
+ * line until now. Two are ones Mermaid refuses (measured):
+ * `cls-class-block-text-after-brace`, text after the `}` on its line
+ * ("… got 'ALPHA'"), and `cls-class-block-member-after-brace`, a member on
+ * the line below it ("… got 'PLUS'"). One is a document Mermaid accepts and
+ * draws as something other than what was written, refused under ADR-0001:
+ * `cls-class-block-semicolon-members`, members run together with `;`, which
+ * Mermaid draws as one method. Siren refuses each with an error saying what
+ * to change. No `supported` row moved.
+ * `cls-class-block-one-line` and `cls-class-block-closed-on-member-line`,
+ * new beside them, are `supported` and move nothing. `silently-wrong` does
+ * not move.
  */
-const REJECTED = 24;
+const REJECTED = 27;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

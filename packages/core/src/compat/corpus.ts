@@ -3951,6 +3951,88 @@ line2\`"]`,
     },
   },
   {
+    id: "cls-class-block-one-line",
+    kind: "class",
+    source: `classDiagram
+      class Animal { +int age }
+      class Cage~T~ { }
+      class Duck:::bird {}
+      classDef bird fill:#ffd`,
+    status: "supported",
+    meaning:
+      "A class block may open and close on one line, empty or holding one " +
+      "member: Mermaid 12.2.0's block lexer reads members up to the `}` " +
+      "wherever it stands (measured: Animal with the member `+int age`, Cage " +
+      "with the generic `T` and Duck with the class `bird`, both empty).",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Animal", "Cage", "Duck"]);
+      expectSame("Animal's members", members(result, "Animal"), ["+int age"]);
+      expectSame("Cage's members", members(result, "Cage"), []);
+      expectSame("Duck's members", members(result, "Duck"), []);
+    },
+  },
+  {
+    id: "cls-class-block-closed-on-member-line",
+    kind: "class",
+    source: `classDiagram
+      class Animal {
+        +int age
+        +bark() bool }`,
+    status: "supported",
+    meaning:
+      "A class block's `}` may end its last member's line: Mermaid 12.2.0 " +
+      "reads the member before it and closes the block (measured: the " +
+      "members `+int age` and `+bark() : bool`).",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Animal"]);
+      expectSame("Animal's members", members(result, "Animal"), ["+int age", "+bark() bool"]);
+    },
+  },
+  {
+    id: "cls-class-block-text-after-brace",
+    kind: "class",
+    source: `classDiagram
+      class Animal { +int age } class Dog`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A class block's " +
+      "`}` ends the statement, so Mermaid 12.2.0 refuses anything after it " +
+      "on its line (\"Expecting 'NEWLINE', 'EOF', 'STRUCT_STOP', got " +
+      "'ALPHA'\", measured). Siren refuses it too (ADR-0017), with an error " +
+      "at the text saying to start the next statement on a line of its own. " +
+      "Siren used to refuse the whole line as unrecognized. `class Dog` on " +
+      "its own line renders in both.",
+  },
+  {
+    id: "cls-class-block-member-after-brace",
+    kind: "class",
+    source: `classDiagram
+      class Animal { +int age }
+      +bark() bool`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** The `}` closed " +
+      "Animal's block on its first line, so the member below it stands " +
+      "outside any class and Mermaid 12.2.0 refuses the document (\"… got " +
+      "'PLUS'\", measured). Siren refuses it too (ADR-0017), with an error " +
+      "naming the class and the line of the `}` that closed it, and saying to " +
+      "move the `}` below the class's last member. That spelling renders in both.",
+  },
+  {
+    id: "cls-class-block-semicolon-members",
+    kind: "class",
+    source: `classDiagram
+      class Animal { +int age; +bark() bool }`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A `;` does not " +
+      "separate class members: Mermaid 12.2.0 reads the whole text as one " +
+      "method, `+int age; +bark() : bool` (measured) — a picture of neither " +
+      "member, with no diagnostic. Siren refuses it (ADR-0001), with an " +
+      "error at the member saying to write each member on a line of its own. " +
+      "One member per line renders in both.",
+  },
+  {
     id: "cls-inline-member",
     kind: "class",
     source: `classDiagram
