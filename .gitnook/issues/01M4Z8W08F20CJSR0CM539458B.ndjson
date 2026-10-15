@@ -4,3 +4,4 @@
 {"id":"01M4ZWVB28TVT2REKWQGGPB490","t":4,"a":"83a1","op":"comment","body":"由 board mermaid-parity-backlog 接手：T1 01M4ZWT89BSNY84DCYEB928NZG、T2 01M4ZWT8G2P814R4F2H10JMMRF、T3 01M4ZWT8PRBBEER1WYPEQ5DZE3（spec 01M4ZWT82JCZZEC9Y02E9ZR126）。@{…} 形狀與邊 id 另開 backlog。"}
 {"id":"01M50F21DHFS86N97A4YXBA5VE","t":5,"a":"83a1","op":"comment","body":"由 board mermaid-parity-backlog（spec 01M4ZWT82JCZZEC9Y02E9ZR126）完成，見 git log --grep 'Ticket: mermaid-parity-backlog'。"}
 {"id":"01M50F21NW163C79X1YCWR39KZ","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M50F3NJ2V0KN49T3ZHYW1EH1","t":7,"a":"83a1","op":"set","k":"archived","v":true}

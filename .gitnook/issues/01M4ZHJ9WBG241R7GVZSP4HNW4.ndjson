@@ -3,3 +3,4 @@
 {"id":"01M4ZWVB8YTPYFJPXXT2GA85V6","t":3,"a":"83a1","op":"comment","body":"由 board mermaid-parity-backlog 接手：T4 01M4ZWT8XFNCBBGJSPG8SXPNRS（spec 01M4ZWT82JCZZEC9Y02E9ZR126）。"}
 {"id":"01M50F21YCY7S9MZCAS3NGS1WA","t":4,"a":"83a1","op":"comment","body":"由 board mermaid-parity-backlog（spec 01M4ZWT82JCZZEC9Y02E9ZR126）完成，見 git log --grep 'Ticket: mermaid-parity-backlog'。"}
 {"id":"01M50F226RZBGTKY6167QARKGV","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M50F3NTEGB1XS8YFHBB2NSF7","t":6,"a":"83a1","op":"set","k":"archived","v":true}
