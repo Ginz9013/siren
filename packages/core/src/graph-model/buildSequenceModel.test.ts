@@ -1830,6 +1830,31 @@ describe("buildSequenceModel", () => {
       expect(result.destroyedAt).toEqual({ A: null, B: null });
     });
 
+    it("reads a repeated `destroy B` while B's is still waiting as that same declaration, pairing it with the message after", () => {
+      // Measured on Mermaid 12.2.0 (layout-stubbed render): `destroy B`,
+      // `destroy B`, `A-xB` draws exactly what one `destroy B` does — B ends
+      // on `A-xB` — since Mermaid keeps one pending destroy per participant.
+      // Positions: 1–2 participants, 3 A->>B, 4 destroy B, 5 destroy B, 6 A-xB.
+      const repeated = build("participant A\nparticipant B\nA->>B: hi\ndestroy B\ndestroy B\nA-xB: bye");
+      expect(repeated.diagnostics).toEqual([]);
+      expect(repeated.destroyedAt).toEqual({ A: null, B: 6 });
+
+      // A different participant's `destroy` in between is still refused:
+      // Mermaid checks only the latest, ends B on `A-xB` and draws C never
+      // destroyed, in silence.
+      const between = build("participant A\nparticipant B\nparticipant C\ndestroy B\ndestroy C\ndestroy B\nA-xB: bye");
+      expect(between.diagnostics).toEqual([
+        'error 6:1: The destroyed participant "C" has no destroying message: the message sent by or to it must come right after the destroy, with no "destroy" in between.',
+      ]);
+      expect(between.destroyedAt).toMatchObject({ B: 7 });
+    });
+
+    it("still refuses a repeated `create` of the same participant, as Mermaid refuses a second actor with one id", () => {
+      expect(build("participant A\ncreate participant C\ncreate participant C\nA->>C: make").diagnostics).toEqual([
+        'error 4:1: create participant "C" comes after "C" is already used; a created participant must be created before it is first named',
+      ]);
+    });
+
     it("warns at each such declaration that it draws nothing, saying how to pair it, without naming Mermaid", () => {
       const result = build("participant A\nparticipant B\nA->>B: hi\n  destroy B\ncreate participant C");
 

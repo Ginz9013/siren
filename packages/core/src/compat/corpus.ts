@@ -4671,12 +4671,15 @@ line2\`"]`,
     ],
     meaning:
       "A `create` with no message after it has nothing to pair with. " +
-      "Measured on 12.2.0: accepted, with no error, and C drawn as any " +
+      "Measured on 12.2.0: accepted, with no error, and C drawn much as a " +
       "declared participant is — its box in the top row and again in the " +
-      "bottom row, its lifeline full height — with no row for the `create`. " +
-      "`create actor C` draws its figure the same way. Siren draws C exactly " +
-      "as it draws A (nook 01M4YWYFJ), and warns that the `create` draws " +
-      "nothing.",
+      "bottom row, its lifeline full height — with no row for the `create`, " +
+      "though its lane sits half a box further right (`addActorRenderingData` " +
+      "keeps a created actor's `prevMargin`). `create actor C` draws its " +
+      "figure the same way. Siren draws C's rows exactly as it draws A's " +
+      "(nook 01M4YWYFJ) but does not model that x offset, laying C's lane " +
+      "out as a declared one's (a separate nook issue, 01M4Z6KQ91), and " +
+      "warns that the `create` draws nothing.",
     assert: (result) => {
       expectSame("participants", participants(result), ["A", "C"]);
       expectSame("C is drawn as A is, top row to bottom row", participantRows(result, "C"), participantRows(result, "A"));

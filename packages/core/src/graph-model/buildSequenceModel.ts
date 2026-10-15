@@ -230,9 +230,13 @@ function settle(
 /**
  * Undoes a `create` or `destroy` that no message came after, once the walk
  * is over. Measured on Mermaid 12.2.0 (nook 01M4YWYFJ), such a declaration
- * draws nothing: a `destroy`ed participant is drawn as never destroyed, and
- * a `create`d one as any other participant is, from the diagram's top —
- * which is what origin `declared` names.
+ * pairs with nothing: a `destroy`ed participant is drawn as never destroyed,
+ * and a `create`d one with its boxes in the top and bottom rows, from the
+ * diagram's top — which is what origin `declared` names. Mermaid also
+ * shifts that created lane right by half its width (`addActorRenderingData`
+ * keeps a created actor's `prevMargin`); Siren does not model that offset
+ * and lays the lane out as a declared one (a separate nook issue,
+ * 01M4Z6KQ91).
  */
 function unpair(declaration: PendingDeclaration, diagnostics: Diagnostic[]): void {
   const { kind, participant, statement } = declaration;
@@ -504,10 +508,16 @@ function resolveStatements(
       // A lifeline can only end once: a second `destroy` has no truncation
       // point left to name, so it is an error and is dropped, keeping the
       // first one's extent. A `destroy` still waiting for its message has
-      // ended nothing yet: with no message after either, neither draws.
+      // ended nothing yet, so a repeat of it is that same declaration,
+      // written again: measured on Mermaid 12.2.0, `destroy B`, `destroy B`,
+      // `A-xB` ends B on `A-xB` exactly as one `destroy B` does, since
+      // Mermaid keeps one pending destroy per participant. The earlier one
+      // is dropped from `pending`, and with it whatever interrupted it.
       const participant = participantsById.get(statement.id)!;
-      const waiting = state.pending.some((p) => p.kind === "destroy" && p.participant === participant);
-      if (participant.destroyedAt !== null && !waiting) {
+      const waiting = state.pending.findIndex((p) => p.kind === "destroy" && p.participant === participant);
+      if (waiting !== -1) {
+        state.pending.splice(waiting, 1);
+      } else if (participant.destroyedAt !== null) {
         state.diagnostics.push({
           severity: "error",
           message: `destroy references participant "${statement.id}", whose lifeline already ended`,

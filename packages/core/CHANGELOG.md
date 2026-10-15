@@ -141,21 +141,19 @@ refused (see **Changed**).
   `destroy C`, `A-xC`), or a `create` before a `destroy`, which also warned that a message `B`
   sent right after `create C`, `destroy B` reached past B's end. With no message after them, such
   declarations are not refused; they draw what a lone one at the end draws (see below).
-- **A `create` or `destroy` with no message after it draws nothing**, as Mermaid 12.2.0 draws it
+- **A `create` or `destroy` with no message after it draws nothing**, following Mermaid 12.2.0
   (nook `01M4YWYFJ`). A `destroy X` there used to end X's lifeline with an X mark on a row of its
-  own; X now runs to the bottom row with its box there and no X, and `ResolvedSequenceParticipant`
-  carries `destroyedAt: null`. A `create participant X` (or `create actor X`) there used to put X's
-  box on a row of its own; X is now drawn as any declared participant is, its box in the top row
-  and the bottom row and its lifeline full height, with `origin: "declared"` and `createdAt: 0`.
-  Neither takes a row any more. The same holds when the declaration is followed only by a note, an
-  activation, an `autonumber`, a block boundary or another `create` or `destroy`, and a second
-  `destroy X` while the first is still waiting is no longer refused. Each such declaration is
-  warned about at its line, since it has no effect: `The destroyed participant "X" has no
-  destroying message, so the destroy draws nothing: its lifeline runs to the bottom. A message
-  sent by or to it right after the destroy ends it there.`, and for `create`, `The created
-  participant "X" has no creating message, so the create draws nothing: its lifeline starts at the
-  top. A message sent to it right after the create starts it there.` Measured with the probe and
-  a layout-stubbed render: Mermaid accepts these documents and draws them so, in silence.
+  own; X now runs to the bottom row with its box there and no X (`destroyedAt: null`). A `create
+  participant X` (or `create actor X`) there used to put X's box on a row of its own; X now has
+  boxes in the top and bottom rows and a full-height lifeline (`origin: "declared"`,
+  `createdAt: 0`). Mermaid also shifts such a lane right by half its width, which Siren does not
+  model yet (a separate nook issue, `01M4Z6KQ91`). Neither declaration takes a row any more, also
+  when only a note, an activation, an `autonumber`, a block boundary or another declaration
+  follows it. A repeated `destroy X` while X's is still waiting is the same declaration, so
+  `destroy B`, `destroy B`, `A-xB` ends B on `A-xB`, as in Mermaid. Each unpaired declaration gets a
+  warning at its line, such as `The destroyed participant "X" has no destroying message, so the
+  destroy draws nothing: …`, because Mermaid accepts the document but silently ignores what the
+  author wrote, and the warning says why nothing is drawn.
 - **A line that is nothing but `%%` is refused in flowcharts and ER diagrams**, with an error at its
   `%%` that says to write `%% text` or leave the line blank (ADR-0017, nook `01M4XSF9S`). Such a
   line used to be stripped as a comment, but Mermaid 12.2.0 does not read it as one: its comment
