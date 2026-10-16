@@ -22,6 +22,7 @@ import { entityCodeAt, replaceCharacterReferences, replaceEntityCodes } from "..
 import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
 import {
+  CLASS_DIRECTION_STATEMENTS,
   classDirectionMisspelling,
   isClassDirectionTD,
   listAcceptedHeaders,
@@ -383,12 +384,23 @@ function readDirectionStatement(line: string): Direction | null {
   return matchClassDirection(semicolons === null ? line : semicolons[1]);
 }
 
+/**
+ * What each direction means, for an error that names one to write. Keyed by
+ * `Direction`, so a direction the type gains is a compile error here until
+ * it is described.
+ */
 const DIRECTION_MEANING: Record<Direction, string> = {
   TB: "top to bottom",
   BT: "bottom to top",
   LR: "left to right",
   RL: "right to left",
 };
+
+/** `a`, `b` or `c`, each as a code span: how an error names a choice of statements. */
+function codeSpanChoice(statements: readonly string[]): string {
+  const spans = statements.map((statement) => `\`${statement}\``);
+  return spans.length <= 1 ? spans.join("") : `${spans.slice(0, -1).join(", ")} or ${spans[spans.length - 1]}`;
+}
 
 /**
  * The error for a `direction` statement, quoted as `written`, that sets no
@@ -398,7 +410,7 @@ const DIRECTION_MEANING: Record<Direction, string> = {
 function notAClassDirection(written: string, value: Direction | null): string {
   const write =
     value === null
-      ? "write `direction TB`, `direction BT`, `direction LR` or `direction RL`"
+      ? `write ${codeSpanChoice(CLASS_DIRECTION_STATEMENTS)}`
       : `write \`direction ${value}\` for ${DIRECTION_MEANING[value]}`;
   return `\`${written}\` is not a class-diagram direction: ${write}.`;
 }
@@ -1313,7 +1325,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     // refused as `direction TD` is, naming what was written and what to
     // write. One that holds a direction the lexer applies is left to the
     // rule for that.
-    const misspelled = appliedDirection(line) === null ? classDirectionMisspelling(line) : null;
+    const misspelled = appliedDirection(line) === null ? classDirectionMisspelling(withoutComment(line)) : null;
     if (misspelled !== null) {
       if (namespaceMembers !== null) return { lastIndex: startIndex, read: "direction" };
       diagnostics.push({

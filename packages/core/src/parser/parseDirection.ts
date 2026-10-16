@@ -51,6 +51,15 @@ const TAUGHT_DIRECTIONS = [...CANONICAL_DIRECTION]
   .map(([spelling]) => spelling);
 
 /**
+ * The class-diagram `direction` statements a diagnostic names, in the order
+ * it names them — derived from `TAUGHT_DIRECTIONS`, so a message cannot name
+ * a direction the parser does not accept.
+ */
+export const CLASS_DIRECTION_STATEMENTS: readonly string[] = TAUGHT_DIRECTIONS.map(
+  (direction) => `direction ${direction}`,
+);
+
+/**
  * The flowchart headers a diagnostic names — both keywords, every taught
  * direction, derived from the two lists the regex is derived from so the
  * message cannot name a set the parser does not accept.
@@ -234,7 +243,8 @@ const CLASS_DIRECTION_MISSPELLING_RE = /^direction(?:\s+(\w+)(?:\s+\w+)*)?$/;
  * A class diagram's `direction` statement that sets no direction — a value
  * in the wrong case (`direction lr`, `direction Td`), one with words after
  * it (`direction TD x`), one no rule names (`direction XX`), or none at all
- * — as written, with any `%%` comment left off, and the direction its first
+ * — as written (`written`, the line with any `%%` comment already left off
+ * by the caller, which knows the diagram's quoting rule), and the direction its first
  * word names in capitals (`TD` naming `TB`), or `null` for none. `null`
  * altogether for any other line. Measured on Mermaid 12.2.0, none sets a
  * direction: each keeps the one before it, with no diagnostic (`direction
@@ -244,9 +254,7 @@ const CLASS_DIRECTION_MISSPELLING_RE = /^direction(?:\s+(\w+)(?:\s+\w+)*)?$/;
  * one either; the caller asks about that first, and reads `direction LR`
  * and `direction TD` themselves before asking.
  */
-export function classDirectionMisspelling(line: string): { written: string; value: Direction | null } | null {
-  const comment = line.indexOf("%%");
-  const written = (comment === -1 ? line : line.slice(0, comment)).trimEnd();
+export function classDirectionMisspelling(written: string): { written: string; value: Direction | null } | null {
   const match = CLASS_DIRECTION_MISSPELLING_RE.exec(written);
   if (match === null) return null;
   return { written, value: match[1] === undefined ? null : (CANONICAL_DIRECTION.get(match[1].toUpperCase()) ?? null) };

@@ -141,14 +141,13 @@ Breaking for a class document with a second `:` in an inline member (`A : +x : i
 with a member written twice (`A : +x` on two lines), which used to be drawn once and is now drawn
 each time; and for one with a method whose last parameter list is padded or follows another
 (`+foo( a )`, `+foo(a)( b )`), which used to be drawn as written and is now drawn `+foo(a)` and
-`+foo(a)(b)`; and for one with `direction td` or `direction TD x`, which sets no direction and is
-now refused saying to write `direction TB` (see **Changed**).
+`+foo(a)(b)` (see **Changed**).
 
 Breaking for a class document with a space after a member's visibility marker (`+ x`), which used
-to be drawn `+x` and is now drawn `+ x`; for one with a member line that draws no text (`$`), which
-used to take a line's height and now takes none; and for one with a `direction` whose value sets
-nothing (`direction lr`, `direction XX`), whose error now names the direction to write (see
-**Changed**).
+to be drawn `+x` and is now drawn `+ x`, and for one with a member line that draws no text (`$`),
+which used to take a line's height and now takes none (see **Changed**). Breaking too for code
+that composes a member's text from a `ClassMember`'s parts: the new `spaceAfterVisibility` flag,
+when `true`, means one space follows the visibility marker (`+ x`), which such code must now draw.
 
 ### Added
 
@@ -402,9 +401,9 @@ nothing (`direction lr`, `direction XX`), whose error now names the direction to
   draw `+(a)`, `-(b) : int`; `(a)` stays refused); a line that draws no text (`$`, `*`) takes no
   height, the next line moving up; and `parseClassDiagram` reads a class block's line that begins
   with `%%` as a comment on its own, as `render` already did. A class `direction` whose value sets
-  nothing — `direction lr`, `direction Td`, `direction XX`, a bare `direction` — is refused as
-  `direction TD` is, the error naming the direction to write (`direction LR` for `direction lr`)
-  or all four.
+  nothing — `direction lr`, `direction Td`, `direction XX`, a bare `direction` — was already
+  refused as an unrecognized line; its error now says, as `direction TD`'s does, which direction
+  to write (`direction LR` for `direction lr`), or names all four.
 - **More class members are read as Mermaid 12.2.0 reads them** (nook `01M51XAEND`, measured in
   Chrome): a member's name may hold `?`, `!`, `,`, `[`, `]`, `=`, `/`, `'`, `"`, `$`, `*` and `&`
   (`+???`, `+x a!b`, `+[a]`), a class block's member may end in `;` (`+int x;`), and a member may
@@ -418,9 +417,9 @@ nothing (`direction lr`, `direction XX`), whose error now names the direction to
   declares its class (`<<interface>> A` then `class A` — a note, `style`, `cssClass` or `click`
   declares none), which stops the diagram rendering in Mermaid, is refused saying to declare the
   class first or write the annotation in its block. `direction td` and `direction TD x`, which set
-  no direction in Mermaid, are refused as `direction TD` is, saying to write `direction TB`;
-  `class C direction XX;`, `class C~T~ direction XX` and the like are refused saying a direction
-  stands on a line of its own, where both used to get an unrecognized-line error.
+  no direction in Mermaid, and `class C direction XX;`, `class C~T~ direction XX` and the like,
+  which Mermaid refuses, were already refused as unrecognized lines; their errors now say to write
+  `direction TB`, as `direction TD`'s does, and that a direction stands on a line of its own.
 - **A flowchart styling value holding an `@`, a brace or an arrow is refused** (nook
   `01M51XADTQ`): `style A fill:a@b`, `classDef c fill:@{x`, `classDef c fill:a{b`,
   `linkStyle 0 fill:a-->b` and the like are parse errors in Mermaid 12.2.0, and Siren used to read
