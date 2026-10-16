@@ -18,7 +18,7 @@ import type {
   StyleDecl,
   StyleProperty,
 } from "../contracts";
-import { entityCodeAt, replaceEntityCodes } from "../label/characterReferences";
+import { entityCodeAt, replaceCharacterReferences, replaceEntityCodes } from "../label/characterReferences";
 import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { isClassDirectionTD, listAcceptedHeaders, matchClassDirection, matchDiagramHeader } from "./parseDirection";
@@ -408,25 +408,20 @@ function maskEntityCodes(text: string): string {
 }
 
 /**
- * An HTML character reference as an author writes one — `&lt;`, `&amp;`,
- * `&#60;`, `&#x3c;`, or a name the browser does not know (`&zz;`) — its
- * `;` optional, as the browser's is for the legacy names (`&lt`). Mermaid
- * 12.2.0 hands a class block's member text to the browser, which resolves
- * them (measured, Chrome: `+&lt; x` draws `+< x`, `+x &lt` `+x <`).
- */
-const CHARACTER_REFERENCE_RE = /&(?:#[xX][0-9a-fA-F]+|#\d+|[A-Za-z][A-Za-z0-9]*);?/g;
-
-/**
- * `text` with its entity codes masked (`maskEntityCodes`) and each
- * character reference written over by `&`s of its length, so a search for
- * `;` in a class block's member finds only a `;` that ends neither: one
- * ending a reference is the reference's (measured on Mermaid 12.2.0,
- * Chrome: `+&lt; x`, `+&amp; x` and `+x a&lt;b` are each one member).
- * Positions are kept.
+ * `text` with each character reference (`replaceCharacterReferences`) and
+ * each entity code (`replaceEntityCodes`) written over by `_`s of its
+ * length — word characters, so a member's name may hold one wherever a
+ * letter may (`isMemberName`), and no `;`, so a search for `;` in a class
+ * block's member finds only one that ends neither. Mermaid 12.2.0 hands a
+ * class block's member text to the browser, which resolves the references
+ * (measured, Chrome: `+&lt; x` draws `+< x`, `+x &lt` `+x <`, `+x &1a;`
+ * `+x &1a;`), and `+&lt; x`, `+x a&lt;b` and `+x &1a; y` are each one
+ * member. Positions are kept.
  */
 function maskReferences(text: string): string {
+  const mask = (found: string) => "_".repeat(found.length);
   // References first: `&#60;` is one, though `#60;` inside it is a code.
-  return maskEntityCodes(text.replace(CHARACTER_REFERENCE_RE, (reference) => "&".repeat(reference.length)));
+  return replaceEntityCodes(replaceCharacterReferences(text, mask), mask);
 }
 
 /**
@@ -521,7 +516,9 @@ const INLINE_MEMBER_RE = /^(\w+)\s*:\s*(.+)$/d;
  * `<br>` (already respelled by `MEMBER_BREAK_RE`) may stand inside —
  * `+id<br>int` is one name, as Mermaid reads it. Measured on Mermaid 12.2.0
  * (Chrome), in a block and after `A :` alike: `+x 1`, `+int 2x`, `+1foo()`,
- * `+x 1.5`, `+x a-b`, `+x a.b`, `+x é` and `+a-b()` are drawn as written.
+ * `+x 1.5`, `+x a-b`, `+x a.b`, `+x é` and `+a-b()` are drawn as written,
+ * and so are a trailing or doubled `-` or `.` (`+x name-`, `+x a--b`,
+ * `+1.2.3()`), so neither is refused here.
  */
 const MEMBER_NAME_RE = /^[\p{L}\p{N}_][\p{L}\p{N}_.-]*(?:<br>[\p{L}\p{N}_.-]*)*$/u;
 
@@ -540,13 +537,13 @@ const LITERAL_HASH_NAME_RE = /^#[^\s#;]*;$/;
  * encodes each `#\w+;` into word-like text before it parses, so `+x #lt;`,
  * `+int a#lt;b` and `+#lt;foo()` are members (measured), their codes
  * decoded when drawn. A character reference stands there too
- * (`CHARACTER_REFERENCE_RE`): `+x &lt;` and `+&lt;foo()` in a class block
+ * (`maskReferences`): `+x &lt;` and `+&lt;foo()` in a class block
  * are drawn `+x <` and `+<foo()` (measured, Chrome); after `A :` its `;` is
  * refused before the name is read.
  */
 function isMemberName(name: string): boolean {
   if (LITERAL_HASH_NAME_RE.test(name)) return true;
-  return MEMBER_NAME_RE.test(replaceEntityCodes(name.replace(CHARACTER_REFERENCE_RE, "_"), () => "_"));
+  return MEMBER_NAME_RE.test(maskReferences(name));
 }
 /**
  * Mermaid's own row-break pattern, which it applies to a member's text and
@@ -1713,17 +1710,25 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         // attribute to Mermaid as written, refused only as unrecognized.
         // An entity code's or a character reference's own `;` is no `;` at
         // all (`maskReferences`).
-        const separated = maskReferences(text)
-          .replace(/\([^)]*\)|~[^~]*~/g, "")
-          .replace(/;\s*$/, "")
-          .includes(";")
-          ? '. A ";" does not separate members: write each member on a line of its own.'
-          : "";
-        const member = separated === "" ? parseMember(text, memberLine, memberColumn) : null;
+        const holdsSeparator = (masked: string) =>
+          masked
+            .replace(/\([^)]*\)|~[^~]*~/g, "")
+            .replace(/;\s*$/, "")
+            .includes(";");
+        const separated = holdsSeparator(maskReferences(text));
+        const member = separated ? null : parseMember(text, memberLine, memberColumn);
         if (member === null) {
+          // A member Siren cannot read whose `;` ends a reference or a code
+          // (`+x &zz; +foo()`, `+x #foo; +y`) is still most likely two run
+          // together — Mermaid 12.2.0 draws each as one member (measured) —
+          // so the error says how to write two, as for any other `;`.
+          const hint =
+            separated || holdsSeparator(text)
+              ? '. A ";" does not separate members: write each member on a line of its own.'
+              : "";
           diagnostics.push({
             severity: "error",
-            message: `Unrecognized class member: "${text}"${separated}`,
+            message: `Unrecognized class member: "${text}"${hint}`,
             line: memberLine,
             column: memberColumn,
           });

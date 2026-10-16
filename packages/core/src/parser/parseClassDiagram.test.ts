@@ -399,6 +399,35 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     ]);
   });
 
+  it("reads the edge cases of a widened member name as Mermaid draws them, in both member forms", () => {
+    // Measured on Mermaid 12.2.0 (Chrome), in a class block and after `A :`
+    // alike, each drawn as written: a trailing or doubled `-` or `.`
+    // (`+x name-`, `+x a--b`, `+x a.`, `+1.2.3()`), and an `&` that starts
+    // a reference to no known name or a legacy one without its `;` (`+x &B`,
+    // `+x A&B`, `+x a&b`; `+x &lt` and `+x &amp` draw `+x <` and `+x &`).
+    const members = [
+      "+x name-",
+      "+x a--b",
+      "+x a.",
+      "+x a-",
+      "+x 1.2.3",
+      "+1.2.3()",
+      "+name-()",
+      "+a--b()",
+      "+x &B",
+      "+x A&B",
+      "+x a&b",
+      "+x &lt",
+      "+x &amp",
+    ];
+    const block = parseOk(`classDiagram\n  class A {\n${members.map((m) => `    ${m}`).join("\n")}\n  }`);
+    expect(block.diagnostics).toEqual([]);
+    expect(block.document.classes.flatMap((c) => c.members.map(reconstruct))).toEqual(members);
+    const inline = parseOk(`classDiagram\n${members.map((m) => `  A : ${m}`).join("\n")}`);
+    expect(inline.diagnostics).toEqual([]);
+    expect(inline.document.classes.flatMap((c) => c.members.map(reconstruct))).toEqual(members);
+  });
+
   it("reads a generic on either end of a relationship as the class's generic", () => {
     // Measured on Mermaid 12.2.0 (Chrome): `A~T~ --> B` draws `A<T>` → B,
     // with multiplicities and a label as well, with or without a space
@@ -1894,6 +1923,33 @@ describe("parseClassDiagram — a class block closed on a member's line", () => 
     const separated = (text: string) =>
       `Unrecognized class member: "${text}". A ";" does not separate members: write each member on a line of its own.`;
     for (const text of ["+x &lt;; y", "+int x &lt; y; z", "# lt; x", "+x a;b"]) {
+      expect([text, parseClassDiagram(`classDiagram\n  class A {\n    ${text}\n  }`).diagnostics]).toEqual([
+        text,
+        [{ severity: "error", message: separated(text), line: 3, column: 5 }],
+      ]);
+    }
+  });
+
+  it("reads a character reference by the browser's own rule, a name that starts with a digit included", () => {
+    // Measured on Mermaid 12.2.0 (Chrome): in a class block `+x &1a;` and
+    // `+x &1a; y` are one member each, drawn as written — the browser reads
+    // `&1a;` as a reference to a name it does not know and leaves it.
+    const members = ["+x &1a;", "+x &1a; y"];
+    const { document, diagnostics } = parseOk(
+      `classDiagram\n  class A {\n${members.map((m) => `    ${m}`).join("\n")}\n  }`,
+    );
+    expect(diagnostics).toEqual([]);
+    expect(document.classes[0].members.map(reconstruct)).toEqual(members);
+  });
+
+  it("still says a `;` does not separate members when one after a reference or a code leaves the member unreadable", () => {
+    // Measured on Mermaid 12.2.0 (Chrome): in a class block `+x &zz; +foo()`
+    // is the one member `+x &zz; +foo()` and `+x #foo; +y` the one member
+    // `+x &foo; +y`. Siren cannot read either as one member; the author most
+    // likely wrote two, so the error says how.
+    const separated = (text: string) =>
+      `Unrecognized class member: "${text}". A ";" does not separate members: write each member on a line of its own.`;
+    for (const text of ["+x &zz; +foo()", "+x #foo; +y"]) {
       expect([text, parseClassDiagram(`classDiagram\n  class A {\n    ${text}\n  }`).diagnostics]).toEqual([
         text,
         [{ severity: "error", message: separated(text), line: 3, column: 5 }],
