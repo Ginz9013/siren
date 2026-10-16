@@ -435,6 +435,17 @@ const INLINE_MEMBER_RE = /^(\w+)\s*:\s*(.+)$/d;
  * stand inside — `+id<br>int` is one name, as Mermaid reads it.
  */
 const MEMBER_NAME_RE = /^[A-Za-z_]\w*(?:<br>\w*)*$/;
+
+/**
+ * Whether `name` may be a member's own name: `MEMBER_NAME_RE`, with an
+ * entity code standing wherever a word character may — Mermaid 12.2.0
+ * encodes each `#\w+;` into word-like text before it parses, so `+x #lt;`,
+ * `+int a#lt;b` and `+#lt;foo()` are members (measured), their codes
+ * decoded when drawn.
+ */
+function isMemberName(name: string): boolean {
+  return MEMBER_NAME_RE.test(name.replace(/#\w+;/g, "_"));
+}
 /**
  * Mermaid's own row-break pattern, which it applies to a member's text and
  * then escapes the result rather than reading it as markup — measured
@@ -517,7 +528,9 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
 
   let visibility: ClassMemberVisibility | null = null;
   const firstChar = rest.slice(0, 1);
-  if (VISIBILITY_MARKERS.has(firstChar)) {
+  // A `#` opening an entity code is the code's: Mermaid 12.2.0 encodes
+  // `#lt; x` before it looks for a marker, and draws `< x` (measured).
+  if (VISIBILITY_MARKERS.has(firstChar) && !/^#\w+;/.test(rest)) {
     visibility = firstChar as ClassMemberVisibility;
     rest = rest.slice(1).trim();
   }
@@ -529,7 +542,7 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
       return null;
     }
     const name = rest.slice(0, openParen).trim();
-    if (!MEMBER_NAME_RE.test(name)) {
+    if (!isMemberName(name)) {
       return null;
     }
     const returnType = rest.slice(closeParen + 1).trim();
@@ -551,7 +564,7 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
     return null;
   }
   const name = tokens[tokens.length - 1];
-  if (!MEMBER_NAME_RE.test(name)) {
+  if (!isMemberName(name)) {
     return null;
   }
   return {

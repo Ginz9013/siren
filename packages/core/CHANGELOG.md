@@ -89,6 +89,9 @@ comment after a `direction` statement, where it changes the direction applied
 starting with the value (`A : +int direction` then `LRClass --> B`). Each is now refused (see
 **Changed**).
 
+Breaking for a class document with an entity code in a member (`+#lt; x`, `+foo(#9829;)`), which
+used to be drawn as written and is now drawn decoded, `+< x` and `+foo(♥)` (see **Changed**).
+
 ### Added
 
 - A dotted class namespace name (`namespace N.M { class A }`) is read as Mermaid 12.2.0 reads it
@@ -218,6 +221,14 @@ starting with the value (`A : +int direction` then `LRClass --> B`). Each is now
 
 ### Changed
 
+- **An entity code in a class member is drawn decoded** (nook `01M51K83X2`): Mermaid 12.2.0
+  encodes each `#\w+;` before it parses and decodes it when it draws, so `+#lt; x` draws `+< x`,
+  `+int #59;` `+int ;` and `+foo(#9829;)` `+foo(♥)`, in a block and inline alike, in the type, the
+  name, the parameters and the return type; an unknown name stays as the reference
+  (`+#zz; x` draws `+&zz; x`). The member is measured as drawn. A code may stand where the name
+  does (`+x #lt;`, `+int a#lt;b`, `+#lt;foo()`), which used to be refused as an unrecognized
+  member; a `~generic~` opens at a code (`+List~#lt;~ x` draws `+List<<> x`); and a `#` opening a
+  code is no visibility marker (`#lt; x` draws `< x`). The codes used to be drawn as written.
 - **A class-diagram line holding a `direction` inside it is refused** (nook `01M51K83NB`):
   Mermaid 12.2.0's lexer reads any top-level line containing `direction TB`, `BT`, `RL` or `LR`,
   anywhere and glued or not (`xdirection LR`, `direction LRx`), as one direction statement, and

@@ -2586,3 +2586,62 @@ describe("parseClassDiagram — a `direction` written inside another line", () =
     }
   });
 });
+
+/**
+ * An entity code in a member (spec `class-direction-entities`, T2, measured
+ * on Mermaid 12.2.0 in Chrome): Mermaid encodes every `#\w+;` before it
+ * parses, so a code stands wherever a word does — the name included — and
+ * is decoded when the member is drawn. The parser keeps the code as written.
+ */
+describe("parseClassDiagram — an entity code in a member", () => {
+  const membersIn = (body: string) => {
+    const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+    expect([body, diagnostics]).toEqual([body, []]);
+    return document!.kind === "class" ? document!.classes.flatMap((c) => c.members) : [];
+  };
+
+  it("reads an attribute whose name is an entity code, inline and in a block", () => {
+    // Measured: `+x #lt;`, `+int #59;`, `+x #amp;` and `+int #9829;` draw
+    // `+x <`, `+int ;`, `+x &` and `+int ♥`; `+int a#lt;b` draws `+int a<b`.
+    for (const [text, type, name] of [
+      ["+x #lt;", "x", "#lt;"],
+      ["+int #59;", "int", "#59;"],
+      ["+x #amp;", "x", "#amp;"],
+      ["+int #9829;", "int", "#9829;"],
+      ["+int a#lt;b", "int", "a#lt;b"],
+    ] as const) {
+      for (const body of [`  class A\n  A : ${text}`, `  class A {\n    ${text}\n  }`]) {
+        expect([body, membersIn(body).map((m) => [m.memberKind, m.visibility, m.type, m.name])]).toEqual([
+          body,
+          [["attribute", "+", type, name]],
+        ]);
+      }
+    }
+  });
+
+  it("reads a classifier after an entity-code name", () => {
+    // Measured: `+int #lt;$` draws `+int <` as a static member.
+    const [member] = membersIn("  class A\n  A : +int #lt;$");
+    expect([member!.type, member!.name, member!.classifier]).toEqual(["int", "#lt;", "$"]);
+  });
+
+  it("reads an entity code opening a member as text, not as the `#` visibility marker", () => {
+    // Measured: `#lt; x` draws `< x` and `#lt;int x` `<int x` — Mermaid
+    // encodes the code before it looks for a marker, so none is found.
+    expect(membersIn("  class A {\n    #lt; x\n    #lt;foo()\n  }\n  A : #9829;int y").map((m) => [m.visibility, m.type, m.name])).toEqual([
+      [null, "#lt;", "x"],
+      [null, null, "#lt;foo"],
+      [null, "#9829;int", "y"],
+    ]);
+    // A `#` that opens no code is still the marker.
+    expect(membersIn("  class A {\n    #int x\n  }").map((m) => [m.visibility, m.type, m.name])).toEqual([["#", "int", "x"]]);
+  });
+
+  it("reads a method whose name holds an entity code", () => {
+    // Measured: `+#lt;foo()` draws `+<foo()`, `+f#lt;oo(int a)` `+f<oo(int a)`.
+    expect(membersIn("  class A {\n    +#lt;foo()\n    +f#lt;oo(int a)\n  }").map((m) => [m.memberKind, m.name, m.parameters])).toEqual([
+      ["method", "#lt;foo", ""],
+      ["method", "f#lt;oo", "int a"],
+    ]);
+  });
+});

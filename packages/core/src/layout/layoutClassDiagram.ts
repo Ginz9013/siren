@@ -17,6 +17,7 @@ import type {
   LabelBox,
 } from "../contracts";
 import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
+import { resolveEntityCodes } from "../label/characterReferences";
 import { atConnectorLabelSize, plainLabel } from "../label/label";
 import { layoutLabel } from "../label/layoutLabel";
 import { wrapConnectorLabel } from "../label/wrapLabel";
@@ -53,6 +54,12 @@ const MULTIPLICITY_MARKER_CLEARANCE = 6;
  * `+int age` for an attribute, `+swim() bool` for a method. The classifier
  * goes last, as Mermaid writes it (`-id$`, `#quack(int times)*`), so one
  * rule covers both member kinds whether or not a return type follows.
+ *
+ * Its entity codes are decoded last, once the line is composed: Mermaid
+ * 12.2.0 escapes a member's text and decodes the codes in it when it draws
+ * (measured in Chrome: `+#lt; x` draws `+< x`, `+foo(#9829;)` `+foo(♥)`,
+ * `+#zz; x` `+&zz; x`) — the decoding sequence text gets, so the same
+ * `resolveEntityCodes`. The line is measured as decoded, too.
  */
 function memberText(member: ClassMember): string {
   const visibility = member.visibility ?? "";
@@ -61,10 +68,10 @@ function memberText(member: ClassMember): string {
     const returnType =
       member.returnType === null ? "" : ` ${angleBrackets(member.returnType)}`;
     const parameters = angleBrackets(member.parameters ?? "");
-    return `${visibility}${member.name}(${parameters})${returnType}${classifier}`;
+    return resolveEntityCodes(`${visibility}${member.name}(${parameters})${returnType}${classifier}`);
   }
   const type = member.type === null ? "" : `${angleBrackets(member.type)} `;
-  return `${visibility}${type}${member.name}${classifier}`;
+  return resolveEntityCodes(`${visibility}${type}${member.name}${classifier}`);
 }
 
 /**
@@ -122,7 +129,10 @@ function angleBrackets(type: string): string {
   const openIndices: number[] = [];
   for (let i = 0; i < chars.length; i += 1) {
     if (chars[i] !== "~") continue;
-    if (opensTypeName(chars[i + 1])) {
+    // An entity code opens one as a type name does: Mermaid 12.2.0 pairs
+    // the tildes while the code is still encoded as word-like text, so
+    // `List~#lt;~` draws `List<<>` (measured).
+    if (opensTypeName(chars[i + 1]) || /^#\w+;/.test(chars.slice(i + 1).join(""))) {
       openIndices.push(i);
       continue;
     }

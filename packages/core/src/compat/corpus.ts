@@ -4410,6 +4410,37 @@ line2\`"]`,
     },
   },
   {
+    id: "cls-member-entity-codes",
+    kind: "class",
+    source: `classDiagram
+      class Heart {
+        +#9829; love
+        +List~#lt;~ items
+        +less(int #lt; a)
+        #lt; x
+      }
+      Heart : +int #59;`,
+    status: "supported",
+    meaning:
+      "An entity code in a member is drawn decoded: Mermaid 12.2.0 encodes " +
+      "each `#\\w+;` before it parses and decodes it when it draws, so " +
+      "`+#9829; love` draws `+♥ love` and `+int #59;` `+int ;` — a code may " +
+      "stand where the name does (measured, Chrome). A generic opens at a " +
+      "code (`+List<<> items`), and a `#` opening one is no visibility " +
+      "marker (`< x`). Siren used to draw the codes as written and refuse a " +
+      "member named by one.",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Heart"]);
+      expectSame("Heart's members", members(result, "Heart"), [
+        "+♥ love",
+        "+List<<> items",
+        "< x",
+        "+int ;",
+        "+less(int < a)",
+      ]);
+    },
+  },
+  {
     id: "cls-rel-inheritance",
     kind: "class",
     source: `classDiagram
