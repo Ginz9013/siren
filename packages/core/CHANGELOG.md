@@ -691,6 +691,12 @@ refused (see **Changed**).
 
 ### Fixed
 
+- A flowchart timeline can name a node or an edge whose id begins with `%%` (nook `01M51TJRT0`):
+  `A --> %%B` draws a node `%%B`, and `enter %%B fade` now reaches it, where the line was cut at its
+  `%%` and refused as `Unrecognized timeline action: "enter"`. Only a `%%` glued to the start of the
+  target's text is the id's; a `%%` with a space after it (`enter %% note`), one after the action
+  (`enter %%B fade %% note`), and a `%%` line stay comments. Other kinds' ids hold no `%`, so their
+  timelines still cut every such `%%`.
 - An `@{` that a flowchart statement holds as text no longer opens a node data block that runs on
   into the lines below (nook `01M51RE5K5`): `A -- x@{y --> B` followed by `C` draws A, B and C, the
   edge labelled `x@{y`, as Mermaid 12.2.0 does, where it was refused with the next line folded into

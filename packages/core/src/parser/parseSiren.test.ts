@@ -3579,6 +3579,53 @@ describe("a `%%` in the middle of a flowchart line", () => {
     }
   });
 
+  it("reads a `%%` that begins a timeline target as the target's, as the flowchart reads `A --> %%B`", () => {
+    // `A --> %%B` draws a node `%%B`, so a timeline must be able to name it;
+    // cutting the line at its `%%` left `enter` with no target.
+    const { document, diagnostics } = parseSiren(
+      "flowchart TB\n  A --> %%B\ntimeline:\n  enter %%B fade\n  highlight %%B glow, unhighlight %%B\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document?.timeline?.entries.map((entry) => [entry.kind, entry.targetId, entry.effect])).toEqual([
+      ["enter", "%%B", "fade"],
+      ["highlight", "%%B", "glow"],
+      ["unhighlight", "%%B", undefined],
+    ]);
+  });
+
+  it("still reads every other `%%` around a `%%` target as a comment", () => {
+    // A spaced `%%` after the action, a `%%` line, and a `%%` with a space
+    // straight after it in the target slot (`enter %% note`, a comment's
+    // own form) are comments; only `%%` glued to a target's text is the id's.
+    for (const [commented, plain] of [
+      ["  enter %%B fade %% last", "  enter %%B fade"],
+      ["  %% the reveal\n  enter %%B fade", "\n  enter %%B fade"],
+      ["  highlight A-%%B glow %% the edge", "  highlight A-%%B glow"],
+      ["  enter %% note", "  enter"],
+      ["  enter %%", "  enter"],
+    ] as const) {
+      expect([commented, parseSiren(`flowchart TB\n  A --> %%B\ntimeline:\n${commented}\n`)]).toEqual([
+        commented,
+        parseSiren(`flowchart TB\n  A --> %%B\ntimeline:\n${plain}\n`),
+      ]);
+    }
+  });
+
+  it("still cuts a `%%` that begins a timeline target in every other kind, whose ids hold no `%`", () => {
+    for (const [header, body] of [
+      ["sequenceDiagram", "  A->>B: m"],
+      ["classDiagram", "  class A"],
+      ["stateDiagram-v2", "  A --> B"],
+      ["erDiagram", "  A ||--o{ B : r"],
+    ] as const) {
+      expect([header, parseSiren(`${header}\n${body}\ntimeline:\n  enter %%B fade\n`)]).toEqual([
+        header,
+        parseSiren(`${header}\n${body}\ntimeline:\n  enter\n`),
+      ]);
+    }
+  });
+
   it("refuses a `%%` trailing the header, at its `%%`", () => {
     // Measured: `flowchart TB %% x` is "Expecting 'NEWLINE', got 'NODE_STRING'"
     // on line 1; so is `graph LR %% x`.

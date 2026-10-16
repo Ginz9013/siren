@@ -61,7 +61,7 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = 
  * diagram as Mermaid's grammar is handed it, and each kind's parser decides.
  * A timeline block is Siren's own syntax, not Mermaid's (ADR-0017), and
  * its lines are still cut at their first `%%` — save, in a flowchart, one
- * glued to an action's target (`cutTimelineComment`).
+ * glued to or beginning an action's target (`cutTimelineComment`).
  *
  * Except a line that is nothing but `%%` (`bareCommentLines`). Mermaid's
  * `cleanupComments` removes `^\s*%%(?!{)[^\n]+\n?`, so a whole-line
@@ -128,7 +128,7 @@ function asMermaidReads(source: string): {
   // whose own parser then refuses the `%%`, and `timeline: %% x` still
   // opens a block. A timeline block is Siren's own syntax, not Mermaid's
   // (ADR-0017), so its lines keep the cut — save, in a flowchart, a `%%`
-  // glued to a target (`cutTimelineComment`).
+  // glued to or beginning a target (`cutTimelineComment`).
   const cut = linesAsRead.map(cutAtDoublePercent);
   const header = headerOf(cut);
   const timelineStart = header === null ? Infinity : firstTimelineHeader(cut, header.index);
@@ -151,17 +151,22 @@ function cutAtDoublePercent(line: string): string {
  * (`gluedTargets`), a `%%` glued to the end of an action's target. There
  * `%` is an id character and `A%%x` one node id (measured on Mermaid
  * 12.2.0), so `unhighlight A%%x` names that node, where the cut aimed it at
- * `A`, silently; the target runs on to the next space. A `%%` glued to a
- * verb or an effect (`enter A fade%% note`) still opens the comment, as a
- * spaced one does, and so does every `%%` in another kind's timeline, whose
- * ids hold no `%`.
+ * `A`, silently; the target runs on to the next space. So does a `%%`
+ * that begins the target (`enter %%B fade`): `A --> %%B` draws a node
+ * `%%B`, and the cut left the verb with no target. A `%%` with a space or
+ * the line's end straight after it (`enter %% note`) is a comment's own
+ * form, so it opens one there too. A `%%` glued to a verb or an effect
+ * (`enter A fade%% note`) still opens the comment, as a spaced one does,
+ * and so does every `%%` in another kind's timeline, whose ids hold no `%`.
  */
 function cutTimelineComment(line: string, gluedTargets: boolean): string {
   let from = 0;
   for (;;) {
     const at = line.indexOf("%%", from);
     if (at === -1) return line;
-    if (!gluedTargets || !endsInTargetSlot(line.slice(0, at))) return line.slice(0, at);
+    const before = line.slice(0, at);
+    const inTarget = endsInTargetSlot(before) || (beginsTargetSlot(before) && /^%%\S/.test(line.slice(at)));
+    if (!gluedTargets || !inTarget) return before;
     from = at + line.slice(at).search(/\s|$/);
   }
 }
@@ -174,6 +179,15 @@ function cutTimelineComment(line: string, gluedTargets: boolean): string {
 function endsInTargetSlot(before: string): boolean {
   const action = before.slice(before.lastIndexOf(",") + 1);
   return /^\s*\S+\s+\S+$/.test(action);
+}
+
+/**
+ * Whether `before` stops where the target of its last action begins: that
+ * action holds a verb and the space after it, and nothing else.
+ */
+function beginsTargetSlot(before: string): boolean {
+  const action = before.slice(before.lastIndexOf(",") + 1);
+  return /^\s*\S+\s+$/.test(action);
 }
 
 /** Where a line that is nothing but `%%` starts its `%%`, as the author wrote it. */
