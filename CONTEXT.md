@@ -373,11 +373,11 @@ every one of them carries the class `siren-node-frame`, so an author's `style`, 
 `timeline:` block reach all fourteen exactly as they reached a rectangle. One documented token is
 the exception, and it is stated under **Design token**.
 
-Mermaid's `A@{ shape: cyl }` **node data** (nook `01M51Q7F65`) names the same fourteen shapes
-by 45 names (each shape's short name and its aliases, `NODE_DATA_SHAPES` in `flowchartNodeData.ts`): the brackets and the block are two spellings of one
-shape, and a block on a node written before changes its shape and keeps its text. Its other names —
-about forty shapes Siren has no geometry for — are refused as not drawn yet, never drawn as one of
-the fourteen.
+Mermaid's `A@{ shape: cyl }` **node data** names the same fourteen shapes by 45 names (each shape's
+short name and its aliases, `NODE_DATA_SHAPES` in `flowchartNodeData.ts`): the brackets and the
+block are two spellings of one shape, and a block on a node written before changes its shape and
+keeps its text. Its other names — about forty shapes Siren has no geometry for — are refused as not
+drawn yet, never drawn as one of the fourteen.
 
 **A node's label is a Label** (below), like every flowchart label: an edge's and a subgraph
 title's too. `SirenNode`/`GraphNode`/`PositionedNode` carry it as `label`, and `PositionedNode` adds

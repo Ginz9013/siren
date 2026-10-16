@@ -579,6 +579,30 @@ describe("an `@{ … }` block written where it cannot stand", () => {
     expect(diagnostics).toEqual([{ severity: "error", message, line: 2, column }]);
   });
 
+  it("reads a block never closed in time linear in the lines after it", () => {
+    // A guard against joining line by line and rescanning the joined text
+    // each time: quadratic, 30,000 lines take seconds; linear, milliseconds.
+    const source = `flowchart TB\n  A@{ shape: circle\n${"  B --> C\n".repeat(30_000)}`;
+
+    const started = performance.now();
+    const { diagnostics } = parseFlowchart(source);
+    const elapsed = performance.now() - started;
+
+    expect(diagnostics.map((d) => d.message)).toEqual(['The "@{" is never closed. End the block with "}"']);
+    expect(elapsed).toBeLessThan(1000);
+  });
+
+  it("leaves a group with no arrow (`A@{ … } & B`) to the error a bare `A & B` gets", () => {
+    // Mermaid 12.2.0 draws both nodes; a group with no arrow is its own
+    // ticket, and until then the line is not told to lose its `& B`.
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  A@{ shape: circle } & B");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      { severity: "error", message: 'Unrecognized flowchart line: "A@{ shape: circle } & B"', line: 2, column: 3 },
+    ]);
+  });
+
   it("refuses a block never closed at its `@`, and reads nothing after it", () => {
     const { document, diagnostics } = parseFlowchart("flowchart TB\n  A@{ shape: circle\n  B --> C");
 

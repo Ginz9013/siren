@@ -17,27 +17,29 @@ import type { NodeShape } from "../contracts";
  * shape's short name and every alias Mermaid 12.2.0's `shapesDefs` lists for
  * the handler its bracket spelling draws, plus the one lowercase internal
  * alias it also accepts (`doublecircle`). Case matters: Mermaid refuses any
- * name with an upper-case letter or a `_` (measured).
+ * name with an upper-case letter or a `_` (measured). Each shape's first name
+ * is its short name.
  */
+const SHAPE_NAMES: ReadonlyArray<readonly [NodeShape, readonly [string, ...string[]]]> = [
+  ["rect", ["rect", "proc", "process", "rectangle"]],
+  ["round", ["rounded", "event"]],
+  ["stadium", ["stadium", "terminal", "pill"]],
+  ["subroutine", ["fr-rect", "subprocess", "subproc", "framed-rectangle", "subroutine"]],
+  ["cylinder", ["cyl", "db", "database", "cylinder"]],
+  ["circle", ["circle", "circ"]],
+  ["rhombus", ["diam", "decision", "diamond", "question"]],
+  ["hexagon", ["hex", "hexagon", "prepare"]],
+  ["parallelogram", ["lean-r", "lean-right", "in-out"]],
+  ["parallelogram-alt", ["lean-l", "lean-left", "out-in"]],
+  ["trapezoid", ["trap-b", "priority", "trapezoid-bottom", "trapezoid"]],
+  ["trapezoid-alt", ["trap-t", "manual", "trapezoid-top", "inv-trapezoid"]],
+  ["double-circle", ["dbl-circ", "double-circle", "doublecircle"]],
+  ["asymmetric", ["odd"]],
+];
+
+/** Each name in `SHAPE_NAMES`, and the shape it draws. */
 export const NODE_DATA_SHAPES: ReadonlyMap<string, NodeShape> = new Map(
-  (
-    [
-      ["rect", ["rect", "proc", "process", "rectangle"]],
-      ["round", ["rounded", "event"]],
-      ["stadium", ["stadium", "terminal", "pill"]],
-      ["subroutine", ["fr-rect", "subprocess", "subproc", "framed-rectangle", "subroutine"]],
-      ["cylinder", ["cyl", "db", "database", "cylinder"]],
-      ["circle", ["circle", "circ"]],
-      ["rhombus", ["diam", "decision", "diamond", "question"]],
-      ["hexagon", ["hex", "hexagon", "prepare"]],
-      ["parallelogram", ["lean-r", "lean-right", "in-out"]],
-      ["parallelogram-alt", ["lean-l", "lean-left", "out-in"]],
-      ["trapezoid", ["trap-b", "priority", "trapezoid-bottom", "trapezoid"]],
-      ["trapezoid-alt", ["trap-t", "manual", "trapezoid-top", "inv-trapezoid"]],
-      ["double-circle", ["dbl-circ", "double-circle", "doublecircle"]],
-      ["asymmetric", ["odd"]],
-    ] as const
-  ).flatMap(([shape, names]) => names.map((name) => [name, shape as NodeShape] as const)),
+  SHAPE_NAMES.flatMap(([shape, names]) => names.map((name) => [name, shape] as const)),
 );
 
 /**
@@ -67,11 +69,7 @@ const UNDRAWN_SHAPE_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 /** One short name per shape Siren draws: what a refused name is told to choose from. */
-const SHAPE_CHOICES = [
-  ...new Map([...NODE_DATA_SHAPES].reverse().map(([name, shape]) => [shape, name])).values(),
-]
-  .reverse()
-  .join(", ");
+const SHAPE_CHOICES = SHAPE_NAMES.map(([, [shortName]]) => shortName).join(", ");
 
 /** Something a block says that is not drawn as written, worded for the author. */
 export interface NodeDataProblem {
@@ -267,9 +265,21 @@ export function joinNodeDataBlocks(lines: readonly string[]): string[] {
   for (let i = 0; i < joined.length; i++) {
     let text = joined[i]!;
     let end = i;
-    while (end + 1 < joined.length && [...nodeDataBlocks(text)].at(-1)?.end === null) {
+    // Each pass looks only at what it has not seen: the open block's own
+    // quotes carried from line to line until its `}`, and then the rest of
+    // that line for a further block. Rescanning the joined text at every
+    // line would be quadratic in a block never closed.
+    let { open, quoted } = openBlockAtEnd(text);
+    while (open && end + 1 < joined.length) {
       end++;
-      text += "\n" + joined[end];
+      const line = joined[end]!;
+      text += "\n" + line;
+      const close = closingBraceIn(line, quoted);
+      if (close === null) {
+        quoted = quotedAtEnd(line, quoted);
+        continue;
+      }
+      ({ open, quoted } = openBlockAtEnd(line.slice(close)));
     }
     if (end > i) {
       joined[i] = text;
@@ -278,4 +288,43 @@ export function joinNodeDataBlocks(lines: readonly string[]): string[] {
     }
   }
   return joined;
+}
+
+/**
+ * Whether `text` ends inside an `@{ … }` block it opens, and if so whether
+ * inside one of that block's strings.
+ */
+function openBlockAtEnd(text: string): { open: boolean; quoted: boolean } {
+  const last = [...nodeDataBlocks(text)].at(-1);
+  if (last === undefined || last.end !== null) {
+    return { open: false, quoted: false };
+  }
+  return { open: true, quoted: quotedAtEnd(text.slice(last.at + NODE_DATA_OPENER.length)) };
+}
+
+/** Whether a block's string is open at the end of `text`, given whether it was at its start. */
+function quotedAtEnd(text: string, quoted = false): boolean {
+  let open = quoted;
+  for (const char of text) {
+    if (char === '"') {
+      open = !open;
+    }
+  }
+  return open;
+}
+
+/**
+ * Where, past the `}` closing an open block, `text` goes on — the block's
+ * string open at its start when `quoted` — or `null` when no `}` closes it.
+ */
+function closingBraceIn(text: string, quoted: boolean): number | null {
+  let open = quoted;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '"') {
+      open = !open;
+    } else if (!open && text[i] === "}") {
+      return i + 1;
+    }
+  }
+  return null;
 }

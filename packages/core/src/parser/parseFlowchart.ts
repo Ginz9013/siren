@@ -1225,6 +1225,11 @@ function refuseNodeData(text: string): { message: string; offset: number } | nul
       offset: restAt,
     };
   }
+  // `A@{ … } & B` with no arrow: a group, not text after the block, so it
+  // gets whatever a bare `A & B` line gets rather than a fix that drops `B`.
+  if (rest.trimStart().startsWith(GROUP_SEPARATOR)) {
+    return null;
+  }
   if (rest.trim() !== "") {
     return { message: `Nothing may follow a node's "${NODE_DATA_OPENER} … }" block: "${rest.trim()}"`, offset: restAt };
   }
