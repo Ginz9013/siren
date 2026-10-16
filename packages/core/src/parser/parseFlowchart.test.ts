@@ -645,6 +645,93 @@ describe("an `@{ … }` block written where it cannot stand", () => {
 });
 
 /**
+ * An `@{` that stands where no node is written is text, and opens no block
+ * that could run on into the lines below. Measured on Mermaid 12.2.0:
+ * `A -- x@{y --> B` ⏎ `C` draws A, B and C, the edge labelled `x@{y`.
+ */
+describe("an `@{` written where no node is", () => {
+  it("is text in an arrow's own label, and the lines after it are read on their own", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  A -- x@{y --> B\n  C --> D\n  E");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.line])).toEqual([
+      ["A", 2],
+      ["B", 2],
+      ["C", 3],
+      ["D", 3],
+      ["E", 4],
+    ]);
+    expect(document.edges.map((edge) => [edge.from, edge.to, edge.label?.text ?? null])).toEqual([
+      ["A", "B", "x@{y"],
+      ["C", "D", null],
+    ]);
+  });
+
+  it("opens no block inside a `|label|`, so the line after it is read on its own", () => {
+    // Mermaid 12.2.0 refuses a brace in a `|label|` ("got 'DIAMOND_START'"),
+    // which Siren draws as text, `@{` or not; what this pins is only that
+    // the next line is not swallowed.
+    const { document, diagnostics } = parseOk("flowchart TB\n  A -->|mail@{x| B\n  C");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.line])).toEqual([
+      ["A", 2],
+      ["B", 2],
+      ["C", 3],
+    ]);
+  });
+});
+
+/**
+ * An `@{` in a statement that writes no node. Measured on Mermaid 12.2.0:
+ * `accTitle: a@{b`, `accDescr { a@{b }`, a `%%` comment, a quoted label
+ * and a `click` string hold it as text; `subgraph t a@{b`, `classDef c
+ * fill:#f@{` and `style C fill:#f00@{` are parse errors on their own line.
+ * None of them runs on into the line after it.
+ */
+describe("an `@{` in a statement that writes no node", () => {
+  it("is part of an accessible title, and the next line is a node", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  accTitle: a@{b\n  C");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.accTitle).toBe("a@{b");
+    expect(document.nodes.map((node) => [node.id, node.line])).toEqual([["C", 3]]);
+  });
+
+  it("is refused in a subgraph title on its own line, and the block's lines are read", () => {
+    const { diagnostics } = parseFlowchart("flowchart TB\n  subgraph t a@{b\n    C\n  end");
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'A subgraph takes no "@{ … }" block. Leave the block out: subgraph t a',
+        line: 2,
+        column: 15,
+      },
+    ]);
+  });
+
+  it.each(["classDef c fill:#f@{", "style C fill:#f00@{"])("is no block in `%s`, which reaches no further line", (written) => {
+    const { diagnostics } = parseFlowchart(`flowchart TB\n  ${written}\n  C --> D`);
+
+    expect(diagnostics.filter((d) => d.line !== 2)).toEqual([]);
+    expect(diagnostics.map((d) => d.message)).not.toContain('The "@{" is never closed. End the block with "}"');
+  });
+
+  it.each([
+    ["a comment", "%% a@{b"],
+    ["a braced accessible description", "accDescr { a@{b }"],
+    ["a quoted label", 'A["a@{b"]'],
+    ["a click's string", 'click C "https://x.org/a@{b"'],
+  ])("is text in %s, and the next line is a node", (_, written) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  C\n  ${written}\n  D`, parseSiren);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toContain("D");
+  });
+});
+
+/**
  * An edge id, `A e1@--> B`, which Siren does not support yet (the same board
  * as `@{ … }`). Measured on Mermaid 12.2.0: accepted before every arrow
  * spelling (`e1@==>`, `e1@-- yes -->`, `e1@-->|yes|`), on one link of a

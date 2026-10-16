@@ -616,6 +616,13 @@ drawn decoded, `A<<>` (see **Changed**).
 
 ### Fixed
 
+- An `@{` that a flowchart statement holds as text no longer opens a node data block that runs on
+  into the lines below (nook `01M51RE5K5`): `A -- x@{y --> B` followed by `C` draws A, B and C, the
+  edge labelled `x@{y`, as Mermaid 12.2.0 does, where it was refused with the next line folded into
+  it. A block runs on across lines only where a node is written — at an edge's end or as a node of
+  its own — and never from an arrow's label, a `|label|`, a quoted string, `accTitle`, a subgraph
+  title, `classDef` or `style`. A block never closed is now joined in linear time, and a node with
+  a block followed by `& B` and no arrow is no longer told to drop `& B`.
 - A flowchart subgraph whose quoted title is one word (`subgraph "t"`) now takes that word as its
   handle, as Mermaid 12.2.0 records it (id `t`, measured), so an edge naming it (`t --> B`) joins
   the frame, where Siren used to draw a stray node `t` beside it. A quoted title holding whitespace

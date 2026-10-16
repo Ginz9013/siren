@@ -195,6 +195,12 @@ function readShape(value: unknown, problems: NodeDataProblem[]): NodeShape | nul
   return null;
 }
 
+/** Where one `@{ … }` block stands: its `@`, and past its `}` (`null` when nothing closes it). */
+export interface NodeDataBlock {
+  at: number;
+  end: number | null;
+}
+
 /** What opens a node's data block, right after the node: `A@{`. */
 export const NODE_DATA_OPENER = "@{";
 
@@ -205,97 +211,54 @@ export const NODE_DATA_OPENER = "@{";
  * (`A@{ label: "a}b" }` is the label `a}b`, measured).
  */
 export function nodeDataEnd(text: string, at: number): number | null {
-  let quoted = false;
-  for (let i = at + NODE_DATA_OPENER.length; i < text.length; i++) {
-    const char = text[i];
-    if (char === '"') {
-      quoted = !quoted;
-    } else if (!quoted && char === "}") {
-      return i + 1;
-    }
-  }
-  return null;
+  return closingBraceIn(text, at + NODE_DATA_OPENER.length, false);
 }
 
 /**
- * Every `@{ … }` block in `text` written outside a label's brackets and
- * outside a quoted string: where its `@` stands, and where it ends
- * (`nodeDataEnd`), `null` when nothing closes it — which is then the last.
+ * The text of a statement whose last `@{ … }` block is not closed on its
+ * own line, run on into the lines after it until the `}` closing it — the
+ * multi-line block Mermaid 12.2.0 reads as block YAML (`A@{` ⏎
+ * `shape: circle` ⏎ `}`, measured) — and how many of those lines it took.
+ * A block never closed takes every line. A line the block closes on may
+ * open another (`} --> B@{`), which runs on in turn.
+ *
+ * `blocksOf` says where a text's blocks stand, so that an `@{` the text
+ * holds as text (an arrow's label, a quoted string) opens none. Each line
+ * is looked at once: the open block's quotes are carried from line to
+ * line, since rescanning the joined text at every line would be quadratic
+ * in a block never closed.
  */
-function* nodeDataBlocks(text: string): Generator<{ at: number; end: number | null }> {
-  let depth = 0;
-  let quoted = false;
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i]!;
-    if (char === '"') {
-      quoted = !quoted;
-    } else if (quoted) {
-      continue;
-    } else if (depth === 0 && text.startsWith(NODE_DATA_OPENER, i)) {
-      const end = nodeDataEnd(text, i);
-      yield { at: i, end };
-      if (end === null) {
-        return;
-      }
-      i = end - 1;
-    } else if ("[{(".includes(char)) {
-      depth++;
-    } else if ("]})".includes(char) && depth > 0) {
-      depth--;
+export function blockRunOn(
+  text: string,
+  following: readonly string[],
+  blocksOf: (text: string) => readonly NodeDataBlock[],
+): { text: string; taken: number } {
+  let joined = text;
+  let taken = 0;
+  let { open, quoted } = openBlockAtEnd(text, blocksOf);
+  while (open && taken < following.length) {
+    const line = following[taken]!;
+    taken++;
+    joined += "\n" + line;
+    const close = closingBraceIn(line, 0, quoted);
+    if (close === null) {
+      quoted = quotedAtEnd(line, quoted);
+    } else {
+      ({ open, quoted } = openBlockAtEnd(line.slice(close), blocksOf));
     }
   }
-}
-
-/** The first `@{ … }` block in `text` (`nodeDataBlocks`), or `null` when there is none. */
-export function nodeDataBlockIn(text: string): { at: number; end: number | null } | null {
-  return nodeDataBlocks(text).next().value ?? null;
-}
-
-/**
- * Joins an `@{ … }` block back into one physical line when the `}` closing
- * it lies on a later one — the multi-line block Mermaid 12.2.0 reads as
- * block YAML (`A@{` ⏎ `shape: circle` ⏎ `}`, measured). The rule
- * `joinMarkdownFences` follows: the lines a block swallows are blanked
- * rather than removed, so every later line keeps its number, and the
- * joined text lands on the line the block opens on. A block never closed
- * is joined through to the last line.
- */
-export function joinNodeDataBlocks(lines: readonly string[]): string[] {
-  const joined = [...lines];
-  for (let i = 0; i < joined.length; i++) {
-    let text = joined[i]!;
-    let end = i;
-    // Each pass looks only at what it has not seen: the open block's own
-    // quotes carried from line to line until its `}`, and then the rest of
-    // that line for a further block. Rescanning the joined text at every
-    // line would be quadratic in a block never closed.
-    let { open, quoted } = openBlockAtEnd(text);
-    while (open && end + 1 < joined.length) {
-      end++;
-      const line = joined[end]!;
-      text += "\n" + line;
-      const close = closingBraceIn(line, quoted);
-      if (close === null) {
-        quoted = quotedAtEnd(line, quoted);
-        continue;
-      }
-      ({ open, quoted } = openBlockAtEnd(line.slice(close)));
-    }
-    if (end > i) {
-      joined[i] = text;
-      joined.fill("", i + 1, end + 1);
-      i = end;
-    }
-  }
-  return joined;
+  return { text: joined, taken };
 }
 
 /**
  * Whether `text` ends inside an `@{ … }` block it opens, and if so whether
  * inside one of that block's strings.
  */
-function openBlockAtEnd(text: string): { open: boolean; quoted: boolean } {
-  const last = [...nodeDataBlocks(text)].at(-1);
+function openBlockAtEnd(
+  text: string,
+  blocksOf: (text: string) => readonly NodeDataBlock[],
+): { open: boolean; quoted: boolean } {
+  const last = blocksOf(text).at(-1);
   if (last === undefined || last.end !== null) {
     return { open: false, quoted: false };
   }
@@ -314,12 +277,13 @@ function quotedAtEnd(text: string, quoted = false): boolean {
 }
 
 /**
- * Where, past the `}` closing an open block, `text` goes on — the block's
- * string open at its start when `quoted` — or `null` when no `}` closes it.
+ * Where, past the `}` closing an open block, `text` goes on — read from
+ * `from`, the block's string open there when `quoted` — or `null` when no
+ * `}` closes it.
  */
-function closingBraceIn(text: string, quoted: boolean): number | null {
+function closingBraceIn(text: string, from: number, quoted: boolean): number | null {
   let open = quoted;
-  for (let i = 0; i < text.length; i++) {
+  for (let i = from; i < text.length; i++) {
     if (text[i] === '"') {
       open = !open;
     } else if (!open && text[i] === "}") {

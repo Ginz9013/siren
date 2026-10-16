@@ -3315,6 +3315,24 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       "`constraint` are refused at the `@`, saying to leave the key out.",
   },
   {
+    id: "fc-node-shape-data-in-edge-label",
+    kind: "flowchart",
+    source: `flowchart TB
+      A -- x@{y --> B
+      C --> D`,
+    status: "supported",
+    meaning:
+      "An `@{` inside an arrow's own label is text: Mermaid 12.2.0 draws the " +
+      "edge A-B labelled `x@{y`, and C, D and the edge between them from the " +
+      "next line (measured). Siren draws the same; an `@{` opens a block only " +
+      "where a node is written.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]", "C[C]", "D[D]"]);
+      expectSame("edges", edges(result), ["A-B", "C-D"]);
+      expectSame("label", edgeLabel(result, "A-B"), "x@{y");
+    },
+  },
+  {
     id: "fc-edge-id",
     kind: "flowchart",
     source: `flowchart TB

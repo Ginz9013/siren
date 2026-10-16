@@ -26,13 +26,7 @@ import { readAccDescrBlock } from "./readAccDescrBlock";
 import { listAcceptedHeaders, matchClassDirection, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 import { MID_LINE_PERCENT_MESSAGE } from "./midLinePercent";
-import {
-  joinNodeDataBlocks,
-  NODE_DATA_OPENER,
-  nodeDataBlockIn,
-  nodeDataEnd,
-  readNodeData,
-} from "./flowchartNodeData";
+import { blockRunOn, type NodeDataBlock, NODE_DATA_OPENER, nodeDataEnd, readNodeData } from "./flowchartNodeData";
 
 /**
  * The headers this parser accepts — its own kind's and no other's, because
@@ -999,8 +993,8 @@ interface EdgeEndpoint {
  */
 function readEndpoint(text: string, at: number): EdgeEndpoint | null {
   const trimmed = text.trim();
-  const block = nodeDataBlockIn(trimmed);
-  if (block === null) {
+  const block = nodeDataBlocksOf(trimmed)[0];
+  if (block === undefined) {
     return readEndpointWithoutData(text, at);
   }
   const head = trimmed.slice(0, block.at);
@@ -1012,7 +1006,7 @@ function readEndpoint(text: string, at: number): EdgeEndpoint | null {
   if (endpoint === null) {
     return null;
   }
-  return { ...endpoint, data: { at: at + lead + block.at, content: trimmed.slice(block.at + 2, -1) } };
+  return { ...endpoint, data: { at: at + lead + block.at, content: trimmed.slice(block.at + NODE_DATA_OPENER.length, block.end - 1) } };
 }
 
 /**
@@ -1195,8 +1189,8 @@ function refuseNode(text: string): { message: string; offset: number } | null {
  * never closed reads to the end of the document.
  */
 function refuseNodeData(text: string): { message: string; offset: number } | null {
-  const block = nodeDataBlockIn(text);
-  if (block === null) {
+  const block = nodeDataBlocksOf(text)[0];
+  if (block === undefined) {
     return null;
   }
   if (block.end === null) {
@@ -1342,14 +1336,15 @@ function separatorAt(text: string, index: number, separator: string | RegExp): s
  *
  * Always returns at least one piece, and one fewer separator than pieces,
  * and never trims: a caller that needs a column needs the offsets left
- * alone.
+ * alone. `blocks` are the `@{ … }` blocks it stepped over.
  */
 function cutOutsideLabel(
   text: string,
   separator: string | RegExp,
-): { parts: string[]; separators: string[] } {
+): { parts: string[]; separators: string[]; blocks: NodeDataBlock[] } {
   const parts: string[] = [];
   const separators: string[] = [];
+  const blocks: NodeDataBlock[] = [];
   let depth = 0;
   let quoted = false;
   let start = 0;
@@ -1367,7 +1362,9 @@ function cutOutsideLabel(
       // it: what is inside is YAML, and Mermaid 12.2.0 reads an arrow, an
       // `&` or an unpaired `(` there as text (`A@{ label: f(x } --> B`,
       // measured). One never closed runs to the end of the text.
-      i = (nodeDataEnd(text, i) ?? text.length) - 1;
+      const end = nodeDataEnd(text, i);
+      blocks.push({ at: i, end });
+      i = (end ?? text.length) - 1;
       continue;
     }
     if (LABEL_OPENERS.includes(char) || (depth === 0 && char === ASYMMETRIC_OPENER && i > 0 && ID_CHAR_RE.test(text[i - 1]!))) {
@@ -1399,7 +1396,17 @@ function cutOutsideLabel(
     }
   }
   parts.push(text.slice(start));
-  return { parts, separators };
+  return { parts, separators, blocks };
+}
+
+/**
+ * The `@{ … }` blocks `text` holds where a node can stand — outside a
+ * label, a quoted string and an arrow's own label, which `cutOutsideLabel`
+ * steps over: an `@{` in any of them is text (`A -- x@{y --> B` is the
+ * edge label `x@{y`, measured on Mermaid 12.2.0).
+ */
+function nodeDataBlocksOf(text: string): NodeDataBlock[] {
+  return cutOutsideLabel(text, ARROW_RE).blocks;
 }
 
 /** What opens and what closes a label's bracket, in any pairing (see `cutOutsideLabel`). */
@@ -1652,8 +1659,8 @@ const SUBGRAPH_TITLED_THEN_MORE_RE = new RegExp(
 function refuseSubgraphTitle(tail: string): { message: string; offset: number } | null {
   // `subgraph S@{ shape: circle }`: Mermaid 12.2.0 refuses a block there
   // (measured, "got 'SHAPE_DATA'").
-  const data = nodeDataBlockIn(tail);
-  if (data !== null) {
+  const data = nodeDataBlocksOf(tail)[0];
+  if (data !== undefined) {
     const without = tail.slice(0, data.at) + tail.slice(data.end ?? tail.length);
     return {
       message: `A subgraph takes no "${NODE_DATA_OPENER} … }" block. Leave the block out: subgraph ${without.trim()}`,
@@ -2163,7 +2170,10 @@ function joinMarkdownFences(lines: readonly string[]): string[] {
  */
 export function parseFlowchart(source: string): DiagramParseResult {
   const diagnostics: Diagnostic[] = [];
-  const lines = joinNodeDataBlocks(joinMarkdownFences(source.split(/\r\n|\r|\n/)));
+  const lines = joinMarkdownFences(source.split(/\r\n|\r|\n/));
+  // The lines whose statement an `@{ … }` block has already run on into
+  // the lines after it (`runOn`), so a block never closed runs on once.
+  const ranOn = new Set<number>();
 
   const nodesById = new Map<string, SirenNode>();
   const edges: SirenEdge[] = [];
@@ -2507,6 +2517,24 @@ export function parseFlowchart(source: string): DiagramParseResult {
       // branch below that asks; and the statement up to it.
       const percentAt = midLinePercentAt(line);
       const beforePercent = percentAt === null ? line : line.slice(0, percentAt).trimEnd();
+      // A node's `@{ … }` block not closed on this line runs on into the
+      // lines after it: the statement is written back into this line,
+      // blanked up to its column, with those lines joined to it and blanked,
+      // and the line is read again from there. Asked only where a node is
+      // written, so that an `@{` in any other statement is never a block.
+      const runOn = (blocks: readonly NodeDataBlock[]): boolean => {
+        if (blocks.at(-1)?.end !== null || ranOn.has(i)) {
+          return false;
+        }
+        const { text, taken } = blockRunOn(line, lines.slice(i + 1), nodeDataBlocksOf);
+        if (taken === 0) {
+          return false;
+        }
+        lines[i] = " ".repeat(column - 1) + text;
+        lines.fill("", i + 1, i + 1 + taken);
+        ranOn.add(i);
+        return true;
+      };
       const refusePercent = () => {
         diagnostics.push({
           severity: "error",
@@ -2685,10 +2713,18 @@ export function parseFlowchart(source: string): DiagramParseResult {
       // Mermaid draws turns on this; what turns on it is which diagnostic
       // an author gets, and "not an arrow Siren draws" is the wrong one to
       // hand someone who wrote a `style` statement.
-      const { parts: arrowParts, separators: arrowTokens } = DECLARATION_LIST_RE.test(line)
-        ? { parts: [line], separators: [] as string[] }
+      const {
+        parts: arrowParts,
+        separators: arrowTokens,
+        blocks: lineBlocks,
+      } = DECLARATION_LIST_RE.test(line)
+        ? { parts: [line], separators: [] as string[], blocks: [] }
         : cutOutsideLabel(line, ARROW_RE);
       if (arrowParts.length > 1) {
+        if (runOn(lineBlocks)) {
+          i--;
+          continue readLines;
+        }
         // Every outcome below ends the statement. An arrow says the author
         // meant an edge, so a statement carrying one is never handed on to
         // the node and styling patterns to be read as something else.
@@ -2988,7 +3024,11 @@ export function parseFlowchart(source: string): DiagramParseResult {
 
       // A node written with an `@{ … }` block on a line of its own; read as
       // an edge's endpoint is, since the two spellings are one.
-      const withData = nodeDataBlockIn(line) === null ? null : readEndpoint(line, 0);
+      if (runOn(lineBlocks)) {
+        i--;
+        continue readLines;
+      }
+      const withData = lineBlocks.length === 0 ? null : readEndpoint(line, 0);
       if (withData !== null) {
         addNodeAsWritten(withData, statement);
         continue;
