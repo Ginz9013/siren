@@ -613,6 +613,35 @@ describe("layoutClassDiagram", () => {
       expect(classById(diagram, "Circle").label).toEqual(plainLabel("Circle"));
     });
 
+    it("decodes the entity codes in a class's generic and sizes the box from the decoded name", () => {
+      // Measured on Mermaid 12.2.0 (Chrome): `class A~#lt;~` draws `A<<>`,
+      // as do `~&lt;~` and `~#60;~`; `~&amp;~` draws `A<&>` and `~#quot;~`
+      // `A<">`.
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [
+            cls("A", [], { generic: "#lt;" }),
+            cls("B", [], { generic: "&lt;" }),
+            cls("C", [], { generic: "&amp;" }),
+            cls("D", [], { generic: "#quot;" }),
+            cls("E", [], { generic: "#60;" }),
+            cls("F", [], { generic: "<" }),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      expect(["A", "B", "C", "D", "E"].map((id) => classById(diagram, id).label)).toEqual([
+        plainLabel("A<<>"),
+        plainLabel("B<<>"),
+        plainLabel("C<&>"),
+        plainLabel('D<">'),
+        plainLabel("E<<>"),
+      ]);
+      // Measured as drawn: the box is the one the decoded name needs.
+      expect(classById(diagram, "A").width).toBe(classById(diagram, "F").width);
+    });
+
     it("draws a member's generic type and return type in angle brackets, leaving a package-visibility tilde alone", () => {
       const diagram = layoutClassDiagram(
         classModel({

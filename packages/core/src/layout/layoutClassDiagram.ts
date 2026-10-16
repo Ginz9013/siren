@@ -156,14 +156,20 @@ function angleBrackets(type: string): string {
  * draws, so the tildes never reach the canvas. A member's type is converted
  * by the same rule, so a generic reads the same everywhere on the box.
  *
- * The generic the parser captured runs to the last tilde on the line, so a
- * nested one (`class Map~String, List~int~~`) still arrives spelled with
- * tildes inside; `angleBrackets` converts those too.
+ * The parser refuses a nested generic on a class name, but a hand-built
+ * model may still carry one (`String, List~int~`); `angleBrackets` converts
+ * its inner tildes too.
+ *
+ * The generic's entity codes and character references are decoded once the
+ * name is composed, as a member line's are (`memberText`): measured on
+ * Mermaid 12.2.0 (Chrome), `class A~#lt;~` draws `A<<>`, as do `~&lt;~` and
+ * `~#60;~`, `~&amp;~` draws `A<&>` and `~#quot;~` `A<">`. The name is
+ * measured as decoded. The id is a word and holds nothing to decode.
  */
 function classNameText(cls: ResolvedClass): string {
   return cls.generic === null
     ? cls.id
-    : `${cls.id}<${angleBrackets(cls.generic)}>`;
+    : `${cls.id}<${htmlText(angleBrackets(cls.generic), "text")}>`;
 }
 
 /**

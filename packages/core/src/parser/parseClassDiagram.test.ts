@@ -356,6 +356,93 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     ]);
   });
 
+  it("reads a generic on either end of a relationship as the class's generic", () => {
+    // Measured on Mermaid 12.2.0 (Chrome): `A~T~ --> B` draws `A<T>` → B,
+    // with multiplicities and a label as well, with or without a space
+    // before the `~` or around the arrow; an entity code is kept as written
+    // here (`~#lt;~` draws `<`, decoded by layout).
+    const source = `classDiagram
+  A~T~ --> B
+  C~#lt;~ "1" <|-- "many" D~&amp;~ : has
+  E ~K,V~-->F~U~
+`;
+
+    const { document, diagnostics } = parseOk(source);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.classes.map((c) => [c.id, c.generic])).toEqual([
+      ["A", "T"],
+      ["B", null],
+      ["C", "#lt;"],
+      ["D", "&amp;"],
+      ["E", "K,V"],
+      ["F", "U"],
+    ]);
+    expect(
+      document.relationships.map((r) => [r.from, r.to, r.fromMultiplicity, r.toMultiplicity, r.label?.text ?? null]),
+    ).toEqual([
+      ["A", "B", null, null, null],
+      ["C", "D", "1", "many", "has"],
+      ["E", "F", null, null, null],
+    ]);
+  });
+
+  it("gives a relationship's generic to the class only on its first mention", () => {
+    // Measured on Mermaid 12.2.0 (Chrome): `class A~T~` then `A~U~ --> B`
+    // draws `A<T>`; `A~T~ --> B` then `A~U~ --> C` draws `A<T>`; `A --> C`
+    // then `A~T~ --> B` draws `A`. A class keeps what its first mention gave
+    // it, so a later relationship's generic declares nothing.
+    for (const [source, generic] of [
+      ["classDiagram\n  class A~T~\n  A~U~ --> B", "T"],
+      ["classDiagram\n  A~T~ --> B\n  A~U~ --> C", "T"],
+      ["classDiagram\n  A --> C\n  A~T~ --> B", null],
+    ] as const) {
+      const { document, diagnostics } = parseOk(source);
+      expect(diagnostics).toEqual([]);
+      expect(document.classes.filter((c) => c.id === "A").map((c) => c.generic)).toEqual([generic]);
+    }
+  });
+
+  it("refuses a nested generic on a relationship's end, as on a class declaration", () => {
+    // Measured on Mermaid 12.2.0: `A~List~int~~ --> B` and `A -->
+    // B~List~int~~` are parse errors (ADR-0017).
+    const message = (generic: string) =>
+      `The generic "~${generic}~" holds another generic, which a class name cannot. ` +
+      'Write the inner angle brackets as entity codes instead, such as "~List#lt;int#gt;~".';
+    for (const [source, generic, column] of [
+      ["classDiagram\n  A~List~int~~ --> B", "List~int~", 4],
+      ["classDiagram\n  A --> B~List~int~~ : uses", "List~int~", 10],
+      ["classDiagram\n  A~Map~String, List~int~~~ \"1\" --> B", "Map~String, List~int~~", 4],
+    ] as const) {
+      const { document, diagnostics } = parseClassDiagram(source);
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([{ severity: "error", message: message(generic), line: 2, column }]);
+    }
+  });
+
+  it("refuses a generic on a relationship's lollipop end, which names an interface", () => {
+    // Measured on Mermaid 12.2.0 (Chrome): `A~T~ ()-- B` and `A --() B~T~`
+    // draw the interface's name with its tildes, `A~T~` and `B~T~` — no
+    // generic, and not the name alone, so it is refused (ADR-0001).
+    for (const [source, name, column] of [
+      ["classDiagram\n  A~T~ ()-- B", "A~T~", 4],
+      ["classDiagram\n  A --() B~T~", "B~T~", 11],
+    ] as const) {
+      const { document, diagnostics } = parseClassDiagram(source);
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message:
+            `The interface "${name}" at a "()" end cannot take a generic. ` +
+            `Write the interface's name alone, such as "${name.slice(0, name.indexOf("~"))}".`,
+          line: 2,
+          column,
+        },
+      ]);
+    }
+  });
+
   it("parses an annotation written inside a class block, alongside that class's members", () => {
     const source = `classDiagram
   class Shape {
@@ -441,17 +528,24 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     });
   });
 
-  it("parses a nested generic parameter whole, rather than diagnosing it", () => {
-    const source = `classDiagram
-  class Shelf~Map~String, List~int~~~
-`;
-
-    const { document, diagnostics } = parseOk(source);
-
-    expect(diagnostics).toEqual([]);
-    expect(document.classes).toHaveLength(1);
-    expect(document.classes[0].id).toBe("Shelf");
-    expect(document.classes[0].generic).toBe("Map~String, List~int~~");
+  it("refuses a nested generic on a class name, in both declaration forms", () => {
+    // Measured on Mermaid 12.2.0: `class A~List~int~~`, `class
+    // A~List~#lt;~~` and the block form `class A~List~int~~ {` are parse
+    // errors — a generic ends at its second `~` (ADR-0017). Written with
+    // entity codes, `class A~List#lt;int#gt;~` draws `A<List<int>>`.
+    const message = (generic: string) =>
+      `The generic "~${generic}~" holds another generic, which a class name cannot. ` +
+      'Write the inner angle brackets as entity codes instead, such as "~List#lt;int#gt;~".';
+    for (const [source, generic, column] of [
+      ["classDiagram\n  class A~List~int~~", "List~int~", 10],
+      ["classDiagram\n  class Shelf~Map~String, List~int~~~", "Map~String, List~int~~", 14],
+      ["classDiagram\n  class A~List~#lt;~~", "List~#lt;~", 10],
+      ["classDiagram\n  class A~List~int~~ {\n    +x\n  }", "List~int~", 10],
+    ] as const) {
+      const { document, diagnostics } = parseClassDiagram(source);
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([{ severity: "error", message: message(generic), line: 2, column }]);
+    }
   });
 
   it("parses a namespace naming its member classes, which stay ordinary classes in the document", () => {

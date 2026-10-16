@@ -5658,6 +5658,24 @@ line2\`"]`,
       "an error at the `%%`. Siren used to cut the line and draw the " +
       "annotation. The comment on its own line renders in both.",
   },
+  {
+    id: "cls-relationship-generic",
+    kind: "class",
+    source: `classDiagram
+      Repository~T~ "1" --> "*" Entry~#lt;~ : holds`,
+    status: "supported",
+    meaning:
+      "A relationship's ends may carry a `~generic~`, which declares the " +
+      "class with it, multiplicities and a label beside it as usual; its " +
+      "entity codes are decoded as on a declared class's generic. Measured " +
+      "on Mermaid 12.2.0 (Chrome): `Repository<T>` points at `Entry<<>`. " +
+      "Siren used to refuse the line as unrecognized.",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Repository", "Entry"]);
+      expectSame("names", texts(result, "text.siren-class-name"), ["Repository<T>", "Entry<<>"]);
+      expectSame("relationships", relationships(result).length, 1);
+    },
+  },
   // -------------------------------------------------------------------------
   // sequenceDiagram
   // -------------------------------------------------------------------------

@@ -72,8 +72,11 @@ const STYLE_SHORTHAND = String.raw`(?:\s*:::\s*(\w+))?`;
  *
  * The generic capture is greedy on purpose: it runs to the *last* `~` on
  * the line, so a nested parameter such as `class Shelf~Map~String, List~int~~~`
- * parses with `Map~String, List~int~~` captured whole rather than being
- * rejected. Nested generics are therefore supported, not diagnosed.
+ * is captured whole (`Map~String, List~int~~`) — and then refused, by
+ * `nestedGenericError`, rather than misread as a shorter generic followed by
+ * text. Mermaid 12.2.0 ends a generic at its second `~` and refuses the
+ * rest (a parse error, measured), so a nested generic is no class name there
+ * (ADR-0017).
  *
  * The label is captured without the padding inside its quotes and must hold
  * something else: `class A[""]` is a parse error in Mermaid (measured), so
@@ -101,9 +104,19 @@ const CLASS_BLOCK_OPEN_RE = new RegExp(
   "d",
 );
 /**
- * A relationship statement: two class names, the relation token between
- * them, an optional quoted multiplicity beside each name, and an optional
- * `: label`.
+ * A relationship statement: two class names, each with an optional
+ * `~generic~`, the relation token between them, an optional quoted
+ * multiplicity beside each name, and an optional `: label`.
+ *
+ * Measured on Mermaid 12.2.0 (Chrome): `A~T~ --> B` draws `A<T>` → B, a
+ * generic may stand at either end, with multiplicities and a label, and a
+ * space may stand before its `~` (`A ~T~ --> B`).
+ *
+ * Each generic is captured lazily, so it ends at the first `~` the rest of
+ * the line can follow — and still reaches past an inner `~…~` when nothing
+ * else would read, so `A~List~int~~ --> B` captures `List~int~` for the
+ * nested-generic error (`nestedGenericError`) rather than falling through
+ * to the unrecognized-line one.
  *
  * The relation token is matched as three independent parts — an optional
  * left marker, the line (`--` solid or `..` dashed), and an optional right
@@ -116,7 +129,7 @@ const CLASS_BLOCK_OPEN_RE = new RegExp(
  * Compiled with `d`, so the label's column is its group's own index.
  */
 const RELATIONSHIP_RE =
-  /^(\w+)(?:\s+"([^"]*)")?\s*(<\|?|\*|o|\(\))?\s*(--|\.\.)\s*(\|>|>|\*|o|\(\))?\s*(?:"([^"]*)"\s+)?(\w+)\s*(?::\s*(.*))?$/d;
+  /^(\w+)(?:\s*~(.+?)~)?(?:\s+"([^"]*)")?\s*(<\|?|\*|o|\(\))?\s*(--|\.\.)\s*(\|>|>|\*|o|\(\))?\s*(?:"([^"]*)"\s+)?(\w+)(?:\s*~(.+?)~)?\s*(?::\s*(.*))?$/d;
 
 /**
  * An annotation on its own line inside a class block, `<<interface>>`.
@@ -392,6 +405,27 @@ function codeSpan(text: string): string {
  */
 function maskEntityCodes(text: string): string {
   return replaceEntityCodes(text, (code) => "#".repeat(code.length));
+}
+
+/**
+ * The error for a class name's generic holding another one — `generic` as
+ * captured between its outer tildes (`List~int~`), at `line`:`column`, the
+ * column of its opening `~` — or `null` when it holds no `~`. Mermaid
+ * 12.2.0 ends a generic at its second `~`, so `class A~List~int~~` and
+ * `A~List~int~~ --> B` are parse errors there (measured, ADR-0017); written
+ * with entity codes, `class A~List#lt;int#gt;~` draws `A<List<int>>`
+ * (measured, Chrome), which is what the error suggests.
+ */
+function nestedGenericError(generic: string, line: number, column: number): Diagnostic | null {
+  if (!generic.includes("~")) return null;
+  return {
+    severity: "error",
+    message:
+      `The generic "~${generic}~" holds another generic, which a class name cannot. ` +
+      'Write the inner angle brackets as entity codes instead, such as "~List#lt;int#gt;~".',
+    line,
+    column,
+  };
 }
 
 /**
@@ -829,14 +863,35 @@ export function parseClassDiagram(source: string): DiagramParseResult {
   };
 
   /**
+   * Refuses the nested generic a class declaration's match captured, if it
+   * did (`nestedGenericError`) — its second capture, at the column of the
+   * `~` before it.
+   */
+  const refuseNestedGeneric = (match: RegExpExecArray, lineNumber: number, column: number) => {
+    const generic = match[2];
+    if (generic === undefined) return;
+    const error = nestedGenericError(generic, lineNumber, column + match.indices![2]![0] - 1);
+    if (error === null) return;
+    diagnostics.push(error);
+    sawError = true;
+  };
+
+  /**
    * Records a class named by a relationship, the way `parseFlowchart`
    * records a node named by an edge: `Animal <|-- Duck` declares both
    * classes. Only the first mention creates one, so a class named by ten
    * relationships is still one declaration — and an id that already has a
    * declaration of its own is left alone.
+   *
+   * The `~generic~` written at that end (`undefined` for none) is the
+   * class's only on that first mention, as in Mermaid 12.2.0, whose class
+   * keeps whatever its first mention gave it (measured, Chrome: `A --> C`
+   * then `A~T~ --> B` draws `A`, `class A~T~` then `A~U~ --> B` draws
+   * `A<T>`, `A~T~ --> B` then `A~U~ --> C` draws `A<T>`).
    */
   const declareImplicitly = (
     id: string,
+    generic: string | undefined,
     line: number,
     column: number,
     namespaceMembers: string[] | null,
@@ -845,7 +900,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       return;
     }
     declareClass(
-      { id, generic: null, annotation: null, label: null, members: [], line, column },
+      { id, generic: generic ?? null, annotation: null, label: null, members: [], line, column },
       namespaceMembers,
     );
   };
@@ -1446,16 +1501,47 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       const [
         ,
         from,
+        fromGeneric,
         fromMultiplicity,
         leftMarker,
         lineToken,
         rightMarker,
         toMultiplicity,
         to,
+        toGeneric,
         labelSource,
       ] = relationshipMatch;
       const fromEnd = endpointFor(leftMarker);
       const toEnd = endpointFor(rightMarker);
+      // A generic on a `()` end is no generic: that end names an interface,
+      // which Mermaid 12.2.0 draws with the tildes as written (measured,
+      // Chrome: `A~T~ ()-- B` draws an interface `A~T~`) — neither the name
+      // alone nor `A<T>`, so it is refused (ADR-0001).
+      const genericErrors = ([[2, from, fromEnd], [9, to, toEnd]] as const).flatMap(([group, id, end]) => {
+        const generic = relationshipMatch[group];
+        if (generic === undefined) return [];
+        const at = column + relationshipMatch.indices![group]![0] - 1;
+        if (end === "circle") {
+          const name = `${id}~${generic}~`;
+          return [
+            {
+              severity: "error" as const,
+              message:
+                `The interface "${name}" at a "()" end cannot take a generic. ` +
+                `Write the interface's name alone, such as "${id}".`,
+              line: lineNumber,
+              column: at,
+            },
+          ];
+        }
+        const error = nestedGenericError(generic, lineNumber, at);
+        return error === null ? [] : [error];
+      });
+      if (genericErrors.length > 0) {
+        diagnostics.push(...genericErrors);
+        sawError = true;
+        return { lastIndex: startIndex, read: "relationship" };
+      }
       relationships.push({
         from,
         to,
@@ -1468,7 +1554,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         label:
           labelSource === undefined || labelSource.length === 0
             ? null
-            : readLabelIn(relationshipMatch, 8, lineNumber, column),
+            : readLabelIn(relationshipMatch, 10, lineNumber, column),
         fromMultiplicity: fromMultiplicity ?? null,
         toMultiplicity: toMultiplicity ?? null,
         sourceLine: lineNumber,
@@ -1478,13 +1564,16 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       // never adds that side to the class list (measured: `Duck ()--
       // Quacks` produces a class for "Quacks" only). `buildClassModel`
       // resolves the lollipop side into its own synthetic node instead.
-      if (fromEnd !== "circle") declareImplicitly(from, lineNumber, column, namespaceMembers);
-      if (toEnd !== "circle") declareImplicitly(to, lineNumber, column, namespaceMembers);
+      if (fromEnd !== "circle") declareImplicitly(from, fromGeneric, lineNumber, column, namespaceMembers);
+      if (toEnd !== "circle") declareImplicitly(to, toGeneric, lineNumber, column, namespaceMembers);
       return { lastIndex: startIndex, read: "relationship" };
     }
 
     const blockOpenMatch = CLASS_BLOCK_OPEN_RE.exec(line);
     if (blockOpenMatch !== null) {
+      // A nested generic is refused, and the block still read, so its body
+      // is not misread as statements of its own.
+      refuseNestedGeneric(blockOpenMatch, lineNumber, column);
       attachShorthand(blockOpenMatch[1], blockOpenMatch[4], lineNumber, column);
       const members: ClassMember[] = [];
       // Annotations inside the block are emitted as their own declarations
@@ -1649,6 +1738,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
 
     const classDeclMatch = CLASS_DECL_RE.exec(line);
     if (classDeclMatch !== null) {
+      refuseNestedGeneric(classDeclMatch, lineNumber, column);
       attachShorthand(classDeclMatch[1], classDeclMatch[4], lineNumber, column);
       declareClass(
         {

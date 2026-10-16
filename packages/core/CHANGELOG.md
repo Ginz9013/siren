@@ -98,6 +98,11 @@ for one with text after the `}` that closes an `accDescr { ... }` block on its l
 (`accDescr { d } class C`), which used to be read as the next statement. Each is now refused (see
 **Changed**).
 
+Breaking for a class document with a nested generic on a class name (`class A~List~int~~`), which
+used to be drawn `A<List<int>>` and is now refused, and for one with an entity code or a character
+reference in a class name's generic (`class A~#lt;~`), which used to be drawn as written and is now
+drawn decoded, `A<<>` (see **Changed**).
+
 ### Added
 
 - A flowchart node's `@{ … }` data block is read as Mermaid 12.2.0 reads it, for what Siren can
@@ -238,6 +243,12 @@ for one with text after the `}` that closes an `accDescr { ... }` block on its l
   may end its last statement's line (`class B }`), as Mermaid 12.2.0 reads each (nook
   `01M4ZY2DA1`). Such a namespace used to be refused as an unrecognized line. Text after its `}`
   on its line is refused as Mermaid refuses it, the error saying to move it to a line of its own.
+- A class relationship's ends may carry a `~generic~` (`A~T~ --> B`, `A~T~ "1" --> "*" B~U~ :
+  label`, a space before the `~` allowed), drawn `A<T>` as Mermaid 12.2.0 draws it (nook
+  `01M51Q7G6R5TY4NGMMNCMJ9JVJ`). The generic is the class's only on its first mention, as there: a
+  class declared or named before keeps what it had. Such a line used to be refused as unrecognized.
+  On a lollipop `()` end, which names an interface, a generic is refused: Mermaid draws the
+  interface's name with its tildes.
 
 ### Changed
 
@@ -592,6 +603,16 @@ for one with text after the `}` that closes an `accDescr { ... }` block on its l
   error says the line would declare one class named `CdirectionXX` and to write the direction on a
   line of its own. Mermaid 12.2.0 draws that one class for any value no direction rule names (`XX`,
   `TD`, `lr`).
+- **A nested generic on a class name is refused** (nook `01M51Q7G6R5TY4NGMMNCMJ9JVJ`):
+  `class A~List~int~~`, its block form and the same on a relationship's end, which Mermaid 12.2.0
+  refuses (a generic ends at its second `~`). Siren used to draw `A<List<int>>`. The error suggests
+  writing the inner angle brackets as entity codes, `~List#lt;int#gt;~`, which both draw
+  `A<List<int>>`. A nested generic in a member's type (`+List~List~int~~ x`) is unchanged.
+- **Entity codes in a class name's generic are decoded** (nook `01M51Q7G6R5TY4NGMMNCMJ9JVJ`), as a
+  member line's are: `class A~#lt;~`, `~&lt;~` and `~#60;~` draw `A<<>`, `~&amp;~` `A<&>` and
+  `~#quot;~` `A<">`, as Mermaid 12.2.0 draws them, and the box is sized from the decoded name. A
+  bracketed label written after such a generic (`class A~#lt;~["L"]`) still replaces the name
+  whole.
 
 ### Fixed
 
