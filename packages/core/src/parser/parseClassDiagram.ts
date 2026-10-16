@@ -263,6 +263,19 @@ function percentOutsideQuotes(line: string): number {
 }
 
 /**
+ * `text` as a Markdown code span: fenced by one backtick more than the
+ * longest run of them inside it, and padded with a space when it starts or
+ * ends with one — so a quoted statement holding quotes or backticks reads
+ * whole.
+ */
+function codeSpan(text: string): string {
+  const longestRun = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = "`".repeat(longestRun + 1);
+  const padding = text.startsWith("`") || text.endsWith("`") ? " " : "";
+  return `${fence}${padding}${text}${padding}${fence}`;
+}
+
+/**
  * `text` with each entity code (`#lt;`, `#59;`) written over by `#`s of its
  * length, so a search for `;` finds only the `;`s Mermaid 12.2.0's lexer
  * sees: it encodes every `/#\w+;/` before lexing (measured: `A : +x #59; y`
@@ -832,7 +845,12 @@ export function parseClassDiagram(source: string): DiagramParseResult {
    * Parses the statement starting at `startIndex` and returns the index of
    * the last line it consumed — the same line for a one-line statement, the
    * closing `}` for a block form; the caller advances past that — and the
-   * kind of statement it read the line as, `null` when it read none.
+   * kind of statement it read the line as, `null` when it read none. A
+   * statement refused for a problem of its own still reports its kind — the
+   * inline member `A : +x; y` is a `"member"` refused for its `;` — so a
+   * namespace around it refuses its placement too, both being true; only a
+   * line no statement reads (an unrecognized line, a member after a block's
+   * `}`) is `null`.
    *
    * `namespaceMembers` is the class-id list of the `namespace` block this
    * statement sits inside, or `null` at the top level. A class declared
@@ -1000,12 +1018,15 @@ export function parseClassDiagram(source: string): DiagramParseResult {
           ? parseStatement(index, classIds)
           : { lastIndex: index, read: null };
         if (read !== null && !NAMESPACE_BODY_KINDS.has(read)) {
-          // The line as the statement parser read it, a `%%` after it cut.
+          // Pushed after the statement is parsed, so the statement's own
+          // errors (`A : ???`, a `%%` after it) come first, then where it
+          // stands — in that order for every statement, by design. Quoted
+          // as the statement parser read the line, a `%%` after it cut.
           const statementLine = lines[index];
           diagnostics.push({
             severity: "error",
             message:
-              `\`${statementLine.trim()}\` cannot be written inside "namespace ${namespaceOpenMatch[1]}": ` +
+              `${codeSpan(statementLine.trim())} cannot be written inside "namespace ${namespaceOpenMatch[1]}": ` +
               "only classes, notes and namespaces go there. Move it outside the namespace.",
             line: index + 1,
             column: statementLine.length - statementLine.trimStart().length + 1,

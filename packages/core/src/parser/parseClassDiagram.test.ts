@@ -2084,6 +2084,31 @@ describe("parseClassDiagram — the statements a namespace body refuses", () => 
     );
   });
 
+  it("fences a statement holding a backtick with a longer run of backticks, as Markdown does", () => {
+    const tail = ' cannot be written inside "namespace N": only classes, notes and namespaces go there. ' +
+      "Move it outside the namespace.";
+    const messageOf = (statement: string) =>
+      refused(`  namespace N {\n    class A\n    class B\n    ${statement}\n  }`)[0]![1];
+    expect(messageOf('click A href "a`b"')).toBe('``click A href "a`b"``' + tail);
+    // One that ends in a backtick is padded, so the fence stays apart from it.
+    expect(messageOf("A --> B : a`")).toBe("`` A --> B : a` ``" + tail);
+    expect(messageOf('click A href "a``b"')).toBe('```click A href "a``b"```' + tail);
+  });
+
+  it("reports a refused statement's own errors first, then that it stands in a namespace", () => {
+    // Both are true of `A : +x; y` and `A : ???`: the statement is read as
+    // what it is, its own problems reported as they are found, and then
+    // refused for where it stands.
+    expect(refused("  namespace N {\n    class A\n    A : +x; y\n  }").map(([, message]) => message)).toEqual([
+      expect.stringContaining('A ";" cannot be written in the member "+x; y"'),
+      expect.stringContaining("`A : +x; y` cannot be written inside"),
+    ]);
+    expect(refused("  namespace N {\n    class A\n    A : ???\n  }").map(([, message]) => message)).toEqual([
+      'Unrecognized class member: "???"',
+      expect.stringContaining("`A : ???` cannot be written inside"),
+    ]);
+  });
+
   it("refuses a direction, style or interaction statement in a namespace, at the statement", () => {
     for (const statement of [
       "direction LR",
