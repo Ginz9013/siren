@@ -131,6 +131,14 @@ with the `$` or `*` at the end of its text (`+x$`) and is now drawn without it, 
 underlined for `$` and in italics for `*`; and for one with a method whose classifier stands right
 after its `)` (`+foo()* bool`), which used to be drawn `+foo() : * bool` (see **Changed**).
 
+Breaking for a class document with a second `:` in an inline member (`A : +x : int`,
+`A : +foo(a:int)`), or with a standalone annotation written before its class is declared
+(`<<interface>> A` then `class A`), each of which used to be drawn and is now refused; for one
+with a member written twice (`A : +x` on two lines), which used to be drawn once and is now drawn
+each time; and for one with a method whose last parameter list is padded or follows another
+(`+foo( a )`, `+foo(a)( b )`), which used to be drawn as written and is now drawn `+foo(a)` and
+`+foo(a)(b)` (see **Changed**).
+
 ### Added
 
 - A flowchart edge may be written with an id of its own (nook `01M51XADJK`): `A e1@--> B`, before
@@ -335,6 +343,22 @@ after its `)` (`+foo()* bool`), which used to be drawn `+foo() : * bool` (see **
 
 ### Changed
 
+- **More class members are read as Mermaid 12.2.0 reads them** (nook `01M51XAEND`, measured in
+  Chrome): a member's name may hold `?`, `!`, `,`, `[`, `]`, `=`, `/`, `'`, `"`, `$`, `*` and `&`
+  (`+???`, `+x a!b`, `+[a]`), a class block's member may end in `;` (`+int x;`), and a member may
+  be nothing but markers (`+`, `$`, `+x$$`) — each drawn as written where Siren refused it. A
+  member written twice is drawn twice, in the order written across every declaration of its
+  class, where Siren drew it once. A method's parameter list is the one that begins at its last
+  `(` with a `)` after it, and only that one is trimmed (`+foo( a )` draws `+foo(a)`).
+- **Class statements Mermaid cannot draw are refused** (nook `01M51XAEND`): a second `:` in an
+  inline member (`A : +foo() : bool`), a parse error in Mermaid 12.2.0, is refused at the `:`,
+  saying how to write a type and a return type; a standalone annotation written before anything
+  declares its class (`<<interface>> A` then `class A` — a note, `style`, `cssClass` or `click`
+  declares none), which stops the diagram rendering in Mermaid, is refused saying to declare the
+  class first or write the annotation in its block. `direction td` and `direction TD x`, which set
+  no direction in Mermaid, are refused as `direction TD` is, saying to write `direction TB`;
+  `class C direction XX;`, `class C~T~ direction XX` and the like are refused saying a direction
+  stands on a line of its own, where both used to get an unrecognized-line error.
 - **A class member's classifier is drawn as a style, not as a character** (nook `01M51XAEEX`):
   Mermaid 12.2.0 draws `+x$` as `+x` underlined and `+y*` as `+y` in italics, the style on the
   whole line, visibility and return type included. Siren drew the `$` or `*` at the end of the

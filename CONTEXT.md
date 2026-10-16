@@ -869,7 +869,8 @@ respelling `<br/>`, `<br />` and `<BR>` as `<br>`, which is then drawn as those 
 method's return type is drawn after ` : ` (`+swim() bool` draws `+swim() : bool`), as Mermaid
 draws it. A `#` opening an entity code is the code's, not the protected marker (`#lt; x` has no
 visibility). Attributes and methods draw in two separate
-compartments, in declaration order within each, with a divider above every populated one.
+compartments, in declaration order within each, with a divider above every populated one; a
+member written twice, in one declaration or across several, is drawn twice.
 _Avoid_: field, property (that is a CSS declaration's property in an author style), attribute
 (alone — that is one of the two kinds of member, and it is also an SVG attribute; say "attribute
 member" when the kind matters)

@@ -6168,6 +6168,137 @@ line2\`"]`,
       ]);
     },
   },
+  {
+    id: "cls-member-punctuation",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        +???
+        +x a!b
+        +[a]
+        +x "a"
+        +a$b
+        +x a*b
+        +x a&
+        +int x;
+        +x &amp;lt;
+      }
+      A : +a=b
+      A : +x a/b
+      A : +a'b`,
+    status: "supported",
+    meaning:
+      "A member's name may hold punctuation — `?`, `!`, `,`, `[`, `]`, `=`, " +
+      "`/`, `'`, `\"`, `$`, `*`, `&` — and a class block's member may end in " +
+      "`;`: Mermaid 12.2.0 draws each as written, in a class block and after " +
+      "`A :` alike, and `+x &amp;lt;` as `+x &lt;` (measured, Chrome). Siren " +
+      "used to refuse each as an unrecognized member (nook 01M51XAEND).",
+    assert: (result) => {
+      expectSame("members", members(result, "A"), [
+        "+???",
+        "+x a!b",
+        "+[a]",
+        '+x "a"',
+        "+a$b",
+        "+x a*b",
+        "+x a&",
+        "+int x;",
+        "+x &lt;",
+        "+a=b",
+        "+x a/b",
+        "+a'b",
+      ]);
+    },
+  },
+  {
+    id: "cls-member-markers-only",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        +x$$
+        +x$*
+        +
+        $
+      }`,
+    status: "supported",
+    meaning:
+      "A member's classifier is its last character even after another `$`, " +
+      "and a member may be nothing but markers: Mermaid 12.2.0 draws `+x$$` " +
+      "as `+x$` underlined, `+x$*` as `+x$` in italics, `+` as `+` and `$` " +
+      "as an empty underlined line (measured, Chrome). Siren used to refuse " +
+      "each (nook 01M51XAEND).",
+    assert: (result) => {
+      const lines = Array.from(
+        svgOf(result).querySelectorAll('g.siren-class[data-siren-id="A"] text.siren-member'),
+      ).map((t) => `${t.textContent} {${t.getAttribute("style") ?? ""}}`);
+      expectSame("member lines", lines, [
+        "+x$ {text-decoration:underline}",
+        "+x$ {font-style:italic}",
+        "+ {}",
+        " {text-decoration:underline}",
+      ]);
+    },
+  },
+  {
+    id: "cls-member-repeated",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        +x
+        +x
+        +y
+      }
+      A : +x
+      class A {
+        +z
+      }`,
+    status: "supported",
+    meaning:
+      "A member written again is drawn again: Mermaid 12.2.0 draws `+x` " +
+      "three times here, in the order written across every declaration of " +
+      "the class (measured, Chrome). Siren used to draw it once " +
+      "(nook 01M51XAEND).",
+    assert: (result) => {
+      expectSame("members", members(result, "A"), ["+x", "+x", "+y", "+x", "+z"]);
+    },
+  },
+  {
+    id: "cls-method-last-paren",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        +foo(a)( b )
+        +foo( a )
+        +foo(a(b)) int
+      }`,
+    status: "supported",
+    meaning:
+      "A method's parameter list is the one that begins at its last `(` with " +
+      "a `)` after it, and only that one is trimmed: Mermaid 12.2.0 draws " +
+      "`+foo(a)( b )` as `+foo(a)(b)` and `+foo( a )` as `+foo(a)` " +
+      "(measured, Chrome). Siren used to draw both as written " +
+      "(nook 01M51XAEND).",
+    assert: (result) => {
+      expectSame("members", members(result, "A"), ["+foo(a)(b)", "+foo(a)", "+foo(a(b)) : int"]);
+    },
+  },
+  {
+    id: "cls-direction-td-spelling",
+    kind: "class",
+    source: `classDiagram
+      direction LR
+      direction td
+      Order --> Item`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** `direction td` " +
+      "sets nothing in a class diagram — its lexer reads only `TB`, `BT`, " +
+      "`RL` and `LR`, in capitals — so this diagram is laid out left to " +
+      "right (measured, Chrome), not top to bottom; so is `direction TD x`. " +
+      "Siren refuses each (ADR-0001) as it refuses `direction TD`, saying to " +
+      "write `direction TB`. Siren used to refuse each as an unrecognized " +
+      "line (nook 01M51XAEND).",
+  },
   // -------------------------------------------------------------------------
   // sequenceDiagram
   // -------------------------------------------------------------------------

@@ -148,13 +148,14 @@ describe("buildClassModel", () => {
     expect(model.classes[1].members).toEqual([]);
   });
 
-  it("unions rather than concatenates, so a member written twice appears once", () => {
+  it("concatenates rather than unions, so a member written twice is drawn twice", () => {
     // What the parser hands over for:
     //   Animal : +int age
     //   Animal : +int age
     // Two declarations, each carrying its own copy of the same member line.
-    // The merge is a union: a class that renders "+int age" twice is never
-    // what the author meant.
+    // Measured (Mermaid 12.2.0, Chrome): `A : +x` twice, `+x` twice in one
+    // block, and `class A { +x }` twice each draw `+x` twice; `class A {
+    // +x +y }` then `class A { +x +z }` draws `+x`, `+y`, `+x`, `+z`.
     const firstAge = attribute({ name: "age", line: 2, column: 1 });
     const secondAge = attribute({ name: "age", line: 3, column: 1 });
 
@@ -169,12 +170,12 @@ describe("buildClassModel", () => {
 
     expect(diagnostics).toEqual([]);
     expect(model.classes).toHaveLength(1);
-    expect(model.classes[0].members).toEqual([firstAge]);
+    expect(model.classes[0].members).toEqual([firstAge, secondAge]);
   });
 
-  it("treats members differing in any rendered part as distinct when unioning", () => {
+  it("keeps every member, those differing in any rendered part and those repeated alike", () => {
     // Same name, different visibility / type / parameters / return type /
-    // classifier: each renders as its own line, so each survives the union.
+    // classifier: each renders as its own line; and a repeat is drawn again.
     const publicAge = attribute({ name: "age", visibility: "+" });
     const privateAge = attribute({ name: "age", visibility: "-" });
     const stringAge = attribute({ name: "age", visibility: "+", type: "String" });
@@ -203,6 +204,7 @@ describe("buildClassModel", () => {
       swimFar,
       swimVoid,
       swimAbstract,
+      swim,
     ]);
   });
 

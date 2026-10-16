@@ -21,7 +21,13 @@ import type {
 import { entityCodeAt, replaceCharacterReferences, replaceEntityCodes } from "../label/characterReferences";
 import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
-import { isClassDirectionTD, listAcceptedHeaders, matchClassDirection, matchDiagramHeader } from "./parseDirection";
+import {
+  classDirectionTDSpelling,
+  isClassDirectionTD,
+  listAcceptedHeaders,
+  matchClassDirection,
+  matchDiagramHeader,
+} from "./parseDirection";
 import { readAccDescrBlock } from "./readAccDescrBlock";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 import { headerPercentError, midLinePercentError } from "./midLinePercent";
@@ -327,10 +333,19 @@ function appliedDirection(line: string): { direction: Direction; index: number }
  * reads as the one class `CdirectionXX` (measured). Only this bare form:
  * with a `;`, a `%%` comment, a `~generic~` or `:::style` on the line,
  * Mermaid 12.2.0 draws no such class but refuses the line (a lexical or
- * parse error, measured), so those keep the unrecognized-line error rather
- * than one naming a class nobody would see.
+ * parse error, measured), so those get an error of their own
+ * (`CLASS_DIRECTION_REFUSED_RE`) rather than one naming a class nobody
+ * would see.
  */
 const CLASS_THEN_DIRECTION_RE = /^class\s+(\w+)\s+direction\s+(\w+)$/;
+
+/**
+ * `class C direction XX` with a `;` or a `%%` comment after it, or a
+ * `~generic~` or `:::style` on the class — the forms Mermaid 12.2.0 refuses
+ * rather than reading as one class (measured).
+ */
+const CLASS_DIRECTION_REFUSED_RE =
+  /^class\s+\w+(?:\s*~[^~]*~)?(?::::\w+)?\s+direction\s+\w+(?:\s*;.*|\s*%%.*)?$/;
 
 /**
  * The same rule across a line break: its `\s+` matches one, blank lines
@@ -584,8 +599,15 @@ const INLINE_MEMBER_RE = /^(\w+)(?:\s*~(.*?)~)?\s*:\s*(.+)$/d;
  * `+x 1.5`, `+x a-b`, `+x a.b`, `+x é` and `+a-b()` are drawn as written,
  * and so are a trailing or doubled `-` or `.` (`+x name-`, `+x a--b`,
  * `+1.2.3()`), so neither is refused here.
+ *
+ * So is the punctuation `?`, `!`, `,`, `[`, `]`, `=`, `/`, `'`, `"`, `$`,
+ * `*` and `&`, anywhere in the name (measured: `+???`, `+x a!b`, `+[a]`,
+ * `+x "a"`, `+a$b`, `+x a&` draw as written), and a `;` ending it — which
+ * only a class block's member can hold, after `A :` it is refused before the
+ * name is read (`+int x;` draws as written).
  */
-const MEMBER_NAME_RE = /^[\p{L}\p{N}_][\p{L}\p{N}_.-]*(?:<br>[\p{L}\p{N}_.-]*)*$/u;
+const MEMBER_NAME_RE =
+  /^[\p{L}\p{N}_?!,[\]=/'"$*&][\p{L}\p{N}_.?!,[\]=/'"$*&-]*(?:<br>[\p{L}\p{N}_.?!,[\]=/'"$*&-]*)*;?$/u;
 
 /**
  * A whole member name that looks like an entity code and is none — a `#`,
@@ -739,13 +761,23 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
       classifier = classifierAt(returnType, returnType.length - 1);
       if (classifier !== null) returnType = returnType.slice(0, -1).trim();
     }
+    // Mermaid 12.2.0 splits a method at the last `(` with a `)` after it,
+    // and trims only that parameter list: `+foo(a)( b )` draws
+    // `+foo(a)(b)` and `+foo( a )` `+foo(a)` (measured, Chrome). The name
+    // stays what precedes the first `(`, so the parentheses before the last
+    // list are kept in the parameter text, drawn as written.
+    const lastOpen = rest.lastIndexOf("(", closeParen);
+    const parameters =
+      lastOpen === openParen
+        ? rest.slice(openParen + 1, closeParen).trim()
+        : `${rest.slice(openParen + 1, lastOpen).trimEnd()}(${rest.slice(lastOpen + 1, closeParen).trim()}`;
     return {
       memberKind: "method",
       visibility,
       classifier,
       name,
       type: null,
-      parameters: rest.slice(openParen + 1, closeParen),
+      parameters,
       returnType: returnType.length > 0 ? returnType : null,
       line,
       column,
@@ -759,11 +791,11 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
     rest = rest.slice(0, -1).trim();
   }
   const tokens = rest.split(/\s+/).filter((token) => token.length > 0);
-  if (tokens.length === 0) {
-    return null;
-  }
-  const name = tokens[tokens.length - 1];
-  if (!isMemberName(name)) {
+  // Nothing but markers — `$`, `+$`, `+`, `#` — is a member with an empty
+  // name, as Mermaid 12.2.0's `parseMember` reads it: `$` draws an empty
+  // underlined line, `+` draws `+` (measured, Chrome).
+  const name = tokens.length === 0 ? "" : tokens[tokens.length - 1];
+  if (tokens.length > 0 && !isMemberName(name)) {
     return null;
   }
   return {
@@ -917,6 +949,15 @@ export function parseClassDiagram(source: string): DiagramParseResult {
   /** Every class id seen so far, however it was introduced. */
   const declaredIds = new Set<string>();
   /**
+   * Every class a statement so far has created, as Mermaid 12.2.0 creates
+   * them: a class declaration, an inline member or a relationship's end —
+   * not a note, `style`, `cssClass` or `click` naming it, and not a
+   * standalone annotation, which Mermaid can add only to a class that
+   * exists (`<<x>> A` before any of those stops the diagram rendering,
+   * measured).
+   */
+  const createdIds = new Set<string>();
+  /**
    * Whether any error-severity problem was found. Like the flowchart and
    * sequence parsers, a document with one is returned as `null`: the
    * diagnostics say what is wrong, and no half-parsed document reaches the
@@ -970,6 +1011,8 @@ export function parseClassDiagram(source: string): DiagramParseResult {
    */
   const declareClass = (declaration: ClassDecl, namespaceMembers: string[] | null) => {
     declaredIds.add(declaration.id);
+    // A standalone annotation reaches here only once its class exists.
+    createdIds.add(declaration.id);
     classes.push(declaration);
     if (namespaceMembers !== null && !namespaceMembers.includes(declaration.id)) {
       namespaceMembers.push(declaration.id);
@@ -1219,6 +1262,24 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     const directionStatement = readDirectionStatement(line);
     if (directionStatement !== null) {
       direction = directionStatement;
+      return { lastIndex: startIndex, read: "direction" };
+    }
+
+    // `direction td`, `direction TD x` and the like set no direction
+    // (`classDirectionTDSpelling`) — the diagram keeps the one before, a
+    // picture nobody wrote (ADR-0001) — so each is refused as `direction
+    // TD` is, naming what was written. One that holds a direction the
+    // lexer applies is left to the rule for that.
+    const tdSpelling = appliedDirection(line) === null ? classDirectionTDSpelling(line) : null;
+    if (tdSpelling !== null) {
+      if (namespaceMembers !== null) return { lastIndex: startIndex, read: "direction" };
+      diagnostics.push({
+        severity: "error",
+        message: `\`${tdSpelling}\` is not a class-diagram direction: write \`direction TB\` for top to bottom.`,
+        line: lineNumber,
+        column,
+      });
+      sawError = true;
       return { lastIndex: startIndex, read: "direction" };
     }
 
@@ -1626,6 +1687,19 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       // does: this contributes an annotation and nothing else, and
       // `buildClassModel` folds it into the class's other declarations.
       const [, annotationText, id] = standaloneAnnotationMatch;
+      if (!createdIds.has(id)) {
+        const annotation = `<<${annotationText}>>`;
+        diagnostics.push({
+          severity: "error",
+          message:
+            `\`${annotation} ${id}\` annotates the class "${id}" before it is declared. ` +
+            `Declare it first, such as \`class ${id}\`, or write the annotation inside its block, such as \`class ${id} { ${annotation} }\`.`,
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
+        return { lastIndex: startIndex, read: "annotation" };
+      }
       declareClass(
         {
           id,
@@ -1947,6 +2021,24 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         sawError = true;
         return { lastIndex: startIndex, read: "member" };
       }
+      // Measured: Mermaid 12.2.0's lexer ends the member text after `A :` at
+      // the next `:` — `A : +x : int`, `A : +foo(a:int)`, `A : +foo() :
+      // bool` are each a parse error there — so Siren refuses one (ADR-0017).
+      // An entity code is no `:` (`maskEntityCodes`).
+      const colon = maskEntityCodes(line).indexOf(":", inlineMemberMatch.indices![3]![0]);
+      if (colon !== -1) {
+        diagnostics.push({
+          severity: "error",
+          message:
+            `A ":" cannot be written in the member "${memberText}" after "${id} :": the member ends before it. ` +
+            'Write a return type after a space, as in "+foo() bool", and a type before the name, as in "+int x"; ' +
+            "or write the member in a class block.",
+          line: lineNumber,
+          column: column + colon,
+        });
+        sawError = true;
+        return { lastIndex: startIndex, read: "member" };
+      }
       const member = parseMember(memberText, lineNumber, column);
       if (member === null) {
         diagnostics.push({
@@ -2039,6 +2131,23 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         message:
           `\`${line}\` would declare one class named \`${gluedDirection[1]}direction${gluedDirection[2]}\`, ` +
           "not a class and a direction. Write the direction on a line of its own, such as `direction LR`.",
+        line: lineNumber,
+        column,
+      });
+      sawError = true;
+      return { lastIndex: startIndex, read: null };
+    }
+
+    // The same with a `;`, a `%%` comment, a `~generic~` or a `:::style`
+    // on the line (`CLASS_DIRECTION_REFUSED_RE`): Mermaid 12.2.0 refuses
+    // it (a lexical or parse error, measured), so it declares no class, and
+    // the error says only what the author most likely meant.
+    if (CLASS_DIRECTION_REFUSED_RE.test(line)) {
+      diagnostics.push({
+        severity: "error",
+        message:
+          `\`${line}\` cannot set a direction: a class declaration ends before \`direction\`. ` +
+          "Write the direction on a line of its own, such as `direction LR`.",
         line: lineNumber,
         column,
       });

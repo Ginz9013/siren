@@ -1908,8 +1908,18 @@ const SILENTLY_WRONG = 0;
  * `fc-edge-id-class`). Siren drew the subgraph case, the `style` and the
  * `class` without a word, and refused the click as naming nothing. No
  * `supported` row moved. `silently-wrong` does not move.
+ *
+ * **69 → 70: case (2), a refusal written down for the first time.**
+ * `01M51XAENDSMY3Y9QDXW1674GP` refused a class diagram's `direction td`
+ * and `direction TD x` as `direction TD` is: Mermaid 12.2.0 sets no
+ * direction for either and keeps the one before (measured, Chrome), refused
+ * under ADR-0001. Siren refused both before as unrecognized lines, with no
+ * row to say so: `cls-direction-td-spelling` writes it down. No `supported`
+ * row moved: `cls-member-punctuation`, `cls-member-markers-only`,
+ * `cls-member-repeated` and `cls-method-last-paren`, new beside it, are
+ * `supported`. `silently-wrong` does not move.
  */
-const REJECTED = 69;
+const REJECTED = 70;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

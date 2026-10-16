@@ -228,6 +228,25 @@ export function isClassDirectionTD(line: string): boolean {
   return CLASS_DIRECTION_TD_RE.test(line);
 }
 
+const CLASS_DIRECTION_TD_SPELLING_RE = /^direction\s+td\b[^;]*$/i;
+
+/**
+ * The `direction TD` statement as written, when a class diagram's line
+ * spells it some other way — `direction td`, `direction Td`, `direction TD
+ * x` — with any `%%` comment left off, or `null`. Measured on Mermaid
+ * 12.2.0, none sets a direction: each keeps the one before it, with no
+ * diagnostic, and `direction td %% x` is a parse error. One with a `;`
+ * (`direction TD;`, a lexical error) is left to the caller's
+ * unrecognized-line error. A line that also holds a direction the class lexer
+ * applies (`direction TD x direction LR`) is not one; the caller asks
+ * about that first.
+ */
+export function classDirectionTDSpelling(line: string): string | null {
+  if (!CLASS_DIRECTION_TD_SPELLING_RE.test(line)) return null;
+  const comment = line.indexOf("%%");
+  return (comment === -1 ? line : line.slice(0, comment)).trimEnd();
+}
+
 /**
  * A state diagram's `direction` statement, which unlike a class diagram's is
  * read in any case, keyword and value alike: measured on Mermaid 12.2.0,
