@@ -13,11 +13,18 @@ import { edgesOf, FRAME_PAINT, pathFrame, type Rect, type ShapeFrame, type Shape
  * Mermaid's; the path is Siren's own (ADR-0004: a shape's kind is the
  * contract, not its exact outline).
  *
- * Where a handler sizes a clearance from the unpadded text — how far a
- * round end cuts into the label's corners — a record has only the padded
- * label, and the padded label stands in for the text: the outline then
- * holds the whole padded label.
+ * Each handler pads its text its own way, so each record starts from the
+ * text: the padded label less Mermaid's 15px node padding on each side
+ * (`textOf`), the padding a rectangle's box stands for.
  */
+
+/** Mermaid's flowchart node padding, `p` in the formulas below. */
+const PADDING = 15;
+
+/** The text Mermaid measures, before its padding: the padded label less `PADDING` a side. */
+function textOf(label: Size): Size {
+  return { width: Math.max(label.width - 2 * PADDING, 0), height: Math.max(label.height - 2 * PADDING, 0) };
+}
 
 /**
  * How deep a round end of radius `radius` is at a label `height` tall
@@ -148,12 +155,17 @@ function brace(side: "left" | "right", tip: number, top: number, bottom: number,
 }
 
 export const CURVED_SHAPES = {
-  // `delay` (Mermaid's `halfRoundedRectangle`): a rectangle as tall as a
-  // plain one whose right end is a half circle of radius `h/2`, widened by
-  // the cap's depth at the label's corners on both sides so the label stays
-  // centred.
+  // `delay` (Mermaid's `halfRoundedRectangle`): a rectangle whose right end
+  // is a half circle of radius `h/2`, widened on both sides by the cap's
+  // depth at the text's corners so the label stays centred.
   "half-rounded-rectangle": {
-    box: (label) => ({ width: label.width + 2 * capClearance(label.height / 2, label.height), height: label.height }),
+    box: (label) => {
+      // `h = max(10, text) + 2p`, `w = max(15, text) + 2 x capClearance + 2p`.
+      const text = textOf(label);
+      const height = Math.max(10, text.height) + 2 * PADDING;
+      const width = Math.max(15, text.width) + 2 * capClearance(height / 2, text.height) + 2 * PADDING;
+      return { width, height };
+    },
     frames: (box) => {
       const { left, right, top, bottom } = edgesOf(box);
       const r = box.height / 2;
@@ -162,12 +174,17 @@ export const CURVED_SHAPES = {
   },
   // `curv-trap` (Mermaid's `curvedTrapezoid`, a display): a left end that
   // comes to a point `h/4` deep and a right end that is a half circle. At
-  // least a quarter wider than the label, and wide enough for the deeper of
-  // the point and the cap on each side.
+  // least a quarter wider than the padded text, and wide enough for the
+  // deeper of the point and the cap at the text's corners on each side.
   "curved-trapezoid": {
     box: (label) => {
-      const side = Math.max(label.height / 4, capClearance(label.height / 2, label.height));
-      return { width: Math.max(label.width + 2 * side, label.width * 1.25), height: label.height };
+      // `h = max(5, text + 2p)`, `side = max(h/4, capClearance)`, `w =
+      // max(text + 2p + 2 x side, 1.25 x (text + 2p))`.
+      const text = textOf(label);
+      const height = Math.max(5, text.height + 2 * PADDING);
+      const side = Math.max(height / 4, capClearance(height / 2, text.height));
+      const padded = text.width + 2 * PADDING;
+      return { width: Math.max(padded + 2 * side, 1.25 * padded), height };
     },
     frames: (box) => {
       const { left, right, top, bottom, midY } = edgesOf(box);

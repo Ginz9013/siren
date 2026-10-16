@@ -49,6 +49,13 @@ export interface ShapeFrame {
   style?: readonly StyleProperty[];
   /** Classes beside `siren-node-frame`, such as a paint (`FRAME_PAINT`). */
   classes?: readonly string[];
+  /**
+   * `false` for a decoration the shape keeps in its own paint whatever the
+   * author's `style` says — a browser's dots, a console's prompt — so a
+   * fill the author gives the node cannot paint over them. Absent, the
+   * author's declarations follow the shape's own on this frame.
+   */
+  authorStyle?: false;
 }
 
 /**
@@ -70,7 +77,9 @@ export interface ShapeSpec {
   frames(box: Rect): ShapeFrame[];
   /**
    * `false` for a shape that draws no text at all (a fork, a small circle):
-   * the renderer leaves the label out. Absent, the label is drawn.
+   * the renderer leaves the label out. Absent, the label is drawn. The
+   * shapes that say so are `SHAPES_DRAWN_WITHOUT_TEXT` (`nodeShapeTraits.ts`),
+   * the set the parser refuses a label for; a test keeps the two equal.
    */
   drawsLabel?: false;
 }

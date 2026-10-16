@@ -203,25 +203,58 @@ function cloudCorners(label: Size): Size {
   return { width: bare.width + PADDING, height: bare.height + PADDING };
 }
 
+/** The extent of a cloud joining a `1 x ratio` — every cloud is one of these, scaled. */
+function unitCloud(ratio: number): { width: number; height: number } {
+  const { minX, minY, maxX, maxY } = extentOf(cloudArcs(1, ratio));
+  return { width: maxX - minX, height: maxY - minY };
+}
+
+/** The last few fits, so a cloud's label and outline do not each fit the same box again. */
+const fitted = new Map<string, Size>();
+
 /**
  * The `w x h` whose cloud reaches exactly `box`'s size: what the box was
  * measured from, recovered so the outline can be drawn from the box alone.
- * Each pass corrects the height by what the cloud over- or undershoots
- * (its height grows with `h` one for one) and scales the width by the
- * ratio it misses by; a handful of passes settle it.
+ *
+ * A cloud scales with its `w x h` — every arc's radius and reach is a
+ * multiple of `w` or `h` — so its extent is `w` times that of a cloud
+ * joining `1 x h/w`, and only the ratio `h/w` has to be found: the one whose
+ * cloud is as much taller than wide as the box is. That cloud's height over
+ * width grows with the ratio, so halving an interval finds it, to a
+ * millionth of the box, however tall the label.
  */
 function cloudFitting(box: Size): Size {
-  let w = box.width / 1.25;
-  let h = Math.max(box.height - 0.5 * w, 0);
-  for (let pass = 0; pass < 64; pass++) {
-    const { minX, minY, maxX, maxY } = extentOf(cloudArcs(w, h));
-    const width = maxX - minX;
-    const height = maxY - minY;
-    if (Math.abs(width - box.width) < 1e-9 && Math.abs(height - box.height) < 1e-9) break;
-    w *= box.width / width;
-    h = Math.max(h + box.height - height, 0);
+  const key = `${box.width},${box.height}`;
+  const known = fitted.get(key);
+  if (known !== undefined) {
+    return known;
   }
-  return { width: w, height: h };
+  const target = box.height / box.width;
+  let low = 0;
+  let high = 1;
+  while (high < 1e6) {
+    const { width, height } = unitCloud(high);
+    if (height / width >= target) break;
+    low = high;
+    high *= 2;
+  }
+  for (let pass = 0; pass < 200 && high - low > 1e-12 * Math.max(1, high); pass++) {
+    const middle = (low + high) / 2;
+    const { width, height } = unitCloud(middle);
+    if (height / width < target) {
+      low = middle;
+    } else {
+      high = middle;
+    }
+  }
+  const ratio = (low + high) / 2;
+  const w = box.width / unitCloud(ratio).width;
+  const fit = { width: w, height: ratio * w };
+  if (fitted.size >= 256) {
+    fitted.clear();
+  }
+  fitted.set(key, fit);
+  return fit;
 }
 
 export const COMPOSITE_SHAPES = {
@@ -295,7 +328,8 @@ export const COMPOSITE_SHAPES = {
   // the border colour, its baseline 16px below the top and 12px in from the
   // left; Siren strokes the two glyphs in the box that text takes (measured
   // 16.86 x 16, 3px below the top), so the prompt is the same whichever
-  // monospace face a viewer has.
+  // monospace face a viewer has. An author's `style` does not reach the
+  // prompt (measured).
   console: windowShape(20, (box) => {
     const { left, top } = edgesOf(box);
     return [
@@ -304,6 +338,7 @@ export const COMPOSITE_SHAPES = {
           `M${left + 21},${top + 16} L${left + 28},${top + 16}`,
         {
           classes: FRAME_PAINT.none,
+          authorStyle: false,
           style: [
             { property: "stroke-width", value: "2px" },
             { property: "stroke-linecap", value: "round" },
@@ -316,7 +351,9 @@ export const COMPOSITE_SHAPES = {
   // `browser` (Mermaid's `browser`): a window with an 18px bar, a line
   // under it, three dots at its left and an address bar beside them. The
   // dots are filled in the border colour and not stroked; the address bar
-  // is unfilled, stroked at 60% opacity, and never under 10px wide.
+  // is unfilled, stroked at 60% opacity, and never under 10px wide. An
+  // author's `style` reaches the window only (measured), so the bar's
+  // decorations take none of it.
   browser: windowShape(BROWSER_BAR, (box) => {
     const { left, right, top } = edgesOf(box);
     const bar = BROWSER_BAR;
@@ -329,6 +366,7 @@ export const COMPOSITE_SHAPES = {
           ["x2", right],
           ["y2", top + bar],
         ],
+        authorStyle: false,
       },
       ...[0, 1, 2].map(
         (i): ShapeFrame => ({
@@ -339,6 +377,7 @@ export const COMPOSITE_SHAPES = {
             ["r", 2.5],
           ],
           classes: FRAME_PAINT.line,
+          authorStyle: false,
           style: [{ property: "stroke", value: "none" }],
         }),
       ),
@@ -346,6 +385,7 @@ export const COMPOSITE_SHAPES = {
         { x: left + 44, y: top + 4, width: Math.max(box.width - 56, 10), height: bar - 8 },
         {
           classes: FRAME_PAINT.none,
+          authorStyle: false,
           style: [
             { property: "rx", value: "3px" },
             { property: "opacity", value: "0.6" },

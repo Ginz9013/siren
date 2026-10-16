@@ -6,6 +6,7 @@ import { readLabel } from "../../label/readLabel";
 import { renderToSVG } from "../../renderer/renderToSVG";
 import { layoutGraph } from "../layoutGraph";
 import { SHAPES } from "./shapeTable";
+import { render } from "../../index";
 
 /**
  * The shapes a node's `@{ shape: … }` block names that Mermaid 12.2.0 draws
@@ -377,4 +378,70 @@ describe("a cloud (`cloud`)", () => {
       drawnNumbers.forEach((value, i) => expect(value).toBeCloseTo(expected[i]!, 1));
     },
   );
+});
+
+/**
+ * What an author's `style` reaches on a shape drawn as a figure plus
+ * decorations. Measured in Chrome (Mermaid 12.2.0, classic look, `style D
+ * fill:#f00,stroke:#0f0`): a browser's window takes it and its bar's line,
+ * dots and address bar keep the border colour; a console's prompt keeps it
+ * too. So those decorations stay out of the author's paint, and a red fill
+ * cannot hide red dots on a red window.
+ */
+describe("an author's style on a shape's decorations", () => {
+  /** Each frame `D` draws, as its tag and the inline style it carries. */
+  const styledFrames = (shape: string) => {
+    const container = document.createElement("div");
+    const { diagnostics } = render(`flowchart TB\n  D@{ shape: ${shape}, label: "x" }\n  style D fill:#f00,stroke:#0f0`, container);
+    expect(diagnostics).toEqual([]);
+    return Array.from(container.querySelectorAll('g.siren-node[data-siren-id="D"] .siren-node-frame')).map(
+      (frame) => [frame.tagName, (frame.getAttribute("style") ?? "").includes("fill:#f00")] as const,
+    );
+  };
+
+  it("reaches a browser's window and none of its bar's line, dots or address bar", () => {
+    expect(styledFrames("browser")).toEqual([
+      ["rect", true],
+      ["line", false],
+      ["circle", false],
+      ["circle", false],
+      ["circle", false],
+      ["rect", false],
+    ]);
+  });
+
+  it("reaches a console's window and not its prompt", () => {
+    expect(styledFrames("console")).toEqual([
+      ["rect", true],
+      ["path", false],
+    ]);
+  });
+
+  it("reaches both of a bucket's frames, which Mermaid draws as one path", () => {
+    expect(styledFrames("bucket")).toEqual([
+      ["path", true],
+      ["path", true],
+    ]);
+  });
+});
+
+describe("a cloud around a label far taller than it is wide", () => {
+  it.each([
+    [40, 400],
+    [60, 600],
+    [48, 300],
+    [30, 900],
+  ])("draws its outline from the corners the box was measured from, for a %s x %s label", (width, height) => {
+    // `cloud`: the arcs join the corners of a `w x h` that is the text plus
+    // `2 x halfPadding` — the padded label less 15px each way — starting at
+    // its top left, and the label is centred on it. The outline drawn back
+    // from the box alone has to find that same `w x h`.
+    const padded = { width, height };
+    const size = SHAPES.cloud.box(padded, "TB");
+    const placed = SHAPES.cloud.labelRect!({ x: 10, y: 20, ...size }, padded);
+    const node = drawn("cloud", { x: 0, y: 0 }, size.height, size.width);
+    const [cornerX, cornerY] = numbersOf(node.d[0]!);
+    expect(placed.x + placed.width / 2 - cornerX!).toBeCloseTo((width - 15) / 2, 2);
+    expect(placed.y + placed.height / 2 - cornerY!).toBeCloseTo((height - 15) / 2, 2);
+  });
 });

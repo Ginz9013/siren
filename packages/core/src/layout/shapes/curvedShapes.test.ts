@@ -5,6 +5,7 @@ import { layoutLabel } from "../../label/layoutLabel";
 import { readLabel } from "../../label/readLabel";
 import { renderToSVG } from "../../renderer/renderToSVG";
 import { layoutGraph } from "../layoutGraph";
+import { SHAPES } from "./shapeTable";
 
 /**
  * The shapes a node's `@{ shape: … }` block names whose outline is curved,
@@ -86,14 +87,18 @@ function drawn(shape: NodeShape, labelOffset?: { x: number; y: number }, height 
 }
 
 describe("a half-rounded rectangle (`delay`)", () => {
-  it("is as tall as a rectangle and wider by its height, so the padded label clears the round end", () => {
-    // `halfRoundedRectangle`: `h` the rectangle's height, a right end of
-    // radius `h/2`, and `w` widened by `2 x capClearance`, the depth of
-    // the cap at the label's corners: `r - sqrt(r^2 - (labelHeight/2)^2)`.
-    // With the padded label as tall as the box that depth is the radius.
-    const node = laidOut("half-rounded-rectangle", LONG);
-    expect([node.width, node.height]).toEqual([179, 27]);
-    expect(node.labelOffset).toBeUndefined();
+  it.each(measured("delay"))("is as big as Mermaid draws it around a %s", (_, { padded, box, offset }) => {
+    expectSized("half-rounded-rectangle", padded, box, offset);
+  });
+
+  it("clears the round end by the cap's depth at the text's own corners, which a short label keeps shallow", () => {
+    // `halfRoundedRectangle`: `h = max(10, text) + 2p`, `r = h/2`, `w =
+    // max(15, text) + 2 x capClearance + 2p`, `capClearance = r - sqrt(r^2
+    // - (text/2)^2)` — the text being the padded label less 15px a side.
+    // A 30 x 21 text: `r = 25.5`, a clearance of 2.26 each side.
+    const size = SHAPES["half-rounded-rectangle"].box({ width: 60, height: 51 }, "TB");
+    expect(size.height).toBe(51);
+    expect(size.width).toBeCloseTo(30 + 2 * (25.5 - Math.sqrt(25.5 ** 2 - 10.5 ** 2)) + 30, 9);
   });
 
   it("draws a square left end and a semicircular right one, and centres its label", () => {
@@ -106,15 +111,16 @@ describe("a half-rounded rectangle (`delay`)", () => {
 });
 
 describe("a curved trapezoid (`curv-trap`, a display)", () => {
-  it("is as tall as a rectangle, and wider by the larger of its height and a quarter of its width", () => {
-    // `curvedTrapezoid`: `w = max(label + 2 x max(h/4, capClearance),
-    // 1.25 x label)`, the cap clearance the round end's depth at the
-    // label's corners — its radius, `h/2`, for the padded label.
-    const long = laidOut("curved-trapezoid", LONG);
-    expect([long.width, long.height]).toEqual([190, 27]);
-    expect(long.labelOffset).toBeUndefined();
-    const short = laidOut("curved-trapezoid", "x");
-    expect([short.width, short.height]).toEqual([35, 27]);
+  it.each(measured("curv-trap"))("is as big as Mermaid draws it around a %s", (_, { padded, box, offset }) => {
+    expectSized("curved-trapezoid", padded, box, offset);
+  });
+
+  it("widens a short label by its point and round end, at least a quarter", () => {
+    // `curvedTrapezoid`: `h = text + 2p`, `side = max(h/4, capClearance)`,
+    // `w = max(text + 2p + 2 x side, 1.25 x (text + 2p))`. A 30 x 21 text:
+    // `side = 12.75`, so `w = 60 + 25.5`.
+    const size = SHAPES["curved-trapezoid"].box({ width: 60, height: 51 }, "TB");
+    expect([size.width, size.height]).toEqual([85.5, 51]);
   });
 
   it("points its left end a quarter of its height deep and rounds its right end", () => {
@@ -394,3 +400,48 @@ describe("curly braces (`braces`)", () => {
     ]);
   });
 });
+
+/**
+ * Mermaid 12.2.0's box around a label of each curved shape, measured in
+ * headless Chrome (classic look) around a 120px text one row (21px) and
+ * three rows (63px) tall, with its 15px node padding — so the padded label
+ * Siren hands a shape is that text plus 15px a side: 150 x 51 and 150 x 93.
+ * `offset` is how far the text's centre stands from the box's.
+ */
+const MEASURED: Record<string, ReadonlyArray<{ rows: number; box: [number, number]; offset: [number, number] }>> = {
+  delay: [
+    { rows: 1, box: [154.51, 51], offset: [0, 0] },
+    { rows: 3, box: [174.57, 93], offset: [0, 0] },
+  ],
+  "curv-trap": [
+    { rows: 1, box: [187.49, 51], offset: [0, 0] },
+    { rows: 3, box: [196.48, 93], offset: [0, 0] },
+  ],
+};
+
+/** The measured cases for `name`, as `it.each` rows: a description, and the padded label, box and offset. */
+function measured(name: string) {
+  return MEASURED[name]!.map(({ rows, box, offset }) => [
+    `${rows}-row label`,
+    { padded: { width: 150, height: rows === 1 ? 51 : 93 }, box, offset },
+  ] as const);
+}
+
+/** `shape`'s box around `padded` is Mermaid's measured `box`, and its label's centre stands `offset` from the box's. */
+function expectSized(
+  shape: NodeShape,
+  padded: { width: number; height: number },
+  box: readonly [number, number],
+  offset: readonly [number, number],
+) {
+  const size = SHAPES[shape].box(padded, "TB");
+  expect(size.width).toBeCloseTo(box[0], 1);
+  expect(size.height).toBeCloseTo(box[1], 1);
+  const placed = SHAPES[shape].labelRect?.({ x: 0, y: 0, ...size }, padded) ?? {
+    x: (size.width - padded.width) / 2,
+    y: (size.height - padded.height) / 2,
+    ...padded,
+  };
+  expect(placed.x + placed.width / 2 - size.width / 2).toBeCloseTo(offset[0], 1);
+  expect(placed.y + placed.height / 2 - size.height / 2).toBeCloseTo(offset[1], 1);
+}

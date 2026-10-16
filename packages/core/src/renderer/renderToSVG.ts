@@ -342,14 +342,16 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // an author's `style A stroke:#00f` that reached the box and not the
     // bars would leave the bars looking detached from the shape they mark.
     // Nothing here has to know which shape drew how many.
-    for (const { element, classes, geometry } of frames) {
+    for (const { element, classes, geometry, takesAuthorStyle } of frames) {
       element.setAttribute("class", ["siren-node-frame", ...classes].join(" "));
       // Two writers, one attribute — and the order is the authority. The
       // shape's own geometry goes first and the author's declarations
       // after, so `style A rx:0` overrides a stadium's ends exactly as an
       // author's declaration overrides the theme, while every other
       // declaration lands *alongside* a shape that stays itself.
-      applyInlineStyle(element, [...geometry, ...node.style.frame]);
+      // A decoration the shape keeps in its own paint (a browser's dots)
+      // takes none of the author's declarations.
+      applyInlineStyle(element, takesAuthorStyle ? [...geometry, ...node.style.frame] : geometry);
       g.appendChild(element);
     }
 
@@ -507,6 +509,7 @@ function buildNodeFrames(node: PositionedNode): DrawnFrame[] {
     element: drawFrame(frame),
     classes: frame.classes ?? [],
     geometry: frame.style ?? [],
+    takesAuthorStyle: frame.authorStyle !== false,
   }));
 }
 
@@ -521,6 +524,8 @@ interface DrawnFrame {
    * ahead of the author's declarations, so the author's win.
    */
   geometry: readonly StyleProperty[];
+  /** Whether the author's `style` reaches this frame (`ShapeFrame.authorStyle`). */
+  takesAuthorStyle: boolean;
 }
 
 /** The SVG element one shape-table frame describes, with its geometry attributes. */

@@ -1,6 +1,6 @@
 import { JSON_SCHEMA, load, YAMLException } from "js-yaml";
 import type { NodeShape } from "../contracts";
-import { SHAPES } from "../layout/shapes/shapeTable";
+import { SHAPES_DRAWN_WITHOUT_TEXT, SHAPES_TAKING_NO_STYLE } from "../nodeShapeTraits";
 
 /**
  * A flowchart node's `@{ … }` data block — `A@{ shape: circle, label: "x" }`
@@ -301,12 +301,29 @@ function readShape(value: unknown, problems: DataBlockProblem[]): NodeShape | nu
  * word said (measured).
  */
 export function unshownLabelMessage(shape: NodeShape, label: string): string | null {
-  if (SHAPES[shape].drawsLabel !== false) {
+  // An empty label shows nothing whatever the shape, so there is nothing to lose.
+  if (!SHAPES_DRAWN_WITHOUT_TEXT.has(shape) || label.trim() === "") {
     return null;
   }
   return (
     `The shape "${shape}" draws no text, so the label "${label}" would not be shown. ` +
     "Remove the label, or use a shape that draws text"
+  );
+}
+
+/**
+ * Why a `style`, `class` or `:::` naming a node of `shape` is refused, or
+ * `null` when the shape takes one. A small circle and an anchor are drawn in
+ * their own paint whatever is declared for them by name (measured), so the
+ * declaration would silently do nothing.
+ */
+export function unchangedStyleMessage(shape: NodeShape, id: string): string | null {
+  if (!SHAPES_TAKING_NO_STYLE.has(shape)) {
+    return null;
+  }
+  return (
+    `The shape "${shape}" is drawn in its own paint, so a style for "${id}" would not change it. ` +
+    "Remove the style, or use a shape that takes one"
   );
 }
 

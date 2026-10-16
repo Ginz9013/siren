@@ -4,6 +4,7 @@ import { plainLabel } from "../../label/label";
 import { layoutLabel } from "../../label/layoutLabel";
 import { renderToSVG } from "../../renderer/renderToSVG";
 import { layoutGraph } from "../layoutGraph";
+import { render } from "../../index";
 
 /**
  * The shapes a node's `@{ shape: … }` block names that Mermaid 12.2.0 draws
@@ -237,5 +238,22 @@ describe("a fork inside a subgraph with a direction of its own", () => {
       layoutGraph(graph, { measureText: fakeMeasurer }).nodes.map((node) => [node.id, [node.width, node.height]]),
     );
     expect(byId).toEqual({ F: [10, 70], G: [70, 10] });
+  });
+});
+
+describe("`classDef default` on a small circle and an anchor", () => {
+  it("paints the small circle and leaves the anchor in its own paint, as measured", () => {
+    // Mermaid 12.2.0 (Chrome): `classDef default fill:#f00` turns a small
+    // circle red and leaves an anchor black.
+    const container = document.createElement("div");
+    const { diagnostics } = render(
+      "flowchart TB\n  S@{ shape: sm-circ } --> N@{ shape: anchor }\n  classDef default fill:#f00",
+      container,
+    );
+    expect(diagnostics).toEqual([]);
+    const styleOf = (id: string) =>
+      container.querySelector(`g.siren-node[data-siren-id="${id}"] .siren-node-frame`)!.getAttribute("style");
+    expect(styleOf("S")).toContain("fill:#f00");
+    expect(styleOf("N")).toBeNull();
   });
 });

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseFlowchart } from "./parseFlowchart";
-import { SHAPE_NAME_LISTS } from "./flowchartNodeData";
+import { NODE_DATA_SHAPES as SHAPE_OF_NAME, SHAPE_NAME_LISTS } from "./flowchartNodeData";
+import { SHAPES_DRAWN_WITHOUT_TEXT } from "../nodeShapeTraits";
+import { SHAPES } from "../layout/shapes/shapeTable";
 import { parseSiren } from "./parseSiren";
 import type { Diagnostic, DiagramParseResult, FlowchartDocument, NodeShape, SirenNode } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
@@ -3194,6 +3196,8 @@ describe("the three lists of `shape:` names", () => {
     expect(repeated).toEqual([]);
     expect(bracket.length).toBeGreaterThan(0);
     expect(table.length).toBeGreaterThan(0);
+    // Not vacuous while a name is still undrawn; the day the last one is
+    // drawn (`icon`), this line goes with the list.
     expect(undrawn.length).toBeGreaterThan(0);
   });
 });
@@ -3204,19 +3208,24 @@ describe("the three lists of `shape:` names", () => {
  * `anchor`). Measured in Chrome: every alias draws what its short name
  * draws, and none of them draws a label.
  */
-const LABELLESS_SHAPE_NAMES: ReadonlyArray<[string, NodeShape]> = [
-  ...(["fork", "join"] as const).map((name) => [name, "fork"] as [string, NodeShape]),
-  ...(["hourglass", "collate"] as const).map((name) => [name, "hourglass"] as [string, NodeShape]),
-  ...(["bolt", "com-link", "lightning-bolt"] as const).map((name) => [name, "bolt"] as [string, NodeShape]),
-  ...(["sm-circ", "start", "small-circle"] as const).map((name) => [name, "small-circle"] as [string, NodeShape]),
-  ...(["fr-circ", "stop", "framed-circle"] as const).map((name) => [name, "framed-circle"] as [string, NodeShape]),
-  ...(["f-circ", "junction", "filled-circle"] as const).map((name) => [name, "filled-circle"] as [string, NodeShape]),
-  ...(["anchor"] as const).map((name) => [name, "anchor"] as [string, NodeShape]),
-  ...(["cross-circ", "summary", "crossed-circle"] as const).map((name) => [name, "crossed-circle"] as [string, NodeShape]),
-  ...(["choice"] as const).map((name) => [name, "choice"] as [string, NodeShape]),
-];
+const LABELLESS_SHAPE_NAMES: ReadonlyArray<[string, NodeShape]> = [...SHAPE_OF_NAME].filter(([, shape]) =>
+  SHAPES_DRAWN_WITHOUT_TEXT.has(shape),
+);
 
 describe("a node written with the `@{ shape: … }` name of a shape that draws no text", () => {
+  it("knows all 21 names of the nine shapes Mermaid draws with no text", () => {
+    // `shapesDefs`' short names and aliases for `fork`, `hourglass`, `bolt`,
+    // `sm-circ`, `fr-circ`, `f-circ` and `cross-circ`, and the undocumented
+    // `choice` and `anchor`.
+    expect(LABELLESS_SHAPE_NAMES.map(([name]) => name).sort()).toEqual(
+      [
+        ...["fork", "join", "hourglass", "collate", "bolt", "com-link", "lightning-bolt"],
+        ...["sm-circ", "start", "small-circle", "fr-circ", "stop", "framed-circle"],
+        ...["f-circ", "junction", "filled-circle", "cross-circ", "summary", "crossed-circle", "choice", "anchor"],
+      ].sort(),
+    );
+  });
+
   it.each(LABELLESS_SHAPE_NAMES)("draws `shape: %s` as the %s shape", (name, shape) => {
     const { document, diagnostics } = parseOk(`flowchart TB\n  A@{ shape: ${name} }`);
 
@@ -3285,6 +3294,14 @@ describe("a label written for a shape that draws no text", () => {
     expect(document.nodes.map((node) => [node.id, node.label.text, node.shape])).toEqual([["A", "Hello", "rect"]]);
   });
 
+  it.each(['A@{ shape: fork, label: "" }', 'A@{ shape: fork, label: " " }', 'A[""]@{ shape: fork }', 'A[" "]@{ shape: fork }'])(
+    "takes an empty label, which shows nothing either way: %s",
+    (statement) => {
+      const { diagnostics } = parseOk(`flowchart TB\n  ${statement}`);
+      expect(diagnostics).toEqual([]);
+    },
+  );
+
   it("draws a shape with no text written for it, labelled with nothing but its id", () => {
     const { diagnostics } = parseOk("flowchart TB\n  A@{ shape: fork } --> B@{ shape: f-circ }");
     expect(diagnostics).toEqual([]);
@@ -3324,5 +3341,51 @@ describe("an invisible edge", () => {
 
     expect(document).toBeNull();
     expect(diagnostics.map((diagnostic) => diagnostic.severity)).toEqual(["error"]);
+  });
+});
+
+describe("the shape table and the shape names", () => {
+  it("names every shape the table draws, in brackets or in a `@{ shape: … }` block", () => {
+    const named = new Set(SHAPE_OF_NAME.values());
+    expect(Object.keys(SHAPES).filter((shape) => !named.has(shape as NodeShape))).toEqual([]);
+  });
+
+  it("draws no text for exactly the shapes the parser refuses a label for", () => {
+    const withoutText = Object.entries(SHAPES)
+      .filter(([, spec]) => spec.drawsLabel === false)
+      .map(([shape]) => shape)
+      .sort();
+    expect(withoutText).toEqual([...SHAPES_DRAWN_WITHOUT_TEXT].sort());
+  });
+});
+
+/**
+ * A style aimed at a small circle or an anchor by name. Measured in Chrome:
+ * Mermaid 12.2.0 draws both in their own paint whatever `style A …`,
+ * `class A c` or `A:::c` says — the declaration silently does nothing — so
+ * Siren refuses it there. `classDef default` is not aimed at either: a
+ * small circle takes it and an anchor does not, as measured.
+ */
+describe("a style aimed at a shape drawn in its own paint", () => {
+  const refusal = (shape: string, id: string) =>
+    `The shape "${shape}" is drawn in its own paint, so a style for "${id}" would not change it. ` +
+    "Remove the style, or use a shape that takes one";
+
+  it.each([
+    ["style A fill:#f00", "small-circle", "sm-circ"],
+    ["class A c", "small-circle", "sm-circ"],
+    ["A:::c", "small-circle", "sm-circ"],
+    ["style A fill:#f00", "anchor", "anchor"],
+  ])("refuses `%s` on a %s, where it is written", (statement, shape, name) => {
+    const { document, diagnostics } = parseFlowchart(
+      `flowchart TB\n  A@{ shape: ${name} }\n  classDef c fill:#f00\n  ${statement}`,
+    );
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: refusal(shape, "A"), line: 4, column: 3 }]);
+  });
+
+  it("takes `classDef default` on a small circle and an anchor without a word", () => {
+    const { diagnostics } = parseOk("flowchart TB\n  A@{ shape: sm-circ } --> B@{ shape: anchor }\n  classDef default fill:#f00");
+    expect(diagnostics).toEqual([]);
   });
 });

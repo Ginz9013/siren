@@ -35,6 +35,7 @@ import {
   NODE_DATA_OPENER,
   nodeDataEnd,
   readNodeData,
+  unchangedStyleMessage,
   unshownLabelMessage,
 } from "./flowchartNodeData";
 
@@ -3861,6 +3862,27 @@ export function parseFlowchart(source: string): DiagramParseResult {
     if (message !== null) {
       diagnostics.push({ severity: "error", message, ...position });
       sawError = true;
+    }
+  }
+
+  // A `style`, `class` or `:::` naming a node drawn in its own paint,
+  // refused where it is written: it would change nothing (measured).
+  for (const decl of styles) {
+    if (decl.styleKind === "classDef") {
+      continue;
+    }
+    for (const id of decl.targetIds) {
+      const node = nodesById.get(id);
+      const message = node === undefined ? null : unchangedStyleMessage(node.shape, id);
+      if (message !== null) {
+        diagnostics.push({
+          severity: "error",
+          message,
+          ...(decl.line === undefined ? {} : { line: decl.line }),
+          ...(decl.column === undefined ? {} : { column: decl.column }),
+        });
+        sawError = true;
+      }
     }
   }
 

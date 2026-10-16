@@ -8699,7 +8699,7 @@ describe("render() puts a shape's label where its shape table record says", () =
 });
 
 describe("render() — a figure a `@{ shape: … }` block names", () => {
-  it("draws every element of a browser, and the author's `style` reaches each of them", () => {
+  it("draws every element of a browser, and the author's `style` reaches its window and not its bar's decorations", () => {
     const container = document.createElement("div");
     const result = render('flowchart TB\n  A@{ shape: browser, label: "Web" }\n  style A stroke:#f00', container);
 
@@ -8707,7 +8707,16 @@ describe("render() — a figure a `@{ shape: … }` block names", () => {
     const group = result.svg!.querySelector('g.siren-node[data-siren-id="A"]')!;
     const frames = Array.from(group.querySelectorAll(".siren-node-frame"));
     expect(frames.map((frame) => frame.tagName)).toEqual(["rect", "line", "circle", "circle", "circle", "rect"]);
-    expect(frames.every((frame) => (frame.getAttribute("style") ?? "").includes("stroke:#f00"))).toBe(true);
+    // Measured in Chrome: Mermaid 12.2.0 paints the window with the author's
+    // style and keeps the line, dots and address bar in the border colour.
+    expect(frames.map((frame) => (frame.getAttribute("style") ?? "").includes("stroke:#f00"))).toEqual([
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
     expect(group.getAttribute("data-siren-shape")).toBe("browser");
   });
 });
@@ -8728,5 +8737,41 @@ describe("render() of a flowchart with subgraphs nested inside one that keeps a 
     };
     expect(centreX("G")).toBeGreaterThan(centreX("F"));
     expect(result.svg!.querySelectorAll("path.siren-edge")).toHaveLength(1);
+  });
+});
+
+describe("render() — a chain through the smallest shapes", () => {
+  /** The box a node's first frame covers: a `<rect>`'s own, or a `<circle>`'s square. */
+  const boxOf = (svg: SVGSVGElement, id: string) => {
+    const frame = svg.querySelector(`g.siren-node[data-siren-id="${id}"] .siren-node-frame`)!;
+    const at = (name: string) => Number(frame.getAttribute(name));
+    return frame.tagName === "circle"
+      ? { left: at("cx") - at("r"), right: at("cx") + at("r"), top: at("cy") - at("r"), bottom: at("cy") + at("r") }
+      : { left: at("x"), right: at("x") + at("width"), top: at("y"), bottom: at("y") + at("height") };
+  };
+  /** How far `point` stands outside `box`; 0 on or inside it. */
+  const outside = (point: Point, box: ReturnType<typeof boxOf>) =>
+    Math.hypot(Math.max(box.left - point.x, 0, point.x - box.right), Math.max(box.top - point.y, 0, point.y - box.bottom));
+
+  it.each(["LR", "TB"])("lays out and joins a 2px anchor and 14px circles in a %s chain", (direction) => {
+    const container = document.createElement("div");
+    const result = render(
+      `flowchart ${direction}\n  A[Start] --> S@{ shape: sm-circ } --> N@{ shape: anchor } --> F@{ shape: f-circ }\n` +
+        "  F --> E@{ shape: fr-circ } --> B[End]\n  S --> F",
+      container,
+    );
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+    const edges = Array.from(svg.querySelectorAll("path.siren-edge"));
+    expect(edges.map((edge) => edge.getAttribute("data-siren-id"))).toEqual(["A-S", "S-N", "N-F", "F-E", "E-B", "S-F"]);
+    for (const edge of edges) {
+      const [from, to] = edge.getAttribute("data-siren-id")!.split("-") as [string, string];
+      const route = routeOf(edge);
+      expect(route.length).toBeGreaterThanOrEqual(2);
+      expect(route.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))).toBe(true);
+      // Each end meets the node it joins, however small that node is.
+      expect(outside(route[0]!, boxOf(svg, from))).toBeLessThan(1);
+      expect(outside(route[route.length - 1]!, boxOf(svg, to))).toBeLessThan(1);
+    }
   });
 });

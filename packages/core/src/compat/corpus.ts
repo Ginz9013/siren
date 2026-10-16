@@ -741,8 +741,8 @@ function pathThrough(cycle: readonly string[]): string {
  * paint classes it wears beside `siren-node-frame`. Subpaths are separated
  * by ` / `.
  *
- * For the curved shapes a `@{ shape: … }` block names (nook
- * `01M51XACHPG8EB9R9JNH0C71HV`), whose wavy edges `nodeOutline` cannot name:
+ * For the curved shapes a `@{ shape: … }` block names, whose wavy edges
+ * `nodeOutline` cannot name:
  * a wave is one stretch of the outline however finely it is sampled.
  */
 function segmentOutlines(result: SirenRenderResult, id: string): string[] {
@@ -3578,6 +3578,21 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       const corners = fork.getAttribute("d")!.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
       expectSame("fork size", [corners[2]! - corners[0]!, corners[5]! - corners[3]!], [10, 70]);
     },
+  },
+  {
+    id: "fc-node-shape-data-own-paint-style",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ shape: sm-circ } --> B
+      style A fill:#f00`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid 12.2.0 draws this silently wrong.** It draws a small " +
+      "circle, and an anchor, in their own paint whatever `style A`, " +
+      "`class A c` or `A:::c` declares — the declaration does nothing, with " +
+      "no word said (measured in Chrome; `classDef default` does reach a " +
+      "small circle). Siren refuses the declaration where it is written, " +
+      "saying the shape is drawn in its own paint (ADR-0001).",
   },
   {
     id: "fc-node-shape-data-labelless-label",

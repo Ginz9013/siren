@@ -1944,8 +1944,16 @@ const SILENTLY_WRONG = 0;
  * `classDef` to an edge id (`fc-edge-id-class`), each refused before.
  * `fc-edge-data-animation-and-curve`, new beside them, is `supported`.
  * `silently-wrong` does not move.
+ *
+ * **70 → 71: case (2), a refusal written down for the first time.** A
+ * `style`, `class` or `:::` naming a small circle or an anchor, which
+ * Mermaid 12.2.0 draws in their own paint whatever the declaration says
+ * (measured, Chrome), refused under ADR-0001
+ * (`fc-node-shape-data-own-paint-style`). Siren drew it before, with the
+ * declaration applied, and no row said so. No `supported` row moved.
+ * `silently-wrong` does not move.
  */
-const REJECTED = 70;
+const REJECTED = 71;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

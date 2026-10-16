@@ -109,7 +109,9 @@ export const LABELLESS_SHAPES = {
     },
     drawsLabel: false,
   },
-  // `sm-circ` (`start`; Mermaid's `stateStart`): a 14px circle.
+  // `sm-circ` (`start`; Mermaid's `stateStart`): a 14px circle. It takes
+  // `classDef default` and no style naming it, which the parser refuses
+  // (measured).
   "small-circle": {
     box: () => squareOf(STATE_CIRCLE),
     frames: (box) => [circleFrame(box, box.width / 2)],
@@ -132,10 +134,11 @@ export const LABELLESS_SHAPES = {
     drawsLabel: false,
   },
   // `anchor` (undocumented; Mermaid's `anchor`): a 2px dot, which Mermaid
-  // fills black and Siren in the line colour.
+  // fills black and Siren in the line colour. No author's paint reaches it,
+  // `classDef default` included (measured); a style naming it is refused.
   anchor: {
     box: () => squareOf(2),
-    frames: (box) => [circleFrame(box, box.width / 2, FRAME_PAINT.line)],
+    frames: (box) => [{ ...circleFrame(box, box.width / 2, FRAME_PAINT.line), authorStyle: false }],
     drawsLabel: false,
   },
   // `cross-circ` (`summary`; Mermaid's `crossedCircle`): a 60px circle and,
