@@ -8795,3 +8795,32 @@ describe("render() — a chain through the smallest shapes", () => {
     }
   });
 });
+
+describe("render() of a flowchart edge from a subgraph to its own member inside a subgraph that keeps its direction", () => {
+  it("refuses it in the author's words, saying how to write it instead", () => {
+    // Measured (Mermaid 12.2.0, Chrome): `B --> F` with `F` inside `B`,
+    // inside `A`'s `direction LR`, stops the diagram rendering; so do
+    // `F --> B` and an edge to a subgraph nested in `B`.
+    for (const [source, edge, cluster, member] of [
+      ["flowchart TB\nsubgraph A\ndirection LR\nsubgraph B\nF\nend\nend\nB --> F", "B-F", "B", "F"],
+      ["flowchart TB\nsubgraph A\ndirection LR\nsubgraph B[Bee]\nF\nend\nend\nF --> B", "F-B", "Bee", "F"],
+      ["flowchart TB\nsubgraph A[Outer]\ndirection LR\nsubgraph B\nsubgraph C\nF\nend\nend\nend\nB --> C", "B-C", "B", "C"],
+    ] as const) {
+      const result = render(source, document.createElement("div"));
+      const holder = source.includes("A[Outer]") ? "Outer" : "A";
+      expect([source, result.svg, result.diagnostics]).toEqual([
+        source,
+        null,
+        [
+          {
+            severity: "error",
+            message:
+              `The edge "${edge}" between "${cluster}" and "${member}", which is inside it, cannot be drawn within ` +
+              `"${holder}", which lays out its members with direction LR. Remove the direction from "${holder}", ` +
+              `or connect "${cluster}" to something outside it.`,
+          },
+        ],
+      ]);
+    }
+  });
+});

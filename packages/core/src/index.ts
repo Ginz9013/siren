@@ -5,7 +5,11 @@ import { layoutSequence } from "./layout/layoutSequence";
 import { layoutClassDiagram } from "./layout/layoutClassDiagram";
 import { layoutStateDiagram } from "./layout/layoutStateDiagram";
 import { layoutErDiagram } from "./layout/layoutErDiagram";
-import { LayoutEngineError } from "./layout/layoutDirectedGraph";
+import {
+  LayoutEngineError,
+  UnroutableMemberEdgeError,
+  unroutableMemberEdgeMessage,
+} from "./layout/layoutDirectedGraph";
 import { renderToSVG } from "./renderer/renderToSVG";
 import { renderSequenceToSVG } from "./renderer/renderSequenceToSVG";
 import { renderClassDiagramToSVG } from "./renderer/renderClassDiagramToSVG";
@@ -326,10 +330,25 @@ type LayoutAttempt<T> =
  * core, and sequence has its own — and five copies of a `catch` that must not
  * be bare is five chances for one of them to become bare.
  */
-function attemptLayout<T>(run: () => T): LayoutAttempt<T> {
+function attemptLayout<T>(
+  run: () => T,
+  nameOf: (layoutId: string) => string = (layoutId) => layoutId,
+): LayoutAttempt<T> {
   try {
     return { placed: true, value: run() };
   } catch (error) {
+    // The one refusal the layout core says plainly carries its parts by the
+    // layout's ids; `nameOf` turns each into the word the author knows it by.
+    if (error instanceof UnroutableMemberEdgeError) {
+      const message = unroutableMemberEdgeMessage({
+        edge: error.edgeId,
+        cluster: nameOf(error.clusterId),
+        member: nameOf(error.memberId),
+        directedCluster: nameOf(error.directedClusterId),
+        direction: error.direction,
+      });
+      return { placed: false, diagnostic: { severity: "error", message } };
+    }
     if (
       error instanceof LayoutEngineError ||
       error instanceof UnmeasurableTextError
@@ -515,7 +534,13 @@ export function render(
   // discriminant survives into one — so `graphResult.model` would read
   // correctly there too. One more hand-written step the tag took over.
   const graph = graphResult.model;
-  const flowchartLayout = attemptLayout(() => layoutGraph(graph, { measureText }));
+  // A subgraph is laid out by its generated id (`subgraph:2`); the author
+  // knows it by its title. A node's and an edge's ids are the author's own.
+  const subgraphTitles = new Map(graph.subgraphs.map((subgraph) => [subgraph.id, subgraph.label.text]));
+  const flowchartLayout = attemptLayout(
+    () => layoutGraph(graph, { measureText }),
+    (layoutId) => subgraphTitles.get(layoutId) ?? layoutId,
+  );
   if (!flowchartLayout.placed) {
     diagnostics.push(flowchartLayout.diagnostic);
     return failedRender(diagnostics);

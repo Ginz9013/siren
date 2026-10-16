@@ -443,6 +443,14 @@ divider and now takes none (see **Changed**).
   refused** (nook `01M51Z206K`): `A -->|a@b| B` (read as an edge id) and `A -->| "a" | B` are parse
   errors in Mermaid 12.2.0, and Siren drew them. Each says to put the whole label in quotes;
   `A -->|x a@b| B` and `A -- a@b --> B` are drawn as before.
+- **A flowchart edge from a subgraph to its own member inside a subgraph that keeps its direction
+  is refused in plain words** (nook `01M52SEEGK`): `subgraph A` with `direction LR` holding
+  `subgraph B` holding `F`, with `B --> F` (or `F --> B`, or an edge to a subgraph inside `B`),
+  cannot be laid out — Mermaid 12.2.0 fails on it too. The error used to be the layout engine's
+  own text, internal ids and all; it now names the edge, the two subgraphs by their titles and the
+  member, and says to remove the direction from `A` or to connect `B` to something outside it. It
+  is decided before the layout engine is asked, exactly where that engine fails: not once another
+  edge has pulled the subgraph above `B` into its own parent's layout.
 - A label written for a flowchart shape that draws no text — in brackets (`A[Ready]@{ shape: fork
   }`), as the block's `label:`, or on another line for the same node — is refused where it was
   written (nook `01M51XACB6`): Mermaid 12.2.0 drops it and draws the bare shape.
