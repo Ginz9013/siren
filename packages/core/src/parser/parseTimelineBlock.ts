@@ -66,6 +66,15 @@ export function isTimelineHeader(line: string): boolean {
   return TIMELINE_HEADER_RE.test(line);
 }
 
+/**
+ * The refusal for an action that is not `verb target [effect]`. Exported so
+ * `parseSiren`, which alone knows when a comment cut the target off, can
+ * recognize this refusal and say why instead.
+ */
+export function unrecognizedActionMessage(action: string): string {
+  return `Unrecognized timeline action: "${action}"`;
+}
+
 /** The name a header line declares, or `null` for the unnamed `timeline:`. */
 function headerName(line: string): string | null {
   return TIMELINE_HEADER_RE.exec(line)?.[1] ?? null;
@@ -115,7 +124,7 @@ function parseTimelineLine(
     if (actionMatch === null) {
       diagnostics.push({
         severity: "error",
-        message: `Unrecognized timeline action: "${action}"`,
+        message: unrecognizedActionMessage(action),
         line: lineNumber,
         column,
       });

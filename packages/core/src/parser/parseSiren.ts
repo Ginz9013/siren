@@ -12,7 +12,7 @@ import { type DiagramKind, listAcceptedHeaders, matchDiagramHeader } from "./par
 import { parseFlowchart } from "./parseFlowchart";
 import { parseSequenceDiagram } from "./parseSequenceDiagram";
 import { parseStateDiagram } from "./parseStateDiagram";
-import { isTimelineHeader } from "./parseTimelineBlock";
+import { isTimelineHeader, unrecognizedActionMessage } from "./parseTimelineBlock";
 import { styleLines } from "./styleLines";
 import { tagQuotesRewritten } from "./tagQuotes";
 
@@ -61,7 +61,10 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = 
  * diagram as Mermaid's grammar is handed it, and each kind's parser decides.
  * A timeline block is Siren's own syntax, not Mermaid's (ADR-0017), and
  * its lines are still cut at their first `%%` — save, in a flowchart, one
- * glued to or beginning an action's target (`cutTimelineComment`).
+ * glued to or beginning an action's target (`cutTimelineComment`). In
+ * every other kind such a `%%` still opens the comment, and the action it
+ * leaves with no target is noted (`commentedTargets`) so its refusal can
+ * say why.
  *
  * Except a line that is nothing but `%%` (`bareCommentLines`). Mermaid's
  * `cleanupComments` removes `^\s*%%(?!{)[^\n]+\n?`, so a whole-line
@@ -111,6 +114,7 @@ function asMermaidReads(source: string): {
   frontmatter: FrontmatterRead;
   directives: DirectivesRead;
   bareCommentLines: BareCommentLine[];
+  commentedTargets: CommentedTarget[];
 } {
   const frontmatter = readFrontmatter(tagQuotesRewritten(source).split(/\r\n|\r|\n/).join("\n"));
   const directives = readDirectives(frontmatter.source);
@@ -136,7 +140,78 @@ function asMermaidReads(source: string): {
   const lines = linesAsRead.map((line, index) =>
     index < timelineStart ? line : cutTimelineComment(line, gluedTargets),
   );
-  return { lines, header, timelineStart, asWritten: read.asWritten, frontmatter, directives, bareCommentLines };
+  const commentedTargets = gluedTargets
+    ? []
+    : linesAsRead.flatMap((line, index) => {
+        const target = index < timelineStart ? null : commentedTarget(line);
+        return target === null ? [] : [{ line: index + 1, action: target }];
+      });
+  return {
+    lines,
+    header,
+    timelineStart,
+    asWritten: read.asWritten,
+    frontmatter,
+    directives,
+    bareCommentLines,
+    commentedTargets,
+  };
+}
+
+/**
+ * A timeline line, outside a flowchart, whose first `%%` stands where its
+ * last action's target begins (`enter %%B fade`): the `%%` opens the
+ * comment there, so the cut leaves that action as `action`, a verb with no
+ * target, on line `line`.
+ */
+interface CommentedTarget {
+  line: number;
+  action: string;
+}
+
+/**
+ * The action left with no target when `line` is cut at its first `%%`, or
+ * `null` when that `%%` does not begin a target: none on the line, one on
+ * a header, one with a space or the line's end after it (a comment's own
+ * form), one anywhere but the target slot.
+ */
+function commentedTarget(line: string): string | null {
+  const at = line.indexOf("%%");
+  if (at === -1) return null;
+  const before = line.slice(0, at);
+  if (isTimelineHeader(before.trim())) return null;
+  return beginsTargetSlot(before) && BEGINS_TARGET_RE.test(line.slice(at)) ? lastAction(before).trim() : null;
+}
+
+/**
+ * Why the action on a `CommentedTarget`'s line has no target. The id the
+ * author meant cannot be named in this kind: its own grammar reads a `%%`
+ * as a comment, so none of its ids begin with one.
+ */
+function commentAteTheTarget(verb: string): string {
+  return `The "%%" after "${verb}" starts a comment, so "${verb}" has no target; an id in this diagram cannot begin with "%%"`;
+}
+
+/**
+ * `diagnostics` with the timeline grammar's refusal of each
+ * `commentedTargets` action — the last one on its line naming that action,
+ * since the cut action is its line's last — saying why it has no target.
+ */
+function explainCommentedTargets(
+  diagnostics: readonly Diagnostic[],
+  commentedTargets: readonly CommentedTarget[],
+): Diagnostic[] {
+  const explained = [...diagnostics];
+  for (const target of commentedTargets) {
+    const refused = unrecognizedActionMessage(target.action);
+    for (let index = explained.length - 1; index >= 0; index--) {
+      const diagnostic = explained[index]!;
+      if (diagnostic.line !== target.line || diagnostic.message !== refused) continue;
+      explained[index] = { ...diagnostic, message: commentAteTheTarget(target.action) };
+      break;
+    }
+  }
+  return explained;
 }
 
 /** `line` without everything from its first `%%` on. */
@@ -268,7 +343,7 @@ function bareCommentMessage(header: Header | null, at: BareCommentLine): string 
  * Mermaid does not read it as a comment there.
  */
 export function parseSiren(source: string): ParseResult {
-  const { lines, header, timelineStart, asWritten, frontmatter, directives, bareCommentLines } =
+  const { lines, header, timelineStart, asWritten, frontmatter, directives, bareCommentLines, commentedTargets } =
     asMermaidReads(source);
   for (const read of [frontmatter, directives]) {
     if (read.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
@@ -291,7 +366,11 @@ export function parseSiren(source: string): ParseResult {
     return { document: null, diagnostics: bareCommentRefusals, config: {} };
   }
   const documentConfig = documentConfigOf(frontmatter, directives, header?.kind ?? null);
-  const { document, diagnostics } = asWritten(dispatch(lines, header));
+  const parsed = dispatch(lines, header);
+  const { document, diagnostics } = asWritten({
+    ...parsed,
+    diagnostics: explainCommentedTargets(parsed.diagnostics, commentedTargets),
+  });
   return { document, diagnostics: [...documentConfig.diagnostics, ...diagnostics], config: documentConfig.config };
 }
 

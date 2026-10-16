@@ -726,6 +726,10 @@ warning and is now refused (see **Changed**).
 - **A second, different class annotation is refused** (nook `01M51TMV71BF1Y0EC2RS2B6ZWG`):
   `<<interface>> A` then `<<service>> A`, or two annotation lines in one block, where Mermaid
   12.2.0 draws only the first. It used to be kept to the first with a warning.
+- A timeline action whose target begins with `%%` in a sequence, class, state or ER diagram
+  (`enter %%B fade`) is refused saying that the `%%` starts a comment, so the verb has no target,
+  and that an id in that diagram cannot begin with `%%`, where it was called an unrecognized
+  action (nook `01M51XAEVWWTPSDYAR8E54F80R`). A flowchart still reads `%%B` as the target.
 
 ### Fixed
 

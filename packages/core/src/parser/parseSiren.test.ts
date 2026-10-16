@@ -3631,16 +3631,45 @@ describe("a `%%` in the middle of a flowchart line", () => {
     }
   });
 
-  it("still cuts a `%%` that begins a timeline target in every other kind, whose ids hold no `%`", () => {
-    for (const [header, body] of [
-      ["sequenceDiagram", "  A->>B: m"],
-      ["classDiagram", "  class A"],
-      ["stateDiagram-v2", "  A --> B"],
-      ["erDiagram", "  A ||--o{ B : r"],
-    ] as const) {
-      expect([header, parseSiren(`${header}\n${body}\ntimeline:\n  enter %%B fade\n`)]).toEqual([
-        header,
-        parseSiren(`${header}\n${body}\ntimeline:\n  enter\n`),
+  // In every other kind a `%%` opens a comment wherever it stands, so ids
+  // there never begin with one: the cut leaves the verb with no target, and
+  // the refusal says why rather than calling the verb unrecognized.
+  const commentAteTheTarget = (verb: string) =>
+    `The "%%" after "${verb}" starts a comment, so "${verb}" has no target; an id in this diagram cannot begin with "%%"`;
+
+  it("explains a `%%` that begins a timeline target in a class diagram: it starts a comment", () => {
+    const { document, diagnostics } = parseSiren("classDiagram\n  class B\ntimeline:\n  enter %%B fade\n");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: commentAteTheTarget("enter"), line: 4, column: 3 }]);
+  });
+
+  it("explains a `%%` that begins a timeline target in a sequence diagram: it starts a comment", () => {
+    const { document, diagnostics } = parseSiren("sequenceDiagram\n  A->>B: m\ntimeline:\n  enter A fade, highlight %%B glow\n");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: commentAteTheTarget("highlight"), line: 4, column: 3 }]);
+  });
+
+  it("explains a `%%` that begins a timeline target in a state diagram: it starts a comment", () => {
+    const { document, diagnostics } = parseSiren("stateDiagram-v2\n  A --> B\ntimeline one:\n  enter A fade\n\tunhighlight %%B\n");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: commentAteTheTarget("unhighlight"), line: 5, column: 2 }]);
+  });
+
+  it("explains a `%%` that begins a timeline target in an ER diagram: it starts a comment", () => {
+    const { document, diagnostics } = parseSiren("erDiagram\n  A ||--o{ B : r\ntimeline:\n  enter %%B fade\n");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: commentAteTheTarget("enter"), line: 4, column: 3 }]);
+  });
+
+  it("still calls a verb with no target unrecognized where no `%%` took the target", () => {
+    for (const commented of ["  enter %% note", "  enter %%", "  enter%%B fade"]) {
+      expect([commented, parseSiren(`classDiagram\n  class B\ntimeline:\n${commented}\n`).diagnostics]).toEqual([
+        commented,
+        [{ severity: "error", message: 'Unrecognized timeline action: "enter"', line: 4, column: 3 }],
       ]);
     }
   });
