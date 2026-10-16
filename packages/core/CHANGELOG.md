@@ -218,8 +218,11 @@ which is now refused (see **Changed**).
 - **A `;` in an inline class member is refused** (nook `01M51DSEQ3`), as Mermaid 12.2.0's lexer
   refuses it: `A : +int x; y`, `A : +foo(a; b)`, `A : +int x;` and a `;` in a type, a return type,
   a `~generic~` or quotes each get one error at the `;`, saying to write each member on a line of
-  its own. The `;` ending an entity code (`#59;`, `#lt;`) is the code's and still reads. The first
-  two used to be drawn as one member each, the others refused as an unrecognized member.
+  its own. The `;` ending an entity code (`#59;`, `#lt;`) is the code's and still reads. Most
+  used to be drawn as one member with no diagnostic — a `;` between members, in parentheses, a
+  type, a return type or a `~generic~` (`+List~a;b~ x`, `+f() a;b`), or after a `%%`
+  (`+x %% a; b`); only a member Siren could not read otherwise (`+int x;`, `"a;b"`) was refused,
+  as an unrecognized member.
 - **A class namespace holds only classes, notes and namespaces** (nook `01M51DSEGE`), as Mermaid
   12.2.0 reads it: any other statement in a namespace body — a relationship, `<<annotation>> A`,
   `direction`, `style`, `classDef`, `cssClass`, `click`, `link`, `callback`, an inline member
