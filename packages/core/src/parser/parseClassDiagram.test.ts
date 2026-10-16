@@ -1622,6 +1622,26 @@ describe("parseClassDiagram — a class block closed on a member's line", () => 
     }
   });
 
+  it("reads the `;` ending an entity code as the code's, in a one-line and a multi-line block", () => {
+    // Measured: Mermaid 12.2.0 encodes every `#\w+;` before its lexer runs,
+    // so `+x #59; y` and `+x #lt; y` are one member each.
+    for (const member of ["+x #59; y", "+x #lt; y"]) {
+      for (const body of [`  class A { ${member} }`, `  class A {\n    ${member}\n  }`]) {
+        const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+        expect([body, document?.kind, diagnostics]).toEqual([body, "class", []]);
+      }
+    }
+    // A `;` beside one is still a separator.
+    const separated = (text: string) =>
+      `Unrecognized class member: "${text}". A ";" does not separate members: write each member on a line of its own.`;
+    for (const text of ["+x #lt;; y", "+int x #lt; y; z"]) {
+      expect([text, parseClassDiagram(`classDiagram\n  class A {\n    ${text}\n  }`).diagnostics]).toEqual([
+        text,
+        [{ severity: "error", message: separated(text), line: 3, column: 5 }],
+      ]);
+    }
+  });
+
   it("still reads a `;` inside a method's parentheses or a `~generic~`", () => {
     // Measured: Mermaid reads `+foo(a; b)` as the method foo with the
     // parameters `a; b`, and `List~int; x~ y` as the attribute

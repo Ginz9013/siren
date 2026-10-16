@@ -254,6 +254,16 @@ function percentOutsideQuotes(line: string): number {
 }
 
 /**
+ * `text` with each entity code (`#lt;`, `#59;`) written over by `#`s of its
+ * length, so a search for `;` finds only the `;`s Mermaid 12.2.0's lexer
+ * sees: it encodes every `/#\w+;/` before lexing (measured: `A : +x #59; y`
+ * and `class A { +x #59; y }` each draw one member). Positions are kept.
+ */
+function maskEntityCodes(text: string): string {
+  return text.replace(/#\w+;/g, (code) => "#".repeat(code.length));
+}
+
+/**
  * The statements after which Mermaid 12.2.0's class lexer reads a `%%` as a
  * comment: its rules `%%(?!\{)*[^\n]*(\r?\n?)+` and `%%[^\n]*(\r?\n)*` match
  * where such a statement's last token ends. Both swallow the line break
@@ -1320,7 +1330,8 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         // it is what was written: `+foo(a; b)` keeps the parameters `a; b`.
         // A `;` ending the member separates nothing: `+int x;` is one
         // attribute to Mermaid as written, refused only as unrecognized.
-        const separated = text
+        // An entity code's own `;` is no `;` at all (`maskEntityCodes`).
+        const separated = maskEntityCodes(text)
           .replace(/\([^)]*\)|~[^~]*~/g, "")
           .replace(/;\s*$/, "")
           .includes(";")
@@ -1450,11 +1461,8 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       // quotes alike ("Lexical error … Unrecognized text" at the `;`) — so
       // Siren refuses every one there (ADR-0017), unlike a class block,
       // which keeps a `;` inside a method's parentheses. The `;` ending an
-      // entity code (`#lt;`, `#59;`) is the code's: Mermaid encodes each
-      // `/#\w+;/` before its lexer runs (measured: `A : +x #59; y` draws).
-      const semicolon = line
-        .replace(/#\w+;/g, (code) => "#".repeat(code.length))
-        .indexOf(";", inlineMemberMatch.indices![2]![0]);
+      // entity code is the code's (`maskEntityCodes`).
+      const semicolon = maskEntityCodes(line).indexOf(";", inlineMemberMatch.indices![2]![0]);
       if (semicolon !== -1) {
         diagnostics.push({
           severity: "error",

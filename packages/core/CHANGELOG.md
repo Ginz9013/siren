@@ -486,7 +486,8 @@ which is now refused (see **Changed**).
   Mermaid 12.2.0 draws such text as one member (nook `01M4ZWT8XF`). Where Siren could read the text
   as one member — `+int x; y`, `+int x; int y`, `+foo(); +bar()` — it used to draw that one member,
   as Mermaid does, and now refuses it. A `;` inside a method's parentheses (`+foo(a; b)`) or a
-  `~generic~` is kept as written.
+  `~generic~` is kept as written, and so is the `;` ending an entity code (`+x #59; y`), which
+  Mermaid encodes before reading the member.
 - **An empty namespace is refused** (`namespace N {` and `}` with nothing between), saying to add a
   class to it or remove it, as Mermaid 12.2.0 refuses it (nook `01M4ZY2DA1`). It used to be accepted
   and drawn as no frame at all.
