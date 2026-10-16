@@ -129,7 +129,8 @@ warning and is now refused (see **Changed**).
   (`A & B`, `A[x] & B{y}:::hot`, `A@{ shape: circle } & B`). Each used to be refused, as a
   mid-line `%%` or an unrecognized line. A `%%` anywhere else after a space (`A %%B`,
   `A --> B %%x`) is still refused, and an arrowless group whose `&` is not spaced on each side
-  (`A&B`, which Mermaid draws as the one node `A&B`) gets the spacing error an edge's group gets.
+  (`A&B`, which Mermaid draws as the one node `A&B`) gets the spacing error an edge's group gets;
+  an `&` with no node on one side (`& A`, `A &`) is refused saying so.
 - A flowchart node's `@{ … }` data block is read as Mermaid 12.2.0 reads it, for what Siren can
   draw (nook `01M51Q7F65`): `shape:` takes the 45 names that are one of the fourteen node shapes
   (`rect`, `rounded`, `stadium`, `fr-rect`, `cyl`, `circle`, `diam`, `hex`, `lean-r`, `lean-l`,
@@ -305,7 +306,9 @@ warning and is now refused (see **Changed**).
   block's own end) is refused as a title ending with `end` is. An id that only contains the word
   (`endx`, `end_x`, `End-x`, `A-end`) is unchanged, as are `click-x`, `call-x`, `href-x`,
   `default-x`, `v-x`, `direction-x`, `click end-x`, `click end` and `subgraph end-x`, which Mermaid
-  reads as ids.
+  reads as ids. An endpoint that is nothing but `click`, `call` or `href`, which Mermaid reads as
+  that keyword before a space or a line break (`A --> click`, `click --> A`), is refused the same
+  way; `click-x`, `click[x]` and `A --> click;B` are ids.
 - **An entity code in a class member is drawn decoded** (nook `01M51K83X2`): Mermaid 12.2.0
   encodes each `#\w+;` before it parses and decodes it when it draws, so `+#lt; x` draws `+< x`,
   `+int #59;` `+int ;` and `+foo(#9829;)` `+foo(♥)`, in a block and inline alike, in the type, the

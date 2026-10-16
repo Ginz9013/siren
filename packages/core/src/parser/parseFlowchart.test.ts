@@ -876,7 +876,7 @@ describe("an id that begins with a keyword", () => {
     expect(diagnostics).toEqual([
       {
         severity: "error",
-        message: `"end" ends the subgraph here, and "${rest}" after it is read outside the block. Write "end" on a line of its own`,
+        message: `"end" ends the subgraph here, and "${rest}" after it is read outside the block. Write "end" on a line of its own.`,
         line: 4,
         column: 5,
       },
@@ -934,6 +934,51 @@ describe("an id that begins with a keyword", () => {
     expect(diagnostics).toEqual([]);
     expect(document.subgraphs.map((block) => block.name)).toEqual(["end-x"]);
     expect(document.interactions.map((interaction) => interaction.targetId)).toEqual(["A", "end-x"]);
+  });
+
+  it.each([
+    ["A --> click", "click"],
+    ["A --> click --> B", "click"],
+    ["A & click", "click"],
+    ["A & click --> B", "click"],
+    ["click & A", "click"],
+    ["click --> A", "click"],
+    ["A --> call", "call"],
+    ["call --> A", "call"],
+    ["A & call", "call"],
+    ["A --> href", "href"],
+    ["href --> A", "href"],
+    ["A & href", "href"],
+  ])("refuses `%s`, where the id is a word read as a keyword before a space or the line's end", (written, keyword) => {
+    // Measured: Mermaid 12.2.0's lexer reads `click`, `call` and `href`
+    // as keywords before whitespace (a line break included): each of these
+    // is a parse error ("got 'CLICK'"), or, for `click & A` and
+    // `click --> A`, an empty diagram.
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: keywordIdMessage(keyword, keyword, `${keyword}Node`),
+        line: 2,
+        column: written.indexOf(keyword) + 3,
+      },
+    ]);
+  });
+
+  it.each([
+    ["A --> click;B", ["A", "click", "B"]],
+    ["A --> click[x]", ["A", "click"]],
+    ["A --> call[x]", ["A", "call"]],
+    ["A --> href[x]", ["A", "href"]],
+    ["click-x --> A", ["click-x", "A"]],
+    ["A --> clickx", ["A", "clickx"]],
+  ])("draws `%s`, where the word is followed by neither a space nor the line's end", (written, ids) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(ids);
   });
 
   it.each([
@@ -2377,8 +2422,39 @@ describe("an id that begins with `%%`", () => {
     ]);
   });
 
-  it.each(["A --> %% B", "A --> %%B C", "A --> B %%x", "A[x] %%B"])("still refuses `%s`", (written) => {
-    expect(parseFlowchart(`flowchart TB\n  ${written}`).document).toBeNull();
+  it.each([
+    ["A --> %% B", 9],
+    ["A --> %% x", 9],
+    ["A --> B --> %% c", 15],
+    ["A --> B & %% note", 13],
+    ["A & B & %% x", 11],
+    ["A --> B %%x", 11],
+    ["A[x] %%B", 8],
+    ["class A c --> %%x", 17],
+    ['click A "u" "t" --> %%x', 23],
+  ])("still refuses `%s` at its percent signs, as a mid-line comment", (written, column) => {
+    // Measured: each is a parse error in Mermaid 12.2.0. A `%%` with a space
+    // after it is a comment's own spelling, and a statement that writes no
+    // node has no endpoint for a `%%` to begin.
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+          "If it is a comment, move it to a line of its own.",
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it("still refuses `A --> %%B C`, where the id is followed by a second word", () => {
+    expect(parseFlowchart("flowchart TB\n  A --> %%B C").diagnostics).toEqual([
+      { severity: "error", message: 'Unrecognized flowchart line: "A --> %%B C"', line: 2, column: 3 },
+    ]);
   });
 });
 
@@ -2421,6 +2497,26 @@ describe("a group of nodes with no arrow", () => {
       {
         severity: "error",
         message: `An "&" joins nodes only with a space on each side. Write: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it.each([
+    ["& A", 3, "before"],
+    ["A &", 5, "after"],
+    ["A & --> B", 5, "after"],
+    ["A --> & B", 9, "before"],
+  ])("refuses `%s`, an `&` with no node on one side, at the `&`", (written, column, side) => {
+    // Measured: each is a parse error in Mermaid 12.2.0.
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `An "&" joins two nodes, and this one has none ${side} it. Write a node there, or leave the "&" out.`,
         line: 2,
         column,
       },

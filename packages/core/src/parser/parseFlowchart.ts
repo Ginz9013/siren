@@ -165,7 +165,7 @@ const ID_RUN = String.raw`(?:-(?=${ID_CHAR}))?${ID_CHAR}+(?:\.+-?${ID_CHAR}*|${I
  * `flowchart-elk` before `flowchart` and `classDef` before `class`.
  *
  * Not here: `click`, `call` and `href`, read as keywords only before a
- * space (`click-x` is an id), and `default`, `v` and `direction`, which the
+ * space (`click-x` is an id; `SPACED_KEYWORDS`), and `default`, `v` and `direction`, which the
  * grammar takes back as an id (`default-x`, `v-x`, `direction-x` are
  * nodes, measured).
  */
@@ -1252,15 +1252,26 @@ function refuseKeywordId(text: string, wholeTextIsId: boolean): { message: strin
   if (keyword === undefined || (after === "" && !wholeTextIsId) || /^\s/.test(after)) {
     return null;
   }
-  const id = LEADING_ID_RE.exec(text)![0];
+  return { message: keywordIdMessage(LEADING_ID_RE.exec(text)![0], keyword), offset: 0 };
+}
+
+/**
+ * The refusal of an id that begins with a keyword, with a fix: the id in
+ * camel case (`end-x` → `endX`), or with `Node` after a bare keyword.
+ */
+function keywordIdMessage(id: string, keyword: string): string {
   const [first, ...rest] = id.split(/[^A-Za-z0-9_]+/).filter((part) => part !== "");
   const fix =
     rest.length === 0 ? `${first}Node` : first + rest.map((part) => part[0]!.toUpperCase() + part.slice(1)).join("");
-  return {
-    message: `"${id}" begins with the keyword "${keyword}", and is read as that keyword. Rename it, such as ${fix}`,
-    offset: 0,
-  };
+  return `"${id}" begins with the keyword "${keyword}", and is read as that keyword. Rename it, such as ${fix}`;
 }
+
+/**
+ * The words Mermaid 12.2.0's lexer reads as a keyword only before
+ * whitespace (`click[\s]+`, `call[\s]+`, `href[\s]`), so `click-x` and
+ * `click[x]` are ids and an endpoint `click` before a space is not.
+ */
+const SPACED_KEYWORDS: ReadonlySet<string> = new Set(["click", "call", "href"]);
 
 /**
  * Why a node written as `text` with an `@{ … }` block was refused, when the
@@ -1598,14 +1609,27 @@ function splitStatements(rawLine: string): { text: string; column: number }[] {
 function midLinePercentAt(text: string): number | null {
   const { parts, separators } = cutOutsideLabel(text, MID_LINE_PERCENT_RE);
   const offsets = offsetsOf(parts, separators);
+  const writesNodes = !NO_NODE_STATEMENT_RE.test(text);
   for (let cut = 0; cut < separators.length; cut++) {
     const at = offsets[cut]! + parts[cut]!.length;
-    if (!opensEndpoint(text.slice(0, at))) {
+    // A `%%` begins an id only where a statement writes nodes, and only when
+    // no space follows it (`A --> %%` ends the statement): `%% x` is a
+    // comment's own spelling, and Mermaid 12.2.0 refuses `A --> %% x`
+    // (measured).
+    const spaced = /\s/.test(text[at + 2] ?? "");
+    if (!writesNodes || spaced || !opensEndpoint(text.slice(0, at))) {
       return at;
     }
   }
   return null;
 }
+
+/**
+ * A statement that writes no node, by its keyword: a `%%` in it begins no
+ * id, whatever stands before it (`class A c --> %%x` and
+ * `click A "u" "t" --> %%x` are parse errors in Mermaid 12.2.0, measured).
+ */
+const NO_NODE_STATEMENT_RE = /^(?:class|click|style|classDef|linkStyle|accTitle|accDescr|subgraph|direction)\s/;
 
 /**
  * Whether an endpoint begins right after `before`: it ends with an arrow
@@ -2679,9 +2703,31 @@ export function parseFlowchart(source: string): DiagramParseResult {
         }
         return false;
       };
-      // An `&` without a space on each side in `parts` (standing at
-      // `partAt`), refused — true when one was, which ends the statement.
+      // An `&` with no node on one side, or without a space on each side,
+      // in `parts` (standing at `partAt`), refused — true when one was,
+      // which ends the statement.
       const refuseUnspacedGroups = (parts: readonly string[], partAt: readonly number[]): boolean => {
+        // An `&` with no node on one side (`& A`, `A &`, `A & --> B`): a
+        // parse error in Mermaid 12.2.0 (measured), and no spacing fixes it.
+        for (const [index, part] of parts.entries()) {
+          const { parts: pieces, separators } = cutOutsideLabel(part, GROUP_SEPARATOR);
+          const pieceAt = offsetsOf(pieces, separators);
+          const blank = separators.length === 0 ? -1 : pieces.findIndex((piece) => piece.trim() === "");
+          if (blank !== -1) {
+            const before = blank < separators.length;
+            const ampersandAt = partAt[index]! + (before ? pieceAt[blank]! + pieces[blank]!.length : pieceAt[blank]! - 1);
+            diagnostics.push({
+              severity: "error",
+              message:
+                `An "${GROUP_SEPARATOR}" joins two nodes, and this one has none ${before ? "before" : "after"} it. ` +
+                `Write a node there, or leave the "${GROUP_SEPARATOR}" out.`,
+              line: lineNumber,
+              column: column + ampersandAt,
+            });
+            sawError = true;
+            return true;
+          }
+        }
         const unspaced = unspacedGroupSeparators(line, parts, partAt);
         if (unspaced.length === 0) {
           return false;
@@ -2696,6 +2742,53 @@ export function parseFlowchart(source: string): DiagramParseResult {
         });
         sawError = true;
         return true;
+      };
+      // An endpoint that is nothing but `click`, `call` or `href`
+      // (`SPACED_KEYWORDS`) where whitespace or the line's end follows it,
+      // which Mermaid 12.2.0 reads as that keyword (measured: `A --> click`
+      // and `click --> A` are refused or drawn empty). `A --> click;B`,
+      // `click[x]` and `click-->B` are ids. `pieces` are the endpoints as
+      // written, each at its offset; true when one was refused.
+      const refuseSpacedKeywordIds = (
+        pieces: readonly { text: string; at: number }[],
+        endpoints: readonly EdgeEndpoint[],
+      ): boolean => {
+        const followedBySemicolon = rawLine.slice(column - 1 + line.length).trimStart().startsWith(STATEMENT_END);
+        const at = endpoints.findIndex(
+          (endpoint, index) =>
+            SPACED_KEYWORDS.has(endpoint.id) &&
+            endpoint.label === undefined &&
+            endpoint.data === undefined &&
+            endpoint.definitionName === undefined &&
+            (/\s$/.test(pieces[index]!.text) || (index === endpoints.length - 1 && !followedBySemicolon)),
+        );
+        if (at === -1) {
+          return false;
+        }
+        const piece = pieces[at]!;
+        const id = endpoints[at]!.id;
+        diagnostics.push({
+          severity: "error",
+          message: keywordIdMessage(id, id),
+          line: lineNumber,
+          column: column + piece.at + piece.text.length - piece.text.trimStart().length,
+        });
+        sawError = true;
+        return true;
+      };
+      // One endpoint of an edge or a group that could not be read, as
+      // written and at its offset in the statement: refused at the reason
+      // `refuseNode` names, or the whole statement as unrecognized.
+      const refuseUnreadableEndpoint = (piece: { text: string; at: number }) => {
+        const lead = piece.text.length - piece.text.trimStart().length;
+        const nodeRefusal = refuseNode(piece.text.trim(), "an edge endpoint");
+        diagnostics.push({
+          severity: "error",
+          message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${line}"`,
+          line: lineNumber,
+          column: nodeRefusal === null ? column : column + piece.at + lead + nodeRefusal.offset,
+        });
+        sawError = true;
       };
       const refusePercent = () => {
         diagnostics.push({
@@ -2831,7 +2924,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
           severity: "error",
           message:
             `"${SUBGRAPH_END}" ends the subgraph here, and "${endThenMore[1]}" after it is read outside the block. ` +
-            `Write "${SUBGRAPH_END}" on a line of its own`,
+            `Write "${SUBGRAPH_END}" on a line of its own.`,
           line: lineNumber,
           column,
         });
@@ -2990,14 +3083,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
             sawError = true;
             continue;
           }
-          const nodeRefusal = refuseNode(piece.text.trim(), "an edge endpoint");
-          diagnostics.push({
-            severity: "error",
-            message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${line}"`,
-            line: lineNumber,
-            column: nodeRefusal === null ? column : column + piece.at + lead + nodeRefusal.offset,
-          });
-          sawError = true;
+          refuseUnreadableEndpoint(piece);
           continue;
         }
 
@@ -3005,6 +3091,9 @@ export function parseFlowchart(source: string): DiagramParseResult {
         // check above earned.
         const chain = groups as EdgeEndpoint[][];
         const written = chain.flat();
+        if (refuseSpacedKeywordIds(pieces, written)) {
+          continue;
+        }
 
         // Declared once each, left to right as written — before any edge, so
         // a `:::` on an endpoint two arrows along applies exactly once rather
@@ -3224,16 +3313,11 @@ export function parseFlowchart(source: string): DiagramParseResult {
         const members = groupParts.map((part, index) => readEndpoint(part, groupAt[index]!));
         const unreadable = members.findIndex((member) => member === null);
         if (unreadable !== -1) {
-          const part = groupParts[unreadable]!;
-          const lead = part.length - part.trimStart().length;
-          const nodeRefusal = refuseNode(part.trim(), "an edge endpoint");
-          diagnostics.push({
-            severity: "error",
-            message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${line}"`,
-            line: lineNumber,
-            column: nodeRefusal === null ? column : column + groupAt[unreadable]! + lead + nodeRefusal.offset,
-          });
-          sawError = true;
+          refuseUnreadableEndpoint({ text: groupParts[unreadable]!, at: groupAt[unreadable]! });
+          continue;
+        }
+        const groupPieces = groupParts.map((text, index) => ({ text, at: groupAt[index]! }));
+        if (refuseSpacedKeywordIds(groupPieces, members as EdgeEndpoint[])) {
           continue;
         }
         for (const member of members as EdgeEndpoint[]) {
