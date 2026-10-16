@@ -4633,6 +4633,59 @@ line2\`"]`,
     },
   },
   {
+    id: "cls-namespace-reopened",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo { class Lion }
+      namespace Farm { class Cow }
+      namespace Zoo { class Tiger }
+      namespace Zoo { namespace Cage { class Owl } }
+      namespace Zoo { namespace Cage { class Bat } }`,
+    status: "supported",
+    meaning:
+      "A namespace opened again is one namespace: Mermaid 12.2.0 draws one " +
+      "frame Zoo around Lion and Tiger, and one `Zoo.Cage` inside it around " +
+      "Owl and Bat (measured). The merged frame keeps the place, and the " +
+      "`namespace:N` id, of its first block, so Zoo comes before Farm. " +
+      "Siren used to draw a frame per block.",
+    assert: (result) => {
+      expectSame(
+        "namespace ids, in paint order",
+        elements(result, "g.siren-namespace").map(idOf),
+        ["namespace:1", "namespace:2", "namespace:3"],
+      );
+      expectSame("namespace labels", texts(result, "text.siren-namespace-label"), ["Zoo", "Farm", "Cage"]);
+      expectSame("Lion is inside Zoo", insideNamespace(result, "Lion", { id: "namespace:1" }), true);
+      expectSame("Tiger is inside Zoo", insideNamespace(result, "Tiger", { id: "namespace:1" }), true);
+      expectSame("Cow is inside Farm", insideNamespace(result, "Cow", { id: "namespace:2" }), true);
+      expectSame("Cow is outside Zoo", insideNamespace(result, "Cow", { id: "namespace:1" }), false);
+      expectSame("Cage is inside Zoo", namespaceInsideNamespace(result, "namespace:3", "namespace:1"), true);
+      expectSame("Owl is inside Cage", insideNamespace(result, "Owl", { id: "namespace:3" }), true);
+      expectSame("Bat is inside Cage", insideNamespace(result, "Bat", { id: "namespace:3" }), true);
+    },
+  },
+  {
+    id: "cls-namespace-reopened-label",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo["City Zoo"] { class Lion }
+      namespace Zoo["Old Zoo"] { class Tiger }
+      namespace Farm["Farm"] { class Cow }
+      namespace Farm { class Pig }`,
+    status: "supported",
+    meaning:
+      "A namespace opened again takes the last bracketed label its blocks " +
+      "wrote, and a block with none keeps the label written before it: " +
+      "Mermaid 12.2.0 titles the one frame Zoo `Old Zoo` and the one frame " +
+      "Farm `Farm` (measured).",
+    assert: (result) => {
+      expectSame("namespace labels", texts(result, "text.siren-namespace-label"), ["Old Zoo", "Farm"]);
+      expectSame("Lion is inside Old Zoo", insideNamespace(result, "Lion", "Old Zoo"), true);
+      expectSame("Tiger is inside Old Zoo", insideNamespace(result, "Tiger", "Old Zoo"), true);
+      expectSame("Pig is inside Farm", insideNamespace(result, "Pig", "Farm"), true);
+    },
+  },
+  {
     id: "cls-note",
     kind: "class",
     source: `classDiagram

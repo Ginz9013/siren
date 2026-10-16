@@ -381,6 +381,127 @@ describe("buildClassModel", () => {
     expect(model.classes.map((c) => c.namespaceId)).toEqual(["namespace:1"]);
   });
 
+  /**
+   * A namespace opened again under the same qualified name (measured on
+   * Mermaid 12.2.0, spec `class-nested-namespaces`): one frame holding every
+   * block's classes, numbered where it first opened.
+   */
+  describe("a namespace opened more than once", () => {
+    const ns = (
+      id: string,
+      classIds: string[],
+      extra: { parentId?: string; label?: Label; line?: number } = {},
+    ) => ({
+      id,
+      name: id.slice(id.lastIndexOf(".") + 1),
+      parentId: extra.parentId ?? null,
+      label: extra.label ?? null,
+      classIds,
+      ...(extra.line === undefined ? {} : { line: extra.line, column: 1 }),
+    });
+
+    it("merges two blocks of one namespace into one, holding both blocks' classes", () => {
+      // `namespace N { class X }` ⏎ `namespace N { class Y }`: measured, one
+      // frame N around X and Y.
+      const { model, diagnostics } = buildClassModel(
+        classDocument({
+          classes: [classDecl({ id: "X" }), classDecl({ id: "Y" })],
+          namespaces: [ns("N", ["X"]), ns("N", ["Y"])],
+        }),
+      );
+
+      expect(diagnostics).toEqual([]);
+      expect(model.namespaces).toEqual([
+        { id: "namespace:1", parentId: null, label: plainLabel("N"), classIds: ["X", "Y"] },
+      ]);
+      expect(model.classes.map((c) => [c.id, c.namespaceId])).toEqual([
+        ["X", "namespace:1"],
+        ["Y", "namespace:1"],
+      ]);
+    });
+
+    it("merges a nested namespace opened again inside its reopened parent", () => {
+      // `N { M { A } }` ⏎ `N { M { B } }`: measured, one N around one `N.M`
+      // around A and B.
+      const { model, diagnostics } = buildClassModel(
+        classDocument({
+          classes: [classDecl({ id: "A" }), classDecl({ id: "B" })],
+          namespaces: [ns("N", []), ns("N.M", ["A"], { parentId: "N" }), ns("N", []), ns("N.M", ["B"], { parentId: "N" })],
+        }),
+      );
+
+      expect(diagnostics).toEqual([]);
+      expect(model.namespaces).toEqual([
+        { id: "namespace:1", parentId: null, label: plainLabel("N"), classIds: [] },
+        { id: "namespace:2", parentId: "namespace:1", label: plainLabel("M"), classIds: ["A", "B"] },
+      ]);
+    });
+
+    it("numbers the merged namespace where it first opened, before a namespace opened between its blocks", () => {
+      // `N { X }`, `K { Z }`, `N { Y }`: measured, N then K.
+      const { model } = buildClassModel(
+        classDocument({
+          classes: [classDecl({ id: "X" }), classDecl({ id: "Z" }), classDecl({ id: "Y" })],
+          namespaces: [ns("N", ["X"]), ns("K", ["Z"]), ns("N", ["Y"])],
+        }),
+      );
+
+      expect(model.namespaces.map((n) => [n.id, n.label.text, n.classIds])).toEqual([
+        ["namespace:1", "N", ["X", "Y"]],
+        ["namespace:2", "K", ["Z"]],
+      ]);
+    });
+
+    it("labels the merged namespace with the last label its blocks wrote, or its name when none wrote one", () => {
+      // Measured: `N["First"]` then `N["Second"]` is titled Second; `N` then
+      // `N["Second"]` Second; `N["First"]` then `N` First.
+      const labelOf = (first: Label | undefined, second: Label | undefined) =>
+        buildClassModel(
+          classDocument({
+            classes: [classDecl({ id: "X" }), classDecl({ id: "Y" })],
+            namespaces: [ns("N", ["X"], { label: first }), ns("N", ["Y"], { label: second })],
+          }),
+        ).model.namespaces.map((n) => n.label);
+
+      expect(labelOf(plainLabel("First"), plainLabel("Second"))).toEqual([plainLabel("Second")]);
+      expect(labelOf(undefined, plainLabel("Second"))).toEqual([plainLabel("Second")]);
+      expect(labelOf(plainLabel("First"), undefined)).toEqual([plainLabel("First")]);
+      expect(labelOf(undefined, undefined)).toEqual([plainLabel("N")]);
+    });
+
+    it("lets one namespace name a class in two of its blocks without an error", () => {
+      // `namespace N { class X }` twice: measured, one frame around one X.
+      const { model, diagnostics } = buildClassModel(
+        classDocument({
+          classes: [classDecl({ id: "X" })],
+          namespaces: [ns("N", ["X"], { line: 2 }), ns("N", ["X"], { line: 5 })],
+        }),
+      );
+
+      expect(diagnostics).toEqual([]);
+      expect(model.namespaces.map((n) => n.classIds)).toEqual([["X"]]);
+      expect(model.classes.map((c) => c.namespaceId)).toEqual(["namespace:1"]);
+    });
+
+    it("still errors when a different namespace names a class a reopened one holds", () => {
+      const { diagnostics } = buildClassModel(
+        classDocument({
+          classes: [classDecl({ id: "X" })],
+          namespaces: [ns("N", ["X"], { line: 2 }), ns("N.M", ["X"], { parentId: "N", line: 3 }), ns("N", ["X"], { line: 6 })],
+        }),
+      );
+
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message: 'Class "X" is named by more than one namespace ("N" and "N.M"); keeping the first.',
+          line: 3,
+          column: 1,
+        },
+      ]);
+    });
+  });
+
   it("leaves a class outside every namespace with a null namespaceId", () => {
     const { model } = buildClassModel(
       classDocument({

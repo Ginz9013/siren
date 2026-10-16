@@ -1853,9 +1853,10 @@ export interface ClassRelationship {
 }
 
 /**
- * A `namespace Name { ... }` grouping. Its member classes also appear in
+ * A `namespace Name { ... }` block. Its member classes also appear in
  * `ClassDocument.classes` as ordinary declarations; this only records the
- * grouping.
+ * grouping. A namespace opened more than once is one entry per block, all
+ * with the same `id`; `buildClassModel` merges them into one namespace.
  */
 export interface ClassNamespace {
   /**
@@ -2132,7 +2133,10 @@ export interface ResolvedClassRelationship {
   toInterfaceLabel: string | null;
 }
 
-/** A namespace after model resolution: assigned id, membership resolved. */
+/**
+ * A namespace after model resolution: one per qualified name, every block
+ * that opened it merged, assigned id, membership resolved.
+ */
 export interface ResolvedClassNamespace {
   id: string;
   /**
@@ -2141,8 +2145,9 @@ export interface ResolvedClassNamespace {
    */
   parentId: string | null;
   /**
-   * The frame's label: the one written in brackets (`ClassNamespace.label`),
-   * or else the namespace's own name — the last segment of its qualified
+   * The frame's label: the last one written in brackets
+   * (`ClassNamespace.label`) across the blocks that open this namespace, or
+   * else the namespace's own name — the last segment of its qualified
    * name — as one plain run.
    */
   label: Label;

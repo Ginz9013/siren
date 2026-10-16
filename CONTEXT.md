@@ -883,10 +883,13 @@ It nests, as a subgraph does: a namespace written inside another is framed insid
 outer frame is drawn even when it holds no class of its own (`ResolvedClassNamespace.parentId`). A
 namespace is known by its **qualified name** — the enclosing namespace's qualified name, a `.`,
 then its own — so the `M` written inside `N` is `N.M`, a different namespace from a top-level `M`
-(nook decision `01M51B4M3C`); its frame is still titled `M`. It may carry a bracketed `["label"]`
-after its name (`namespace Zoo["Big Zoo"] {`), drawn as the frame's title in place of the name — a
-**Label** in the `html` dialect. Addressable in a `timeline:` block under a generated id
-(`namespace:1`, `namespace:2`, … in the order the blocks open, outer before inner).
+(nook decision `01M51B4M3C`); its frame is still titled `M`. A namespace opened again under the
+same qualified name is the same namespace: its blocks merge into one frame holding all their
+classes. It may carry a bracketed `["label"]` after its name (`namespace Zoo["Big Zoo"] {`), drawn
+as the frame's title in place of the name — a **Label** in the `html` dialect; of a reopened
+namespace's labels, the last one written wins. Addressable in a `timeline:` block under a
+generated id (`namespace:1`, `namespace:2`, … in the order the namespaces first open, outer before
+inner).
 _Avoid_: package, module, cluster (that is the word the layout core uses for the mechanism, not
 the authored construct), group, box
 

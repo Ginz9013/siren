@@ -68,6 +68,10 @@ Breaking for a class document with a namespace written inside another whose time
 namespace by its generated id (`namespace:N`): the ids are now numbered in the order the blocks
 open, outer first, where they used to be numbered in the order the blocks closed (see **Changed**).
 
+Breaking for a class document that opens one namespace more than once (`namespace N { class X }`
+and later `namespace N { class Y }`): its blocks are now one frame under one `namespace:N` id,
+where each used to be a frame and an id of its own, so the ids after it shift (see **Changed**).
+
 ### Added
 
 - A class namespace written inside another (`namespace N { namespace M { class A } }`, on lines of
@@ -189,6 +193,12 @@ open, outer first, where they used to be numbered in the order the blocks closed
 
 ### Changed
 
+- **A class namespace opened more than once is one namespace** (nook `01M51B43KA`, decision
+  `01M51B4M3C`), as Mermaid 12.2.0 draws it: `namespace N { class X }` and `namespace N { class Y }`
+  are one frame N around X and Y, and `N { M { A } }` with `N { M { B } }` one N around one `N.M`.
+  The merged namespace keeps the `namespace:N` id and place of its first block and the last
+  bracketed label written, and two of its blocks naming one class is no longer an error. Each block
+  used to be a frame of its own.
 - **A class namespace's generated id is numbered in the order the blocks open** (nook
   `01M51B43CP`, decision `01M51B4M3C`), outer before inner, as a flowchart's `subgraph:N` is: in
   `namespace N { namespace M { class A } }`, N is `namespace:1` and M `namespace:2`, where they used
