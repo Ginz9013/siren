@@ -422,3 +422,140 @@ describe("buildFlowchartModel's edge curve", () => {
     ]);
   });
 });
+
+/**
+ * An edge the author gave an id of its own, `A e1@--> B`
+ * (01M51XADJKSGRYG5CM1GG0T91R). Measured on Mermaid 12.2.0: a pair's
+ * repeats are numbered across every edge between it, named or not — `A
+ * e1@--> B`, `A --> B`, `A e2@--> B`, `A --> B` are `e1`, `L_A_B_2`, `e2`,
+ * `L_A_B_4`.
+ */
+describe("buildFlowchartModel's authored edge ids", () => {
+  /** An edge `from --> to`, with the id the author gave it, if any. */
+  function sirenEdge(from: string, to: string, id?: string): FlowchartDocument["edges"][number] {
+    return {
+      from,
+      to,
+      line: "solid",
+      fromEnd: "none",
+      toEnd: "arrow",
+      minLength: 1,
+      label: null,
+      ...(id === undefined ? {} : { id, idLine: 2, idColumn: 5 }),
+    };
+  }
+
+  it("names the edge by its own id instead of `from-to`, and counts a pair's repeats across every edge", () => {
+    const { graph, diagnostics } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" })],
+        edges: [sirenEdge("A", "B", "e1"), sirenEdge("A", "B"), sirenEdge("A", "B", "e2"), sirenEdge("A", "B")],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(graph.edges.map((edge) => edge.id)).toEqual(["e1", "A-B#2", "e2", "A-B#4"]);
+  });
+
+  it("refuses an edge id that a node already holds, at the edge id", () => {
+    // Measured on Mermaid 12.2.0: after `A e1@--> B`, a line `e1` or
+    // `C --> e1` draws no node `e1` at all; before it, the node and the edge
+    // both answer to `e1`.
+    const { diagnostics } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" }), sirenNode({ id: "e1" })],
+        edges: [sirenEdge("A", "B", "e1")],
+      }),
+    );
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'The edge id "e1" is already the id of the node "e1". Give the edge another id',
+        line: 2,
+        column: 5,
+      },
+    ]);
+  });
+
+  it.each([
+    // Measured on Mermaid 12.2.0: the second `e1` is dropped, and C-D drawn
+    // under an id of Mermaid's own.
+    ["another edge's own id", [sirenEdge("A", "B", "e1"), sirenEdge("C", "D", "e1")], "e1", "C --> D", "A --> B"],
+    ["the id an edge is given from its ends", [sirenEdge("A", "B", "C-D"), sirenEdge("C", "D")], "C-D", "A --> B", "C --> D"],
+    [
+      "the id a repeated pair is numbered with",
+      [sirenEdge("C", "D"), sirenEdge("A", "B", "C-D#2"), sirenEdge("C", "D")],
+      "C-D#2",
+      "A --> B",
+      "C --> D",
+    ],
+  ])("refuses an edge id that is %s, at the edge id", (_case, edges, id, named, holder) => {
+    const { diagnostics } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: ["A", "B", "C", "D"].map((nodeId) => sirenNode({ id: nodeId })),
+        edges,
+      }),
+    );
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `The edge id "${id}" of ${named} is already the id of the edge ${holder}. Give the edge another id`,
+        line: 2,
+        column: 5,
+      },
+    ]);
+  });
+
+  it("lets a timeline name the edge by its own id", () => {
+    const { graph, diagnostics } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" })],
+        edges: [sirenEdge("A", "B", "e1")],
+        timeline: { entries: [{ kind: "enter", step: 1, targetId: "e1", effect: "fade", line: 4, column: 3 }] },
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(graph.timeline.entries).toEqual([{ kind: "enter", step: 1, targetId: "e1", effect: "fade" }]);
+  });
+});
+
+/**
+ * A node and an edge stamped with one `data-siren-id`: the node `A-B` and
+ * the edge `A --> B` (01M51XADJKSGRYG5CM1GG0T91R). Mermaid 12.2.0 draws the
+ * document, and so does Siren; only a timeline naming `A-B` is refused.
+ */
+describe("buildFlowchartModel's timeline on an id a node and an edge share", () => {
+  const document = (targetId: string) =>
+    flowchartDocument({
+      nodes: [sirenNode({ id: "A-B" }), sirenNode({ id: "A" }), sirenNode({ id: "B" })],
+      edges: [{ from: "A", to: "B", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1, label: null }],
+      timeline: { entries: [{ kind: "enter", step: 1, targetId, effect: "fade", line: 5, column: 3 }] },
+    });
+
+  it("refuses an action naming the shared id", () => {
+    const { graph, diagnostics } = buildFlowchartModel(document("A-B"));
+
+    expect(graph.timeline.entries).toEqual([]);
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'timeline: "A-B" is the id of more than one thing in the diagram, so this action cannot tell which it means. ' +
+          "Give one of them another id",
+        line: 5,
+        column: 3,
+      },
+    ]);
+  });
+
+  it("draws the document and plays an action naming any other id", () => {
+    const { graph, diagnostics } = buildFlowchartModel(document("A"));
+
+    expect(diagnostics).toEqual([]);
+    expect(graph.edges.map((edge) => edge.id)).toEqual(["A-B"]);
+    expect(graph.timeline.entries).toEqual([{ kind: "enter", step: 1, targetId: "A", effect: "fade" }]);
+  });
+});

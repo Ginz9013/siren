@@ -516,6 +516,17 @@ _Avoid_: word wrap, line wrap, auto-wrap (say "wrap"); line (for a wrapped row �
 A directed connector between two flowchart nodes, written `A --> B`. Its id is `${from}-${to}`,
 then `#2` for a repeat pair — the convention a class diagram's **relationship** copies verbatim.
 
+**An edge may carry an id of its own**, written before its arrow — `A e1@--> B` — and then that is
+its id, in place of `${from}-${to}`: it is what `data-siren-id` wears and what a `timeline:` names.
+A pair's repeats are still counted across every edge between it, named or not, so `A e1@--> B`
+then `A --> B` is `e1` and `A-B#2`: naming one edge never renumbers another (Mermaid 12.2.0 counts
+the same way, measured). An edge id is spelled in a node id's alphabet and names exactly one thing,
+so one that a node or another edge already holds, one on an arrow joining a group, and one outside
+that alphabet are refused. `e1@{ … }` written below the edge is the edge's data, not a node's.
+Two ids the author did not write can still meet — the node `A-B` and the edge `A --> B` — and a
+document like that is drawn; only a `timeline:` action naming such a shared id is refused, since it
+cannot say which of the two it means (nook `01M51XADJK`).
+
 **The token joining the two endpoints decomposes into three axes rather than naming one of
 seventeen arrows** — the third time this codebase has made that call, after a sequence
 **message**'s `{ line, head }` and a **relationship**'s `fromEnd`/`toEnd`. A **line**

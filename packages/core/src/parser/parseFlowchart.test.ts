@@ -1032,67 +1032,6 @@ describe("an id that begins with a keyword", () => {
 });
 
 /**
- * An edge id, `A e1@--> B`, which Siren does not support yet (the same board
- * as `@{ … }`). Measured on Mermaid 12.2.0: accepted before every arrow
- * spelling (`e1@==>`, `e1@-- yes -->`, `e1@-->|yes|`), on one link of a
- * chain each, and after an `&` group, where it names the last link.
- */
-describe("an edge written with an id", () => {
-  it.each([
-    ["A e1@--> B", "e1", 5, "A --> B"],
-    ["A e1@-->|yes| B", "e1", 5, "A -->|yes| B"],
-    ["A e1@--> B e2@--> C", "e1", 5, "A --> B --> C"],
-    ["A & C e1@==> B", "e1", 9, "A & C ==> B"],
-    // Measured: both labels are valid Mermaid, `p q@-->r` and `x y@-z`; a
-    // label's text is no edge id, and the fix leaves it as written.
-    ['A["p q@-->r"] e1@--> B', "e1", 17, 'A["p q@-->r"] --> B'],
-    ["A[x y@-z] e1@--> B", "e1", 13, "A[x y@-z] --> B"],
-  ])("refuses %s at the id, saying to leave it out", (written, id, column, fixed) => {
-    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
-
-    expect(document).toBeNull();
-    expect(diagnostics).toEqual([
-      {
-        severity: "error",
-        message: `Siren does not support edge ids ("${id}@") yet. Leave the id out: ${fixed}`,
-        line: 2,
-        column,
-      },
-    ]);
-  });
-
-  it("takes no edge id from a label's text, so a later `@{ … }` on that word is a node's", () => {
-    const { diagnostics } = parseFlowchart("flowchart TB\n  A[x y@-z] e1@--> B\n  y@{ shape: rect }");
-
-    expect(diagnostics.map((d) => d.message)).toEqual([
-      'Siren does not support edge ids ("e1@") yet. Leave the id out: A[x y@-z] --> B',
-    ]);
-  });
-
-  it("refuses an `@{ … }` block on that id as edge data, saying to leave the line out", () => {
-    // Measured: after `A e1@--> B`, `e1@{ animate: true }` is the edge's
-    // data; with no edge named `e1`, the same line is a node `e1`.
-    const { document, diagnostics } = parseFlowchart("flowchart TB\n  A e1@--> B\n  e1@{ animate: true }");
-
-    expect(document).toBeNull();
-    expect(diagnostics).toEqual([
-      {
-        severity: "error",
-        message: 'Siren does not support edge ids ("e1@") yet. Leave the id out: A --> B',
-        line: 2,
-        column: 5,
-      },
-      {
-        severity: "error",
-        message: 'Siren does not support "@{ … }" data on the edge "e1" yet. Leave this line out',
-        line: 3,
-        column: 5,
-      },
-    ]);
-  });
-});
-
-/**
  * A node written with a bracket more than once. Mermaid 11.17.2, measured:
  * the last bracket is the one drawn — its label *and* its shape (`A[x]` then
  * `A{x}` is a diamond) — with no diagnostic, while a bare mention changes
@@ -1415,27 +1354,6 @@ describe("a flowchart node id's alphabet", () => {
       expect.objectContaining({ styleKind: "apply", targetIds: ["A%B"], name: "foo" }),
     ]);
     expect(document.interactions.map((interaction) => interaction.targetId)).toEqual(["A%B", "C%%D"]);
-  });
-
-  it("still names an edge id after an endpoint holding a `%`, and one holding a `%` itself", () => {
-    // Measured on Mermaid 12.2.0: `A%B e1@--> C` records the edge id `e1`
-    // from `A%B`, and `A e%1@--> B` the edge id `e%1`.
-    expect(parseFlowchart("flowchart TB\n  A%B e1@--> C").diagnostics).toEqual([
-      {
-        severity: "error",
-        message: 'Siren does not support edge ids ("e1@") yet. Leave the id out: A%B --> C',
-        line: 2,
-        column: 7,
-      },
-    ]);
-    expect(parseFlowchart("flowchart TB\n  A%%B e%1@--> C").diagnostics).toEqual([
-      {
-        severity: "error",
-        message: 'Siren does not support edge ids ("e%1@") yet. Leave the id out: A%%B --> C',
-        line: 2,
-        column: 8,
-      },
-    ]);
   });
 
   it("lets a timeline name a node whose id holds a `%`, and the edge from it", () => {
@@ -2722,7 +2640,6 @@ describe("positions after a node's `@{ … }` block written across lines", () =>
     ["A@{\n    shape: circle\n  } --> end-x", 4, 9],
     ["A@{\n    shape: circle\n  } & end-x", 4, 7],
     ["A@{\n    shape: circle\n  }&B --> C", 4, 4],
-    ["A@{\n    shape: circle\n  } --> B e1@--> C", 4, 11],
     ["A@{\n    shape: circle\n  } --> B %% x", 4, 11],
   ])("reports a mistake after the block's `}` where it stands: %j", (written, line, column) => {
     const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
@@ -2830,3 +2747,182 @@ describe("positions after a node's `@{ … }` block written across lines", () =>
   });
 });
 
+
+/**
+ * An edge written with an id, `A e1@--> B` (01M51XADJKSGRYG5CM1GG0T91R).
+ * Measured on Mermaid 12.2.0: the id is accepted before every arrow
+ * spelling, after a node written with a label or a `:::` class, before an
+ * arrow carrying a label in either spelling, and on each link of a chain.
+ */
+describe("an edge's own id", () => {
+  it.each([
+    ["A e1@--> B", [["A", "B", "e1"]]],
+    ["A e1@-->|x| B", [["A", "B", "e1"]]],
+    ["A e1@-- x --> B", [["A", "B", "e1"]]],
+    ["A e1@--> B e2@--> C", [["A", "B", "e1"], ["B", "C", "e2"]]],
+    ["A --> B e2@--> C", [["A", "B", undefined], ["B", "C", "e2"]]],
+    ["A e1@==> B", [["A", "B", "e1"]]],
+    ["A e1@-.-> B", [["A", "B", "e1"]]],
+    ["A e1@--- B", [["A", "B", "e1"]]],
+    ["A e1@<--> B", [["A", "B", "e1"]]],
+    ["A[x] e1@--> B", [["A", "B", "e1"]]],
+    ["A:::c e1@--> B", [["A", "B", "e1"]]],
+    ["A e.1@--> B", [["A", "B", "e.1"]]],
+    ["A e-1@--> B", [["A", "B", "e-1"]]],
+    ["A%B e%1@--> C", [["A%B", "C", "e%1"]]],
+  ])("reads %j with the id on the edge it names", (written, expected) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => [edge.from, edge.to, edge.id])).toEqual(expected);
+  });
+
+  it("takes no edge id from a label's text, so a later `@{ … }` on that word is a node's", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  A[x y@-z] e1@--> B\n  y@{ shape: circle }");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.shape])).toEqual([
+      ["A", "rect"],
+      ["B", "rect"],
+      ["y", "circle"],
+    ]);
+  });
+
+  it("keeps a label's text that looks like an id, and the label as written", () => {
+    const { document, diagnostics } = parseOk('flowchart TB\n  A["p q@-->r"] e1@--> B');
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B"]);
+    expect(document.edges.map((edge) => edge.id)).toEqual(["e1"]);
+  });
+});
+
+/**
+ * An edge id holding a character no id can (01M51XADJKSGRYG5CM1GG0T91R).
+ * Mermaid 12.2.0 takes any run of non-space characters before the `@`
+ * (`e$1`, `é1`, measured); Siren keeps an edge id to the alphabet a node id
+ * is written in, so the two can be compared and written in a timeline.
+ */
+describe("an edge id outside the id alphabet", () => {
+  it.each([
+    ["A e$1@--> B", "e$1", 5],
+    ["A é1@--> B", "é1", 5],
+    ["A --> B x!y@--> C", "x!y", 11],
+  ])("refuses %j at the id", (written, id, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          `The edge id "${id}" holds a character an id cannot. ` +
+          'Write it with letters, digits, "_", "-", "." and "%" only',
+        line: 2,
+        column,
+      },
+    ]);
+  });
+});
+
+/**
+ * An edge id on an arrow joining a group, `A & B e1@--> C`
+ * (01M51XADJKSGRYG5CM1GG0T91R). Measured on Mermaid 12.2.0: the arrow draws
+ * one edge per pair and the id names only one of them — the last for a group
+ * of sources (`A & B e1@--> C` names B-C), the first for a group of targets
+ * (`A e1@--> B & C` names A-B) — so the rest silently go without it.
+ */
+describe("an edge id on an arrow joining a group", () => {
+  it.each([
+    ["A & B e1@--> C", "e1", 9],
+    ["A e1@--> B & C", "e1", 5],
+    ["A --> B & C e2@--> D", "e2", 15],
+  ])("refuses %j at the id, saying to write each edge on a line of its own", (written, id, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          `The edge id "${id}" names one edge, but this arrow draws one for each node joined by "&". ` +
+          "Write the edge it names on a line of its own",
+        line: 2,
+        column,
+      },
+    ]);
+  });
+});
+
+/**
+ * An `@{ … }` block on an edge id written before the edge
+ * (01M51XADJKSGRYG5CM1GG0T91R). Measured on Mermaid 12.2.0:
+ * `e1@{ animate: true }` above `A e1@--> B` declares a node `e1`, drawn as a
+ * box of its own, and the edge is drawn without the data.
+ */
+describe("an edge's `@{ … }` block written before the edge", () => {
+  it("refuses it at the block, saying to move it below the edge", () => {
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  e1@{ shape: circle }\n  A e1@--> B");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'The "@{ … }" block on "e1" is written before the edge "e1", so it declares a node "e1" instead. ' +
+          "Move it below the edge",
+        line: 2,
+        column: 5,
+      },
+    ]);
+  });
+});
+
+/**
+ * An `@{ … }` block on an edge id below the edge, `e1@{ … }`
+ * (01M51XADJKSGRYG5CM1GG0T91R). Measured on Mermaid 12.2.0: it is that
+ * edge's data, not a node; `animate`, `animation` and `curve` change how the
+ * edge is drawn, and any other key (`label`, `shape`) is read and ignored.
+ */
+describe("an edge's `@{ … }` block", () => {
+  it("draws the edge, warning about a key an edge's block does not have", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  A e1@--> B\n  e1@{ label: x }");
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: `"label" is not a key of an edge's "@{ … }" block, and is ignored. Remove it`,
+        line: 3,
+        column: 5,
+      },
+    ]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B"]);
+    expect(document.edges.map((edge) => edge.id)).toEqual(["e1"]);
+  });
+
+  it.each(["animate: true", "animation: fast", "curve: linear"])(
+    "refuses `%s` as not supported yet, saying to leave it out",
+    (written) => {
+      const key = written.split(":")[0];
+      const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A e1@--> B\n  e1@{ ${written} }`);
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message: `Siren does not support "${key}" in an edge's "@{ … }" block yet. Leave it out`,
+          line: 3,
+          column: 5,
+        },
+      ]);
+    },
+  );
+
+  it("refuses a block that is not valid YAML, at the place it stops reading", () => {
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  A e1@--> B\n  e1@{ label: [x }");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([expect.objectContaining({ severity: "error", line: 3 })]);
+    expect(diagnostics[0]!.message).toMatch(/^The "@\{ … \}" block is not valid YAML \(/);
+  });
+});

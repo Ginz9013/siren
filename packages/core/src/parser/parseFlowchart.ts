@@ -26,7 +26,15 @@ import { readAccDescrBlock } from "./readAccDescrBlock";
 import { listAcceptedHeaders, matchClassDirection, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 import { MID_LINE_PERCENT_MESSAGE } from "./midLinePercent";
-import { blockRunOn, type NodeDataBlock, NODE_DATA_OPENER, nodeDataEnd, readNodeData } from "./flowchartNodeData";
+import { JSON_SCHEMA, load, YAMLException } from "js-yaml";
+import {
+  blockRunOn,
+  type NodeDataBlock,
+  type NodeDataProblem,
+  NODE_DATA_OPENER,
+  nodeDataEnd,
+  readNodeData,
+} from "./flowchartNodeData";
 
 /**
  * The headers this parser accepts — its own kind's and no other's, because
@@ -1183,50 +1191,95 @@ function refuseNodeLabel(text: string): { message: string; offset: number } | nu
 
 /**
  * An edge id, `A e1@--> B`: an id and an `@` written right before an arrow,
- * after a space. Mermaid 12.2.0 accepts one before every arrow spelling
- * (measured); Siren does not support them yet. Cutting the line at its
- * arrows leaves the id at the end of the piece before one, so that is where
- * this looks; the id is the first group.
+ * after a space. Mermaid 12.2.0 accepts one before every arrow spelling, and
+ * takes any run of characters but a space or a `"` as the id (`e$1@`, `é1@`;
+ * measured) — Siren keeps it to `ID_RUN`, the alphabet of a node id, and
+ * refuses the rest. Cutting the line at its arrows leaves the id at the end
+ * of the piece before one, so that is where this looks; the id is the first
+ * group.
  */
-const EDGE_ID_RE = new RegExp(String.raw`^.*\S\s+(${ID_RUN})@$`, "d");
+const EDGE_ID_RE = /^.*\S\s+([^\s"]+)@$/d;
 
 /**
- * Why an endpoint written as `text` — trimmed — was refused, when the reason
- * is an edge id ending it (`A e1@` before `--> B`), and where in `text` the
- * id stands; with the line rewritten without its ids, cut at its arrows as
- * `parts` and `arrows`, and every id it holds. `null` when `text` ends with
- * no edge id.
- *
- * The ids are read off the piece before each arrow, never the whole line,
- * so a label's own text (`A["p q@-->r"]`, `A[x y@-z]`) is neither taken for
- * an id nor cut from the suggestion.
+ * The keys of an edge's `@{ … }` block that change how Mermaid 12.2.0 draws
+ * the edge (`FlowDB.addVertex`, measured) and that Siren does not draw yet.
+ * Any other key is read by Mermaid and ignored for an edge
+ * (`e1@{ label: x }` draws no label, measured).
  */
-function refuseEdgeId(
-  text: string,
+const UNSUPPORTED_EDGE_KEYS: ReadonlySet<string> = new Set(["animate", "animation", "curve"]);
+
+/**
+ * What is wrong with the text between an edge's `@{` and its `}`, read as a
+ * node's block is (`readNodeData`): YAML under the JSON schema, a block on
+ * one line wrapped in `{ … }` first so that it reads as a flow mapping.
+ */
+function readEdgeData(written: string): NodeDataProblem[] {
+  const content = written.replace(/"[^"]*"?/g, (string) => string.replace(/\n\s*/g, "<br/>"));
+  const flowMapping = !content.includes("\n");
+  let loaded: unknown;
+  try {
+    loaded = load(flowMapping ? `{\n${content}\n}` : `${content}\n`, { schema: JSON_SCHEMA });
+  } catch (error) {
+    if (error instanceof YAMLException) {
+      const wrapping = flowMapping ? "{\n".length : 0;
+      const offset =
+        content === written ? Math.min(Math.max(error.mark.position - wrapping, 0), written.length) : undefined;
+      return [
+        {
+          severity: "error",
+          message: `The "@{ … }" block is not valid YAML (${error.reason})`,
+          ...(offset === undefined ? {} : { offset }),
+        },
+      ];
+    }
+    throw error;
+  }
+  if (loaded !== null && loaded !== undefined && (typeof loaded !== "object" || Array.isArray(loaded))) {
+    return [{ severity: "error", message: 'Write the "@{ … }" block as "key: value" pairs, such as "curve: linear"' }];
+  }
+  return Object.keys((loaded ?? {}) as Record<string, unknown>).map((key) =>
+    UNSUPPORTED_EDGE_KEYS.has(key)
+      ? { severity: "error", message: `Siren does not support "${key}" in an edge's "@{ … }" block yet. Leave it out` }
+      : { severity: "warning", message: `"${key}" is not a key of an edge's "@{ … }" block, and is ignored. Remove it` },
+  );
+}
+
+/** An edge id as written, `e1` of `A e1@--> B`. */
+interface EdgeIdWritten {
+  id: string;
+  /** Where the id starts in the piece before its arrow. */
+  offset: number;
+  /** Whether it is spelled in `ID_RUN`'s alphabet. */
+  spelled: boolean;
+}
+
+/**
+ * The edge id each arrow of a statement was written with, read off the
+ * piece before it — never the whole line, so a label's own text
+ * (`A["p q@-->r"]`, `A[x y@-z]`) is never taken for an id — and `parts`
+ * with each id blanked out: the id's characters become spaces, so every
+ * offset into the statement still lands where it did.
+ */
+function takeEdgeIds(
   parts: readonly string[],
   arrows: readonly string[],
-): { message: string; offset: number; ids: string[] } | null {
-  const edgeId = EDGE_ID_RE.exec(text);
-  if (edgeId === null) {
-    return null;
-  }
-  const ids: string[] = [];
-  const withoutIds = parts.map((part, index) => {
+): { parts: string[]; ids: (EdgeIdWritten | null)[] } {
+  const ids: (EdgeIdWritten | null)[] = [];
+  const blanked = parts.map((part, index) => {
     const kept = part.trimEnd();
     const id = index < arrows.length ? EDGE_ID_RE.exec(kept) : null;
+    if (index < arrows.length) {
+      ids.push(
+        id === null ? null : { id: id[1], offset: id.indices![1]![0], spelled: AUTHORED_ID_RE.test(id[1]) },
+      );
+    }
     if (id === null) {
       return part;
     }
-    ids.push(id[1]);
-    return kept.slice(0, id.indices![1]![0]) + part.slice(kept.length);
+    const start = id.indices![1]![0];
+    return kept.slice(0, start) + " ".repeat(kept.length - start) + part.slice(kept.length);
   });
-  return {
-    message:
-      `Siren does not support edge ids ("${edgeId[1]}@") yet. ` +
-      `Leave the id out: ${withBlocksElided(withoutIds.map((part, index) => part + (arrows[index] ?? "")).join(""))}`,
-    offset: edgeId.indices![1]![0],
-    ids,
-  };
+  return { parts: blanked, ids };
 }
 
 /**
@@ -2723,13 +2776,16 @@ export function parseFlowchart(source: string): DiagramParseResult {
     // An id an edge was given earlier makes the block that edge's data, as
     // Mermaid 12.2.0 reads it (measured: `e1@{ animate: true }` after
     // `A e1@--> B`; with no such edge it is a node `e1`).
-    if (data !== undefined && edgeIds.has(id)) {
-      diagnostics.push({
-        severity: "error",
-        message: `Siren does not support "@{ … }" data on the edge "${id}" yet. Leave this line out`,
-        ...positionIn(statement, data.at),
-      });
-      sawError = true;
+    // On a line of its own only: as an edge's endpoint (`C --> e1@{ … }`)
+    // it is a node, which the edge id then clashes with.
+    if (data !== undefined && edgeIds.has(id) && writtenAs === "a declaration") {
+      for (const { severity, message, offset } of readEdgeData(data.content)) {
+        const at = offset === undefined ? data.at : data.at + NODE_DATA_OPENER.length + offset;
+        diagnostics.push({ severity, message, ...positionIn(statement, at) });
+        if (severity === "error") {
+          sawError = true;
+        }
+      }
       return;
     }
     const undeclared = !nodesById.has(id);
@@ -3213,13 +3269,29 @@ export function parseFlowchart(source: string): DiagramParseResult {
         // label's problem is reported at its own column: the pieces and the
         // separators that cut them lie end to end, and add up to the line.
         const partAt = offsetsOf(arrowParts, arrowTokens);
-        if (refuseMalformedGroups(arrowParts, partAt)) {
+        // An arrow's own id, `A e1@--> B`, taken off the piece before it
+        // before any piece is read as nodes.
+        const { parts: endpointParts, ids: linkIds } = takeEdgeIds(arrowParts, arrowTokens);
+        const misspelled = linkIds.findIndex((linkId) => linkId !== null && !linkId.spelled);
+        if (misspelled !== -1) {
+          const { id, offset } = linkIds[misspelled]!;
+          diagnostics.push({
+            severity: "error",
+            message:
+              `The edge id "${id}" holds a character an id cannot. ` +
+              'Write it with letters, digits, "_", "-", "." and "%" only',
+            ...positionIn(statement, partAt[misspelled]! + offset),
+          });
+          sawError = true;
+          continue;
+        }
+        if (refuseMalformedGroups(endpointParts, partAt)) {
           continue;
         }
         // Each piece kept beside what it read as, so an unreadable one can be
         // explained in its own words, at its own column.
         const pieces: { text: string; at: number }[] = [];
-        const groups: (EdgeEndpoint | null)[][] = arrowParts.map((part, index) => {
+        const groups: (EdgeEndpoint | null)[][] = endpointParts.map((part, index) => {
           const { parts, separators } = cutOutsideLabel(part, GROUP_SEPARATOR);
           const pieceAt = offsetsOf(parts, separators);
           return parts.map((piece, at) => {
@@ -3233,20 +3305,6 @@ export function parseFlowchart(source: string): DiagramParseResult {
           // `ENDPOINT_RE` is anchored for. Nothing has been declared yet, so
           // there is no half-drawn chain to take back.
           const piece = pieces[unreadableAt]!;
-          const lead = piece.text.length - piece.text.trimStart().length;
-          const edgeIdRefusal = refuseEdgeId(piece.text.trim(), arrowParts, arrowTokens);
-          if (edgeIdRefusal !== null) {
-            for (const id of edgeIdRefusal.ids) {
-              edgeIds.add(id);
-            }
-            diagnostics.push({
-              severity: "error",
-              message: edgeIdRefusal.message,
-              ...positionIn(statement, piece.at + lead + edgeIdRefusal.offset),
-            });
-            sawError = true;
-            continue;
-          }
           refuseUnreadableEndpoint(piece);
           continue;
         }
@@ -3256,6 +3314,25 @@ export function parseFlowchart(source: string): DiagramParseResult {
         const chain = groups as EdgeEndpoint[][];
         const written = chain.flat();
         if (refuseSpacedKeywordIds(pieces, written)) {
+          continue;
+        }
+        // An id names one edge, and an arrow joining a group draws several:
+        // Mermaid 12.2.0 gives the id to one of them — the last of `A & B
+        // e1@--> C`, the first of `A e1@--> B & C` — and none to the rest
+        // (measured), so which one it names is not what was written.
+        const grouped = linkIds.findIndex(
+          (linkId, link) => linkId !== null && (chain[link]!.length > 1 || chain[link + 1]!.length > 1),
+        );
+        if (grouped !== -1) {
+          const { id, offset } = linkIds[grouped]!;
+          diagnostics.push({
+            severity: "error",
+            message:
+              `The edge id "${id}" names one edge, but this arrow draws one for each node joined by "${GROUP_SEPARATOR}". ` +
+              "Write the edge it names on a line of its own",
+            ...positionIn(statement, partAt[grouped]! + offset),
+          });
+          sawError = true;
           continue;
         }
 
@@ -3277,6 +3354,27 @@ export function parseFlowchart(source: string): DiagramParseResult {
           // -->|x| C` is two edges wearing the one label the author wrote.
           // The token sits right after the part it follows.
           const tokenAt = partAt[link]! + arrowParts[link]!.length;
+          const linkId = linkIds[link] ?? null;
+          let idField: Pick<SirenEdge, "id" | "idLine" | "idColumn"> = {};
+          if (linkId !== null) {
+            edgeIds.add(linkId.id);
+            // A block on this id written above the edge was read as a
+            // node's: Mermaid 12.2.0 draws that node, and the edge without
+            // the data (measured).
+            const blockAt = nodeDataAt.get(linkId.id);
+            if (blockAt !== undefined) {
+              diagnostics.push({
+                severity: "error",
+                message:
+                  `The "${NODE_DATA_OPENER} … }" block on "${linkId.id}" is written before the edge "${linkId.id}", ` +
+                  `so it declares a node "${linkId.id}" instead. Move it below the edge`,
+                ...blockAt,
+              });
+              sawError = true;
+            }
+            const { line: idLine, column: idColumn } = positionIn(statement, partAt[link]! + linkId.offset);
+            idField = { id: linkId.id, idLine, idColumn };
+          }
           let label: Label | null = null;
           if (arrow.label !== null) {
             const read = readLabelAt({ text: arrow.label, at: arrow.labelAt }, { dialect: "html" });
@@ -3291,6 +3389,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
                 to: to.id,
                 ...form,
                 label,
+                ...idField,
                 sourceLine: lineNumber,
                 sourceColumn: column,
               });

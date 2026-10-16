@@ -12266,6 +12266,98 @@ line2\`"]`,
   },
 
   // -------------------------------------------------------------------------
+  // flowchart edge ids — `A e1@--> B` (01M51XADJKSGRYG5CM1GG0T91R)
+  // -------------------------------------------------------------------------
+  {
+    id: "fc-edge-id-timeline",
+    kind: "flowchart",
+    source: `flowchart LR
+      A e1@--> B
+      A --> B
+      A e2@-.->|x| B
+
+      timeline:
+        enter e1 fade
+        enter A-B#2 fade`,
+    status: "supported",
+    meaning:
+      "An edge written with an id of its own answers to it: Mermaid 12.2.0 " +
+      "names the edges `e1`, `L_A_B_2` and `e2` (measured), numbering a " +
+      "pair's repeats across every edge between it, named or not. Siren " +
+      "stamps `e1`, `A-B#2` and `e2`, and a timeline names an edge by its own " +
+      "id.",
+    assert: (result) => {
+      expectSame("edges", edges(result), ["e1", "A-B#2", "e2"]);
+      expectSame("e2's drawing", edgeDrawing(result, "e2"), "dotted none arrow");
+      expectSame("e2's label", edgeLabel(result, "e2"), "x");
+      expectSame("timeline steps", result.controller?.totalSteps ?? 0, 2);
+    },
+  },
+  {
+    id: "fc-edge-id-group",
+    kind: "flowchart",
+    source: `flowchart LR
+      A & B e1@--> C`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 draws A-C and B-C and gives the id `e1` to B-C alone " +
+      "(measured; `A e1@--> B & C` gives it to A-B) — which edge an id names " +
+      "is not what was written (ADR-0001). Siren refuses it at the id, saying " +
+      "to write the edge it names on a line of its own.",
+  },
+  {
+    id: "fc-edge-id-names-a-node",
+    kind: "flowchart",
+    source: `flowchart LR
+      A e1@--> B
+      C --> e1`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 draws no node `e1` after an edge took the id: the line " +
+      "`e1` draws nothing, and `C --> e1` an edge to nothing (measured). " +
+      "Siren refuses the edge id a node also holds (ADR-0001), saying to give " +
+      "the edge another id.",
+  },
+  {
+    id: "fc-edge-id-repeated",
+    kind: "flowchart",
+    source: `flowchart LR
+      A e1@--> B
+      C e1@--> D`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 keeps the first `e1` and names C-D with an id of its " +
+      "own (measured); an id written to name an edge names none. Siren " +
+      "refuses an edge id another edge holds — written, or derived as `A-B` " +
+      "or `A-B#2` — at the second, saying to give it another id.",
+  },
+  {
+    id: "fc-edge-id-data-before-edge",
+    kind: "flowchart",
+    source: `flowchart LR
+      e1@{ shape: circle }
+      A e1@--> B`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 reads an `@{ … }` block on `e1` written above the edge " +
+      "as a node's, and draws a circle `e1` beside the edge (measured). Siren " +
+      "refuses it at the block, saying to move it below the edge.",
+  },
+  {
+    id: "fc-edge-id-alphabet",
+    kind: "flowchart",
+    source: `flowchart LR
+      A e$1@--> B`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 takes any run of characters but a space or a `\"` as " +
+      "an edge id (`e$1`, `é1`, measured). Siren keeps an edge id to the " +
+      "alphabet of a node id — letters, digits, `_`, `-`, `.` and `%` — so " +
+      "the two can be compared and written in a timeline, and refuses the " +
+      "rest at the id.",
+  },
+
+  // -------------------------------------------------------------------------
   // labels — the HTML tag vocabulary (ADR-0015), kept in `labelCorpus.ts`
   // -------------------------------------------------------------------------
   ...LABEL_CASES,

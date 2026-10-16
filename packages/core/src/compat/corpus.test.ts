@@ -1888,8 +1888,20 @@ const SILENTLY_WRONG = 0;
  * no row to say so. No `supported` row moved: none used such a name.
  * `fc-class-name-punctuation`, new beside them, is `supported`.
  * `silently-wrong` does not move.
+ *
+ * **60 → 65: case (2), five refusals written down for the first time.**
+ * `01M51XADJKSGRYG5CM1GG0T91R` read a flowchart edge's own id
+ * (`fc-edge-id-timeline`, `supported`) and refused the five ways of writing
+ * one that Mermaid 12.2.0 draws other than as written (ADR-0001) or that
+ * leave Siren's id space: an id on an arrow joining a group
+ * (`fc-edge-id-group`), one a node holds (`fc-edge-id-names-a-node`), one
+ * another edge holds (`fc-edge-id-repeated`), a block on it written above
+ * the edge (`fc-edge-id-data-before-edge`), and one outside the id alphabet
+ * (`fc-edge-id-alphabet`). Siren refused every edge id before, with
+ * `fc-edge-id` the one row to say so. No `supported` row moved.
+ * `silently-wrong` does not move.
  */
-const REJECTED = 60;
+const REJECTED = 65;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

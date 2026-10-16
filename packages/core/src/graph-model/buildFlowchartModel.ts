@@ -44,6 +44,7 @@ export function buildFlowchartModel(
   // id it names it by is minted here.
   const { subgraphs, idByName } = resolveSubgraphs(document, nodes);
   const edges = assignEdgeIds(document, idByName);
+  reportAuthoredEdgeIdClashes(document, nodes, edges, diagnostics);
 
   // Every styling statement a flowchart can write except one — `style`,
   // `classDef`, and the apply-directive in both its `class` and its `:::`
@@ -121,17 +122,25 @@ export function buildFlowchartModel(
   // A class diagram's namespace has been addressable this way since the class
   // board, and a frame nobody could name would be a decision by omission
   // rather than a feature that was not reached.
-  const validTargetIds = new Set<string>([
-    ...nodes.map((n) => n.id),
-    ...edges.map((e) => e.id),
-    ...subgraphs.map((s) => s.id),
-  ]);
+  const targetIds = [...nodes.map((n) => n.id), ...edges.map((e) => e.id), ...subgraphs.map((s) => s.id)];
+  const validTargetIds = new Set<string>();
+  // An id two drawn things answer to — the node `A-B` and the edge
+  // `A --> B` — which a timeline cannot name. An edge id the author wrote
+  // never lands here: one that clashes is refused above.
+  const sharedTargetIds = new Set<string>();
+  for (const id of targetIds) {
+    if (validTargetIds.has(id)) {
+      sharedTargetIds.add(id);
+    }
+    validTargetIds.add(id);
+  }
 
   const timelines = resolveTimelineBlocks(
     document,
     validTargetIds,
     { connectors: edges, noun: "edge" },
     diagnostics,
+    sharedTargetIds,
   );
 
   const graph: GraphModel = {
@@ -328,8 +337,12 @@ function assignEdgeIds(
     const occurrence = (seenPairCounts.get(pairKey) ?? 0) + 1;
     seenPairCounts.set(pairKey, occurrence);
 
+    // An id the author gave the edge itself (`A e1@--> B`) replaces the
+    // derived one, and still counts as a repeat of its pair: Mermaid 12.2.0
+    // numbers a pair's edges across all of them, named or not (measured), so
+    // naming one edge never renumbers another.
     const baseId = `${edge.from}-${edge.to}`;
-    const id = occurrence === 1 ? baseId : `${baseId}#${occurrence}`;
+    const id = edge.id ?? (occurrence === 1 ? baseId : `${baseId}#${occurrence}`);
 
     // The arrow travels with the edge, from the token the parser read: a
     // spelling is decomposed once, and this stage has no business
@@ -346,6 +359,63 @@ function assignEdgeIds(
       label: edge.label,
       style: unstyled(),
     };
+  });
+}
+
+/**
+ * Refuses an id the author gave an edge (`A e1@--> B`) that something else
+ * already answers to, at the id: a timeline action or a `data-siren-id`
+ * lookup naming it would otherwise reach two things. Measured on Mermaid
+ * 12.2.0, such a document is drawn wrong rather than refused — after `A
+ * e1@--> B`, a line `e1` draws no node at all.
+ */
+function reportAuthoredEdgeIdClashes(
+  document: FlowchartDocument,
+  nodes: readonly GraphNode[],
+  edges: readonly GraphEdge[],
+  diagnostics: Diagnostic[],
+): void {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const written = document.edges;
+  const indicesById = new Map<string, number[]>();
+  edges.forEach(({ id }, index) => {
+    const indices = indicesById.get(id);
+    if (indices === undefined) {
+      indicesById.set(id, [index]);
+    } else {
+      indices.push(index);
+    }
+  });
+  written.forEach((edge, index) => {
+    if (edge.id === undefined) {
+      return;
+    }
+    if (nodeIds.has(edge.id)) {
+      diagnostics.push({
+        severity: "error",
+        message: `The edge id "${edge.id}" is already the id of the node "${edge.id}". Give the edge another id`,
+        line: edge.idLine,
+        column: edge.idColumn,
+      });
+      return;
+    }
+    // The edge that holds the id first: any edge whose id was derived from
+    // its ends (`C-D`, `C-D#2`), or one named the same way earlier — so two
+    // edges given one id are reported once, at the second.
+    const holder = (indicesById.get(edge.id) ?? []).find(
+      (at) => at !== index && (written[at]!.id === undefined || at < index),
+    );
+    if (holder !== undefined) {
+      const { from, to } = written[holder]!;
+      diagnostics.push({
+        severity: "error",
+        message:
+          `The edge id "${edge.id}" of ${edge.from} --> ${edge.to} is already the id of the edge ${from} --> ${to}. ` +
+          "Give the edge another id",
+        line: edge.idLine,
+        column: edge.idColumn,
+      });
+    }
   });
 }
 

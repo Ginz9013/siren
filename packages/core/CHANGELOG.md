@@ -8,6 +8,9 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+Breaking for a flowchart document whose `timeline:` names an id that a node and an edge are both
+stamped with (the node `A-B` beside the edge `A --> B`), which is now refused (see **Changed**).
+
 Breaking for a flowchart document with a class name that begins with a digit (`classDef 1c`,
 `A:::1c`) or holds a `.` with no word after it, which is now refused (see **Changed**).
 
@@ -130,6 +133,16 @@ after its `)` (`+foo()* bool`), which used to be drawn `+foo() : * bool` (see **
 
 ### Added
 
+- A flowchart edge may be written with an id of its own (nook `01M51XADJK`): `A e1@--> B`, before
+  any arrow spelling, before a label in either spelling (`A e1@-->|x| B`, `A e1@-- x --> B`) and on
+  each link of a chain (`A e1@--> B e2@--> C`). The edge is drawn and stamped `data-siren-id="e1"`
+  in place of `A-B`, and a `timeline:` names it by that id. A pair's repeats are still numbered
+  across every edge between it, named or not, so naming one edge never renumbers another
+  (`A e1@--> B` then `A --> B` is `e1` and `A-B#2`, as Mermaid 12.2.0 numbers them). Each used to
+  be refused, saying to leave the id out.
+- An `@{ … }` block on an edge id written below the edge (`e1@{ … }`) is read as that edge's data:
+  a key other than `animate`, `animation` and `curve` is ignored with a warning, as Mermaid 12.2.0
+  ignores it; those three are refused as not drawn yet. The block used to be refused whole.
 - A flowchart class name may hold what Mermaid 12.2.0 styles (nook `01M51Q7FSS`, measured in
   headless Chrome): a `-` (`c-d`, `-c`, `c-`), a `.`, `#` or `+` between words (`c.d`, `c#d`,
   `c+d`), a non-ASCII letter (`cé`) or a `\`, in `classDef`, `class` and `:::` alike, each applied
@@ -311,6 +324,19 @@ after its `)` (`+foo()* bool`), which used to be drawn `+foo() : * bool` (see **
   `bool`), as well as at the end of its return type; an attribute's only as its last character,
   so `+x$ int` is drawn as written. A positioned class member carries its `classifier` beside its
   `text`.
+- **A flowchart edge id is refused where it would not name the one edge it was written on** (nook
+  `01M51XADJK`): on an arrow joining a group (`A & B e1@--> C`, `A e1@--> B & C`), where the id
+  names only one of the edges drawn; when a node holds the same id (`e1`, `C --> e1`), or another
+  edge does — written, or derived as `A-B` or `A-B#2`; and when it holds a character outside a
+  node id's alphabet (`e$1`, `é1`). Mermaid 12.2.0 draws the first three other than as written
+  and accepts the last; each is refused at the id.
+- **An `@{ … }` block on an edge id written above the edge is refused** (nook `01M51XADJK`):
+  `e1@{ … }` then `A e1@--> B` declares a node `e1` beside the edge, as Mermaid 12.2.0 draws it.
+  It used to be drawn as that node, with only a warning about the block's keys.
+- **A `timeline:` action naming an id more than one drawn thing holds is refused** (nook
+  `01M51XADJK`): the node `A-B` and the edge `A --> B` are both stamped `data-siren-id="A-B"`, so
+  `enter A-B fade` cannot say which it means. The document is still drawn; give the edge an id of
+  its own (`A e1@--> B`) or rename the node. It used to animate both.
 - **A flowchart class name Mermaid cannot style is refused** (nook `01M51Q7FSS`): Mermaid 12.2.0
   writes each `classDef` as the CSS rule `.<name> > *`, and a name that makes it fail to parse
   (`1c`, `c.`, `c..d`, `c:d`, `c%`, `c!`, `c/d` and the like) stops the whole diagram rendering in a

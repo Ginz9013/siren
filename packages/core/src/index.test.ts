@@ -8645,3 +8645,31 @@ highlight A-%%B glow
     expect(result.svg!.querySelectorAll("g.siren-node")).toHaveLength(2);
   });
 });
+
+/**
+ * A flowchart edge written with an id of its own, through `render()`
+ * (01M51XADJKSGRYG5CM1GG0T91R).
+ */
+describe("render() of a flowchart edge with its own id", () => {
+  it("stamps the edge with its own id, and a timeline enters it by that id", () => {
+    const container = document.createElement("div");
+    const result = render("flowchart LR\nA e1@--> B\nA --> B\ntimeline:\nenter e1 fade\n", container);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(
+      Array.from(result.svg!.querySelectorAll("path.siren-edge")).map((path) => path.getAttribute("data-siren-id")),
+    ).toEqual(["e1", "A-B#2"]);
+    const edge = result.svg!.querySelector('path.siren-edge[data-siren-id="e1"]')!;
+    expect(edge.classList.contains("siren-pending")).toBe(true);
+    result.controller!.next();
+    expect(edge.classList.contains("siren-pending")).toBe(false);
+  });
+
+  it("refuses a timeline naming an id a node and an edge are both stamped with", () => {
+    const container = document.createElement("div");
+    const result = render("flowchart LR\nA-B\nA --> B\ntimeline:\nenter A-B fade\n", container);
+
+    expect(result.diagnostics.map((d) => [d.severity, d.line])).toEqual([["error", 5]]);
+    expect(result.diagnostics[0]!.message).toContain('"A-B" is the id of more than one thing');
+  });
+});

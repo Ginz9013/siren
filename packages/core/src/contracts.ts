@@ -225,6 +225,14 @@ export interface SirenEdge {
    * Siren does not yet, which is a gap of its own.
    */
   label: Label | null;
+  /**
+   * The id the author gave the edge itself, `A e1@--> B`, when they gave
+   * one: it replaces the `${from}-${to}` id the model would otherwise
+   * derive, and `idLine`/`idColumn` are where it was written.
+   */
+  id?: string;
+  idLine?: number;
+  idColumn?: number;
   sourceLine?: number;
   sourceColumn?: number;
 }
