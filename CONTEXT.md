@@ -373,9 +373,11 @@ every one of them carries the class `siren-node-frame`, so an author's `style`, 
 `timeline:` block reach all fourteen exactly as they reached a rectangle. One documented token is
 the exception, and it is stated under **Design token**.
 
-Mermaid's v11 `A@{ shape: cyl }` spelling is a second, larger vocabulary of about thirty names and
-is unimplemented: a line spelling one is refused as an unrecognized flowchart line rather than
-drawn as something else. Its own board, and it reuses all of this.
+Mermaid's `A@{ shape: cyl }` **node data** names the same fourteen shapes by 45 names (each shape's
+short name and its aliases, `NODE_DATA_SHAPES` in `flowchartNodeData.ts`): the brackets and the
+block are two spellings of one shape, and a block on a node written before changes its shape and
+keeps its text. Its other names — about forty shapes Siren has no geometry for — are refused as not
+drawn yet, never drawn as one of the fourteen.
 
 **A node's label is a Label** (below), like every flowchart label: an edge's and a subgraph
 title's too. `SirenNode`/`GraphNode`/`PositionedNode` carry it as `label`, and `PositionedNode` adds
@@ -816,10 +818,12 @@ declared name, with a generic parameter *not* part of it: `class Registry~T~` ha
 `Registry` and draws as `Registry<T>`. It may carry a bracketed `["label"]` after the name and any
 generic (`class Order["Order<br/>Line"]`, also on the block form), drawn in place of the name and
 generic; the label is a **Label** in the `html` dialect, and the name stays the id. A second
-declaration of the same name merges members rather than erroring (a second, different label is
-ignored with a warning — the first one is kept). May carry one **annotation** (`<<interface>>`, `<<abstract>>`, or any
+declaration of the same name merges members rather than erroring (a later, different label
+replaces the earlier one silently, as Mermaid draws it). May carry one **annotation** (`<<interface>>`, `<<abstract>>`, or any
 author-chosen text), drawn in guillemets above the name — an annotation labels the class it
-is written in, unlike a note, which is a box of its own.
+is written in, unlike a note, which is a box of its own. A class keeps the generic its first naming
+gave it (none, if that naming wrote none) and the first annotation written; a different one written
+later is refused, as Mermaid drops it without a word. A `<br>` in the generic draws a line break.
 _Avoid_: CSS class (the codebase is full of `siren-*` CSS classes and of these boxes — say
 "class" only for the box, and "CSS class" for the other; the `classDef`/`cssClass` directives
 name the CSS-ish sense, not this one, and so does a flowchart's apply-directive, which Mermaid
@@ -834,7 +838,9 @@ Drawn as the author spelled it, its entity codes and character references decode
 `+< x`, `+&lt x` too): a member is **not** a Label, because Mermaid escapes its `<` and `>` in both
 label modes, so no tag in it is read — the one change made first, as Mermaid makes it, is
 respelling `<br/>`, `<br />` and `<BR>` as `<br>`, which is then drawn as those four characters. A
-`#` opening an entity code is the code's, not the protected marker (`#lt; x` has no visibility). Attributes and methods draw in two separate
+method's return type is drawn after ` : ` (`+swim() bool` draws `+swim() : bool`), as Mermaid
+draws it. A `#` opening an entity code is the code's, not the protected marker (`#lt; x` has no
+visibility). Attributes and methods draw in two separate
 compartments, in declaration order within each, with a divider above every populated one.
 _Avoid_: field, property (that is a CSS declaration's property in an author style), attribute
 (alone — that is one of the two kinds of member, and it is also an SVG attribute; say "attribute

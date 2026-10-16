@@ -448,9 +448,62 @@ describe("layoutClassDiagram", () => {
         "-id$",
       ]);
       expect(duck.methods!.members.map((m) => m.text)).toEqual([
-        "+swim() bool",
+        "+swim() : bool",
         "#quack(int times)*",
       ]);
+    });
+
+    it("draws a method's return type after ` : `, and sizes the box from that text", () => {
+      // Measured on Mermaid 12.2.0 (Chrome), in a class block and after
+      // `A :` alike: `+foo() bool` draws `+foo() : bool`, `+foo(int a)
+      // List~T~` `+foo(int a) : List<T>`, `-foo(a, b) Map~K,V~` `-foo(a, b) :
+      // Map<K,V>`, `+foo() #lt;T#gt;` `+foo() : <T>`, `+foo() bool int`
+      // `+foo() : bool int` and `+foo() a<br>b` `+foo() : a<br>b`; one space
+      // either side of the colon, however many were written before the
+      // return type. A method with none draws no colon.
+      const methods = [
+        method({ visibility: "+", name: "foo", parameters: "", returnType: "bool" }),
+        method({ visibility: "+", name: "foo", parameters: "int a", returnType: "List~T~" }),
+        method({ visibility: "-", name: "foo", parameters: "a, b", returnType: "Map~K,V~" }),
+        method({ visibility: "+", name: "foo", parameters: "", returnType: "#lt;T#gt;" }),
+        method({ visibility: "+", name: "foo", parameters: "", returnType: "bool int" }),
+        method({ visibility: "+", name: "foo", parameters: "", returnType: "a<br>b" }),
+        method({ visibility: "+", name: "foo", parameters: "" }),
+      ];
+      const diagram = layoutClassDiagram(classModel({ classes: [cls("A", methods)] }), { measureText: fakeMeasurer });
+      const box = classById(diagram, "A");
+      expect(box.methods!.members.map((m) => m.text)).toEqual([
+        "+foo() : bool",
+        "+foo(int a) : List<T>",
+        "-foo(a, b) : Map<K,V>",
+        "+foo() : <T>",
+        "+foo() : bool int",
+        "+foo() : a<br>b",
+        "+foo()",
+      ]);
+      expect(box.width).toBeGreaterThan(measuredWidth("-foo(a, b) : Map<K,V>"));
+    });
+
+    it("draws a colon the author wrote before a return type as part of it, after the colon it adds", () => {
+      // Measured on Mermaid 12.2.0 (Chrome): in a class block `+foo() :
+      // bool` draws `+foo() : : bool` and `+bar(): int` `+bar() : : int` —
+      // the written colon is the start of the return type.
+      expect(
+        classById(
+          layoutClassDiagram(
+            classModel({
+              classes: [
+                cls("A", [
+                  method({ visibility: "+", name: "foo", parameters: "", returnType: ": bool" }),
+                  method({ visibility: "+", name: "bar", parameters: "", returnType: ": int" }),
+                ]),
+              ],
+            }),
+            { measureText: fakeMeasurer },
+          ),
+          "A",
+        ).methods!.members.map((m) => m.text),
+      ).toEqual(["+foo() : : bool", "+bar() : : int"]);
     });
 
     it("sizes the box from the composed member text, not the bare member name", () => {
@@ -525,8 +578,8 @@ describe("layoutClassDiagram", () => {
         "+© x",
         "+¬it; x",
         "+<br> x",
-        "+foo(int < a, ♥ b) bool",
-        "+foo() <T",
+        "+foo(int < a, ♥ b) : bool",
+        "+foo() : <T",
         "+f<oo(int a)",
       ]);
     });
@@ -613,6 +666,59 @@ describe("layoutClassDiagram", () => {
       expect(classById(diagram, "Circle").label).toEqual(plainLabel("Circle"));
     });
 
+    it("decodes the entity codes in a class's generic and sizes the box from the decoded name", () => {
+      // Measured on Mermaid 12.2.0 (Chrome): `class A~#lt;~` draws `A<<>`,
+      // as do `~&lt;~` and `~#60;~`; `~&amp;~` draws `A<&>` and `~#quot;~`
+      // `A<">`.
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [
+            cls("A", [], { generic: "#lt;" }),
+            cls("B", [], { generic: "&lt;" }),
+            cls("C", [], { generic: "&amp;" }),
+            cls("D", [], { generic: "#quot;" }),
+            cls("E", [], { generic: "#60;" }),
+            cls("F", [], { generic: "<" }),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+
+      expect(["A", "B", "C", "D", "E"].map((id) => classById(diagram, id).label)).toEqual([
+        plainLabel("A<<>"),
+        plainLabel("B<<>"),
+        plainLabel("C<&>"),
+        plainLabel('D<">'),
+        plainLabel("E<<>"),
+      ]);
+      // Measured as drawn: the box is the one the decoded name needs.
+      expect(classById(diagram, "A").width).toBe(classById(diagram, "F").width);
+    });
+
+    it("draws a line break in a class's generic as a row of its own, and sizes the box from the rows", () => {
+      // Measured on Mermaid 12.2.0 (Chrome): `class A~a<br>b~` draws `A<a`
+      // over `b>`, `~a<br>b<br>c~` three rows, `~<br>~` `A<` over `>`.
+      const rows = (...texts: string[]) => ({ text: texts.join("\n"), rows: texts.map((t) => [plainRun(t)]) });
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [
+            cls("A", [], { generic: "a\nb" }),
+            cls("B", [], { generic: "a\nb\nc" }),
+            cls("C", [], { generic: "\n" }),
+            cls("D", [], { generic: "#lt;\nb" }),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+      expect(["A", "B", "C", "D"].map((id) => classById(diagram, id).label)).toEqual([
+        rows("A<a", "b>"),
+        rows("B<a", "b", "c>"),
+        rows("C<", ">"),
+        rows("D<<", "b>"),
+      ]);
+      expect(classById(diagram, "B").height).toBeGreaterThan(classById(diagram, "A").height);
+    });
+
     it("draws a member's generic type and return type in angle brackets, leaving a package-visibility tilde alone", () => {
       const diagram = layoutClassDiagram(
         classModel({
@@ -642,7 +748,7 @@ describe("layoutClassDiagram", () => {
         "+int age",
       ]);
       expect(store.methods!.members.map((m) => m.text)).toEqual([
-        "+all() List<int>",
+        "+all() : List<int>",
       ]);
     });
 
@@ -720,7 +826,7 @@ describe("layoutClassDiagram", () => {
 
       expect(
         classById(diagram, "Registry").methods!.members.map((m) => m.text),
-      ).toEqual(["+lookup(List<int> a, Map<String,int> b) bool"]);
+      ).toEqual(["+lookup(List<int> a, Map<String,int> b) : bool"]);
     });
 
     it("converts a nested generic and a sibling generic on the same line", () => {

@@ -18,10 +18,10 @@ import type {
   StyleDecl,
   StyleProperty,
 } from "../contracts";
-import { entityCodeAt, replaceEntityCodes } from "../label/characterReferences";
+import { entityCodeAt, replaceCharacterReferences, replaceEntityCodes } from "../label/characterReferences";
 import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
-import { listAcceptedHeaders, matchClassDirection, matchDiagramHeader } from "./parseDirection";
+import { isClassDirectionTD, listAcceptedHeaders, matchClassDirection, matchDiagramHeader } from "./parseDirection";
 import { readAccDescrBlock } from "./readAccDescrBlock";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 import { headerPercentError, midLinePercentError } from "./midLinePercent";
@@ -72,18 +72,23 @@ const STYLE_SHORTHAND = String.raw`(?:\s*:::\s*(\w+))?`;
  *
  * The generic capture is greedy on purpose: it runs to the *last* `~` on
  * the line, so a nested parameter such as `class Shelf~Map~String, List~int~~~`
- * parses with `Map~String, List~int~~` captured whole rather than being
- * rejected. Nested generics are therefore supported, not diagnosed.
+ * is captured whole (`Map~String, List~int~~`) — and then refused, by
+ * `nestedGenericError`, rather than misread as a shorter generic followed by
+ * text. Mermaid 12.2.0 ends a generic at its second `~` and refuses the
+ * rest (a parse error, measured), so a nested generic is no class name there
+ * (ADR-0017).
  *
  * The label is captured without the padding inside its quotes and must hold
  * something else: `class A[""]` is a parse error in Mermaid (measured), so
  * it falls through to this parser's unrecognized-line diagnostic. Measured
  * too: a space may stand between the name and the `[`, and the label goes
  * after the generic and never before it (`class A["Lab"]~T~` is a parse
- * error). Compiled with `d` so the label's own column is the group's index.
+ * error). A space may stand before the generic's `~` too, as on a
+ * relationship's end (measured: `class A ~T~` draws `A<T>`). Compiled with
+ * `d` so the label's own column is the group's index.
  */
 const CLASS_DECL_RE = new RegExp(
-  String.raw`^class\s+(\w+)(?:~(.+)~)?\s*${BRACKETED_LABEL}${STYLE_SHORTHAND}\s*$`,
+  String.raw`^class\s+(\w+)(?:\s*~(.*)~)?\s*${BRACKETED_LABEL}${STYLE_SHORTHAND}\s*$`,
   "d",
 );
 /**
@@ -97,13 +102,23 @@ const CLASS_DECL_RE = new RegExp(
  * Mermaid, which reads members up to a `}` wherever it stands (measured).
  */
 const CLASS_BLOCK_OPEN_RE = new RegExp(
-  String.raw`^class\s+(\w+)(?:~(.+)~)?\s*${BRACKETED_LABEL}${STYLE_SHORTHAND}\s*\{([^}]*)(?:\}(.*))?$`,
+  String.raw`^class\s+(\w+)(?:\s*~(.*)~)?\s*${BRACKETED_LABEL}${STYLE_SHORTHAND}\s*\{([^}]*)(?:\}(.*))?$`,
   "d",
 );
 /**
- * A relationship statement: two class names, the relation token between
- * them, an optional quoted multiplicity beside each name, and an optional
- * `: label`.
+ * A relationship statement: two class names, each with an optional
+ * `~generic~`, the relation token between them, an optional quoted
+ * multiplicity beside each name, and an optional `: label`.
+ *
+ * Measured on Mermaid 12.2.0 (Chrome): `A~T~ --> B` draws `A<T>` → B, a
+ * generic may stand at either end, with multiplicities and a label, and a
+ * space may stand before its `~` (`A ~T~ --> B`).
+ *
+ * Each generic is captured lazily, so it ends at the first `~` the rest of
+ * the line can follow — and still reaches past an inner `~…~` when nothing
+ * else would read, so `A~List~int~~ --> B` captures `List~int~` for the
+ * nested-generic error (`nestedGenericError`) rather than falling through
+ * to the unrecognized-line one.
  *
  * The relation token is matched as three independent parts — an optional
  * left marker, the line (`--` solid or `..` dashed), and an optional right
@@ -116,7 +131,7 @@ const CLASS_BLOCK_OPEN_RE = new RegExp(
  * Compiled with `d`, so the label's column is its group's own index.
  */
 const RELATIONSHIP_RE =
-  /^(\w+)(?:\s+"([^"]*)")?\s*(<\|?|\*|o|\(\))?\s*(--|\.\.)\s*(\|>|>|\*|o|\(\))?\s*(?:"([^"]*)"\s+)?(\w+)\s*(?::\s*(.*))?$/d;
+  /^(\w+)(?:\s*~(.*?)~)?(?:\s+"([^"]*)")?\s*(<\|?|\*|o|\(\))?\s*(--|\.\.)\s*(\|>|>|\*|o|\(\))?\s*(?:"([^"]*)"\s+)?(\w+)(?:\s*~(.*?)~)?\s*(?::\s*(.*))?$/d;
 
 /**
  * An annotation on its own line inside a class block, `<<interface>>`.
@@ -194,8 +209,14 @@ const NOTE_RE = /^note\s+"([^"]*)"$/d;
  * A note attached to one class, `note for Duck "text"`. Naming a class
  * here does not declare it — only a relationship does that — so a note for
  * a class that was never declared is `buildClassModel`'s to resolve.
+ *
+ * The class may carry a `~generic~` (second capture), which names nothing:
+ * Mermaid 12.2.0 reads the target by its name alone (measured, Chrome:
+ * `class A~T~` then `note for A~T~ "n"` draws `A<T>` with the note, `class
+ * A` then `note for A~T~ "n"` draws `A`). It is kept as the note's
+ * `targetGeneric`, for `buildClassModel` to hold to the class's own.
  */
-const NOTE_FOR_RE = /^note\s+for\s+(\w+)\s+"([^"]*)"$/d;
+const NOTE_FOR_RE = /^note\s+for\s+(\w+)(?:\s*~(.*?)~)?\s+"([^"]*)"$/d;
 
 /** A `direction TB|BT|LR|RL` statement. */
 
@@ -301,6 +322,17 @@ function appliedDirection(line: string): { direction: Direction; index: number }
 }
 
 /**
+ * `class C direction XX`: a class declaration followed by `direction` and a
+ * value no direction rule names (`TD`, `lr`, `XX`), which the class rule
+ * reads as the one class `CdirectionXX` (measured). Only this bare form:
+ * with a `;`, a `%%` comment, a `~generic~` or `:::style` on the line,
+ * Mermaid 12.2.0 draws no such class but refuses the line (a lexical or
+ * parse error, measured), so those keep the unrecognized-line error rather
+ * than one naming a class nobody would see.
+ */
+const CLASS_THEN_DIRECTION_RE = /^class\s+(\w+)\s+direction\s+(\w+)$/;
+
+/**
  * The same rule across a line break: its `\s+` matches one, blank lines
  * too, so a line ending in `direction` (`DIRECTION_AT_END_RE`) and the next
  * non-blank line starting with a value (`DIRECTION_CONTINUED_RE`, `TBD`
@@ -336,9 +368,12 @@ function readDirectionStatement(line: string): Direction | null {
  * wherever it stands (measured) — unless the comment names a direction the
  * lexer applies instead, its `.*` reaching it (`appliedDirection`):
  * `direction LR %% direction RL` lays the diagram out right to left, while
- * `direction RL %% direction LR` is RL either way (measured). `direction TD`
- * names no direction to that rule; with nothing after it that does, it is
- * read as written.
+ * `direction RL %% direction LR` is RL either way (measured). `own` reads
+ * `direction TD` as TB, since `matchClassDirection` keeps the flowchart's
+ * alias: `direction TD %% direction LR` is therefore no statement here and
+ * is refused for the `direction LR` the lexer applies, while `direction TD
+ * %% x` is one, which the statement parser refuses before reading it
+ * (`isClassDirectionTD`).
  */
 function isDirectionWithComment(line: string, percent: number): boolean {
   const own = readDirectionStatement(line.slice(0, percent).trimEnd());
@@ -378,6 +413,110 @@ function codeSpan(text: string): string {
  */
 function maskEntityCodes(text: string): string {
   return replaceEntityCodes(text, (code) => "#".repeat(code.length));
+}
+
+/**
+ * `text` with each character reference (`replaceCharacterReferences`) and
+ * each entity code (`replaceEntityCodes`) written over by `_`s of its
+ * length — word characters, so a member's name may hold one wherever a
+ * letter may (`isMemberName`), and no `;`, so a search for `;` in a class
+ * block's member finds only one that ends neither. Mermaid 12.2.0 hands a
+ * class block's member text to the browser, which resolves the references
+ * (measured, Chrome: `+&lt; x` draws `+< x`, `+x &lt` `+x <`, `+x &1a;`
+ * `+x &1a;`), and `+&lt; x`, `+x a&lt;b` and `+x &1a; y` are each one
+ * member. Positions are kept.
+ */
+function maskReferences(text: string): string {
+  const mask = (found: string) => "_".repeat(found.length);
+  // References first: `&#60;` is one, though `#60;` inside it is a code.
+  return replaceEntityCodes(replaceCharacterReferences(text, mask), mask);
+}
+
+/**
+ * A `<` that opens a tag: before a letter, `/` or `!`. In a class name's
+ * generic Mermaid 12.2.0 hands it to the browser as markup, and the class
+ * name loses it (measured, Chrome: `class A~List<int>~` draws `A<List>`,
+ * `~<T>~` `A`, `~a</b~` and `~a<!b~` `A<a>`), while any other `<` is text
+ * (`~a<1~`, `~a < b~`, `~a<~` draw `A<a<1>`, `A<a < b>`, `A<a<>`).
+ */
+const TAG_OPEN_RE = /<[A-Za-z/!]/;
+
+/**
+ * A `<br>` tag in a class name's generic, in any spelling the browser reads
+ * as one — `<br>`, `<br/>`, `<BR>`, `<br />`, `<br class="x">`: Mermaid
+ * 12.2.0 hands the generic to the browser as markup, and each draws a line
+ * break (measured, Chrome: `class A~a<br>b~` draws `A<a` over `b>`). The
+ * one tag `TAG_OPEN_RE` lets through; `genericOf` keeps it as `\n`.
+ */
+const GENERIC_BREAK_RE = /<br(?:\s[^>]*)?\/?>/gi;
+
+/**
+ * The error for a class name's generic that cannot be drawn as written —
+ * one holding another (`nestedGenericError`), or one holding a `<` that
+ * opens a tag other than `<br>` (`TAG_OPEN_RE`), drawn as something else
+ * with no diagnostic (ADR-0001) — at `line`:`column`, the column of its
+ * opening `~`; or `null`.
+ */
+function genericError(generic: string, line: number, column: number): Diagnostic | null {
+  const nested = nestedGenericError(generic, line, column);
+  if (nested !== null) return nested;
+  const tag = TAG_OPEN_RE.exec(generic.replace(GENERIC_BREAK_RE, ""));
+  if (tag === null) return null;
+  return {
+    severity: "error",
+    message:
+      `The generic "~${generic}~" holds "${tag[0]}", which starts markup and is not drawn as text. ` +
+      'Write the "<" as "#lt;" instead, such as "~List#lt;int#gt;~".',
+    line,
+    column,
+  };
+}
+
+/**
+ * The generic a class name's `~…~` gives it: the captured text, each
+ * `<br>` in it (`GENERIC_BREAK_RE`) kept as the `\n` it draws, or `null`
+ * for none — no `~…~` at all, or an empty one. Measured on Mermaid 12.2.0
+ * (Chrome): `class A~~` and `A~~ --> B` draw the bare `A`; `class A~ ~`
+ * keeps its space, `A< >`.
+ */
+function genericOf(captured: string | undefined): string | null {
+  return captured === undefined || captured === "" ? null : captured.replace(GENERIC_BREAK_RE, "\n");
+}
+
+/**
+ * The error for a class name's generic holding another one — `generic` as
+ * captured between its outer tildes (`List~int~`), at `line`:`column`, the
+ * column of its opening `~` — or `null` when it holds no `~`. Mermaid
+ * 12.2.0 ends a generic at its second `~`, so `class A~List~int~~` and
+ * `A~List~int~~ --> B` are parse errors there (measured, ADR-0017); written
+ * with entity codes, `class A~List#lt;int#gt;~` draws `A<List<int>>`
+ * (measured, Chrome), which is what the error suggests.
+ */
+function nestedGenericError(generic: string, line: number, column: number): Diagnostic | null {
+  if (!generic.includes("~")) return null;
+  // `class A~T~~U~` is two generics written back to back, not one inside
+  // the other — a parse error in Mermaid 12.2.0 just the same (measured),
+  // while one generic listing both, `class A~T,U~`, draws `A<T,U>`.
+  const backToBack = generic.indexOf("~~");
+  if (backToBack > 0 && !generic.slice(0, backToBack).includes("~")) {
+    return {
+      severity: "error",
+      message:
+        `The generics "~${generic.slice(0, backToBack)}~" and "~${generic.slice(backToBack + 2)}~" stand back to back, ` +
+        "and a class name takes one. " +
+        `Write them as one generic instead, such as "~${generic.split("~~").join(",")}~".`,
+      line,
+      column,
+    };
+  }
+  return {
+    severity: "error",
+    message:
+      `The generic "~${generic}~" holds another generic, which a class name cannot. ` +
+      'Write the inner angle brackets as entity codes instead, such as "~List#lt;int#gt;~".',
+    line,
+    column,
+  };
 }
 
 /**
@@ -428,24 +567,48 @@ type StatementKind =
  */
 const NAMESPACE_BODY_KINDS: ReadonlySet<StatementKind> = new Set(["namespace", "class", "note"]);
 
-/** The inline member form, `Bird : +fly()`. */
-const INLINE_MEMBER_RE = /^(\w+)\s*:\s*(.+)$/d;
 /**
- * What a member's own name may look like, once markers and type are off: an
- * identifier, which a `<br>` (already respelled by `MEMBER_BREAK_RE`) may
- * stand inside — `+id<br>int` is one name, as Mermaid reads it.
+ * The inline member form, `Bird : +fly()`, its class optionally with a
+ * `~generic~` as a relationship's end takes one — measured on Mermaid
+ * 12.2.0 (Chrome): `A~T~ : +x` and `A ~T~ : +x` draw `A<T>` with `+x`,
+ * `A~~ : +x` the bare `A`. Captured lazily, for `genericError` to refuse
+ * a nested one (`A~List~int~~ : +x` is a parse error there).
  */
-const MEMBER_NAME_RE = /^[A-Za-z_]\w*(?:<br>\w*)*$/;
+const INLINE_MEMBER_RE = /^(\w+)(?:\s*~(.*?)~)?\s*:\s*(.+)$/d;
+/**
+ * What a member's own name may look like, once markers and type are off: a
+ * letter, digit or `_` of any script, then those, `-` and `.`, which a
+ * `<br>` (already respelled by `MEMBER_BREAK_RE`) may stand inside —
+ * `+id<br>int` is one name, as Mermaid reads it. Measured on Mermaid 12.2.0
+ * (Chrome), in a block and after `A :` alike: `+x 1`, `+int 2x`, `+1foo()`,
+ * `+x 1.5`, `+x a-b`, `+x a.b`, `+x é` and `+a-b()` are drawn as written,
+ * and so are a trailing or doubled `-` or `.` (`+x name-`, `+x a--b`,
+ * `+1.2.3()`), so neither is refused here.
+ */
+const MEMBER_NAME_RE = /^[\p{L}\p{N}_][\p{L}\p{N}_.-]*(?:<br>[\p{L}\p{N}_.-]*)*$/u;
+
+/**
+ * A whole member name that looks like an entity code and is none — a `#`,
+ * then anything but a space, `#` or `;`, then `;`: `#a-b;`, `#é;`, `#;`.
+ * Mermaid 12.2.0 leaves it alone (`#\w+;` is all it encodes), and a class
+ * block draws it as written (measured, Chrome: `+x #a-b;`, `+x #é;`, `+x
+ * #;`). After `A :` its `;` is refused before the name is read.
+ */
+const LITERAL_HASH_NAME_RE = /^#[^\s#;]*;$/;
 
 /**
  * Whether `name` may be a member's own name: `MEMBER_NAME_RE`, with an
  * entity code standing wherever a word character may — Mermaid 12.2.0
  * encodes each `#\w+;` into word-like text before it parses, so `+x #lt;`,
  * `+int a#lt;b` and `+#lt;foo()` are members (measured), their codes
- * decoded when drawn.
+ * decoded when drawn. A character reference stands there too
+ * (`maskReferences`): `+x &lt;` and `+&lt;foo()` in a class block
+ * are drawn `+x <` and `+<foo()` (measured, Chrome); after `A :` its `;` is
+ * refused before the name is read.
  */
 function isMemberName(name: string): boolean {
-  return MEMBER_NAME_RE.test(replaceEntityCodes(name, () => "_"));
+  if (LITERAL_HASH_NAME_RE.test(name)) return true;
+  return MEMBER_NAME_RE.test(maskReferences(name));
 }
 /**
  * Mermaid's own row-break pattern, which it applies to a member's text and
@@ -495,6 +658,21 @@ function endpointFor(marker: string | undefined): ClassRelationshipEnd {
     default:
       return "none";
   }
+}
+
+/**
+ * Whether a `;` in a class block's member `text` — outside `(…)` and
+ * `~…~`, and not its last character — is followed by text `parseMember`
+ * reads as a member of its own: the sign of two members run together. The
+ * member read is only tested and dropped, so its position is no matter.
+ */
+function runsOnIntoMember(text: string): boolean {
+  const blanked = text.replace(/\([^)]*\)|~[^~]*~/g, (inside) => " ".repeat(inside.length));
+  for (let at = blanked.indexOf(";"); at !== -1; at = blanked.indexOf(";", at + 1)) {
+    const after = text.slice(at + 1).trim();
+    if (after.length > 0 && parseMember(after, 0, 0) !== null) return true;
+  }
+  return false;
 }
 
 /**
@@ -815,23 +993,48 @@ export function parseClassDiagram(source: string): DiagramParseResult {
   };
 
   /**
+   * Refuses the generic a statement's match captured as its second capture
+   * — a class declaration's, a block's, an inline member's class's or a
+   * note target's — if it cannot be drawn as written (`genericError`: a
+   * nested generic, two back to back, or a `<` opening a tag), at the
+   * column of the `~` before it. Says whether it did.
+   */
+  const refuseUndrawableGeneric = (match: RegExpExecArray, lineNumber: number, column: number): boolean => {
+    const generic = match[2];
+    if (generic === undefined) return false;
+    const error = genericError(generic, lineNumber, column + match.indices![2]![0] - 1);
+    if (error === null) return false;
+    diagnostics.push(error);
+    sawError = true;
+    return true;
+  };
+
+  /**
    * Records a class named by a relationship, the way `parseFlowchart`
    * records a node named by an edge: `Animal <|-- Duck` declares both
    * classes. Only the first mention creates one, so a class named by ten
    * relationships is still one declaration — and an id that already has a
    * declaration of its own is left alone.
+   *
+   * Unless that end writes a `~generic~` (`null` for none): then it is
+   * declared again, carrying it, for `buildClassModel` to weigh against the
+   * generic the class's first naming gave it — the first is kept, a
+   * different later one warned about, and one given after a generic-less
+   * first naming refused (measured on Mermaid 12.2.0, Chrome: `A --> C`
+   * then `A~T~ --> B` draws `A`, `class A~T~` then `A~U~ --> B` `A<T>`).
    */
   const declareImplicitly = (
     id: string,
+    generic: string | null,
     line: number,
     column: number,
     namespaceMembers: string[] | null,
   ) => {
-    if (declaredIds.has(id)) {
+    if (declaredIds.has(id) && generic === null) {
       return;
     }
     declareClass(
-      { id, generic: null, annotation: null, label: null, members: [], line, column },
+      { id, generic, annotation: null, label: null, members: [], line, column },
       namespaceMembers,
     );
   };
@@ -980,6 +1183,22 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     const lineNumber = startIndex + 1;
     const column = textColumn(rawLine);
 
+    // `TD` is a flowchart's alias, not a class diagram's: refused saying
+    // which spelling to write. Inside a namespace the placement is the
+    // problem, as for any `direction` there, so the namespace's one error
+    // says so and this one is not added.
+    if (isClassDirectionTD(line)) {
+      if (namespaceMembers !== null) return { lastIndex: startIndex, read: "direction" };
+      diagnostics.push({
+        severity: "error",
+        message: "`direction TD` is not a class-diagram direction: write `direction TB` for top to bottom.",
+        line: lineNumber,
+        column,
+      });
+      sawError = true;
+      return { lastIndex: startIndex, read: "direction" };
+    }
+
     const directionStatement = readDirectionStatement(line);
     if (directionStatement !== null) {
       direction = directionStatement;
@@ -1020,8 +1239,32 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       }
       accDescr = block.description;
       if (block.rest === null) return { lastIndex: block.closeIndex, read: "accessibility" };
-      lines[block.closeIndex] = block.rest;
-      return { lastIndex: block.closeIndex - 1, read: "accessibility" };
+      // Unlike every other kind's, a class diagram's `}` must end its line:
+      // Mermaid 12.2.0 refuses `accDescr { d }
+      // class C` and a multi-line block's `} direction LR` ("Expecting
+      // 'NEWLINE', 'EOF', got …", measured), so the text after it is
+      // refused rather than read as the next statement (ADR-0017). A `%%`
+      // there is a comment on the document's last line and refused on any
+      // other, as after the statements in `STATEMENTS_A_COMMENT_MAY_FOLLOW`
+      // (measured).
+      const rest = block.rest.trim();
+      const restLine = block.closeIndex + 1;
+      const restColumn = block.rest.length - block.rest.trimStart().length + 1;
+      if (rest.startsWith("%%")) {
+        if (block.closeIndex !== lastStatementIndex) {
+          diagnostics.push(midLinePercentError(restLine, restColumn));
+          sawError = true;
+        }
+      } else {
+        diagnostics.push({
+          severity: "error",
+          message: `Nothing may follow the \`}\` that closes \`accDescr { ... }\` on its line: move ${codeSpan(rest)} to a line of its own.`,
+          line: restLine,
+          column: restColumn,
+        });
+        sawError = true;
+      }
+      return { lastIndex: block.closeIndex, read: "accessibility" };
     }
 
     const namespaceOpenMatch = NAMESPACE_OPEN_RE.exec(line);
@@ -1225,10 +1468,13 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     // 12.2.0) — so it is recorded on the innermost block around it.
     const noteForMatch = NOTE_FOR_RE.exec(line);
     if (noteForMatch !== null) {
+      refuseUndrawableGeneric(noteForMatch, lineNumber, column);
+      const generic = genericOf(noteForMatch[2]);
       enclosingNamespace?.noteIndexes.push(notes.length);
       notes.push({
-        label: readLabelIn(noteForMatch, 2, lineNumber, column),
+        label: readLabelIn(noteForMatch, 3, lineNumber, column),
         targetId: noteForMatch[1],
+        ...(generic === null ? {} : { targetGeneric: generic }),
         line: lineNumber,
         column,
       });
@@ -1392,16 +1638,47 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       const [
         ,
         from,
+        fromGeneric,
         fromMultiplicity,
         leftMarker,
         lineToken,
         rightMarker,
         toMultiplicity,
         to,
+        toGeneric,
         labelSource,
       ] = relationshipMatch;
       const fromEnd = endpointFor(leftMarker);
       const toEnd = endpointFor(rightMarker);
+      // A generic on a `()` end is no generic: that end names an interface,
+      // which Mermaid 12.2.0 draws with the tildes as written (measured,
+      // Chrome: `A~T~ ()-- B` draws an interface `A~T~`) — neither the name
+      // alone nor `A<T>`, so it is refused (ADR-0001).
+      const genericErrors = ([[2, from, fromEnd], [9, to, toEnd]] as const).flatMap(([group, id, end]) => {
+        const generic = relationshipMatch[group];
+        if (generic === undefined) return [];
+        const at = column + relationshipMatch.indices![group]![0] - 1;
+        if (end === "circle") {
+          const name = `${id}~${generic}~`;
+          return [
+            {
+              severity: "error" as const,
+              message:
+                `The interface "${name}" at a "()" end cannot take a generic. ` +
+                `Write the interface's name alone, such as "${id}".`,
+              line: lineNumber,
+              column: at,
+            },
+          ];
+        }
+        const error = genericError(generic, lineNumber, at);
+        return error === null ? [] : [error];
+      });
+      if (genericErrors.length > 0) {
+        diagnostics.push(...genericErrors);
+        sawError = true;
+        return { lastIndex: startIndex, read: "relationship" };
+      }
       relationships.push({
         from,
         to,
@@ -1414,7 +1691,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         label:
           labelSource === undefined || labelSource.length === 0
             ? null
-            : readLabelIn(relationshipMatch, 8, lineNumber, column),
+            : readLabelIn(relationshipMatch, 10, lineNumber, column),
         fromMultiplicity: fromMultiplicity ?? null,
         toMultiplicity: toMultiplicity ?? null,
         sourceLine: lineNumber,
@@ -1424,13 +1701,16 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       // never adds that side to the class list (measured: `Duck ()--
       // Quacks` produces a class for "Quacks" only). `buildClassModel`
       // resolves the lollipop side into its own synthetic node instead.
-      if (fromEnd !== "circle") declareImplicitly(from, lineNumber, column, namespaceMembers);
-      if (toEnd !== "circle") declareImplicitly(to, lineNumber, column, namespaceMembers);
+      if (fromEnd !== "circle") declareImplicitly(from, genericOf(fromGeneric), lineNumber, column, namespaceMembers);
+      if (toEnd !== "circle") declareImplicitly(to, genericOf(toGeneric), lineNumber, column, namespaceMembers);
       return { lastIndex: startIndex, read: "relationship" };
     }
 
     const blockOpenMatch = CLASS_BLOCK_OPEN_RE.exec(line);
     if (blockOpenMatch !== null) {
+      // A nested generic is refused, and the block still read, so its body
+      // is not misread as statements of its own.
+      refuseUndrawableGeneric(blockOpenMatch, lineNumber, column);
       attachShorthand(blockOpenMatch[1], blockOpenMatch[4], lineNumber, column);
       const members: ClassMember[] = [];
       // Annotations inside the block are emitted as their own declarations
@@ -1470,7 +1750,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
           declareClass(
             {
               id: blockOpenMatch[1],
-              generic: blockOpenMatch[2] ?? null,
+              generic: genericOf(blockOpenMatch[2]),
               annotation: annotationMatch[1].trim(),
               label: null,
               members: [],
@@ -1491,18 +1771,30 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         // it is what was written: `+foo(a; b)` keeps the parameters `a; b`.
         // A `;` ending the member separates nothing: `+int x;` is one
         // attribute to Mermaid as written, refused only as unrecognized.
-        // An entity code's own `;` is no `;` at all (`maskEntityCodes`).
-        const separated = maskEntityCodes(text)
-          .replace(/\([^)]*\)|~[^~]*~/g, "")
-          .replace(/;\s*$/, "")
-          .includes(";")
-          ? '. A ";" does not separate members: write each member on a line of its own.'
-          : "";
-        const member = separated === "" ? parseMember(text, memberLine, memberColumn) : null;
+        // An entity code's or a character reference's own `;` is no `;` at
+        // all (`maskReferences`).
+        const holdsSeparator = (masked: string) =>
+          masked
+            .replace(/\([^)]*\)|~[^~]*~/g, "")
+            .replace(/;\s*$/, "")
+            .includes(";");
+        const separated = holdsSeparator(maskReferences(text));
+        const member = separated ? null : parseMember(text, memberLine, memberColumn);
         if (member === null) {
+          // A member Siren cannot read whose `;` ends a reference or a code
+          // is still most likely two run together when what follows that
+          // `;` reads as a member of its own (`+x &zz; +foo()`, `+x #foo;
+          // +y`) — Mermaid 12.2.0 draws each as one member (measured) — so
+          // the error says how to write two, as for any other `;`. When
+          // nothing readable follows (`+x &lt; !!`), the `;` is not what is
+          // wrong, and the error does not blame it.
+          const hint =
+            separated || runsOnIntoMember(text)
+              ? '. A ";" does not separate members: write each member on a line of its own.'
+              : "";
           diagnostics.push({
             severity: "error",
-            message: `Unrecognized class member: "${text}"${separated}`,
+            message: `Unrecognized class member: "${text}"${hint}`,
             line: memberLine,
             column: memberColumn,
           });
@@ -1576,7 +1868,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       declareClass(
         {
           id: blockOpenMatch[1],
-          generic: blockOpenMatch[2] ?? null,
+          generic: genericOf(blockOpenMatch[2]),
           annotation: null,
           label:
             blockOpenMatch[3] === undefined
@@ -1595,11 +1887,12 @@ export function parseClassDiagram(source: string): DiagramParseResult {
 
     const classDeclMatch = CLASS_DECL_RE.exec(line);
     if (classDeclMatch !== null) {
+      refuseUndrawableGeneric(classDeclMatch, lineNumber, column);
       attachShorthand(classDeclMatch[1], classDeclMatch[4], lineNumber, column);
       declareClass(
         {
           id: classDeclMatch[1],
-          generic: classDeclMatch[2] ?? null,
+          generic: genericOf(classDeclMatch[2]),
           annotation: null,
           label:
             classDeclMatch[3] === undefined
@@ -1616,14 +1909,15 @@ export function parseClassDiagram(source: string): DiagramParseResult {
 
     const inlineMemberMatch = holdsShorthand ? null : INLINE_MEMBER_RE.exec(line);
     if (inlineMemberMatch !== null) {
-      const [, id, memberText] = inlineMemberMatch;
+      const [, id, , memberText] = inlineMemberMatch;
+      refuseUndrawableGeneric(inlineMemberMatch, lineNumber, column);
       // Measured: Mermaid 12.2.0's lexer refuses a `;` anywhere in an inline
       // member — between two members, ending one, inside `(…)`, `~…~` or
       // quotes alike ("Lexical error … Unrecognized text" at the `;`) — so
       // Siren refuses every one there (ADR-0017), unlike a class block,
       // which keeps a `;` inside a method's parentheses. The `;` ending an
       // entity code is the code's (`maskEntityCodes`).
-      const semicolon = maskEntityCodes(line).indexOf(";", inlineMemberMatch.indices![2]![0]);
+      const semicolon = maskEntityCodes(line).indexOf(";", inlineMemberMatch.indices![3]![0]);
       if (semicolon !== -1) {
         diagnostics.push({
           severity: "error",
@@ -1652,7 +1946,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       declareClass(
         {
           id,
-          generic: null,
+          generic: genericOf(inlineMemberMatch[2]),
           annotation: null,
           label: null,
           members: [member],
@@ -1708,6 +2002,26 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         message:
           `Member "${line}" is outside class "${lastClosedBlock.id}": the "}" on line ${previous + 1} already closed its block. ` +
           'Move the "}" below the class\'s last member.',
+        line: lineNumber,
+        column,
+      });
+      sawError = true;
+      return { lastIndex: startIndex, read: null };
+    }
+
+    // `class C direction XX`: a value the direction rules do not name
+    // (`DIRECTION_RULES`) leaves the line to the class rule, which glues its
+    // words into one name — measured on Mermaid 12.2.0 (Chrome), `class C
+    // direction XX`, `… TD` and `… lr` each draw one class, `CdirectionXX`
+    // and so on, and set no direction. A picture nobody wrote (ADR-0001),
+    // refused saying so.
+    const gluedDirection = CLASS_THEN_DIRECTION_RE.exec(line);
+    if (gluedDirection !== null) {
+      diagnostics.push({
+        severity: "error",
+        message:
+          `\`${line}\` would declare one class named \`${gluedDirection[1]}direction${gluedDirection[2]}\`, ` +
+          "not a class and a direction. Write the direction on a line of its own, such as `direction LR`.",
         line: lineNumber,
         column,
       });

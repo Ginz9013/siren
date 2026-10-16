@@ -442,6 +442,23 @@ export function resolveEntityCodes(text: string): string {
 }
 
 /**
+ * A character reference as the browser's parser finds one: `&`, then a
+ * number in decimal or in hex after an `x`, or a run of letters and digits
+ * (a name, known or not), each with an optional `;`. The one spelling of
+ * that pattern; read it through `replaceCharacterReferences`.
+ */
+const CHARACTER_REFERENCE = /&(?:#(?:[xX]([0-9A-Fa-f]+)|(\d+));?|([A-Za-z0-9]+)(;?))/g;
+
+/**
+ * `text` with each character reference in it (`CHARACTER_REFERENCE`:
+ * `&lt;`, `&#60;`, `&#x3c;`, `&zz;`, `&lt`) replaced by what `replace`
+ * returns for it, given the whole reference. Nothing is resolved.
+ */
+export function replaceCharacterReferences(text: string, replace: (reference: string) => string): string {
+  return text.replace(CHARACTER_REFERENCE, (reference: string) => replace(reference));
+}
+
+/**
  * `text` with each character reference in it resolved, as the browser's
  * parser resolves it in `context`: a number, in decimal or in hex after an
  * `x`, with or without its `;` (`&#65` is `A`); a name by `resolveNamed`;
@@ -449,7 +466,7 @@ export function resolveEntityCodes(text: string): string {
  */
 function resolveCharacterReferences(text: string, context: ReferenceContext): string {
   return text.replace(
-    /&(?:#(?:[xX]([0-9A-Fa-f]+)|(\d+));?|([A-Za-z0-9]+)(;?))/g,
+    CHARACTER_REFERENCE,
     (
       reference: string,
       hex: string | undefined,

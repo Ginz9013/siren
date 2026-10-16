@@ -5,6 +5,7 @@ import type {
   ClassModel,
   ClassModelResult,
   ClassNamespace,
+  ClassNote,
   Diagnostic,
   ResolvedClass,
   ResolvedClassNamespace,
@@ -112,12 +113,85 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
 interface ClassAccumulator {
   resolved: ResolvedClass;
   memberKeys: Set<string>;
+  /** The line the class was first named on, when the declaration says. */
+  firstLine?: number;
+  /** The line its kept annotation was written on, when the declaration says. */
+  annotationLine?: number;
 }
 
-function emptyClass(id: string): ClassAccumulator {
+function emptyClass(id: string, firstLine?: number): ClassAccumulator {
   return {
     resolved: { id, generic: null, annotation: null, label: null, members: [], namespaceId: null },
     memberKeys: new Set<string>(),
+    firstLine,
+  };
+}
+
+/**
+ * ` on line N` for an error to say where something was written, or nothing
+ * when the declaration that wrote it carried no position.
+ */
+function onLine(line: number | undefined): string {
+  return line === undefined ? "" : ` on line ${line}`;
+}
+
+/**
+ * The error for a declaration annotating a class differently from the
+ * annotation it already keeps, or `null` when it writes none or the same.
+ * Measured on Mermaid 12.2.0 (Chrome): `<<interface>> A` then `<<service>>
+ * A`, or both in one block, draws only «interface», the second gone with
+ * no diagnostic — a picture other than the one written (ADR-0001).
+ */
+function annotationAfterFirst(declaration: ClassDecl, existing: ClassAccumulator): Diagnostic | null {
+  const kept = existing.resolved.annotation;
+  if (declaration.annotation === null || kept === null || declaration.annotation === kept) return null;
+  return {
+    severity: "error",
+    message:
+      `Class "${declaration.id}" is annotated «${declaration.annotation}» here, but it was first annotated ` +
+      `«${kept}»${onLine(existing.annotationLine)}, and a class keeps its first annotation. ` +
+      `Give "${declaration.id}" one annotation.`,
+    line: declaration.line,
+    column: declaration.column,
+  };
+}
+
+/**
+ * A generic as an error quotes it: each line break the parser kept as `\n`
+ * written back as the `<br>` the author wrote for it.
+ */
+function asWritten(generic: string): string {
+  return generic.replaceAll("\n", "<br>");
+}
+
+/**
+ * The error for a declaration giving a class a generic other than the one
+ * its first naming gave it — none, or a different one — or `null` when it
+ * gives none or the same. A class keeps what its first naming gave it:
+ * measured on Mermaid 12.2.0 (Chrome), `class A` then `class A~T~`, `A -->
+ * C` then `class A~T~` and `class A` then `A~T~ --> B` draw `A`; `class
+ * A~T~` then `class A~U~`, `A~U~ --> B` or `A~U~ : +x`, and `A~T~ --> B`
+ * then `class A~U~`, draw `A<T>` — the later generic gone with no
+ * diagnostic, a picture other than the one written (ADR-0001). The one
+ * home of that rule: a note's target generic is held to the generic it
+ * keeps (`noteTargetGenericError`).
+ */
+function genericAfterFirstNaming(declaration: ClassDecl, existing: ClassAccumulator): Diagnostic | null {
+  if (declaration.generic === null || declaration.generic === existing.resolved.generic) return null;
+  const given = asWritten(declaration.generic);
+  const kept = existing.resolved.generic === null ? null : asWritten(existing.resolved.generic);
+  const where = onLine(existing.firstLine);
+  const id = declaration.id;
+  return {
+    severity: "error",
+    message:
+      kept === null
+        ? `Class "${id}" gets the generic "${given}" here, but it was first named${where} without one, ` +
+          `and a class keeps what its first naming gave it. Write "~${given}~" where "${id}" is first named.`
+        : `Class "${id}" gets the generic "${given}" here, but it was first named${where} with "${kept}", ` +
+          `and a class keeps what its first naming gave it. Give "${id}" one generic, where it is first named.`,
+    line: declaration.line,
+    column: declaration.column,
   };
 }
 
@@ -140,9 +214,10 @@ function resolveClasses(
   for (const declaration of document.classes) {
     const existing = classesById.get(declaration.id);
     if (existing === undefined) {
-      const created = emptyClass(declaration.id);
+      const created = emptyClass(declaration.id, declaration.line);
       created.resolved.generic = declaration.generic;
       created.resolved.annotation = declaration.annotation;
+      if (declaration.annotation !== null) created.annotationLine = declaration.line;
       created.resolved.label = declaration.label;
       classesById.set(declaration.id, created);
       addMembers(created, declaration.members);
@@ -152,31 +227,25 @@ function resolveClasses(
     addMembers(existing, declaration.members);
 
     // An annotation and a generic are single-valued, so they cannot be
-    // unioned the way members are: the first declaration that names one
-    // wins, as it does in Mermaid 11.17.2 (measured: `class A~T~` then
-    // `class A~U~` keeps `T`; `<<interface>> A` then `<<service>> A` draws
-    // only «interface»). A second, different one is a warning because
-    // Mermaid drops it without a word, which is likely not what the author
-    // meant. First-*named*, not first-declared — the implicit declaration a
-    // relationship makes carries neither, and it is usually the one that
-    // introduced the class, so taking its nulls would discard whatever the
-    // explicit declaration said.
-    existing.resolved.annotation = mergeAttribute(
-      existing.resolved.annotation,
-      declaration.annotation,
-      "annotations",
-      "annotation",
-      declaration,
-      diagnostics,
-    );
-    existing.resolved.generic = mergeAttribute(
-      existing.resolved.generic,
-      declaration.generic,
-      "generics",
-      "generic",
-      declaration,
-      diagnostics,
-    );
+    // unioned the way members are: the first one written is kept, as
+    // Mermaid 12.2.0 keeps it, dropping any other with no diagnostic
+    // (measured, Chrome: `<<interface>> A` then `<<service>> A`, or both in
+    // one block, draws only «interface») — a picture other than the one
+    // written, so a different second one is refused (ADR-0001). An
+    // annotation is first-*named*, not first-declared: the implicit
+    // declaration a relationship makes carries none, and Mermaid takes a
+    // later one then. A generic is first-declared (below).
+    if (existing.resolved.annotation === null) {
+      existing.resolved.annotation = declaration.annotation;
+      if (declaration.annotation !== null) existing.annotationLine = declaration.line;
+    } else {
+      const conflict = annotationAfterFirst(declaration, existing);
+      if (conflict !== null) diagnostics.push(conflict);
+    }
+    // A generic is kept from the class's first naming, even when that gave
+    // none (`genericAfterFirstNaming`), and any other is refused.
+    const refused = genericAfterFirstNaming(declaration, existing);
+    if (refused !== null) diagnostics.push(refused);
     // A label is single-valued too, but Mermaid does not merge it the way
     // it merges those two: the *last* label written is the one drawn, with
     // no diagnostic (measured, 11.17.2: `class A["x"]` then `class A["y"]`
@@ -334,8 +403,9 @@ function claimMembers(
  * +int age` written on two lines yields one line, not two. The first copy
  * is the one kept, along with its source position.
  *
- * The identity of a member is the text it is drawn as — `+int age`,
- * `+swim() bool` — because that is exactly what a reader sees repeated.
+ * The identity of a member is its authored line text — `+int age`,
+ * `+swim() bool` (`memberLineText`) — which tracks what a reader sees
+ * repeated.
  * Two members differing in visibility, type, parameters, return type or
  * classifier draw differently and are therefore different members, even
  * when they share a name; Mermaid lets a class carry both, and so does
@@ -384,6 +454,38 @@ function memberLineText(member: ClassMember): string {
 }
 
 /**
+ * The error for a note whose target carries a generic other than the one
+ * its class was first named with — `class`'s kept generic, the rule
+ * `genericAfterFirstNaming` keeps — or that names no class at all; `null`
+ * when it carries none or the class's own. Mermaid 12.2.0 reads a note's
+ * target by its name alone (measured, Chrome: `class A~T~` then `note for
+ * A~T~ "n"` draws `A<T>` with the note; `class A` or `class A~U~` then
+ * `note for A~T~ "n"` draws `A` or `A<U>`, the `T` gone with no diagnostic),
+ * so any other generic is a picture other than the one written (ADR-0001).
+ */
+function noteTargetGenericError(note: ClassNote, target: ClassAccumulator | undefined): Diagnostic | null {
+  if (note.targetGeneric === undefined || target?.resolved.generic === note.targetGeneric) return null;
+  const written = asWritten(note.targetGeneric);
+  const where = onLine(target?.firstLine);
+  const has =
+    target === undefined
+      ? "is never named"
+      : target.resolved.generic === null
+        ? `was first named${where} without one`
+        : `was first named${where} with "${asWritten(target.resolved.generic)}"`;
+  const id = note.targetId;
+  return {
+    severity: "error",
+    message:
+      `The note for "${id}~${written}~" names the generic "${written}", but class "${id}" ${has}, ` +
+      `so "${written}" would not be drawn. ` +
+      `Write the note for "${id}" alone, or give "${id}" that generic where it is first named.`,
+    line: note.line,
+    column: note.column,
+  };
+}
+
+/**
  * Resolves the document's `note` statements: each gets the stable
  * `note:${n}` id the timeline and the renderer address it by, and an
  * attached note's target is looked up among the classes.
@@ -407,7 +509,10 @@ function resolveNotes(
 
   document.notes.forEach((note, index) => {
     let targetId = note.targetId;
-    if (targetId !== null && !classesById.has(targetId)) {
+    const targetGenericError = targetId === null ? null : noteTargetGenericError(note, classesById.get(targetId));
+    if (targetGenericError !== null) {
+      diagnostics.push(targetGenericError);
+    } else if (targetId !== null && !classesById.has(targetId)) {
       diagnostics.push({
         severity: "warning",
         message:
@@ -416,8 +521,10 @@ function resolveNotes(
         line: note.line,
         column: note.column,
       });
-      targetId = null;
     }
+    // A note naming no class is kept as a free note, whichever diagnostic
+    // it got.
+    if (targetId !== null && !classesById.has(targetId)) targetId = null;
 
     notes.push({
       id: generatedId("note", index + 1),
@@ -478,35 +585,4 @@ function assignRelationshipIds(document: ClassDocument): ResolvedClassRelationsh
       toInterfaceLabel: isToInterface ? relationship.to : null,
     };
   });
-}
-
-/**
- * Merges one single-valued class attribute across two declarations of the
- * same class: the first non-null value wins, and two different non-null
- * values are a warning rather than an error — both declarations are
- * perfectly well-formed on their own, and the diagram still renders with
- * the first. A label is not merged here: Mermaid keeps the last one, so
- * `resolveClasses` replaces it instead.
- */
-function mergeAttribute(
-  kept: string | null,
-  incoming: string | null,
-  plural: string,
-  singular: string,
-  declaration: ClassDecl,
-  diagnostics: Diagnostic[],
-): string | null {
-  if (incoming === null) return kept;
-  if (kept === null) return incoming;
-  if (kept === incoming) return kept;
-
-  diagnostics.push({
-    severity: "warning",
-    message:
-      `Class "${declaration.id}" is declared with conflicting ${plural} ` +
-      `("${kept}" vs. "${incoming}"); keeping the first-seen ${singular}.`,
-    line: declaration.line,
-    column: declaration.column,
-  });
-  return kept;
 }

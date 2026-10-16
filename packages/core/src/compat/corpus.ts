@@ -2925,6 +2925,26 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       "word in both.",
   },
   {
+    id: "fc-id-end-prefix-in-subgraph",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph s
+        A
+        end-x
+      B --> A`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** Its lexer reads " +
+      "a keyword before an id wherever the next character is not " +
+      "`[A-Za-z0-9_]`, so `end-x` is the block's `end` and then a node `-x`: " +
+      "Mermaid 12.2.0 draws the frame `s` around `A`, and `-x` and `B` " +
+      "outside it (measured), with no diagnostic. Siren refuses it (ADR-0001), " +
+      "at the id, saying it begins with the keyword `end` and to rename it " +
+      "(`endX`), and reads the block as closed there. The same id at the top " +
+      "level, and every other keyword (`style-x`, `class.x`, `graph%x`, …), " +
+      "is a parse error in Mermaid and refused the same way.",
+  },
+  {
     id: "fc-direction-top-level",
     kind: "flowchart",
     source: `flowchart TB
@@ -3255,12 +3275,82 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A@{ shape: circle, label: "x" } --> B`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "Mermaid 12.2.0's `@{ … }` node data gives `A` the shape `circle` and " +
-      "the label `x` (measured). Siren does not read `@{ … }` yet (its own " +
-      "board): refused at the `@`, saying to write the shape with brackets " +
-      "(`A((x))`).",
+      "the label `x` (measured). Siren reads the block and draws the circle " +
+      "`A((x))` would.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[x]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+      expectSame("outline", nodeOutline(result, "A"), "circle");
+    },
+  },
+  {
+    id: "fc-node-shape-data-names",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ shape: cyl, label: "Store" } --> B@{ shape: diamond }
+      C@{
+        shape: hex
+        label: "Prepare"
+      }
+      B --> C@{ shape: lean-r }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws each `shape:` name with the handler its bracket " +
+      "spelling draws (`cyl` is `A[(x)]`, `diamond` is `A{x}`, `hex` is " +
+      "`A{{x}}`, `lean-r` is `A[/x/]`), reads a block written across lines " +
+      "as YAML, and changes a node's shape at a later block while keeping " +
+      "its text (measured). Siren draws the same four shapes.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Store]", "B[B]", "C[Prepare]"]);
+      expectSame("edges", edges(result), ["A-B", "B-C"]);
+      expectSame("outline", nodeOutline(result, "A"), "tube with an elliptical top");
+      expectSame("outline", nodeOutline(result, "B"), "diamond");
+      expectSame("outline", nodeOutline(result, "C"), "parallelogram leaning right");
+    },
+  },
+  {
+    id: "fc-node-shape-data-undrawn",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ shape: cloud, label: "x" } --> B`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 draws `A` as a cloud (measured), one of the 39 shapes " +
+      "its `@{ … }` names that Siren has no geometry for. Refused at the " +
+      "`@`, saying the shape is not drawn yet and naming the fourteen it can " +
+      "draw.",
+  },
+  {
+    id: "fc-node-shape-data-icon",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ icon: "fa:user", label: "x" } --> B`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 draws `A` as an icon node labelled `x` (measured). " +
+      "Siren draws no icons: `icon`, `img`, `form`, `pos`, `w`, `h` and " +
+      "`constraint` are refused at the `@`, saying to leave the key out.",
+  },
+  {
+    id: "fc-node-shape-data-in-edge-label",
+    kind: "flowchart",
+    source: `flowchart TB
+      A -- x@{y --> B
+      C --> D`,
+    status: "supported",
+    meaning:
+      "An `@{` inside an arrow's own label is text: Mermaid 12.2.0 draws the " +
+      "edge A-B labelled `x@{y`, and C, D and the edge between them from the " +
+      "next line (measured). Siren draws the same; an `@{` opens a block only " +
+      "where a node is written.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]", "C[C]", "D[D]"]);
+      expectSame("edges", edges(result), ["A-B", "C-D"]);
+      expectSame("label", edgeLabel(result, "A-B"), "x@{y");
+    },
   },
   {
     id: "fc-edge-id",
@@ -3601,6 +3691,79 @@ line2\`"]`,
     assert: (result) => {
       expectSame("A's frame", nodeStyle(result, "A"), "fill:#0ff;stroke:#00f");
     },
+  },
+  {
+    id: "fc-class-name-punctuation",
+    kind: "flowchart",
+    source: `flowchart TB
+      classDef c-d fill:#f00
+      classDef x.y,z#w fill:#0f0
+      A:::c-d --> B
+      class B x.y
+      C:::z#w`,
+    status: "supported",
+    meaning:
+      "A class name may hold `-`, and `.`, `#` or `+` between words; " +
+      "`classDef x.y,z#w` defines both names. Measured in headless Chrome on " +
+      "Mermaid 12.2.0: A is filled red, B and C green. Siren applies each " +
+      "class by its name and paints the same fills.",
+    assert: (result) => {
+      expectSame("A's frame", nodeStyle(result, "A"), "fill:#f00");
+      expectSame("B's frame", nodeStyle(result, "B"), "fill:#0f0");
+      expectSame("C's frame", nodeStyle(result, "C"), "fill:#0f0");
+    },
+  },
+  {
+    id: "fc-class-name-plus-letter-backslash",
+    kind: "flowchart",
+    source: `flowchart TB
+      classDef c+d fill:#f00
+      classDef cé fill:#0f0
+      classDef c\\d fill:#00f
+      A:::c+d --> B:::cé
+      C
+      class C c\\d`,
+    status: "supported",
+    meaning:
+      "A class name may hold a `+` between words, a non-ASCII letter and a " +
+      "`\\`. Measured in headless Chrome on Mermaid 12.2.0: A is filled red, " +
+      "B green and C blue. Siren applies each class by its name and paints " +
+      "the same fills.",
+    assert: (result) => {
+      expectSame("A's frame", nodeStyle(result, "A"), "fill:#f00");
+      expectSame("B's frame", nodeStyle(result, "B"), "fill:#0f0");
+      expectSame("C's frame", nodeStyle(result, "C"), "fill:#00f");
+    },
+  },
+  {
+    id: "fc-class-name-comma",
+    kind: "flowchart",
+    source: `flowchart TB
+      classDef c fill:#f00
+      A
+      class A c,d`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** `class A c,d` " +
+      "gives A the one class `c,d`, which no `classDef` defines, so Mermaid " +
+      "12.2.0 draws A unfilled, with no diagnostic (measured in headless " +
+      "Chrome; `A:::c,d` the same). Siren refuses it (ADR-0001), at the name, " +
+      "saying to apply one class at a time.",
+  },
+  {
+    id: "fc-class-name-not-css",
+    kind: "flowchart",
+    source: `flowchart TB
+      classDef 1c fill:#f00
+      A:::1c`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid in a browser, and here for that reason.** Mermaid " +
+      "12.2.0 parses it, then writes the CSS rule `.1c > * { … }`, which the " +
+      "browser cannot parse, and draws nothing (measured in headless Chrome; " +
+      "the same for `c%`, `c.`, `c..d`, `c:d` and the like). Siren drew it " +
+      "before; it refuses it now (ADR-0017), at the name, saying what a class " +
+      "name may hold.",
   },
   {
     id: "fc-style-classdef-default",
@@ -4132,6 +4295,35 @@ line2\`"]`,
       "on its own line renders in both.",
   },
   {
+    id: "fc-percent-id-and-arrowless-group",
+    kind: "flowchart",
+    source: `flowchart TB
+      A --> %%B
+      C & D[d]`,
+    status: "supported",
+    meaning:
+      "A `%%` where an endpoint begins is the start of an id, and an `&` group " +
+      "needs no arrow: Mermaid 12.2.0 draws the edge A to the node `%%B`, and " +
+      "the nodes C and D (measured). Siren draws the same.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]", "%%B[%%B]", "C[C]", "D[d]"]);
+      expectSame("edges", edges(result), ["A-%%B"]);
+    },
+  },
+  {
+    id: "fc-percent-after-semicolon",
+    kind: "flowchart",
+    source: `flowchart TB
+      A --> B; %%c`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A `%%` after a " +
+      "`;` begins a statement, so Mermaid 12.2.0 draws a node `%%c` beside the " +
+      "edge (measured), where an author writing a comment meant none. Siren " +
+      "refuses it (ADR-0001), at the `%%`, saying it is read as a node and to " +
+      "move the comment to a line of its own.",
+  },
+  {
     id: "fc-comment-mid-line-text",
     kind: "flowchart",
     source: `flowchart TB
@@ -4273,7 +4465,7 @@ line2\`"]`,
     meaning: "A block body declares the class's attributes and methods.",
     assert: (result) => {
       expectSame("classes", classes(result), ["Animal"]);
-      expectSame("Animal's members", members(result, "Animal"), ["+int age", "+bark() bool"]);
+      expectSame("Animal's members", members(result, "Animal"), ["+int age", "+bark() : bool"]);
     },
   },
   {
@@ -4311,7 +4503,7 @@ line2\`"]`,
       "members `+int age` and `+bark() : bool`).",
     assert: (result) => {
       expectSame("classes", classes(result), ["Animal"]);
-      expectSame("Animal's members", members(result, "Animal"), ["+int age", "+bark() bool"]);
+      expectSame("Animal's members", members(result, "Animal"), ["+int age", "+bark() : bool"]);
     },
   },
   {
@@ -4517,7 +4709,7 @@ line2\`"]`,
     meaning: "`<<interface>>` annotates the class it is written in, drawn in guillemets.",
     assert: (result) => {
       expectSame("annotations", texts(result, "text.siren-class-annotation"), ["«interface»"]);
-      expectSame("Shape's members", members(result, "Shape"), ["+area() float"]);
+      expectSame("Shape's members", members(result, "Shape"), ["+area() : float"]);
     },
   },
   {
@@ -4858,6 +5050,61 @@ line2\`"]`,
       "`direction` taking the next one starting with `LR` with it; Siren " +
       "refuses that pair the same way. Siren used to draw the label and the " +
       "member, top to bottom.",
+  },
+  {
+    id: "cls-accdescr-text-after-brace",
+    kind: "class",
+    source: `classDiagram
+      accDescr { Orders and their items } class Order
+      Order --> Item`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** In a class " +
+      "diagram the `}` closing `accDescr { ... }` ends the statement, so " +
+      "Mermaid 12.2.0 refuses anything after it on its line (\"Expecting " +
+      "'NEWLINE', 'EOF', got 'CLASS'\", measured), on a multi-line block's " +
+      "`}` line too; a `%%` comment there holds only on the last line, as " +
+      "after a relationship. Siren refuses it too (ADR-0017), with an error " +
+      "at the text saying to move it to a line of its own. Siren used to " +
+      "read the text as the next statement and draw `Order`, as every other " +
+      "kind's `accDescr { }` reads it, with no row to say so. `class Order` " +
+      "on its own line renders in both.",
+  },
+  {
+    id: "cls-direction-td",
+    kind: "class",
+    source: `classDiagram
+      direction LR
+      direction TD
+      Order --> Item`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A class " +
+      "diagram has no `TD` alias: Mermaid 12.2.0's class lexer has no rule " +
+      "for it, so `direction TD` sets nothing and this diagram is laid out " +
+      "left to right (measured, Chrome), not top to bottom as the last " +
+      "statement says. `direction TD %% x` is worse, running on into the " +
+      "next line (`Order --> Item` after it draws a class " +
+      "`directionTDOrder`). Siren refuses `direction TD` wherever it stands " +
+      "(ADR-0001), with one error saying to write `direction TB`. Siren used " +
+      "to read it as TB. A flowchart's `direction TD` is a real alias and is " +
+      "unaffected.",
+  },
+  {
+    id: "cls-class-then-direction-value",
+    kind: "class",
+    source: `classDiagram
+      class Order direction XX`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A value no " +
+      "direction rule names (`XX`, `TD`, `lr`) leaves the line to the class " +
+      "rule, which glues its words into one name: Mermaid 12.2.0 draws the " +
+      "single class `OrderdirectionXX` and sets no direction (measured, " +
+      "Chrome). Siren refuses it (ADR-0001), with one error naming the class " +
+      "the line would declare and saying to write the direction on a line " +
+      "of its own. Siren refused it before as an unrecognized line, with no " +
+      "row to say so.",
   },
   {
     id: "cls-namespace-body-statement",
@@ -5550,6 +5797,177 @@ line2\`"]`,
       "nor the text, with no diagnostic. Siren refuses it (ADR-0001), with " +
       "an error at the `%%`. Siren used to cut the line and draw the " +
       "annotation. The comment on its own line renders in both.",
+  },
+  {
+    id: "cls-relationship-generic",
+    kind: "class",
+    source: `classDiagram
+      Repository~T~ "1" --> "*" Entry~#lt;~ : holds`,
+    status: "supported",
+    meaning:
+      "A relationship's ends may carry a `~generic~`, which declares the " +
+      "class with it, multiplicities and a label beside it as usual; its " +
+      "entity codes are decoded as on a declared class's generic. Measured " +
+      "on Mermaid 12.2.0 (Chrome): `Repository<T>` points at `Entry<<>`. " +
+      "Siren used to refuse the line as unrecognized.",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Repository", "Entry"]);
+      expectSame("names", texts(result, "text.siren-class-name"), ["Repository<T>", "Entry<<>"]);
+      expectSame("relationships", relationships(result).length, 1);
+    },
+  },
+  {
+    id: "cls-lollipop-generic",
+    kind: "class",
+    source: `classDiagram
+      Duck~T~ ()-- Pond`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A `()` end " +
+      "names a lollipop interface, not a class, and Mermaid 12.2.0 reads no " +
+      "generic there: it draws the interface named `Duck~T~`, tildes and " +
+      "all (measured, Chrome) — neither `Duck<T>` nor the name alone, with " +
+      "no diagnostic. Siren refuses it (ADR-0001), with an error saying to " +
+      "write the interface's name alone. A generic on a class end " +
+      "(`Duck~T~ --> Pond`) renders in both.",
+  },
+  {
+    id: "cls-member-name-digit-and-reference",
+    kind: "class",
+    source: `classDiagram
+      class Version {
+        +int 2nd
+        +String &lt;tag&gt;
+        +&lt; x
+      }`,
+    status: "supported",
+    meaning:
+      "A member's name may start with a digit, and a class block's member " +
+      "may hold an HTML character reference, its `;` the reference's rather " +
+      "than a member separator. Measured on Mermaid 12.2.0 (Chrome): " +
+      "`+int 2nd`, `+String <tag>` and `+< x`. Siren used to refuse the " +
+      "first as an unrecognized member and the other two at their `;`.",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Version"]);
+      expectSame("members", members(result, "Version"), ["+int 2nd", "+String <tag>", "+< x"]);
+    },
+  },
+  {
+    id: "cls-generic-forms",
+    kind: "class",
+    source: `classDiagram
+      class Box ~T~
+      class Bag~~
+      Shelf~K~ : +int size
+      note for Box~T~ "holds one"`,
+    status: "supported",
+    meaning:
+      "A class's generic may follow a space, may be empty (no generic), may " +
+      "stand on the inline member form's class, and may stand on a note's " +
+      "target when it is that class's own. Measured on Mermaid 12.2.0 " +
+      "(Chrome): `Box<T>`, `Bag`, `Shelf<K>` with `+int size`, and the note " +
+      "`holds one`. Siren used to refuse each of the four lines.",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Box", "Bag", "Shelf"]);
+      expectSame("names", texts(result, "text.siren-class-name"), ["Box<T>", "Bag", "Shelf<K>"]);
+      expectSame("Shelf's members", members(result, "Shelf"), ["+int size"]);
+      expectSame("note texts", texts(result, "text.siren-note-text"), ["holds one"]);
+    },
+  },
+  {
+    id: "cls-generic-after-first-naming",
+    kind: "class",
+    source: `classDiagram
+      class Box
+      class Box~T~`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A class keeps " +
+      "what its first naming gave it, generic-less included: Mermaid 12.2.0 " +
+      "draws `Box`, the `T` gone with no diagnostic (measured, Chrome; so " +
+      "after `Box --> C` or `Box : +x`). Siren refuses it (ADR-0001), with an " +
+      "error saying to write the generic where the class is first named. " +
+      "Siren used to draw `Box<T>`. `class Box~T~` alone renders in both.",
+  },
+  {
+    id: "cls-generic-tag",
+    kind: "class",
+    source: `classDiagram
+      class Box~List<int>~`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A `<` before a " +
+      "letter, `/` or `!` in a class name's generic opens markup the name " +
+      "loses: Mermaid 12.2.0 draws `Box<List>` (measured, Chrome). Siren " +
+      "refuses it (ADR-0001), with an error saying to write the `<` as " +
+      "`#lt;`. Siren used to draw `Box<List<int>>`. " +
+      "`class Box~List#lt;int#gt;~` renders `Box<List<int>>` in both.",
+  },
+  {
+    id: "cls-note-generic-mismatch",
+    kind: "class",
+    source: `classDiagram
+      class Box~U~
+      note for Box~T~ "n"`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A note's target " +
+      "names its class by name alone: Mermaid 12.2.0 draws `Box<U>` with the " +
+      "note, the `T` the note named gone with no diagnostic (measured, " +
+      "Chrome). Siren refuses it (ADR-0001), with an error saying to write " +
+      "the note for `Box` alone. Siren used to refuse the line as " +
+      "unrecognized. `note for Box~U~ \"n\"` renders in both.",
+  },
+  {
+    id: "cls-generic-conflict",
+    kind: "class",
+    source: `classDiagram
+      class Box~T~
+      class Box~U~`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A class keeps " +
+      "the generic its first naming gave it: Mermaid 12.2.0 draws `Box<T>`, " +
+      "the `U` gone with no diagnostic (measured, Chrome; so after `Box~U~ " +
+      "--> B` or `Box~U~ : +x`, in either order). Siren refuses it " +
+      "(ADR-0001), with an error saying to give the class one generic where " +
+      "it is first named. Siren used to draw `Box<T>` with a warning.",
+  },
+  {
+    id: "cls-annotation-conflict",
+    kind: "class",
+    source: `classDiagram
+      class Shape
+      <<interface>> Shape
+      <<service>> Shape`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A class keeps " +
+      "its first annotation: Mermaid 12.2.0 draws only «interface», the " +
+      "«service» gone with no diagnostic (measured, Chrome; so for two " +
+      "annotation lines in one block). Siren refuses it (ADR-0001), with an " +
+      "error saying to give the class one annotation. Siren used to draw " +
+      "«interface» with a warning.",
+  },
+  {
+    id: "cls-generic-break",
+    kind: "class",
+    source: `classDiagram
+      class Box~Key<br>Value~`,
+    status: "supported",
+    meaning:
+      "A `<br>` in a class name's generic is a line break, as it is to the " +
+      "browser Mermaid hands the generic to: Mermaid 12.2.0 draws `Box<Key` " +
+      "over `Value>` (measured, Chrome; `<br/>`, `<BR>` and `<br />` too). " +
+      "Siren used to refuse it as a tag.",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Box"]);
+      expectSame(
+        "name rows",
+        labelRows(svgOf(result).querySelector('g.siren-class[data-siren-id="Box"] text.siren-class-name')),
+        ["Box<Key", "Value>"],
+      );
+    },
   },
   // -------------------------------------------------------------------------
   // sequenceDiagram

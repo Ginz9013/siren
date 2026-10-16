@@ -3495,20 +3495,25 @@ describe("a `%%` in the middle of a flowchart line", () => {
     // Measured, each a parse error on its line: a node's declaration
     // (`A[a] %% zz`, `A %% zz`, `A:::c %% zz`, `A@{ shape: rect } %% zz`),
     // a statement ended by `;` (`A --> B; %% zz`), a block's `end`
-    // (`end %% zz`) and a class list (`class A c %% zz`).
-    for (const [body, line, column] of [
-      ["  A[a] %% zz", 2, 8],
-      ["  A %% zz", 2, 5],
-      ["  A:::c %% zz", 2, 9],
-      ["  A@{ shape: rect } %% zz", 2, 21],
-      ["  A --> B; %% zz", 2, 12],
-      ["  subgraph S\n    A\n  end %% zz", 4, 7],
-      ["  A\n  classDef c fill:#f00\n  class A c %% zz", 4, 13],
+    // (`end %% zz`) and a class list (`class A c %% zz`). After a `;` the
+    // `%%` begins a statement, which Mermaid reads as a node `%%`, so that
+    // one is told so.
+    const AFTER_SEMICOLON =
+      'A "%%" after ";" begins a statement, so it is read as a node, not a comment. ' +
+      "Move the comment to a line of its own.";
+    for (const [body, line, column, message] of [
+      ["  A[a] %% zz", 2, 8, NOT_A_COMMENT],
+      ["  A %% zz", 2, 5, NOT_A_COMMENT],
+      ["  A:::c %% zz", 2, 9, NOT_A_COMMENT],
+      ["  A@{ shape: rect } %% zz", 2, 21, NOT_A_COMMENT],
+      ["  A --> B; %% zz", 2, 12, AFTER_SEMICOLON],
+      ["  subgraph S\n    A\n  end %% zz", 4, 7, NOT_A_COMMENT],
+      ["  A\n  classDef c fill:#f00\n  class A c %% zz", 4, 13, NOT_A_COMMENT],
     ] as const) {
       const { document, diagnostics } = parseSiren(`flowchart TB\n${body}`);
 
       expect([body, document]).toEqual([body, null]);
-      expect([body, diagnostics]).toEqual([body, [{ severity: "error", message: NOT_A_COMMENT, line, column }]]);
+      expect([body, diagnostics]).toEqual([body, [{ severity: "error", message, line, column }]]);
     }
   });
 
@@ -3520,6 +3525,25 @@ describe("a `%%` in the middle of a flowchart line", () => {
 
     expect(commented.diagnostics).toEqual([]);
     expect(commented).toEqual(plain);
+  });
+
+  it("still cuts a `%%` glued or tabbed after a timeline header, unnamed or named", () => {
+    // A header holds no target, so its `%%` opens a comment however it is
+    // spaced, as it did before a `%%` could begin a target.
+    for (const [commented, plain] of [
+      ["timeline: %%note", "timeline:"],
+      ["timeline:\t%%note", "timeline:"],
+      ["timeline:%%note", "timeline:"],
+      ["timeline b: %%note", "timeline b:"],
+      ["timeline b:\t%%note", "timeline b:"],
+      ["timeline b:%%note", "timeline b:"],
+    ] as const) {
+      const source = (header: string) => `flowchart TB\n  A --> B\n${header}\n  enter B fade\n`;
+      const read = parseSiren(source(commented));
+
+      expect([commented, read.diagnostics]).toEqual([commented, []]);
+      expect([commented, read]).toEqual([commented, parseSiren(source(plain))]);
+    }
   });
 
   it("reads a `%%` glued to the end of a timeline target as the target's, as the flowchart reads the id", () => {
@@ -3571,6 +3595,53 @@ describe("a `%%` in the middle of a flowchart line", () => {
           parseSiren(`${header}\n${body}\ntimeline:\n${plain}\n`),
         ]);
       }
+    }
+  });
+
+  it("reads a `%%` that begins a timeline target as the target's, as the flowchart reads `A --> %%B`", () => {
+    // `A --> %%B` draws a node `%%B`, so a timeline must be able to name it;
+    // cutting the line at its `%%` left `enter` with no target.
+    const { document, diagnostics } = parseSiren(
+      "flowchart TB\n  A --> %%B\ntimeline:\n  enter %%B fade\n  highlight %%B glow, unhighlight %%B\n",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document?.timeline?.entries.map((entry) => [entry.kind, entry.targetId, entry.effect])).toEqual([
+      ["enter", "%%B", "fade"],
+      ["highlight", "%%B", "glow"],
+      ["unhighlight", "%%B", undefined],
+    ]);
+  });
+
+  it("still reads every other `%%` around a `%%` target as a comment", () => {
+    // A spaced `%%` after the action, a `%%` line, and a `%%` with a space
+    // straight after it in the target slot (`enter %% note`, a comment's
+    // own form) are comments; only `%%` glued to a target's text is the id's.
+    for (const [commented, plain] of [
+      ["  enter %%B fade %% last", "  enter %%B fade"],
+      ["  %% the reveal\n  enter %%B fade", "\n  enter %%B fade"],
+      ["  highlight A-%%B glow %% the edge", "  highlight A-%%B glow"],
+      ["  enter %% note", "  enter"],
+      ["  enter %%", "  enter"],
+    ] as const) {
+      expect([commented, parseSiren(`flowchart TB\n  A --> %%B\ntimeline:\n${commented}\n`)]).toEqual([
+        commented,
+        parseSiren(`flowchart TB\n  A --> %%B\ntimeline:\n${plain}\n`),
+      ]);
+    }
+  });
+
+  it("still cuts a `%%` that begins a timeline target in every other kind, whose ids hold no `%`", () => {
+    for (const [header, body] of [
+      ["sequenceDiagram", "  A->>B: m"],
+      ["classDiagram", "  class A"],
+      ["stateDiagram-v2", "  A --> B"],
+      ["erDiagram", "  A ||--o{ B : r"],
+    ] as const) {
+      expect([header, parseSiren(`${header}\n${body}\ntimeline:\n  enter %%B fade\n`)]).toEqual([
+        header,
+        parseSiren(`${header}\n${body}\ntimeline:\n  enter\n`),
+      ]);
     }
   });
 

@@ -8,6 +8,13 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+Breaking for a flowchart document with a class name that begins with a digit (`classDef 1c`,
+`A:::1c`) or holds a `.` with no word after it, which is now refused (see **Changed**).
+
+Breaking for a flowchart document with a node id that begins with a keyword such as `end`,
+`style`, `class` or `graph` followed by a character other than a letter, digit or `_` (`end-x`,
+`style.x`, `A --> end`), which is now refused (see **Changed**).
+
 Breaking for a flowchart or ER document with a line that is nothing but `%%` outside its timeline
 blocks, which is now refused (see **Changed**).
 
@@ -93,8 +100,62 @@ Breaking for a class document with an entity code or a character reference in a 
 (`+#lt; x`, `+foo(#9829;)`, `+&lt x`), which used to be drawn as written and is now drawn decoded,
 `+< x`, `+foo(♥)` and `+< x` (see **Changed**).
 
+Breaking for a class document with `direction TD`, which used to be read as `direction TB`, and
+for one with text after the `}` that closes an `accDescr { ... }` block on its line
+(`accDescr { d } class C`), which used to be read as the next statement. Each is now refused (see
+**Changed**).
+
+Breaking for a class document with a nested generic on a class name (`class A~List~int~~`), which
+used to be drawn `A<List<int>>` and is now refused, and for one with an entity code or a character
+reference in a class name's generic (`class A~#lt;~`), which used to be drawn as written and is now
+drawn decoded, `A<<>` (see **Changed**).
+
+Breaking for a class document with a method that declares a return type, which used to be drawn
+`+foo() bool` and is now drawn `+foo() : bool`, its box sized from that text (see **Changed**).
+
+Breaking for a class document that gives a class a generic after first naming it without one
+(`class A` then `class A~T~`), which used to draw `A<T>`, and for one with a `<` opening a tag in
+a class name's generic (`class A~List<int>~`), which used to draw `A<List<int>>`. Each is now
+refused (see **Changed**).
+
+Breaking for a class document that gives a class a generic other than the one it was first named
+with (`class A~T~` then `class A~U~`, `A~U~ --> B` or `A~U~ : +x`), or a second, different
+annotation (`<<interface>> A` then `<<service>> A`), each of which used to draw the first with a
+warning and is now refused (see **Changed**).
+
 ### Added
 
+- A flowchart class name may hold what Mermaid 12.2.0 styles (nook `01M51Q7FSS`, measured in
+  headless Chrome): a `-` (`c-d`, `-c`, `c-`), a `.`, `#` or `+` between words (`c.d`, `c#d`,
+  `c+d`), a non-ASCII letter (`cé`) or a `\`, in `classDef`, `class` and `:::` alike, each applied
+  as its name says; and `classDef c,d …` defines both `c` and `d`. Each used to be refused as an
+  unrecognized line.
+- More flowchart lines are read as Mermaid 12.2.0 reads them (nook `01M51Q7FK5`): a `%%` where an
+  endpoint begins — after an arrow, its `|label|`, or an `&` with a space on each side — is the
+  start of an id, not a comment (`A --> %%B`, `A -->|l| %%B`, `A & %%B --> C`, `A --> %%`), and a
+  group of nodes joined by `&` with no arrow draws each node as a line of its own would
+  (`A & B`, `A[x] & B{y}:::hot`, `A@{ shape: circle } & B`). Each used to be refused, as a
+  mid-line `%%` or an unrecognized line. A `%%` anywhere else after a space (`A %%B`,
+  `A --> B %%x`) is still refused, and an arrowless group whose `&` is not spaced on each side
+  (`A&B`, which Mermaid draws as the one node `A&B`) gets the spacing error an edge's group gets;
+  an `&` with no node on one side (`& A`, `A &`) is refused saying so.
+- A flowchart node's `@{ … }` data block is read as Mermaid 12.2.0 reads it, for what Siren can
+  draw (nook `01M51Q7F65`): `shape:` takes the 45 names that are one of the fourteen node shapes
+  (`rect`, `rounded`, `stadium`, `fr-rect`, `cyl`, `circle`, `diam`, `hex`, `lean-r`, `lean-l`,
+  `trap-b`, `trap-t`, `dbl-circ`, `odd` and their aliases, such as `db`, `decision` or
+  `subroutine`), and `label:` gives the node's text, read as a Markdown string unless
+  `labelType` is `text` or `string`. The block's text is YAML (a one-line block a flow mapping, a
+  block across lines block YAML, a line break inside a quoted string a `<br/>`), and it may be
+  written on a line of its own or at either end of an edge, after a bracket or a `:::name`
+  (`A[x]:::c@{ shape: circle }`), and on a node written before, whose text it keeps. A shape
+  Siren does not draw yet (`cloud`, `doc` and the rest), a name that is no shape (`foo`, `Rect`,
+  `lean_right`), the keys `icon`, `img`, `form`, `pos`, `w`, `h` and `constraint`, a block that is
+  not YAML, a space before the `@`, text after the `}`, a second block, a block never closed and a
+  block on a subgraph's id are each refused at the `@` or the text, saying what to write instead;
+  another key is ignored with a warning. Each used to be refused as `@{ … }` not supported yet. A
+  node with a block followed by `& B` and no arrow gets the error a bare `A & B` line gets; a
+  block never closed is read to the end of the document, and many blocks written across lines are
+  read, in time linear in the document.
 - A dotted class namespace name (`namespace N.M { class A }`) is read as Mermaid 12.2.0 reads it
   (nook `01M51B43T8`): the `M` inside N, drawn as the frame N around the frame M, the same picture
   as the nested spelling. An `N` no block opens is created, titled `N` and numbered before `N.M`;
@@ -219,9 +280,50 @@ Breaking for a class document with an entity code or a character reference in a 
   may end its last statement's line (`class B }`), as Mermaid 12.2.0 reads each (nook
   `01M4ZY2DA1`). Such a namespace used to be refused as an unrecognized line. Text after its `}`
   on its line is refused as Mermaid refuses it, the error saying to move it to a line of its own.
+- A class relationship's ends may carry a `~generic~` (`A~T~ --> B`, `A~T~ "1" --> "*" B~U~ :
+  label`, a space before the `~` allowed), drawn `A<T>` as Mermaid 12.2.0 draws it (nook
+  `01M51Q7G6R5TY4NGMMNCMJ9JVJ`). The generic is the class's only on its first mention, as there: a
+  class declared or named before keeps what it had. Such a line used to be refused as unrecognized.
+  On a lollipop `()` end, which names an interface, a generic is refused: Mermaid draws the
+  interface's name with its tildes.
+- More class-name generics are read as Mermaid 12.2.0 reads them (nook `01M51RR6AJKAR05VBT12A2BSB4`):
+  after a space on a declaration (`class A ~T~`, as a relationship's end already allowed); empty, as
+  none (`class A~~`, `A~~ --> B` draw `A`); on the inline member form's class (`A~T~ : +x`); and on
+  a note's target when it is that class's own generic (`note for A~T~ "n"` on a class first named
+  `A~T~`). Each used to be refused as an unrecognized line.
+- A `<br>` in a class name's generic is drawn as a line break (nook `01M51TMV71BF1Y0EC2RS2B6ZWG`),
+  as Mermaid 12.2.0 draws it: `class A~a<br>b~` draws `A<a` over `b>`, in any spelling the browser
+  reads as a break (`<br/>`, `<BR>`, `<br />`). It used to be refused as a tag.
 
 ### Changed
 
+- **A flowchart class name Mermaid cannot style is refused** (nook `01M51Q7FSS`): Mermaid 12.2.0
+  writes each `classDef` as the CSS rule `.<name> > *`, and a name that makes it fail to parse
+  (`1c`, `c.`, `c..d`, `c:d`, `c%`, `c!`, `c/d` and the like) stops the whole diagram rendering in a
+  browser. Siren drew a digit-first name such as `1c`; it now refuses every such name at the name,
+  saying what a class name may hold. `class A c,d` and `A:::c,d`, which Mermaid draws unstyled as
+  the one class `c,d`, are refused saying to apply one class at a time.
+- A flowchart `%%` that begins a statement after a `;` (`A;%%B`, `A --> B; %%c`), which Mermaid
+  12.2.0 draws as a node, is refused saying so and to move the comment to a line of its own, where
+  it was told only that a mid-line `%%` is not a comment (nook `01M51Q7FK5`).
+- **A flowchart node id that begins with a keyword is refused** (nook `01M51Q7FCN`): Mermaid
+  12.2.0's lexer reads `style`, `linkStyle`, `interpolate`, `classDef`, `class`, `graph`,
+  `flowchart`, `flowchart-elk`, `swimlane-beta`, `subgraph`, `end`, `_self`, `_blank`, `_parent`
+  and `_top` as the keyword wherever an id could begin and the next character is not
+  `[A-Za-z0-9_]`, so `end-x`, `style.x`, `graph%x`, `end[x]`, `end:::c` and `A --> end` are parse
+  errors there, and inside a subgraph `end-x` ends the block and adds a node `-x` outside it. Siren
+  drew each as the id written (and reported such a block as unterminated); it now refuses it at the
+  id, naming the keyword and a fix (`endX`), as a node on its own line, at an edge's end, in an `&`
+  group and as a `style` or `class` target, leaving the block open for its own `end`. Inside a
+  subgraph, `end B` (which Mermaid reads as the block's end and then `B` outside it) is refused
+  saying to write `end` on a line of its own, and `subgraph end` (which Mermaid reads as the
+  block's own end) is refused as a title ending with `end` is. An id that only contains the word
+  (`endx`, `end_x`, `End-x`, `A-end`) is unchanged, as are `click-x`, `call-x`, `href-x`,
+  `default-x`, `v-x`, `direction-x`, `click end-x`, `click end` and `subgraph end-x`, which Mermaid
+  reads as ids. An endpoint that is nothing but `click`, `call` or `href`, which Mermaid reads as
+  that keyword before a space or a line break (`A --> click`, `click --> A`), is refused the same
+  way, as is one before a space and a `;` (`A --> click ;B`); `click-x`, `click[x]` and
+  `A --> click;B` are ids.
 - **An entity code in a class member is drawn decoded** (nook `01M51K83X2`): Mermaid 12.2.0
   encodes each `#\w+;` before it parses and decodes it when it draws, so `+#lt; x` draws `+< x`,
   `+int #59;` `+int ;` and `+foo(#9829;)` `+foo(♥)`, in a block and inline alike, in the type, the
@@ -558,9 +660,102 @@ Breaking for a class document with an entity code or a character reference in a 
   is a `g.siren-participant` wearing the participant's `data-siren-id`, so a timeline action on the
   participant still reaches it. `PositionedDestroyMark` and the `destroyMark` element kind are
   removed from the positioned layout, and the default theme drops their styles.
+- **A class diagram's `direction TD` is refused** (nook `01M51Q7G098SYMMW8BCGM22H2R`), alone, after
+  another `direction` or with a `%%` comment, saying to write `direction TB` for top to bottom;
+  inside a namespace it gets the namespace's placement error, as `direction LR` there does. Mermaid
+  12.2.0's class lexer has no `TD` alias: `direction LR` then `direction TD` is laid out left to
+  right, and `direction TD %% x` runs on into the next line. Siren used to read it as TB. A
+  flowchart's `direction TD` is unchanged.
+- **Text after a class diagram's `accDescr { ... }` closing `}` is refused** (`accDescr { d } class
+  C`, a multi-line block's `} direction LR`), saying to move it to a line of its own, as Mermaid
+  12.2.0 refuses it in a class diagram; Siren used to read it as the next statement. A `%%` comment
+  there is read on the document's last line and refused on any other, as after a relationship.
+  Other diagram kinds are unchanged.
+- **`class C direction XX` is refused with an explanation** instead of as an unrecognized line: the
+  error says the line would declare one class named `CdirectionXX` and to write the direction on a
+  line of its own. Mermaid 12.2.0 draws that one class for any value no direction rule names (`XX`,
+  `TD`, `lr`).
+- **A nested generic on a class name is refused** (nook `01M51Q7G6R5TY4NGMMNCMJ9JVJ`):
+  `class A~List~int~~`, its block form and the same on a relationship's end, which Mermaid 12.2.0
+  refuses (a generic ends at its second `~`). Siren used to draw `A<List<int>>`. The error suggests
+  writing the inner angle brackets as entity codes, `~List#lt;int#gt;~`, which both draw
+  `A<List<int>>`. A nested generic in a member's type (`+List~List~int~~ x`) is unchanged.
+- **Entity codes in a class name's generic are decoded** (nook `01M51Q7G6R5TY4NGMMNCMJ9JVJ`), as a
+  member line's are: `class A~#lt;~`, `~&lt;~` and `~#60;~` draw `A<<>`, `~&amp;~` `A<&>` and
+  `~#quot;~` `A<">`, as Mermaid 12.2.0 draws them, and the box is sized from the decoded name. A
+  bracketed label written after such a generic (`class A~#lt;~["L"]`) still replaces the name
+  whole.
+- **A class member's name may start with a digit and hold `-`, `.` or a letter of any script**
+  (nook `01M51Q7GD59NHR6MFZEC13NJ1K`), in a class block and after `A :` alike: `+int 2x`, `+x 1`,
+  `+x 1.5`, `+x a-b`, `+x a.b`, `+x é`, `+1foo()` and `+a-b()` are drawn as written, as Mermaid
+  12.2.0 draws them. Siren used to refuse each as an unrecognized member.
+- **In a class block, the `;` ending an HTML character reference is the reference's**, not a member
+  separator (nook `01M51Q7GD59NHR6MFZEC13NJ1K`): `+&lt; x`, `+&amp; x`, `+x &lt;`, `+x &#60;` and
+  `+&lt;foo()` are one member each, decoded when drawn (`+< x`, `+& x`, `+x <`, `+x &<`,
+  `+<foo()`), as Mermaid 12.2.0 draws them; a reference may stand in a member's name, also after
+  `A :` when it has no `;` (`+x &lt`). A `#…;` that is no entity code, written as a block member's
+  name (`+x #a-b;`, `+x #é;`, `+x #;`), is drawn as written. A `;` that ends neither still
+  separates nothing and is refused (`+x a;b`, `# lt; x`), and after `A :` every `;` is refused as
+  before.
+- **A class method's return type is drawn after ` : `** (nook `01M51Q7GKMPTCB6MX643KS1YSE`), as
+  Mermaid 12.2.0 draws it, in a class block and after `A :` alike: `+foo() bool`, `+foo()bool` and
+  `+foo()  bool` draw `+foo() : bool`, and `+foo(int a) List~T~` draws `+foo(int a) : List<T>`. The
+  box is measured from the new text. A method with no return type is unchanged.
+- **A class generic given after the class was first named without one is refused** (nook
+  `01M51RR6AJKAR05VBT12A2BSB4`): `class A` then `class A~T~`, `A --> C` or `A : +x` then `class
+  A~T~`, and `class A` then `A~T~ --> B`. Mermaid 12.2.0 keeps what a class's first naming gave it
+  and draws `A`, dropping the `T`; Siren drew `A<T>`. The error says to write the generic where the
+  class is first named. A different generic after a first one is still kept to the first, with a
+  warning.
+- **A `<` opening a tag in a class name's generic is refused** (nook `01M51RR6AJKAR05VBT12A2BSB4`):
+  before a letter, `/` or `!` (`class A~List<int>~`, `A~List<int>~ --> B`), where Mermaid 12.2.0 reads
+  markup and draws `A<List>`; Siren drew `A<List<int>>`. The error suggests `#lt;`. Any other `<`
+  (`~a<1~`, `~a < b~`) is drawn as written, as before.
+- **A note's target with a generic other than its class's is refused** (nook
+  `01M51RR6AJKAR05VBT12A2BSB4`): `note for A~T~ "n"` on a class first named without `T`, or never
+  named, whose `T` Mermaid 12.2.0 does not draw.
+- **A class generic other than the one the class was first named with is refused** (nook
+  `01M51TMV71BF1Y0EC2RS2B6ZWG`), in every statement and order — `class A~T~` then `class A~U~`,
+  `A~U~ --> B` or `A~U~ : +x`, `A~T~ --> B` then `class A~U~`, two blocks — where Mermaid 12.2.0
+  draws `A<T>`, the `U` gone with no diagnostic. It used to be kept to the first with a warning. The
+  check a note's target generic gets now lives beside this one, in the model, and its error names
+  the line the class was first named on. Being a model-stage error now, a mismatched `note for
+  A~T~ "n"` is reported beside a drawn diagram — the class with the generic it keeps, the note
+  attached to it (or free, when no class `A` exists) — where it used to return no SVG. A generic's
+  line break is quoted as `<br>` in these errors.
+- **A second, different class annotation is refused** (nook `01M51TMV71BF1Y0EC2RS2B6ZWG`):
+  `<<interface>> A` then `<<service>> A`, or two annotation lines in one block, where Mermaid
+  12.2.0 draws only the first. It used to be kept to the first with a warning.
 
 ### Fixed
 
+- Positions after a flowchart node's `@{ … }` block written across lines are where the author
+  wrote them (nook `01M51S4P5S`): a statement after the block's `}` (`}; E --> F`), the nodes and
+  edges it declares, and a mistake after the `}` (`} ~~> B`, `}:::c`, `} --> end-x`) are placed
+  on their own line and column, where they were all counted from the line the block opened on. A
+  YAML error inside a block is reported where the YAML reader stopped rather than at the `@` —
+  save one inside a quoted string that crosses lines, which stays at the `@`, since that string is
+  read with its line breaks as `<br/>` — and a message that quotes such a statement quotes the
+  block on one line (`A@{ shape: circle } --> B C`), while a fix it suggests shows a block written
+  across lines as `@{ … }` rather than flattening its YAML.
+- A flowchart timeline can name a node or an edge whose id begins with `%%` (nook `01M51TJRT0`):
+  `A --> %%B` draws a node `%%B`, and `enter %%B fade` now reaches it, where the line was cut at its
+  `%%` and refused as `Unrecognized timeline action: "enter"`. Only a `%%` glued to the start of the
+  target's text is the id's; a `%%` with a space after it (`enter %% note`), one after the action
+  (`enter %%B fade %% note`), and a `%%` line stay comments. Other kinds' ids hold no `%`, so their
+  timelines still cut every such `%%`.
+- In a flowchart timeline, a note glued after a lone verb (`enter %%todo`) is now read as that
+  action's target, not as a comment (nook `01M51TJRT0`). The line is still refused, with a
+  different message: `enter %%todo` reports its missing effect where it reported
+  `Unrecognized timeline action: "enter"`, and `unhighlight %%todo` names an id that is not in the
+  diagram. Write `%% todo`, with a space, for a comment. A `%%` after a timeline header
+  (`timeline: %%note`, glued or tabbed) is a comment, as before.
+- An `@{` that a flowchart statement holds as text no longer opens a node data block that runs on
+  into the lines below (nook `01M51RE5K5`): `A -- x@{y --> B` followed by `C` draws A, B and C, the
+  edge labelled `x@{y`, as Mermaid 12.2.0 does, where it was refused with the next line folded into
+  it. A block runs on across lines only where a node is written — at an edge's end or as a node of
+  its own — and never from an arrow's label, a `|label|`, a quoted string, `accTitle`, a subgraph
+  title, `classDef` or `style`.
 - A flowchart subgraph whose quoted title is one word (`subgraph "t"`) now takes that word as its
   handle, as Mermaid 12.2.0 records it (id `t`, measured), so an edge naming it (`t --> B`) joins
   the frame, where Siren used to draw a stray node `t` beside it. A quoted title holding whitespace

@@ -18,7 +18,7 @@ import type {
 } from "../contracts";
 import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
 import { entityCodeAt, htmlText } from "../label/characterReferences";
-import { atConnectorLabelSize, plainLabel } from "../label/label";
+import { atConnectorLabelSize, plainRun } from "../label/label";
 import { layoutLabel } from "../label/layoutLabel";
 import { wrapConnectorLabel } from "../label/wrapLabel";
 import {
@@ -51,9 +51,15 @@ const MULTIPLICITY_MARKER_CLEARANCE = 6;
 
 /**
  * The text a member is drawn as, rebuilt from the parts the parser kept:
- * `+int age` for an attribute, `+swim() bool` for a method. The classifier
+ * `+int age` for an attribute, `+swim() : bool` for a method. The classifier
  * goes last, as Mermaid writes it (`-id$`, `#quack(int times)*`), so one
  * rule covers both member kinds whether or not a return type follows.
+ *
+ * A method's return type follows ` : ` — one space either side, however
+ * many the author wrote before it: measured on Mermaid 12.2.0 (Chrome), in a
+ * class block and after `A :` alike, `+foo() bool`, `+foo()bool` and
+ * `+foo()  bool` all draw `+foo() : bool`, and `+foo(int a) List~T~` draws
+ * `+foo(int a) : List<T>`.
  *
  * Its entity codes and character references are decoded last, once the
  * line is composed: Mermaid 12.2.0 escapes a member's `<` and `>` but not
@@ -69,7 +75,7 @@ function memberText(member: ClassMember): string {
   const classifier = member.classifier ?? "";
   if (member.memberKind === "method") {
     const returnType =
-      member.returnType === null ? "" : ` ${angleBrackets(member.returnType)}`;
+      member.returnType === null ? "" : ` : ${angleBrackets(member.returnType)}`;
     const parameters = angleBrackets(member.parameters ?? "");
     return htmlText(`${visibility}${member.name}(${parameters})${returnType}${classifier}`, "text");
   }
@@ -156,25 +162,36 @@ function angleBrackets(type: string): string {
  * draws, so the tildes never reach the canvas. A member's type is converted
  * by the same rule, so a generic reads the same everywhere on the box.
  *
- * The generic the parser captured runs to the last tilde on the line, so a
- * nested one (`class Map~String, List~int~~`) still arrives spelled with
- * tildes inside; `angleBrackets` converts those too.
+ * The parser refuses a nested generic on a class name, but a hand-built
+ * model may still carry one (`String, List~int~`); `angleBrackets` converts
+ * its inner tildes too.
+ *
+ * The generic's entity codes and character references are decoded once the
+ * name is composed, as a member line's are (`memberText`): measured on
+ * Mermaid 12.2.0 (Chrome), `class A~#lt;~` draws `A<<>`, as do `~&lt;~` and
+ * `~#60;~`, `~&amp;~` draws `A<&>` and `~#quot;~` `A<">`. The name is
+ * measured as decoded. The id is a word and holds nothing to decode.
  */
 function classNameText(cls: ResolvedClass): string {
   return cls.generic === null
     ? cls.id
-    : `${cls.id}<${angleBrackets(cls.generic)}>`;
+    : `${cls.id}<${htmlText(angleBrackets(cls.generic), "text")}>`;
 }
 
 /**
  * The label a class box draws in its name band: the one the author wrote
  * in brackets when there is one — which replaces the whole name, generic
  * included (measured, mermaid 11.17.2: `class A~T~["Lab"]` draws "Lab") —
- * and otherwise `classNameText` as one plain run. Never read as markup
- * there: the composed `<T>` is the generic Mermaid draws, not a tag.
+ * and otherwise `classNameText` as plain runs, one row per line: a `<br>`
+ * in the generic reaches here as `\n` and draws a row of its own (measured
+ * on Mermaid 12.2.0, Chrome: `class A~a<br>b~` draws `A<a` over `b>`).
+ * Never read as markup there: the composed `<T>` is the generic Mermaid
+ * draws, not a tag.
  */
 function classLabel(cls: ResolvedClass): Label {
-  return cls.label ?? plainLabel(classNameText(cls));
+  if (cls.label !== null) return cls.label;
+  const text = classNameText(cls);
+  return { text, rows: text.split("\n").map((row) => [plainRun(row)]) };
 }
 
 /**

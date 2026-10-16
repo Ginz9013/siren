@@ -1796,8 +1796,100 @@ const SILENTLY_WRONG = 0;
  * mid-line `%%` for the `%%`), with no row to say so:
  * `cls-direction-inside-line` writes it down. No `supported` row moved:
  * none wrote a direction inside a line. `silently-wrong` does not move.
+ *
+ * **46 → 49: case (2), three refusals written down for the first time.**
+ * `01M51Q7G098SYMMW8BCGM22H2R` refused a class diagram's `direction TD`,
+ * which Mermaid 12.2.0's class lexer has no rule for: `direction LR` then
+ * `direction TD` is laid out left to right (measured), a picture other than
+ * the one written, refused under ADR-0001. Siren used to read it as TB, with
+ * no row to say so: `cls-direction-td` writes it down. It refused text after
+ * the `}` closing a class diagram's `accDescr { ... }` on its line, which
+ * Mermaid refuses ("Expecting 'NEWLINE', 'EOF', got …", measured) and Siren
+ * used to read as the next statement: `cls-accdescr-text-after-brace`. And
+ * it gave `class C direction XX`, which Mermaid draws as the one class
+ * `CdirectionXX` (measured) and Siren already refused as an unrecognized
+ * line, an error saying so: `cls-class-then-direction-value`. No
+ * `supported` row moved: none wrote `direction TD` or text after an
+ * `accDescr { }` block in a class diagram. `silently-wrong` does not move.
+ *
+ * **49 → 50: one row falls, and case (2), two refusals written down for the
+ * first time.** `01M51Q7F65QMNVZN545S28D4CN` read a flowchart
+ * node's `@{ … }` block for the 45 shape names that are one of Siren's
+ * fourteen shapes, and its `label`: `fc-node-shape-data`, refused until
+ * now, is `supported` (−1). The rest of the block is refused as before, now
+ * with a row each: `fc-node-shape-data-undrawn`, a shape Mermaid 12.2.0
+ * draws and Siren has no geometry for (`cloud`), and
+ * `fc-node-shape-data-icon`, a key Siren does not draw (`icon`) (+2). No
+ * `supported` row moved to `rejected`. `fc-node-shape-data-names`, new
+ * beside them, is `supported`. `silently-wrong` does not move.
+ *
+ * **50 → 51: case (2), a refusal written down for the first time.**
+ * `01M51Q7G6R5TY4NGMMNCMJ9JVJ` read a `~generic~` on a class relationship's
+ * ends and refused one on a lollipop `()` end, which names an interface:
+ * Mermaid 12.2.0 draws that interface with its tildes as written (`Duck~T~`,
+ * measured), neither a generic nor the name alone, refused under ADR-0001.
+ * Siren used to refuse the whole line as unrecognized, with no row to say
+ * so: `cls-lollipop-generic` writes it down. No `supported` row moved:
+ * `cls-relationship-generic`, new beside it, is `supported`.
+ * `silently-wrong` does not move.
+ *
+ * **51 → 52: case (2), a refusal written down for the first time.**
+ * `01M51Q7FCNVAMK9FKX5BPC8BNZ` refused a flowchart id that begins with a
+ * keyword Mermaid 12.2.0's lexer reads before an id (`end`, `style`,
+ * `class`, `graph`, …) followed by a character that is not
+ * `[A-Za-z0-9_]`. At the top level Mermaid refuses each, so no row records
+ * them; inside a subgraph `end-x` is the block's end and then a node `-x`
+ * (measured), a picture nobody wrote, refused under ADR-0001. Siren used to
+ * report that block as unterminated, with no row to say so:
+ * `fc-id-end-prefix-in-subgraph` writes it down. No `supported` row moved:
+ * none wrote such an id. `silently-wrong` does not move.
+ *
+ * **52 → 55: case (2), three refusals written down for the first time.**
+ * `01M51RR6AJKAR05VBT12A2BSB4` refused three class-diagram generics Mermaid
+ * 12.2.0 draws as something other than written, with no diagnostic
+ * (measured, Chrome), under ADR-0001: a generic given after the class was
+ * first named without one (`class Box` then `class Box~T~` draws `Box`),
+ * `cls-generic-after-first-naming`, which Siren used to draw `Box<T>`; a
+ * `<` opening a tag in a generic (`class Box~List<int>~` draws
+ * `Box<List>`), `cls-generic-tag`, which Siren used to draw
+ * `Box<List<int>>`; and a note's target naming a generic its class does
+ * not have (`note for Box~T~` on a `Box~U~`), `cls-note-generic-mismatch`,
+ * which Siren used to refuse as an unrecognized line, with no row to say
+ * so. No `supported` row moved: `cls-generic-forms`, new beside them, is
+ * `supported`. `silently-wrong` does not move.
+ *
+ * **55 → 56: case (2), a refusal written down for the first time.**
+ * `01M51Q7FK5E65XVPWJYGYPN1ST` read a flowchart `%%` where an endpoint
+ * begins as the start of an id, as Mermaid 12.2.0 does, and kept refusing
+ * one after a `;`, which Mermaid draws as a node an author writing a
+ * comment did not mean (ADR-0001), now saying so:
+ * `fc-percent-after-semicolon` writes it down. Siren refused it before as a
+ * mid-line `%%`, with no row to say so. No `supported` row moved.
+ * `fc-percent-id-and-arrowless-group`, new beside it, is `supported`.
+ * `silently-wrong` does not move.
+ *
+ * **56 → 58: case (2), two refusals written down for the first time.**
+ * `01M51TMV71BF1Y0EC2RS2B6ZWG` refused a class
+ * generic other than the one the class was first named with
+ * (`cls-generic-conflict`) and a second, different annotation
+ * (`cls-annotation-conflict`): Mermaid 12.2.0 drops the later one with no
+ * diagnostic (measured, Chrome), refused under ADR-0001. Siren used to
+ * draw the first with a warning, with no row to say so. No `supported` row
+ * moved: `cls-generic-break`, new beside them, is `supported`.
+ *
+ * **58 → 60: case (2), two refusals written down for the first time.**
+ * `01M51Q7FSSKCM7EH7K2SB1NKR8` read a flowchart class name as Mermaid
+ * 12.2.0 styles it, measured in headless Chrome: a name that makes the CSS
+ * rule `.<name> > *` parse is drawn styled, one that does not stops the
+ * diagram rendering. `fc-class-name-not-css` (`classDef 1c`), which Siren
+ * drew before, is refused now (ADR-0017); `fc-class-name-comma`
+ * (`class A c,d`), the one class `c,d` Mermaid draws unstyled, is refused
+ * under ADR-0001 where Siren refused it before as an unrecognized line, with
+ * no row to say so. No `supported` row moved: none used such a name.
+ * `fc-class-name-punctuation`, new beside them, is `supported`.
+ * `silently-wrong` does not move.
  */
-const REJECTED = 46;
+const REJECTED = 60;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

@@ -26,6 +26,7 @@ import { readAccDescrBlock } from "./readAccDescrBlock";
 import { listAcceptedHeaders, matchClassDirection, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 import { MID_LINE_PERCENT_MESSAGE } from "./midLinePercent";
+import { blockRunOn, type NodeDataBlock, NODE_DATA_OPENER, nodeDataEnd, readNodeData } from "./flowchartNodeData";
 
 /**
  * The headers this parser accepts — its own kind's and no other's, because
@@ -154,6 +155,65 @@ const NOT_AFTER_ID = `(?<![${ID_ALPHABET_SET}])`;
 const ID_RUN = String.raw`(?:-(?=${ID_CHAR}))?${ID_CHAR}+(?:\.+-?${ID_CHAR}*|${ID_DASH}${ID_CHAR}*)*`;
 
 /**
+ * The words Mermaid 12.2.0's flowchart lexer reads as a keyword wherever an
+ * id could begin, when the next character is not `[A-Za-z0-9_]` (its rules
+ * are `style\b`, `class\b`, `end\b\s*` and the rest, tried before the id
+ * rule, first match wins; measured with `pnpm --filter siren-core probe`).
+ * `end-x` there is the keyword `end` and then `-x`: a parse error at the top
+ * level, and inside a `subgraph` the block's end and then a node `-x`.
+ * Longest first, so a regular expression alternating them names
+ * `flowchart-elk` before `flowchart` and `classDef` before `class`.
+ *
+ * Not here: `click`, `call` and `href`, read as keywords only before a
+ * space (`click-x` is an id; `SPACED_KEYWORDS`), and `default`, `v` and `direction`, which the
+ * grammar takes back as an id (`default-x`, `v-x`, `direction-x` are
+ * nodes, measured).
+ */
+const ID_KEYWORDS = [
+  "flowchart-elk",
+  "swimlane-beta",
+  "linkStyle",
+  "interpolate",
+  "classDef",
+  "class",
+  "style",
+  "graph",
+  "flowchart",
+  "subgraph",
+  "end",
+  "_self",
+  "_blank",
+  "_parent",
+  "_top",
+] as const;
+
+/**
+ * A class name, in `classDef`, `class` and `:::` alike: one or more words
+ * joined by `.`, `#` or `+`, each word an optional `-`, then a letter, `_`,
+ * a non-ASCII character or a `\`, then any of those, digits and `-`.
+ *
+ * Measured in headless Chrome on Mermaid 12.2.0: Mermaid writes each
+ * `classDef` as the CSS rule `.<name> > *`, and a name that makes that rule
+ * parse is drawn styled (`c-d`, `c.d`, `c#d`, `c+d`, `-c`, `c-`, `cé`,
+ * `c\d`), while one that does not stops the whole diagram from rendering
+ * (`c%`, `1c`, `c.`, `c..d`, `c:d`, `c!` and the rest). Siren applies a class
+ * by its name and writes no CSS for it, so this pattern is the whole of the
+ * rule. A `-` before `>`, `-` or `.` begins an arrow there, as in an id
+ * (`ID_DASH`).
+ */
+const CLASS_WORD = String.raw`-?[A-Za-z_\u0080-\uFFFF\\](?:[\w\u0080-\uFFFF\\]|-(?=[^>\-.]|$))*`;
+const CLASS_NAME = String.raw`${CLASS_WORD}(?:[.#+]${CLASS_WORD})*`;
+
+/** A `class` statement's target list (`CLASS_APPLY_RE`), without a group. */
+const CLASS_APPLY_TARGETS = String.raw`[${ID_ALPHABET_SET}\s,]*[${ID_ALPHABET_SET},]`;
+
+/** One of `ID_KEYWORDS`, read as the keyword: not followed by `[A-Za-z0-9_]`. */
+const ID_KEYWORD = `(?:${ID_KEYWORDS.join("|")})(?![A-Za-z0-9_])`;
+
+/** A node's id: `ID_RUN`, unless it begins with a keyword (`ID_KEYWORD`). */
+const NODE_ID = `(?!${ID_KEYWORD})${ID_RUN}`;
+
+/**
  * Every bracket spelling of a node, paired with the shape it names — the
  * one place a spelling and a shape are associated, read by the standalone
  * declaration and by an edge endpoint alike.
@@ -259,7 +319,7 @@ const NODE_SPELLINGS: ReadonlyArray<NodeSpelling> = [
  */
 const NODE_PATTERNS = NODE_SPELLINGS.map((spelling) => ({
   shape: spelling.shape,
-  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracketOf(spelling)}\s*(?::::(\w+))?\s*$`, "d"),
+  re: new RegExp(String.raw`^(${NODE_ID})\s*${bracketOf(spelling)}\s*(?::::(${CLASS_NAME}))?\s*$`, "d"),
 }));
 
 /**
@@ -377,7 +437,7 @@ function readLabelAt(span: LabelSpan, options: Parameters<typeof readLabel>[1]):
  * itself keeps being an unrecognized line rather than silently declaring a
  * node: what makes this a declaration is the `:::`.
  */
-const NODE_CLASS_RE = new RegExp(String.raw`^(${ID_RUN})\s*:::(\w+)\s*$`);
+const NODE_CLASS_RE = new RegExp(String.raw`^(${NODE_ID})\s*:::(${CLASS_NAME})\s*$`);
 
 /**
  * **One** endpoint of an edge line, in each bracket spelling: an id, free to
@@ -409,7 +469,7 @@ const NODE_CLASS_RE = new RegExp(String.raw`^(${ID_RUN})\s*:::(\w+)\s*$`);
 const ENDPOINT_PATTERNS = NODE_SPELLINGS.map((spelling) => ({
   shape: spelling.shape,
   // `d` for the label's own index, which `labelAt` is measured from.
-  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracketOf(spelling)}(?:\s*:::(\w+))?$`, "d"),
+  re: new RegExp(String.raw`^(${NODE_ID})\s*${bracketOf(spelling)}(?:\s*:::(${CLASS_NAME}))?$`, "d"),
 }));
 
 /**
@@ -421,7 +481,7 @@ const ENDPOINT_PATTERNS = NODE_SPELLINGS.map((spelling) => ({
  * means — declaring the node only when nothing else has — is
  * `addNodeAsWritten`'s, as it has always been.
  */
-const BARE_ENDPOINT_RE = new RegExp(String.raw`^(${ID_RUN})(?:\s*:::(\w+))?$`);
+const BARE_ENDPOINT_RE = new RegExp(String.raw`^(${NODE_ID})(?:\s*:::(${CLASS_NAME}))?$`);
 
 /**
  * What may lie between the two `|` of an edge label: the same two
@@ -780,7 +840,8 @@ const STATEMENT_END = ";";
  * `fill:#fddposition:fixed`, which is what Mermaid records too (measured,
  * 11.17.2: `styles=["fill:#fddposition:fixed","stroke:#c00"]`).
  */
-const DECLARATION_LIST_RE = /^(?:style|classDef|linkStyle)\s/;
+const DECLARATION_LIST_KEYWORDS = ["style", "classDef", "linkStyle"] as const;
+const DECLARATION_LIST_RE = new RegExp(`^(?:${DECLARATION_LIST_KEYWORDS.join("|")})\\s`);
 
 /** What an end marker draws, by the character that wrote it. */
 const END_FOR_MARKER: Record<string, EdgeEnd> = {
@@ -973,16 +1034,48 @@ interface EdgeEndpoint {
    * assumed.
    */
   shape: NodeShape;
+  /**
+   * The `@{ … }` block written right after it, when there is one: where its
+   * `@` stands in the statement, and the text between its braces.
+   */
+  data?: { at: number; content: string };
 }
 
 /**
  * One endpoint, or `null` when the text is not one — which refuses the
  * statement it came from rather than half of it.
  *
+ * A node may end with an `@{ … }` block, written right after the rest of
+ * it with no space (`A@{ … }`, `A[x]@{ … }`, `A:::c@{ … }`), and nothing
+ * may follow the block: Mermaid 12.2.0 refuses `A[x] @{ … }` and
+ * `A@{ … }:::c` (measured). What is before the block is read as any other
+ * endpoint is.
+ */
+function readEndpoint(text: string, at: number): EdgeEndpoint | null {
+  const trimmed = text.trim();
+  const block = nodeDataBlocksOf(trimmed)[0];
+  if (block === undefined) {
+    return readEndpointWithoutData(text, at);
+  }
+  const head = trimmed.slice(0, block.at);
+  if (block.end !== trimmed.length || head !== head.trimEnd()) {
+    return null;
+  }
+  const lead = text.length - text.trimStart().length;
+  const endpoint = readEndpointWithoutData(head, at + lead);
+  if (endpoint === null) {
+    return null;
+  }
+  return { ...endpoint, data: { at: at + lead + block.at, content: trimmed.slice(block.at + NODE_DATA_OPENER.length, block.end - 1) } };
+}
+
+/**
+ * One endpoint written without an `@{ … }` block.
+ *
  * The bracket spellings are tried before the bare form, since only they can
  * carry a label; the bare form is what is left.
  */
-function readEndpoint(text: string, at: number): EdgeEndpoint | null {
+function readEndpointWithoutData(text: string, at: number): EdgeEndpoint | null {
   const trimmed = text.trim();
   const lead = text.length - text.trimStart().length;
   for (const { shape, re } of ENDPOINT_PATTERNS) {
@@ -1034,7 +1127,7 @@ const ANY_LABEL_PATTERNS = NODE_SPELLINGS.map((spelling) => ({
   // there: `A[x] B[y]` is two nodes, not the label `x] B[y` (sticky, asked
   // at each character).
   closedThenSpace: new RegExp(String.raw`${spelling.close}\s`, "y"),
-  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracketOf(spelling, ".*")}\s*(?::::(\w+))?\s*$`, "d"),
+  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracketOf(spelling, ".*")}\s*(?::::(${CLASS_NAME}))?\s*$`, "d"),
 }));
 
 /** The characters a bracket spelling is made of, which a label can hold only quoted. */
@@ -1089,21 +1182,6 @@ function refuseNodeLabel(text: string): { message: string; offset: number } | nu
 }
 
 /**
- * A node written with Mermaid's `@{ … }` data block — `A@{ shape: rect }`,
- * `A[x]@{ … }` — which Siren does not draw yet. Mermaid 12.2.0 accepts it on
- * a line of its own and at either end of an edge (measured); its shapes and
- * keys are a board of their own. The `@` is the group named `at`.
- *
- * A bracket before it must be a whole spelling, as `NODE_PATTERNS` reads
- * one: an `@{` inside a label is a brace there (`A{a@{b}}` is "got
- * 'DIAMOND_START'", measured), which `refuseNodeLabel` explains.
- */
-const NODE_DATA_RE = new RegExp(
-  String.raw`^(${ID_RUN})(?:${NODE_SPELLINGS.map((spelling) => bracketOf(spelling)).join("|")})?\s*(?<at>@)\{.*\}$`,
-  "d",
-);
-
-/**
  * An edge id, `A e1@--> B`: an id and an `@` written right before an arrow,
  * after a space. Mermaid 12.2.0 accepts one before every arrow spelling
  * (measured); Siren does not support them yet. Cutting the line at its
@@ -1145,7 +1223,7 @@ function refuseEdgeId(
   return {
     message:
       `Siren does not support edge ids ("${edgeId[1]}@") yet. ` +
-      `Leave the id out: ${withoutIds.map((part, index) => part + (arrows[index] ?? "")).join("")}`,
+      `Leave the id out: ${withBlocksElided(withoutIds.map((part, index) => part + (arrows[index] ?? "")).join(""))}`,
     offset: edgeId.indices![1]![0],
     ids,
   };
@@ -1153,32 +1231,185 @@ function refuseEdgeId(
 
 /**
  * Why a node written as `text` — one declaration or one endpoint, trimmed —
- * was refused, and where in `text` to point, for the two reasons this
- * parser can name: an `@{ … }` block, or an unquoted bracket in its label.
- * `edgeIds` are the edge ids written so far, whose `@{ … }` is an edge's.
- * `null` leaves it to the generic "Unrecognized" error.
+ * was refused, and where in `text` to point, for the three reasons this
+ * parser can name: an id that begins with a keyword, where its `@{ … }`
+ * block stands, or an unquoted bracket in its label. `null` leaves it to
+ * the generic "Unrecognized" error.
  */
-function refuseNode(text: string, edgeIds: ReadonlySet<string>): { message: string; offset: number } | null {
-  const data = NODE_DATA_RE.exec(text);
-  if (data !== null) {
-    const id = data[1];
-    // An id an edge was given earlier makes the block that edge's data, as
-    // Mermaid 12.2.0 reads it (measured: `e1@{ animate: true }` after
-    // `A e1@--> B`; with no such edge it is a node `e1`).
-    if (edgeIds.has(id)) {
+function refuseNode(
+  text: string,
+  writtenAs: "an edge endpoint" | "a statement",
+): { message: string; offset: number } | null {
+  return (
+    refuseKeywordId(text, writtenAs === "an edge endpoint") ??
+    refuseNodeData(text) ??
+    refuseClassName(text) ??
+    refuseNodeLabel(text)
+  );
+}
+
+/** `CLASS_NAME`, anchored at both ends. */
+const CLASS_NAME_RE = new RegExp(`^${CLASS_NAME}$`);
+
+/**
+ * Where a class name stands in a text, read loosely — any run without a
+ * space — so a name `CLASS_NAME` refuses can be named: in a `classDef`, in
+ * a `class` statement's last word, or after a `:::` that ends the text.
+ * `applies` says whether the name is applied to a node (`class`, `:::`)
+ * rather than defined (`classDef`), which decides what a `,` in it means.
+ */
+const LOOSE_CLASS_NAMES: ReadonlyArray<{ re: RegExp; applies: boolean }> = [
+  { re: /^classDef\s+(\S+)\s+\S/d, applies: false },
+  { re: new RegExp(String.raw`^class\s+${CLASS_APPLY_TARGETS}\s+(\S+)\s*$`, "d"), applies: true },
+  { re: /:::(\S+)\s*$/d, applies: true },
+];
+
+/**
+ * What, inside a loosely read class name, says the run is something else
+ * going on — an arrow (`--`, `==`, `~~`, `-.`, `->`), a bracket, an edge
+ * label's `|`, a quote, a `%%` or another `:::` — so it is no class name to
+ * blame: `A:::c~~~B`, `A:::c[x]`, `A:::c|x|`.
+ */
+const NOT_A_CLASS_NAME_RE = /--|==|~~|-\.|->|:::|%%|[[\](){}|"]/;
+
+/** What a class name may hold, said to an author whose name holds something else. */
+const CLASS_NAME_RULE =
+  'Use letters (of any script), digits, "_", "\\" and single "-" signs, with no digit first, ' +
+  'and ".", "#" or "+" only between such words.';
+
+/**
+ * Why a statement or a node written as `text` was refused, when the reason
+ * is a class name `CLASS_NAME` does not read (`c%`, `1c`, `c..d`), and
+ * where in `text` that name stands. Measured in headless Chrome on Mermaid
+ * 12.2.0: each makes the CSS rule `.<name> > *` it writes fail to parse,
+ * and the diagram is not drawn.
+ */
+function refuseClassName(text: string): { message: string; offset: number } | null {
+  for (const { re, applies } of LOOSE_CLASS_NAMES) {
+    const match = re.exec(text);
+    const name = match?.[1];
+    if (match === null || name === undefined || CLASS_NAME_RE.test(name) || NOT_A_CLASS_NAME_RE.test(name)) {
+      continue;
+    }
+    // `class A c,d`, `A:::c,d`: the one class `c,d`, which no `classDef`
+    // defines (`classDef c,d` defines `c` and `d`), so Mermaid 12.2.0 draws
+    // the node unstyled with no diagnostic (measured).
+    if (applies && name.split(",").every((part) => CLASS_NAME_RE.test(part))) {
       return {
-        message: `Siren does not support "@{ … }" data on the edge "${id}" yet. Leave this line out`,
-        offset: data.indices!.groups!.at![0],
+        message:
+          `"${name}" is read as one class name, which no classDef defines, so no style reaches the node. ` +
+          "Apply one class at a time.",
+        offset: match.indices![1]![0],
       };
     }
+    return { message: `"${name}" cannot be a class name. ${CLASS_NAME_RULE}`, offset: match.indices![1]![0] };
+  }
+  return null;
+}
+
+/** `ID_KEYWORD` at the start of a text; the match is the keyword, its lookahead being zero-width. */
+const KEYWORD_ID_RE = new RegExp(`^${ID_KEYWORD}`);
+
+/**
+ * What an author wrote as an id at the start of a text: up to whitespace,
+ * any of `[ ] ( ) { }`, a `:` (of `:::`), an `@` (of `@{`) or a `>` (of an
+ * asymmetric node) — so `end&x` is taken whole, as the author wrote it.
+ */
+const LEADING_ID_RE = /^[^\s[\](){}:@>]+/;
+
+/**
+ * Why a node written as `text` was refused, when the reason is an id that
+ * begins with a keyword (`ID_KEYWORDS`): `end-x`, `style.x`, `end[x]`. The
+ * keyword must be followed by something other than a space — `end B` is no
+ * id, and a statement such as `style A` is not this mistake — or, when
+ * `wholeTextIsId` (an edge's end, a `style` or `class` target), be the
+ * whole of it (`A --> end`), which as a statement is a stray `end` instead.
+ * The fix offered is the id in camel case (`endX`), or with `Node` after a
+ * bare keyword.
+ */
+function refuseKeywordId(text: string, wholeTextIsId: boolean): { message: string; offset: number } | null {
+  const keyword = KEYWORD_ID_RE.exec(text)?.[0];
+  const after = keyword === undefined ? "" : text.slice(keyword.length);
+  if (keyword === undefined || (after === "" && !wholeTextIsId) || /^\s/.test(after)) {
+    return null;
+  }
+  return { message: keywordIdMessage(LEADING_ID_RE.exec(text)![0], keyword), offset: 0 };
+}
+
+/**
+ * The refusal of an id that begins with a keyword, with a fix: the id in
+ * camel case (`end-x` → `endX`), or with `Node` after a bare keyword.
+ */
+function keywordIdMessage(id: string, keyword: string): string {
+  const [first, ...rest] = id.split(/[^A-Za-z0-9_]+/).filter((part) => part !== "");
+  const fix =
+    rest.length === 0 ? `${first}Node` : first + rest.map((part) => part[0]!.toUpperCase() + part.slice(1)).join("");
+  return `"${id}" begins with the keyword "${keyword}", and is read as that keyword. Rename it, such as ${fix}.`;
+}
+
+/**
+ * The words Mermaid 12.2.0's lexer reads as a keyword only before
+ * whitespace (`click[\s]+`, `call[\s]+`, `href[\s]`), so `click-x` and
+ * `click[x]` are ids and an endpoint `click` before a space is not.
+ */
+const SPACED_KEYWORDS: ReadonlySet<string> = new Set(["click", "call", "href"]);
+
+/**
+ * Why a node written as `text` with an `@{ … }` block was refused, when the
+ * reason is where the block stands, and where in `text` to point; `null`
+ * when it has no block, or the block is not the reason. Mermaid 12.2.0
+ * refuses each of these (measured): a space before the `@` (`A[x] @{ … }`,
+ * "got 'SHAPE_DATA'"), anything after the `}` (`A@{ … }:::c`, `A@{ … } x`),
+ * and a second block (`A@{ … }@{ … }`, read as one, "missed comma"). A block
+ * never closed reads to the end of the document.
+ */
+function refuseNodeData(text: string): { message: string; offset: number } | null {
+  const block = nodeDataBlocksOf(text)[0];
+  if (block === undefined) {
+    return null;
+  }
+  if (block.end === null) {
+    return { message: `The "${NODE_DATA_OPENER}" is never closed. End the block with "}"`, offset: block.at };
+  }
+  const head = text.slice(0, block.at);
+  const written = text.slice(block.at, block.end);
+  if (head !== head.trimEnd()) {
     return {
       message:
-        `Siren does not support the "@{ … }" node syntax yet. ` +
-        `Write the shape with brackets instead, such as ${id}[text], ${id}((text)) or ${id}{text}`,
-      offset: data.indices!.groups!.at![0],
+        `Write "${NODE_DATA_OPENER}" right after the node, with no space: ` +
+        withBlocksElided(`${head.trimEnd()}${text.slice(block.at)}`),
+      offset: block.at,
     };
   }
-  return refuseNodeLabel(text);
+  const rest = text.slice(block.end);
+  const restAt = block.end + rest.length - rest.trimStart().length;
+  const definition = new RegExp(String.raw`^\s*:::(${CLASS_NAME})`).exec(rest);
+  if (definition !== null) {
+    return {
+      message:
+        `Write ":::${definition[1]}" before the "${NODE_DATA_OPENER} … }" block: ` +
+        withBlocksElided(`${head}:::${definition[1]}${written}`),
+      offset: restAt,
+    };
+  }
+  if (rest.trimStart().startsWith(NODE_DATA_OPENER)) {
+    return {
+      message: `A node takes one "${NODE_DATA_OPENER} … }" block. Write all its keys in the first, separated by ","`,
+      offset: restAt,
+    };
+  }
+  // `A@{ … } & B` with no arrow: a group, not text after the block, so it
+  // gets whatever a bare `A & B` line gets rather than a fix that drops `B`.
+  if (rest.trimStart().startsWith(GROUP_SEPARATOR)) {
+    return null;
+  }
+  if (rest.trim() !== "") {
+    return {
+      message: `Nothing may follow a node's "${NODE_DATA_OPENER} … }" block: "${quotedOnOneLine(rest.trim())}"`,
+      offset: restAt,
+    };
+  }
+  return refuseNodeLabel(head);
 }
 
 /**
@@ -1276,6 +1507,8 @@ function separatorAt(text: string, index: number, separator: string | RegExp): s
  *   strings whole. A `"` in a declaration list (`style A fill:"#fdd;x"`)
  *   fences too, which changes nothing there: `splitStatements` hands a
  *   declaration list the rest of its line as written, and the gate refuses it.
+ * - **A node's `@{ … }` block**, from its `@{` to the `}` closing it
+ *   (`nodeDataEnd`).
  * - **An arrow's own label.** The two edge-label spellings put the author's
  *   text where the grammar reads its punctuation: mermaid 11.17.2 reads
  *   `A -- a;b --> B` as one edge labelled `a;b`, measured. Stepping over the
@@ -1285,14 +1518,15 @@ function separatorAt(text: string, index: number, separator: string | RegExp): s
  *
  * Always returns at least one piece, and one fewer separator than pieces,
  * and never trims: a caller that needs a column needs the offsets left
- * alone.
+ * alone. `blocks` are the `@{ … }` blocks it stepped over.
  */
 function cutOutsideLabel(
   text: string,
   separator: string | RegExp,
-): { parts: string[]; separators: string[] } {
+): { parts: string[]; separators: string[]; blocks: NodeDataBlock[] } {
   const parts: string[] = [];
   const separators: string[] = [];
+  const blocks: NodeDataBlock[] = [];
   let depth = 0;
   let quoted = false;
   let start = 0;
@@ -1303,6 +1537,16 @@ function cutOutsideLabel(
       continue;
     }
     if (quoted) {
+      continue;
+    }
+    if (depth === 0 && text.startsWith(NODE_DATA_OPENER, i)) {
+      // A node's `@{ … }` block, stepped over whole to the `}` that closes
+      // it: what is inside is YAML, and Mermaid 12.2.0 reads an arrow, an
+      // `&` or an unpaired `(` there as text (`A@{ label: f(x } --> B`,
+      // measured). One never closed runs to the end of the text.
+      const end = nodeDataEnd(text, i);
+      blocks.push({ at: i, end });
+      i = (end ?? text.length) - 1;
       continue;
     }
     if (LABEL_OPENERS.includes(char) || (depth === 0 && char === ASYMMETRIC_OPENER && i > 0 && ID_CHAR_RE.test(text[i - 1]!))) {
@@ -1334,7 +1578,17 @@ function cutOutsideLabel(
     }
   }
   parts.push(text.slice(start));
-  return { parts, separators };
+  return { parts, separators, blocks };
+}
+
+/**
+ * The `@{ … }` blocks `text` holds where a node can stand — outside a
+ * label, a quoted string and an arrow's own label, which `cutOutsideLabel`
+ * steps over: an `@{` in any of them is text (`A -- x@{y --> B` is the
+ * edge label `x@{y`, measured on Mermaid 12.2.0).
+ */
+function nodeDataBlocksOf(text: string): NodeDataBlock[] {
+  return cutOutsideLabel(text, ARROW_RE).blocks;
 }
 
 /** What opens and what closes a label's bracket, in any pairing (see `cutOutsideLabel`). */
@@ -1350,6 +1604,41 @@ const ASYMMETRIC_OPENER = ">";
  */
 const ID_CHAR_RE = new RegExp(ID_CHAR);
 
+/**
+ * `text` with each `@{ … }` block in it passed through `rewrite` — the one
+ * walk the two below share, so they agree on where a block is.
+ */
+function mapNodeDataBlocks(text: string, rewrite: (block: string) => string): string {
+  let out = "";
+  let from = 0;
+  for (const { at, end } of nodeDataBlocksOf(text)) {
+    const stop = end ?? text.length;
+    out += text.slice(from, at) + rewrite(text.slice(at, stop));
+    from = stop;
+  }
+  return out + text.slice(from);
+}
+
+/**
+ * Author text as a message quotes it: on one line. A statement an `@{ … }`
+ * block carried across lines holds their breaks inside the block, and
+ * each, with the indentation around it, is quoted as one space:
+ * `A@{ shape: circle } --> B C`. A break anywhere else — inside a Markdown
+ * string, say — is the author's and stays.
+ */
+function quotedOnOneLine(text: string): string {
+  return mapNodeDataBlocks(text, (block) => block.replace(/\s*\n\s*/g, " "));
+}
+
+/**
+ * A fix as a message suggests it: each `@{ … }` block written across lines
+ * shown as `@{ … }`, since flattened onto one line its YAML would no longer
+ * be what the author wrote (`shape: circle label: x` is not two keys).
+ */
+function withBlocksElided(text: string): string {
+  return mapNodeDataBlocks(text, (block) => (block.includes("\n") ? `${NODE_DATA_OPENER} … }` : block));
+}
+
 /** `cutOutsideLabel` for the two callers whose separator says nothing worth keeping. */
 function splitOutsideLabel(text: string, separator: string): string[] {
   return cutOutsideLabel(text, separator).parts;
@@ -1364,6 +1653,52 @@ interface Statement {
   text: string;
   line: number;
   column: number;
+}
+
+/**
+ * The line and column of the character at `offset` in `statement`'s text. A
+ * statement is a slice of its source line as written, so a position in it
+ * is a column once the statement's own column is added — except that a
+ * Markdown string's fence (`joinMarkdownFences`) or an `@{ … }` block may
+ * have carried the statement across physical lines, so every line break
+ * before the position moves it one line down and restarts the column count.
+ */
+function positionIn(statement: Statement, offset: number): { line: number; column: number } {
+  return positionAfterBreaks(lineBreaksOf(statement.text), offset, statement.line, statement.column);
+}
+
+/** The offset of every line break in `text`, in order. */
+function lineBreaksOf(text: string): number[] {
+  const breaks: number[] = [];
+  for (let at = text.indexOf("\n"); at !== -1; at = text.indexOf("\n", at + 1)) {
+    breaks.push(at);
+  }
+  return breaks;
+}
+
+/**
+ * Where `offset` stands in a text whose line breaks are at `breaks` and
+ * whose first character is at `line`:`column`: each break before it moves
+ * it a line down and restarts the column count. The breaks are searched by
+ * halving, so asking for many offsets in one long text stays cheap.
+ */
+function positionAfterBreaks(
+  breaks: readonly number[],
+  offset: number,
+  line: number,
+  column: number,
+): { line: number; column: number } {
+  let low = 0;
+  let high = breaks.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (breaks[middle]! < offset) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return low === 0 ? { line, column: column + offset } : { line: line + low, column: offset - breaks[low - 1]! };
 }
 
 /**
@@ -1424,9 +1759,61 @@ function splitStatements(rawLine: string): { text: string; column: number }[] {
  * `click A "u" "a %% b"` as written, measured.
  */
 function midLinePercentAt(text: string): number | null {
-  const { parts } = cutOutsideLabel(text, MID_LINE_PERCENT_RE);
-  return parts.length === 1 ? null : parts[0]!.length;
+  const { parts, separators } = cutOutsideLabel(text, MID_LINE_PERCENT_RE);
+  const offsets = offsetsOf(parts, separators);
+  const writesNodes = !NO_NODE_STATEMENT_RE.test(text);
+  for (let cut = 0; cut < separators.length; cut++) {
+    const at = offsets[cut]! + parts[cut]!.length;
+    // A `%%` begins an id only where a statement writes nodes, and only when
+    // no space follows it (`A --> %%` ends the statement): `%% x` is a
+    // comment's own spelling, and Mermaid 12.2.0 refuses `A --> %% x`
+    // (measured).
+    const spaced = /\s/.test(text[at + 2] ?? "");
+    if (!writesNodes || spaced || !opensEndpoint(text.slice(0, at))) {
+      return at;
+    }
+  }
+  return null;
 }
+
+/**
+ * A statement that writes no node, by its keyword: a `%%` in it begins no
+ * id, whatever stands before it (`class A c --> %%x` and
+ * `click A "u" "t" --> %%x` are parse errors in Mermaid 12.2.0, measured).
+ */
+const NO_NODE_STATEMENT_KEYWORDS = [
+  ...DECLARATION_LIST_KEYWORDS,
+  "class",
+  "click",
+  "accTitle",
+  "accDescr",
+  "subgraph",
+  "direction",
+] as const;
+const NO_NODE_STATEMENT_RE = new RegExp(`^(?:${NO_NODE_STATEMENT_KEYWORDS.join("|")})\\s`);
+
+/**
+ * Whether an endpoint begins right after `before`: it ends with an arrow
+ * (its `|label|` included) or with an `&` that has a space on each side,
+ * then nothing but spaces. A `%%` there begins an id, not a comment:
+ * Mermaid 12.2.0 draws `A --> %%B`, `A-->%%B`, `A -->|l| %%B`,
+ * `A -- t --> %%B` and `A & %%B` with a node `%%B` (measured).
+ */
+function opensEndpoint(before: string): boolean {
+  if (SPACED_GROUP_SEPARATOR_AT_END_RE.test(before)) {
+    return true;
+  }
+  const { parts, separators } = cutOutsideLabel(before, ARROW_RE);
+  return separators.length > 0 && parts[parts.length - 1]!.trim() === "";
+}
+
+/** Why a statement after a `;` that begins with `%%` is refused (`A;%%B`). */
+const PERCENT_AFTER_SEMICOLON_MESSAGE =
+  'A "%%" after ";" begins a statement, so it is read as a node, not a comment. ' +
+  "Move the comment to a line of its own.";
+
+/** An `&` with a space on each side, at the end of a text but for spaces. */
+const SPACED_GROUP_SEPARATOR_AT_END_RE = /\s&\s+$/;
 
 /**
  * What `midLinePercentAt` looks for: a `%%` that does not continue an id.
@@ -1434,7 +1821,8 @@ function midLinePercentAt(text: string): number | null {
  * the id's own — measured on Mermaid 12.2.0, `A%%B`, `A%%B --> C`,
  * `A-->B%%C`, `A%%` and `A%% --> B` record the ids `A%%B`, `B%%C` and `A%%`
  * (01M4ZWT8PR). Written after a space or a bracket it begins no id this
- * parser reads: `A %% x` and `A %%B` are parse errors there, measured.
+ * parser reads: `A %% x` and `A %%B` are parse errors there, measured —
+ * except where an endpoint begins (`opensEndpoint`).
  */
 const MID_LINE_PERCENT_RE = new RegExp(`${NOT_AFTER_ID}%%`, "y");
 
@@ -1451,6 +1839,9 @@ const SUBGRAPH_OPEN_RE = /^subgraph\s+(\S.*)$/d;
 
 /** The statement that closes a `subgraph` block. Mermaid's own keyword, lowercase. */
 const SUBGRAPH_END = "end";
+
+/** `end` and more after a space (`end B`): the block's end, and what follows it. */
+const END_THEN_MORE_RE = /^end\s+(\S.*)$/;
 
 /**
  * `one[Two Words]` — the spelling that gives a subgraph a handle *and* a
@@ -1472,6 +1863,9 @@ const SUBGRAPH_TITLED_RE = new RegExp(String.raw`^(${ID_RUN})\s*\[(${LABEL_CONTE
  * its id inside a block.
  */
 const AUTHORED_ID_RE = new RegExp(`^${ID_RUN}$`);
+
+/** A node written as nothing but its id: `AUTHORED_ID_RE`, unless it begins with a keyword. */
+const AUTHORED_NODE_ID_RE = new RegExp(`^${NODE_ID}$`);
 
 /**
  * What the tail of a `subgraph` statement names — the author's handle and
@@ -1568,6 +1962,16 @@ const SUBGRAPH_TITLED_THEN_MORE_RE = new RegExp(
  * nothing this can explain, left to the generic "Unrecognized" error.
  */
 function refuseSubgraphTitle(tail: string): { message: string; offset: number } | null {
+  // `subgraph S@{ shape: circle }`: Mermaid 12.2.0 refuses a block there
+  // (measured, "got 'SHAPE_DATA'").
+  const data = nodeDataBlocksOf(tail)[0];
+  if (data !== undefined) {
+    const without = tail.slice(0, data.at) + tail.slice(data.end ?? tail.length);
+    return {
+      message: `A subgraph takes no "${NODE_DATA_OPENER} … }" block. Leave the block out: subgraph ${without.trim()}`,
+      offset: data.at,
+    };
+  }
   const titledThenMore = SUBGRAPH_TITLED_THEN_MORE_RE.exec(tail);
   if (titledThenMore !== null) {
     const [, name, content, more] = titledThenMore;
@@ -1578,7 +1982,7 @@ function refuseSubgraphTitle(tail: string): { message: string; offset: number } 
       offset: titledThenMore.indices![3]![0],
     };
   }
-  if (!/\s/.test(tail)) {
+  if (!/\s/.test(tail) && tail !== SUBGRAPH_END) {
     return null;
   }
   // The fix both refusals below offer: the whole tail as one quoted title,
@@ -1885,13 +2289,14 @@ function callArgument(raw: string): string | null {
  * `style A fill:#fdd,stroke:#c00` — author styling applied directly to one
  * node, spelled exactly as a class diagram spells it.
  */
-const STYLE_RE = new RegExp(String.raw`^style\s+(${ID_RUN})\s+(.+)$`);
+const STYLE_RE = new RegExp(String.raw`^style\s+(${ID_RUN})\s+(.+)$`, "d");
 
 /**
  * `classDef emphasis fill:#fdd` — a named set of declarations, applied to
- * nothing on its own, spelled exactly as a class diagram spells it.
+ * nothing on its own, spelled exactly as a class diagram spells it; or
+ * several names joined by `,` (`classDef a,b fill:#fdd`), each defined.
  */
-const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
+const CLASS_DEF_RE = new RegExp(String.raw`^classDef\s+(${CLASS_NAME}(?:,${CLASS_NAME})*)\s+(.+)$`);
 
 /**
  * `linkStyle 0 stroke:#f00` — the one styling statement that reaches an
@@ -1967,9 +2372,7 @@ const LINK_STYLE_INTERPOLATE_RE = /^linkStyle\s+([\w,\s]*?[\w,])\s+interpolate\s
  * and a `-` are too: `class A%B,C%%D hot`, `class a-b,c hot` (measured,
  * 01M4ZWT8PR).
  */
-const CLASS_APPLY_RE = new RegExp(
-  String.raw`^class\s+([${ID_ALPHABET_SET}\s,]*[${ID_ALPHABET_SET},])\s+(\w+)\s*$`,
-);
+const CLASS_APPLY_RE = new RegExp(String.raw`^class\s+(${CLASS_APPLY_TARGETS})\s+(${CLASS_NAME})\s*$`, "d");
 
 /**
  * Splits the comma-separated target list an apply-directive (`class A,B
@@ -2072,6 +2475,9 @@ function joinMarkdownFences(lines: readonly string[]): string[] {
 export function parseFlowchart(source: string): DiagramParseResult {
   const diagnostics: Diagnostic[] = [];
   const lines = joinMarkdownFences(source.split(/\r\n|\r|\n/));
+  // The lines whose statement an `@{ … }` block has already run on into
+  // the lines after it (`runOn`), so a block never closed runs on once.
+  const ranOn = new Set<number>();
 
   const nodesById = new Map<string, SirenNode>();
   const edges: SirenEdge[] = [];
@@ -2121,6 +2527,14 @@ export function parseFlowchart(source: string): DiagramParseResult {
    * generated subgraph id exists to keep apart.
    */
   const provisionalEndpointNodes = new Map<string, SirenSubgraph | null>();
+
+  /**
+   * Every node id written with an `@{ … }` block, with where its first `@`
+   * stands — so a block on an id that turns out to name a `subgraph` can be
+   * refused there once the whole document has been read, the subgraph
+   * being free to be declared below it.
+   */
+  const nodeDataAt = new Map<string, { line: number; column: number }>();
 
   let mode: "before-header" | "flowchart" = "before-header";
   let sawError = false;
@@ -2226,26 +2640,13 @@ export function parseFlowchart(source: string): DiagramParseResult {
   /**
    * Turns the problems `readLabel` found in one label into diagnostics, each
    * at the line and column of the character it is about — `at` being where
-   * the label's offsets count from, in `statement`'s own text.
-   *
-   * A statement is a slice of its source line as written, so a position in
-   * it is a column once the statement's own column is added — except that a
-   * Markdown string's fence may have carried the statement across physical
-   * lines (`joinMarkdownFences`), so every line break before the position
-   * moves it one line down and restarts the column count.
+   * the label's offsets count from, in `statement`'s own text (`positionIn`).
    *
    * An error costs the whole document, exactly as an unrecognized line does:
    * a label Siren cannot draw as written is not drawn some other way.
    */
   const reportLabelProblems = (problems: LabelProblem[], statement: Statement, at: number) => {
-    const reported = labelDiagnostics(problems, (offset) => {
-      const before = statement.text.slice(0, at + offset);
-      const lastBreak = before.lastIndexOf("\n");
-      return {
-        line: statement.line + before.split("\n").length - 1,
-        column: lastBreak === -1 ? statement.column + before.length : before.length - lastBreak,
-      };
-    });
+    const reported = labelDiagnostics(problems, (offset) => positionIn(statement, at + offset));
     diagnostics.push(...reported.diagnostics);
     if (reported.hasError) {
       sawError = true;
@@ -2275,8 +2676,40 @@ export function parseFlowchart(source: string): DiagramParseResult {
    * `labelSpan`, so a Markdown label is told apart from an ordinary one in
    * the one place both spellings already meet.
    */
+  /**
+   * What a node's `@{ … }` block says, laid over whatever the rest of the
+   * place it was written in already gave the node.
+   */
+  const applyNodeData = (id: string, data: NonNullable<EdgeEndpoint["data"]>, statement: Statement) => {
+    const node = nodesById.get(id)!;
+    const read = readNodeData(data.content);
+    for (const { severity, message, offset } of read.problems) {
+      // At the place in the block a problem names, past its `@{`; else at the `@`.
+      const at = offset === undefined ? data.at : data.at + NODE_DATA_OPENER.length + offset;
+      diagnostics.push({ severity, message, ...positionIn(statement, at) });
+      if (severity === "error") {
+        sawError = true;
+      }
+    }
+    if (read.shape !== null) {
+      node.shape = read.shape;
+    }
+    if (read.label !== null) {
+      // The label is the YAML string's value, not text as written, so a
+      // problem in it is reported at the block's `@` rather than at a
+      // character the author may have spelled differently.
+      const { label, problems } = readLabel(read.label.text, { dialect: "html", markdown: read.label.markdown });
+      reportLabelProblems(
+        problems.map((problem) => ({ ...problem, offset: 0 })),
+        statement,
+        data.at,
+      );
+      node.label = label;
+    }
+  };
+
   const addNodeAsWritten = (
-    { id, label, labelAt, definitionName, shape }: EdgeEndpoint,
+    { id, label, labelAt, definitionName, shape, data }: EdgeEndpoint,
     statement: Statement,
     /**
      * Where this mention was written. Only an *edge endpoint* can mean a
@@ -2287,6 +2720,18 @@ export function parseFlowchart(source: string): DiagramParseResult {
      */
     writtenAs: "an edge endpoint" | "a declaration" = "a declaration",
   ) => {
+    // An id an edge was given earlier makes the block that edge's data, as
+    // Mermaid 12.2.0 reads it (measured: `e1@{ animate: true }` after
+    // `A e1@--> B`; with no such edge it is a node `e1`).
+    if (data !== undefined && edgeIds.has(id)) {
+      diagnostics.push({
+        severity: "error",
+        message: `Siren does not support "@{ … }" data on the edge "${id}" yet. Leave this line out`,
+        ...positionIn(statement, data.at),
+      });
+      sawError = true;
+      return;
+    }
     const undeclared = !nodesById.has(id);
 
     // Membership is claimed here, at the one place a node is *written*, for
@@ -2315,6 +2760,12 @@ export function parseFlowchart(source: string): DiagramParseResult {
     } else if (undeclared) {
       nodesById.set(id, { id, label: plainLabel(id), shape, line, column });
     }
+    if (data !== undefined) {
+      applyNodeData(id, data, statement);
+      if (!nodeDataAt.has(id)) {
+        nodeDataAt.set(id, positionIn(statement, data.at));
+      }
+    }
     if (definitionName !== undefined) {
       applyAtDeclaration(id, definitionName, line, column);
     }
@@ -2337,7 +2788,13 @@ export function parseFlowchart(source: string): DiagramParseResult {
   // and they have to say which loop they mean.
   readLines: for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
-    const lineNumber = i + 1;
+    const rawLineNumber = i + 1;
+    // Where an offset in `rawLine` stands in the source. A raw line may hold
+    // line breaks — a Markdown fence (`joinMarkdownFences`) or an `@{ … }`
+    // block (`runOn`) carries the lines it joins — and each one moves what
+    // follows it a line down and restarts the column count.
+    const rawBreaks = lineBreaksOf(rawLine);
+    const rawPosition = (offset: number) => positionAfterBreaks(rawBreaks, offset, rawLineNumber, 1);
 
     // The braced accDescr, read across lines before the line is split into
     // statements. What follows its `}` goes back into `lines` at the `}`
@@ -2348,7 +2805,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
         diagnostics.push({
           severity: "error",
           message: "Unclosed `accDescr { ... }` block: no `}` ends the description it opens",
-          line: lineNumber,
+          line: rawLineNumber,
           column: rawLine.length - rawLine.trimStart().length + 1,
         });
         sawError = true;
@@ -2364,20 +2821,149 @@ export function parseFlowchart(source: string): DiagramParseResult {
       continue;
     }
 
-    for (const piece of splitStatements(rawLine)) {
+    for (const [pieceIndex, piece] of splitStatements(rawLine).entries()) {
       const line = piece.text;
-      const column = piece.column;
+      // Where the statement begins in `rawLine`, and so in the source.
+      const rawAt = piece.column - 1;
+      const { line: lineNumber, column } = rawPosition(rawAt);
       const statement: Statement = { text: line, line: lineNumber, column };
       // Where a `%%` stands outside the statement's text, read once for every
       // branch below that asks; and the statement up to it.
       const percentAt = midLinePercentAt(line);
       const beforePercent = percentAt === null ? line : line.slice(0, percentAt).trimEnd();
+      // A node's `@{ … }` block not closed on this line runs on into the
+      // lines after it: the statement is written back into this line,
+      // blanked up to its column, with those lines joined to it and blanked,
+      // and the line is read again from there. Asked only where a node is
+      // written, so that an `@{` in any other statement is never a block.
+      const runOn = (blocks: readonly NodeDataBlock[]): boolean => {
+        if (blocks.at(-1)?.end !== null || ranOn.has(i)) {
+          return false;
+        }
+        const { text, taken } = blockRunOn(line, lines, i + 1, nodeDataBlocksOf);
+        if (taken === 0) {
+          return false;
+        }
+        lines[i] = rawLine.slice(0, rawAt).replace(/[^\n]/g, " ") + text;
+        lines.fill("", i + 1, i + 1 + taken);
+        ranOn.add(i);
+        return true;
+      };
+      // The ids a `style` or `class` statement targets, `targets` standing
+      // at `at` in it, refused when one begins with a keyword (`style end-x
+      // fill:red` is a parse error in Mermaid 12.2.0, measured) — true when
+      // one was, which ends the statement.
+      const refuseKeywordTargets = (targets: string, at: number): boolean => {
+        let offset = at;
+        for (const segment of targets.split(",")) {
+          const lead = segment.length - segment.trimStart().length;
+          const refusal = refuseKeywordId(segment.trim(), true);
+          if (refusal !== null) {
+            diagnostics.push({
+              severity: "error",
+              message: refusal.message,
+              ...positionIn(statement, offset + lead),
+            });
+            sawError = true;
+            return true;
+          }
+          offset += segment.length + 1;
+        }
+        return false;
+      };
+      // An `&` with no node on one side, or without a space on each side,
+      // in `parts` (standing at `partAt`), refused — true when one was,
+      // which ends the statement.
+      const refuseMalformedGroups = (parts: readonly string[], partAt: readonly number[]): boolean => {
+        // An `&` with no node on one side (`& A`, `A &`, `A & --> B`): a
+        // parse error in Mermaid 12.2.0 (measured), and no spacing fixes it.
+        for (const [index, part] of parts.entries()) {
+          const { parts: pieces, separators } = cutOutsideLabel(part, GROUP_SEPARATOR);
+          const pieceAt = offsetsOf(pieces, separators);
+          const blank = separators.length === 0 ? -1 : pieces.findIndex((piece) => piece.trim() === "");
+          if (blank !== -1) {
+            const before = blank < separators.length;
+            const ampersandAt = partAt[index]! + (before ? pieceAt[blank]! + pieces[blank]!.length : pieceAt[blank]! - 1);
+            diagnostics.push({
+              severity: "error",
+              message:
+                `An "${GROUP_SEPARATOR}" joins two nodes, and this one has none ${before ? "before" : "after"} it. ` +
+                `Write a node there, or leave the "${GROUP_SEPARATOR}" out.`,
+              ...positionIn(statement, ampersandAt),
+            });
+            sawError = true;
+            return true;
+          }
+        }
+        const unspaced = unspacedGroupSeparators(line, parts, partAt);
+        if (unspaced.length === 0) {
+          return false;
+        }
+        diagnostics.push({
+          severity: "error",
+          message:
+            `An "${GROUP_SEPARATOR}" joins nodes only with a space on each side. ` +
+            `Write: ${withBlocksElided(spacedGroupSeparators(line, unspaced))}`,
+          ...positionIn(statement, unspaced[0]!),
+        });
+        sawError = true;
+        return true;
+      };
+      // An endpoint that is nothing but `click`, `call` or `href`
+      // (`SPACED_KEYWORDS`) where whitespace or the line's end follows it,
+      // which Mermaid 12.2.0 reads as that keyword (measured: `A --> click`
+      // and `click --> A` are refused or drawn empty). `A --> click;B`,
+      // `click[x]` and `click-->B` are ids. `pieces` are the endpoints as
+      // written, each at its offset; true when one was refused.
+      const refuseSpacedKeywordIds = (
+        pieces: readonly { text: string; at: number }[],
+        endpoints: readonly EdgeEndpoint[],
+      ): boolean => {
+        // A `;` right after the statement, with no space: `A --> click;B` is
+        // an id, `A --> click ;B` the keyword (measured).
+        const followedBySemicolon = rawLine[rawAt + line.length] === STATEMENT_END;
+        const at = endpoints.findIndex(
+          (endpoint, index) =>
+            SPACED_KEYWORDS.has(endpoint.id) &&
+            endpoint.label === undefined &&
+            endpoint.data === undefined &&
+            endpoint.definitionName === undefined &&
+            (/\s$/.test(pieces[index]!.text) || (index === endpoints.length - 1 && !followedBySemicolon)),
+        );
+        if (at === -1) {
+          return false;
+        }
+        const piece = pieces[at]!;
+        const id = endpoints[at]!.id;
+        diagnostics.push({
+          severity: "error",
+          message: keywordIdMessage(id, id),
+          ...positionIn(statement, piece.at + piece.text.length - piece.text.trimStart().length),
+        });
+        sawError = true;
+        return true;
+      };
+      // One endpoint of an edge or a group that could not be read, as
+      // written and at its offset in the statement: refused at the reason
+      // `refuseNode` names, or the whole statement as unrecognized.
+      const refuseUnreadableEndpoint = (piece: { text: string; at: number }) => {
+        const lead = piece.text.length - piece.text.trimStart().length;
+        const nodeRefusal = refuseNode(piece.text.trim(), "an edge endpoint");
+        diagnostics.push({
+          severity: "error",
+          message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${quotedOnOneLine(line)}"`,
+          ...positionIn(statement, nodeRefusal === null ? 0 : piece.at + lead + nodeRefusal.offset),
+        });
+        sawError = true;
+      };
       const refusePercent = () => {
         diagnostics.push({
           severity: "error",
-          message: MID_LINE_PERCENT_MESSAGE,
-          line: lineNumber,
-          column: column + percentAt!,
+          // A statement after a `;` that begins with `%%` (`A;%%B`, `A --> B;
+          // %%c`): Mermaid 12.2.0 draws it as a node `%%B` (measured), which
+          // an author writing a comment there did not mean.
+          message: percentAt === 0 && pieceIndex > 0 ? PERCENT_AFTER_SEMICOLON_MESSAGE : MID_LINE_PERCENT_MESSAGE,
+          ...positionIn(statement, percentAt!),
         });
         sawError = true;
       };
@@ -2430,7 +3016,10 @@ export function parseFlowchart(source: string): DiagramParseResult {
       // block with a punctuated name, not a malformed edge.
       const subgraphOpenMatch = SUBGRAPH_OPEN_RE.exec(line);
       if (subgraphOpenMatch !== null) {
-        let title = readSubgraphTitle(subgraphOpenMatch[1]);
+        // `subgraph end` is no handle: Mermaid 12.2.0 reads the `end` as the
+        // block's own (measured), so it is refused below as a title ending
+        // with that word is.
+        let title = subgraphOpenMatch[1] === SUBGRAPH_END ? null : readSubgraphTitle(subgraphOpenMatch[1]);
         if (title === null && percentAt !== null) {
           // Refused for its `%%`, but still a block: its `end` closes it, so
           // the one mistake is reported once rather than again at the `end`.
@@ -2444,8 +3033,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
           diagnostics.push({
             severity: "error",
             message: refusal.message,
-            line: lineNumber,
-            column: column + subgraphOpenMatch.indices![1]![0] + refusal.offset,
+            ...positionIn(statement, subgraphOpenMatch.indices![1]![0] + refusal.offset),
           });
           sawError = true;
           title = titleWithoutHandle(subgraphOpenMatch[1]);
@@ -2453,7 +3041,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
         if (title === null) {
           diagnostics.push({
             severity: "error",
-            message: `Unrecognized flowchart line: "${line}"`,
+            message: `Unrecognized flowchart line: "${quotedOnOneLine(line)}"`,
             line: lineNumber,
             column,
           });
@@ -2491,6 +3079,23 @@ export function parseFlowchart(source: string): DiagramParseResult {
         continue;
       }
 
+      // `end B` inside a block: Mermaid 12.2.0 ends the block at `end` and
+      // reads `B` (`B[x]`, `B --> C`) outside it (measured), a picture of
+      // neither. Refused, the block left open for the author's own `end`.
+      const endThenMore = END_THEN_MORE_RE.exec(beforePercent);
+      if (endThenMore !== null && openBlocks.length > 0) {
+        diagnostics.push({
+          severity: "error",
+          message:
+            `"${SUBGRAPH_END}" ends the subgraph here, and "${endThenMore[1]}" after it is read outside the block. ` +
+            `Write "${SUBGRAPH_END}" on a line of its own.`,
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
+        continue;
+      }
+
       // Read up to a `%%`: Mermaid's direction token is
       // `.*direction\s+LR[^\n]*`, so whatever trails it on the line is
       // taken with it (measured, `direction LR %% x` is `dir: "LR"`, and
@@ -2506,8 +3111,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
             diagnostics.push({
               severity: "warning",
               message: `Text after "direction ${directionLine[2]}" is ignored: "${ignored}". Remove it.`,
-              line: lineNumber,
-              column: column + directionLine.indices![3]![0] + trailing.length - ignored.length,
+              ...positionIn(statement, directionLine.indices![3]![0] + trailing.length - ignored.length),
             });
           }
         } else {
@@ -2550,10 +3154,18 @@ export function parseFlowchart(source: string): DiagramParseResult {
       // Mermaid draws turns on this; what turns on it is which diagnostic
       // an author gets, and "not an arrow Siren draws" is the wrong one to
       // hand someone who wrote a `style` statement.
-      const { parts: arrowParts, separators: arrowTokens } = DECLARATION_LIST_RE.test(line)
-        ? { parts: [line], separators: [] as string[] }
+      const {
+        parts: arrowParts,
+        separators: arrowTokens,
+        blocks: lineBlocks,
+      } = DECLARATION_LIST_RE.test(line)
+        ? { parts: [line], separators: [] as string[], blocks: [] }
         : cutOutsideLabel(line, ARROW_RE);
       if (arrowParts.length > 1) {
+        if (runOn(lineBlocks)) {
+          i--;
+          continue readLines;
+        }
         // Every outcome below ends the statement. An arrow says the author
         // meant an edge, so a statement carrying one is never handed on to
         // the node and styling patterns to be read as something else.
@@ -2567,7 +3179,9 @@ export function parseFlowchart(source: string): DiagramParseResult {
             // The token the author actually wrote, not `-->`: with thirteen
             // spellings, quoting one of them at an author who wrote another
             // sends them looking for a typo they did not make.
-            message: `Malformed edge: missing target after "${arrowTokens[arrowTokens.length - 1]}" in "${line}"`,
+            message:
+              `Malformed edge: missing target after "${arrowTokens[arrowTokens.length - 1]}" ` +
+              `in "${quotedOnOneLine(line)}"`,
             line: lineNumber,
             column,
           });
@@ -2584,7 +3198,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
         if (unreadable !== undefined) {
           diagnostics.push({
             severity: "error",
-            message: `Siren does not draw the arrow "${unreadable}" yet: "${line}"`,
+            message: `Siren does not draw the arrow "${unreadable}" yet: "${quotedOnOneLine(line)}"`,
             line: lineNumber,
             column,
           });
@@ -2599,17 +3213,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
         // label's problem is reported at its own column: the pieces and the
         // separators that cut them lie end to end, and add up to the line.
         const partAt = offsetsOf(arrowParts, arrowTokens);
-        const unspaced = unspacedGroupSeparators(line, arrowParts, partAt);
-        if (unspaced.length > 0) {
-          diagnostics.push({
-            severity: "error",
-            message:
-              `An "${GROUP_SEPARATOR}" joins nodes only with a space on each side. ` +
-              `Write: ${spacedGroupSeparators(line, unspaced)}`,
-            line: lineNumber,
-            column: column + unspaced[0]!,
-          });
-          sawError = true;
+        if (refuseMalformedGroups(arrowParts, partAt)) {
           continue;
         }
         // Each piece kept beside what it read as, so an unreadable one can be
@@ -2638,20 +3242,12 @@ export function parseFlowchart(source: string): DiagramParseResult {
             diagnostics.push({
               severity: "error",
               message: edgeIdRefusal.message,
-              line: lineNumber,
-              column: column + piece.at + lead + edgeIdRefusal.offset,
+              ...positionIn(statement, piece.at + lead + edgeIdRefusal.offset),
             });
             sawError = true;
             continue;
           }
-          const nodeRefusal = refuseNode(piece.text.trim(), edgeIds);
-          diagnostics.push({
-            severity: "error",
-            message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${line}"`,
-            line: lineNumber,
-            column: nodeRefusal === null ? column : column + piece.at + lead + nodeRefusal.offset,
-          });
-          sawError = true;
+          refuseUnreadableEndpoint(piece);
           continue;
         }
 
@@ -2659,6 +3255,9 @@ export function parseFlowchart(source: string): DiagramParseResult {
         // check above earned.
         const chain = groups as EdgeEndpoint[][];
         const written = chain.flat();
+        if (refuseSpacedKeywordIds(pieces, written)) {
+          continue;
+        }
 
         // Declared once each, left to right as written — before any edge, so
         // a `:::` on an endpoint two arrows along applies exactly once rather
@@ -2791,20 +3390,28 @@ export function parseFlowchart(source: string): DiagramParseResult {
         // by whoever applies it, in `resolveStyles`' own pass. Checked before
         // `style` and before a node declaration only because it is the more
         // specific keyword, not because the order can matter.
-        styles.push({
-          styleKind: "classDef",
-          authoredAs: "classDef",
-          targetIds: [],
-          name: classDefMatch[1],
-          properties: readStyleProperties(classDefMatch[2], lineNumber, column),
-          line: lineNumber,
-          column,
-        });
+        // `classDef c,d …` defines each name with the one declaration list,
+        // as Mermaid 12.2.0 does (measured: both `c` and `d` are styled).
+        const properties = readStyleProperties(classDefMatch[2], lineNumber, column);
+        for (const name of classDefMatch[1].split(",")) {
+          styles.push({
+            styleKind: "classDef",
+            authoredAs: "classDef",
+            targetIds: [],
+            name,
+            properties,
+            line: lineNumber,
+            column,
+          });
+        }
         continue;
       }
 
       const classApplyMatch = CLASS_APPLY_RE.exec(line);
       if (classApplyMatch !== null) {
+        if (refuseKeywordTargets(classApplyMatch[1], classApplyMatch.indices![1]![0])) {
+          continue;
+        }
         styles.push({
           styleKind: "apply",
           authoredAs: "class",
@@ -2833,6 +3440,9 @@ export function parseFlowchart(source: string): DiagramParseResult {
 
       const styleMatch = STYLE_RE.exec(line);
       if (styleMatch !== null) {
+        if (refuseKeywordTargets(styleMatch[1], styleMatch.indices![1]![0])) {
+          continue;
+        }
         // Naming a node in a `style` statement does not declare it: styling is
         // about something that already exists, and whether it does is
         // `resolveStyles`' question, asked once against the model's ids.
@@ -2848,6 +3458,46 @@ export function parseFlowchart(source: string): DiagramParseResult {
           line: lineNumber,
           column,
         });
+        continue;
+      }
+
+      // A node written with an `@{ … }` block on a line of its own; read as
+      // an edge's endpoint is, since the two spellings are one.
+      if (runOn(lineBlocks)) {
+        i--;
+        continue readLines;
+      }
+
+      // A group of nodes with no arrow, `A & B[x]`: each drawn as it would
+      // be on a line of its own, as Mermaid 12.2.0 draws them (measured).
+      // Every piece is read before any is declared, so an unreadable one
+      // refuses the whole statement, at itself. A line that begins with a
+      // keyword (`end&x`) is that keyword's mistake, not a group's.
+      const { parts: groupParts, separators: groupSeparators } = cutOutsideLabel(line, GROUP_SEPARATOR);
+      if (groupParts.length > 1 && refuseKeywordId(line, false) === null) {
+        if (refuseMalformedGroups([line], [0])) {
+          continue;
+        }
+        const groupAt = offsetsOf(groupParts, groupSeparators);
+        const members = groupParts.map((part, index) => readEndpoint(part, groupAt[index]!));
+        const unreadable = members.findIndex((member) => member === null);
+        if (unreadable !== -1) {
+          refuseUnreadableEndpoint({ text: groupParts[unreadable]!, at: groupAt[unreadable]! });
+          continue;
+        }
+        const groupPieces = groupParts.map((text, index) => ({ text, at: groupAt[index]! }));
+        if (refuseSpacedKeywordIds(groupPieces, members as EdgeEndpoint[])) {
+          continue;
+        }
+        for (const member of members as EdgeEndpoint[]) {
+          addNodeAsWritten(member, statement);
+        }
+        continue;
+      }
+
+      const withData = lineBlocks.length === 0 ? null : readEndpoint(line, 0);
+      if (withData !== null) {
+        addNodeAsWritten(withData, statement);
         continue;
       }
 
@@ -2891,7 +3541,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
       // hide a mistyped or dangling `end` behind a silent, useless vertex
       // instead of the diagnostic below — so it is excluded by name, not by
       // block state.
-      if (line !== SUBGRAPH_END && AUTHORED_ID_RE.test(line)) {
+      if (line !== SUBGRAPH_END && AUTHORED_NODE_ID_RE.test(line)) {
         addNodeAsWritten(
           { id: line, label: undefined, labelAt: 0, definitionName: undefined, shape: "rect" },
           statement,
@@ -2899,12 +3549,11 @@ export function parseFlowchart(source: string): DiagramParseResult {
         continue;
       }
 
-      const nodeRefusal = refuseNode(line, edgeIds);
+      const nodeRefusal = refuseNode(line, "a statement");
       diagnostics.push({
         severity: "error",
-        message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${line}"`,
-        line: lineNumber,
-        column: column + (nodeRefusal?.offset ?? 0),
+        message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${quotedOnOneLine(line)}"`,
+        ...positionIn(statement, nodeRefusal?.offset ?? 0),
       });
       sawError = true;
       continue;
@@ -2937,6 +3586,20 @@ export function parseFlowchart(source: string): DiagramParseResult {
     }
   };
   collectNames(subgraphs);
+
+  // A subgraph's id given an `@{ … }` block. Mermaid 12.2.0 draws nothing of
+  // it: a block after `subgraph S` is the frame's data, which draws no shape,
+  // and one before it gives a node the frame then stands in for (measured).
+  for (const [id, position] of nodeDataAt) {
+    if (subgraphNames.has(id)) {
+      diagnostics.push({
+        severity: "error",
+        message: `"${id}" is a subgraph, and a subgraph takes no "${NODE_DATA_OPENER} … }" block. Leave the block out`,
+        ...position,
+      });
+      sawError = true;
+    }
+  }
 
   for (const [id, claimedBy] of provisionalEndpointNodes) {
     if (!subgraphNames.has(id)) {

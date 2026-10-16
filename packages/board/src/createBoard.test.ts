@@ -131,14 +131,13 @@ describe("createBoard", () => {
       onDiagnostics: (diagnostics) => seen.push(diagnostics),
     });
 
-    // Two different annotations on one class: Mermaid draws only the
-    // first, so Siren draws it too and warns about the one it dropped. (A
-    // flowchart node relabelled used to be the example here, until a later
-    // label became the one drawn, silently, as Mermaid does.)
+    // A note naming no class: it is drawn as a free note, with a warning.
+    // (A flowchart node relabelled, then a class's second annotation, used
+    // to be the example here, until the first became drawn silently as
+    // Mermaid does and the second became an error.)
     const sourceWithWarningOnly = `classDiagram
 class A
-<<interface>> A
-<<service>> A
+note for B "n"
 `;
     board.setSource(sourceWithWarningOnly);
 

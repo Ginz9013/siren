@@ -1294,8 +1294,8 @@ exit note:1 fade
       "+String gender",
       "#bool warmBlooded",
       "~String tag",
-      "+isMammal() bool",
-      "+mate(Animal partner) Animal",
+      "+isMammal() : bool",
+      "+mate(Animal partner) : Animal",
     ]);
     expect(animal.querySelectorAll("line.siren-class-divider")).toHaveLength(2);
 
@@ -1304,7 +1304,7 @@ exit note:1 fade
         .svg!.querySelector('g.siren-class[data-siren-id="Registry"]')!
         .querySelectorAll("text.siren-member"),
     ).map((t) => t.textContent);
-    expect(registryMembers).toEqual(["-int cachedCount$", "+lookup(String name) Animal$"]);
+    expect(registryMembers).toEqual(["-int cachedCount$", "+lookup(String name) : Animal$"]);
 
     // All eight Mermaid relationship kinds, over ten statements.
     const relationships = Array.from(
@@ -1424,7 +1424,7 @@ exit note:1 fade
     ).toEqual([
       "-Map<String, List<T>> entries",
       "+register(String name, T item)",
-      "+lookup(String name) T",
+      "+lookup(String name) : T",
     ]);
 
     // Both notes, numbered by source order. The free one is a box on its own;
@@ -2155,12 +2155,12 @@ click Sneaky call inspect() "<b>tooltip</b>"
       "-bool licensed",
       "~String catalogKey",
       "+play()*",
-      "+describe() String",
+      "+describe() : String",
     ]);
     expect(classGroup("Media").querySelectorAll("line.siren-class-divider")).toHaveLength(2);
     expect(membersOf("Listener")).toEqual([
       "+String name",
-      "+rate(Media item, int stars) bool",
+      "+rate(Media item, int stars) : bool",
     ]);
     // A bare `class Player` has no members, so no compartment and no divider.
     expect(membersOf("Player")).toEqual([]);
@@ -2174,7 +2174,7 @@ click Sneaky call inspect() "<b>tooltip</b>"
       "-Map<String, List<T>> byGenre",
       "-int loadedCount$",
       "+add(String genre, T item)",
-      "+find(String genre) List<T>",
+      "+find(String genre) : List<T>",
       "+clear()$",
     ]);
 
@@ -8603,5 +8603,41 @@ describe("render() — a flowchart keeps the model's order among siblings", () =
     const left = (id: string) =>
       Number(svg.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!.getAttribute("x"));
     expect(["O1", "O2", "O3"].sort((a, b) => left(a) - left(b))).toEqual(["O1", "O2", "O3"]);
+  });
+});
+
+describe("render() — a timeline names a flowchart id that begins with `%%`", () => {
+  // `A --> %%B` draws a node `%%B` (nook `01M50DYFG`), and its edge's id is
+  // `A-%%B`, derived from its ends (ADR-0010); a timeline's target slot reads
+  // its `%%` as the id's, while a spaced `%%` after the action, and a `%%`
+  // line, stay comments.
+  const source = `flowchart TD
+A --> %%B
+timeline:
+%% the reveal
+enter %%B fade %% last
+highlight A-%%B glow
+`;
+
+  it("marks the node pending and glows the edge at step 2, with no diagnostic", () => {
+    const container = document.createElement("div");
+    const result = render(source, container);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.controller!.totalSteps).toBe(2);
+    const node = result.svg!.querySelector('g.siren-node[data-siren-id="%%B"]')!;
+    const edge = result.svg!.querySelector('path.siren-edge[data-siren-id="A-%%B"]')!;
+    expect(node.classList.contains("siren-pending")).toBe(true);
+    result.controller!.next();
+    result.controller!.next();
+    expect(edge.classList.contains("siren-highlight-glow")).toBe(true);
+  });
+
+  it("reports a `%%` target that names nothing, by its whole id", () => {
+    const container = document.createElement("div");
+    const result = render("flowchart TD\nA --> %%B\ntimeline:\nenter %%Z fade\n", container);
+
+    expect(result.diagnostics.map((d) => [d.severity, d.message.includes("%%Z")])).toEqual([["error", true]]);
+    expect(result.svg!.querySelectorAll("g.siren-node")).toHaveLength(2);
   });
 });

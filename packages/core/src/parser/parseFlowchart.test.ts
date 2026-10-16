@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseFlowchart } from "./parseFlowchart";
 import { parseSiren } from "./parseSiren";
-import type { Diagnostic, DiagramParseResult, FlowchartDocument, SirenNode } from "../contracts";
+import type { Diagnostic, DiagramParseResult, FlowchartDocument, NodeShape, SirenNode } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
 
 /**
@@ -249,30 +249,785 @@ describe("a bracket character inside an unquoted node label", () => {
 });
 
 /**
- * The `@{ … }` node syntax, which Siren does not draw yet (its own board).
- * Measured on Mermaid 12.2.0: `A@{ shape: rect }`, `A[x]@{ shape: rect }`,
- * and `A@{ … }` at either end of an edge are all accepted.
+ * The `@{ … }` node data block. Measured on Mermaid 12.2.0 (`pnpm --filter
+ * siren-core probe`): each of these 45 names is accepted as `shape:` and
+ * drawn with the handler that its bracket spelling draws (Mermaid's own
+ * `shapesDefs` table), so each is one of Siren's fourteen shapes.
  */
+const NODE_DATA_SHAPES: ReadonlyArray<[string, NodeShape]> = [
+  ...(["rect", "proc", "process", "rectangle"] as const).map((name) => [name, "rect"] as [string, NodeShape]),
+  ...(["rounded", "event"] as const).map((name) => [name, "round"] as [string, NodeShape]),
+  ...(["stadium", "terminal", "pill"] as const).map((name) => [name, "stadium"] as [string, NodeShape]),
+  ...(["fr-rect", "subprocess", "subproc", "framed-rectangle", "subroutine"] as const).map(
+    (name) => [name, "subroutine"] as [string, NodeShape],
+  ),
+  ...(["cyl", "db", "database", "cylinder"] as const).map((name) => [name, "cylinder"] as [string, NodeShape]),
+  ...(["circle", "circ"] as const).map((name) => [name, "circle"] as [string, NodeShape]),
+  ...(["diam", "decision", "diamond", "question"] as const).map((name) => [name, "rhombus"] as [string, NodeShape]),
+  ...(["hex", "hexagon", "prepare"] as const).map((name) => [name, "hexagon"] as [string, NodeShape]),
+  ...(["lean-r", "lean-right", "in-out"] as const).map((name) => [name, "parallelogram"] as [string, NodeShape]),
+  ...(["lean-l", "lean-left", "out-in"] as const).map((name) => [name, "parallelogram-alt"] as [string, NodeShape]),
+  ...(["trap-b", "priority", "trapezoid-bottom", "trapezoid"] as const).map(
+    (name) => [name, "trapezoid"] as [string, NodeShape],
+  ),
+  ...(["trap-t", "manual", "trapezoid-top", "inv-trapezoid"] as const).map(
+    (name) => [name, "trapezoid-alt"] as [string, NodeShape],
+  ),
+  ...(["dbl-circ", "double-circle", "doublecircle"] as const).map((name) => [name, "double-circle"] as [string, NodeShape]),
+  ["odd", "asymmetric"],
+];
+
 describe("a node written with `@{ … }`", () => {
+  it("knows all 45 shape names", () => {
+    expect(NODE_DATA_SHAPES).toHaveLength(45);
+  });
+
+  it.each(NODE_DATA_SHAPES)("draws `shape: %s` as the %s shape, labelled with its id", (name, shape) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A@{ shape: ${name} }`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes).toEqual([{ id: "A", label: plainLabel("A"), shape, line: 2, column: 3 }]);
+  });
+});
+
+/**
+ * The `label:` of an `@{ … }` block. Measured on Mermaid 12.2.0: the label
+ * is a Markdown label unless `labelType` is `text` or `string` (`**b**` is
+ * bold in `A@{ label: "**b**" }` and literal in `A["**b**"]`), and its
+ * value is a YAML string, so `\"` is a quote.
+ */
+describe("the label of a node written with `@{ … }`", () => {
+  it("draws `label:` as the node's text, beside the shape", () => {
+    const { document, diagnostics } = parseOk('flowchart TB\n  A@{ shape: circle, label: "Start here" }');
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes).toEqual([
+      { id: "A", label: plainLabel("Start here"), shape: "circle", line: 2, column: 3 },
+    ]);
+  });
+
+  it("reads the label as Markdown, as a backtick-fenced bracket label is", () => {
+    const { document, diagnostics } = parseOk('flowchart TB\n  A@{ label: "**b** x" }');
+
+    expect(diagnostics).toEqual([]);
+    expect(markdownRows(document.nodes[0])).toEqual([
+      [
+        { text: "b", bold: true, italic: false },
+        { text: " x", bold: false, italic: false },
+      ],
+    ]);
+  });
+
+  it.each(["text", "string"])("reads it as written in brackets when `labelType` is %s", (labelType) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A@{ label: "**b**", labelType: ${labelType} }`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes[0]?.label).toEqual(plainLabel("**b**"));
+  });
+
+  it("breaks the label at a `<br>`, and reads a YAML-escaped quote as a quote", () => {
+    const { document, diagnostics } = parseOk(
+      'flowchart TB\n  A@{ label: "a<br>b" }\n  B@{ label: "say \\"hi\\"" }',
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.label.text)).toEqual(["a\nb", 'say "hi"']);
+  });
+
+  it("reports a problem in the label at the node's `@`", () => {
+    expect(positions('flowchart TB\n  Ab@{ label: "x⚠" }')).toEqual(["error 2:5"]);
+  });
+});
+
+/**
+ * Where an `@{ … }` block may be written, measured on Mermaid 12.2.0: at
+ * either end of an edge and in an `&` group, its text cut as a whole (an
+ * unquoted `(` or an arrow inside it is YAML, not a line's punctuation);
+ * after a bracket and after `:::name`; and on a node written before, whose
+ * text it keeps unless it gives a label of its own.
+ */
+describe("where a node's `@{ … }` block may be written", () => {
+  it("reads a block at either end of an edge and in a group, its text cut whole", () => {
+    const { document, diagnostics } = parseOk(
+      "flowchart TB\n  A@{ shape: circle, label: f(x } --> B@{ shape: hex, label: a --> b } & C",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label.text, node.shape])).toEqual([
+      ["A", "f(x", "circle"],
+      ["B", "a --> b", "hexagon"],
+      ["C", "C", "rect"],
+    ]);
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([
+      ["A", "B"],
+      ["A", "C"],
+    ]);
+  });
+
+  it("changes the shape of a node written before and keeps its text", () => {
+    const { document, diagnostics } = parseOk(
+      "flowchart TB\n  A[hello] --> B\n  A@{ shape: circle }\n  B@{ shape: diam }\n  B@{ label: two }",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes).toEqual([
+      { id: "A", label: plainLabel("hello"), shape: "circle", line: 2, column: 3 },
+      { id: "B", label: plainLabel("two"), shape: "rhombus", line: 2, column: 3 },
+    ]);
+  });
+
+  it("reads a block after a bracket and after `:::name`", () => {
+    const { document, diagnostics } = parseOk(
+      "flowchart TB\n  A[t]@{ shape: circle }\n  B[t]:::hot@{ shape: hex } --> C:::hot@{ label: u }",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label.text, node.shape])).toEqual([
+      ["A", "t", "circle"],
+      ["B", "t", "hexagon"],
+      ["C", "u", "rect"],
+    ]);
+    expect(document.styles.map((style) => [style.targetIds, style.name])).toEqual([
+      [["B"], "hot"],
+      [["C"], "hot"],
+    ]);
+  });
+});
+
+/**
+ * An `@{ … }` block written across lines. Measured on Mermaid 12.2.0: a
+ * block holding a line break is read as block YAML, and a line break
+ * inside a quoted string, with the indentation after it, is a `<br/>`.
+ */
+describe("a node's `@{ … }` block written across lines", () => {
+  it("reads a block of YAML lines, and the statements after it at their own lines", () => {
+    const { document, diagnostics } = parseOk(
+      'flowchart TB\n  A@{\n    shape: circle\n    label: "multi"\n  }\n  B --> C',
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes).toEqual([
+      { id: "A", label: plainLabel("multi"), shape: "circle", line: 2, column: 3 },
+      { id: "B", label: plainLabel("B"), shape: "rect", line: 6, column: 3 },
+      { id: "C", label: plainLabel("C"), shape: "rect", line: 6, column: 3 },
+    ]);
+  });
+
+  it("breaks a quoted label written across lines into rows", () => {
+    const { document, diagnostics } = parseOk('flowchart TB\n  A@{ shape: hex, label: "a\n      b" } --> B');
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label.text, node.shape])).toEqual([
+      ["A", "a\nb", "hexagon"],
+      ["B", "B", "rect"],
+    ]);
+  });
+
+  it("reports a problem in a block's label at its `@`, on the line the block opens", () => {
+    expect(positions('flowchart TB\n  A --> Bc@{\n    label: "x⚠"\n  }')).toEqual(["error 2:11"]);
+  });
+});
+
+/** The fourteen short names a refused `shape:` is told to choose from, in that order. */
+const SHAPE_CHOICES = "rect, rounded, stadium, fr-rect, cyl, circle, diam, hex, lean-r, lean-l, trap-b, trap-t, dbl-circ, odd";
+
+/**
+ * A `shape:` Siren does not draw. Measured on Mermaid 12.2.0: it draws
+ * `cloud`, `datastore` and the rest of its 39 documented shapes Siren has
+ * no geometry for, and the undocumented `state`, `choice`, `note`,
+ * `composite`, `icon` and `anchor`; it refuses `foo` ("No such shape"),
+ * and any name with an upper-case letter or a `_` ("Shape names should be
+ * lowercase"); `shape: 1` throws.
+ */
+describe("a `shape:` Siren does not draw", () => {
+  it.each(["cloud", "datastore", "data-store", "doc", "lin-cyl", "state", "choice", "note", "composite", "icon", "anchor"])(
+    "refuses `shape: %s` at the `@`, as a shape not drawn yet",
+    (name) => {
+      const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> Bc@{ shape: ${name} }`);
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message: `Siren does not draw the shape "${name}" yet. Use one of: ${SHAPE_CHOICES}`,
+          line: 2,
+          column: 11,
+        },
+      ]);
+    },
+  );
+
   it.each([
-    ["A@{ shape: rect }", "A", 4],
-    ["A[x]@{ shape: rect }", "A", 7],
-    ['A@{ shape: circle, label: "x" } --> B', "A", 4],
-    ["A --> B@{ shape: diam }", "B", 10],
-  ])("refuses %s at the `@`, saying to write the shape with brackets", (written, id, column) => {
+    ["foo", `There is no shape "foo". Use one of: ${SHAPE_CHOICES}`],
+    ["Rect", 'There is no shape "Rect". Shape names are lower-case, with "-" between words: rect'],
+    ["lean_right", 'There is no shape "lean_right". Shape names are lower-case, with "-" between words: lean-right'],
+    [
+      "squareRect",
+      `There is no shape "squareRect". Shape names are lower-case, with "-" between words. Use one of: ${SHAPE_CHOICES}`,
+    ],
+    ["1", 'A shape is a name, such as "shape: circle"'],
+  ])("refuses `shape: %s` as no shape", (name, message) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A@{ shape: ${name} }`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message, line: 2, column: 4 }]);
+  });
+});
+
+/**
+ * The keys of an `@{ … }` block other than `shape`, `label` and
+ * `labelType`. Measured on Mermaid 12.2.0: `icon`, `img`, `form`, `pos`,
+ * `w`, `h` and `constraint` change what a node draws (an icon or image
+ * node, its size); any other key is read and ignored (`A@{ foo: 1 }` is a
+ * plain node). What is not YAML is refused ("missed comma between flow
+ * collection entries").
+ */
+describe("the other keys of a node's `@{ … }` block", () => {
+  it.each(["icon", "img", "form", "pos", "w", "h", "constraint"])("refuses `%s` at the `@`, as not supported yet", (key) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A@{ shape: circle, ${key}: x }`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `Siren does not support "${key}" in a node's "@{ … }" block yet. Leave it out`,
+        line: 2,
+        column: 4,
+      },
+    ]);
+  });
+
+  it("ignores a key it does not know, with a warning at the `@`", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  A@{ foo: 1, shape: hex }");
+
+    expect(document.nodes.map((node) => [node.id, node.shape])).toEqual([["A", "hexagon"]]);
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: `"foo" is not a key of a node's "@{ … }" block, and is ignored. Remove it`,
+        line: 2,
+        column: 4,
+      },
+    ]);
+  });
+
+  it.each([
+    // At the `:` the reader stopped at, and at the `}` where the block ended
+    // before its `[` was closed.
+    ["A@{ shape: circle label: x }", "missed comma between flow collection entries", 2, 26],
+    ["A@{ shape: [circle }", "missed comma between flow collection entries", 2, 22],
+    ["A@{\n    shape: circle\n    label: x: y\n  }", "bad indentation of a mapping entry", 4, 13],
+    ["A@{\n    shape: circle\n    label: [x\n  }", "unexpected end of the stream within a flow collection", 5, 3],
+  ])("refuses %j, which is not YAML, where the YAML stops", (written, reason, line, column) => {
     const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      { severity: "error", message: `The "@{ … }" block is not valid YAML (${reason})`, line, column },
+    ]);
+  });
+
+  it.each([
+    ["A@{\n    - circle\n  }", 'Write the "@{ … }" block as "key: value" pairs, such as "shape: circle"'],
+    ["A@{ label: [a, b] }", 'A label is text, such as "label: Start"'],
+  ])("refuses %j, at the `@`", (written, message) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message, line: 2, column: 4 }]);
+  });
+});
+
+describe("a node written with `@{ … }`, in a whole document", () => {
+  it("is a node a timeline can name, its block read through the document's comments and tags", () => {
+    const { document, diagnostics } = parseOk(
+      'flowchart TB\n  %% a comment\n  A@{\n    shape: db\n    label: "<b>Store</b>"\n  } --> B@{ shape: circle }\ntimeline:\n  enter A fade\n  enter B fade',
+      parseSiren,
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label.text, node.shape])).toEqual([
+      ["A", "Store", "cylinder"],
+      ["B", "B", "circle"],
+    ]);
+    expect(document.timeline?.entries.map((entry) => [entry.step, entry.targetId])).toEqual([
+      [1, "A"],
+      [2, "B"],
+    ]);
+  });
+});
+
+/**
+ * An `@{ … }` block written where it cannot stand. Measured on Mermaid
+ * 12.2.0: `A[x] @{ … }` (a space before the `@`), `A@{ … }:::c`,
+ * `A@{ … } x` and `A@{ … }@{ … }` (two blocks, read as one: "missed comma")
+ * are refused; a block never closed reads to the end of the document; and
+ * a subgraph's id given a block draws nothing of it (`subgraph S@{ … }` is
+ * a parse error, and `S@{ … }` beside `subgraph S` is the frame's data).
+ */
+describe("an `@{ … }` block written where it cannot stand", () => {
+  it.each([
+    ["A[x] @{ shape: circle }", 'Write "@{" right after the node, with no space: A[x]@{ shape: circle }', 8],
+    ["A@{ shape: circle }:::c --> B", 'Write ":::c" before the "@{ … }" block: A:::c@{ shape: circle }', 22],
+    [
+      "A@{ shape: circle }@{ label: x }",
+      'A node takes one "@{ … }" block. Write all its keys in the first, separated by ","',
+      22,
+    ],
+    ["A@{ shape: circle } x", 'Nothing may follow a node\'s "@{ … }" block: "x"', 23],
+    ["B --> A@{ shape: circle }x", 'Nothing may follow a node\'s "@{ … }" block: "x"', 28],
+  ])("refuses %s", (written, message, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message, line: 2, column }]);
+  });
+
+  it("reads a block never closed in time linear in the lines after it", () => {
+    // A guard against joining line by line and rescanning the joined text
+    // each time: quadratic, 30,000 lines take seconds; linear, milliseconds.
+    const source = `flowchart TB\n  A@{ shape: circle\n${"  B --> C\n".repeat(30_000)}`;
+
+    const started = performance.now();
+    const { diagnostics } = parseFlowchart(source);
+    const elapsed = performance.now() - started;
+
+    expect(diagnostics.map((d) => d.message)).toEqual(['The "@{" is never closed. End the block with "}"']);
+    expect(elapsed).toBeLessThan(1000);
+  });
+
+  it("reads many blocks written across lines in time linear in the document", () => {
+    // A guard against handing each block the rest of the document as a
+    // copy, timed against the same nodes written with brackets so that the
+    // machine's speed cancels out: linear, the blocks cost under twice the
+    // brackets; quadratic, 50,000 blocks cost over fifteen times.
+    const count = 50_000;
+    const timed = (body: string) => {
+      const started = performance.now();
+      const result = parseFlowchart(`flowchart TB\n${body}`);
+      return { result, elapsed: performance.now() - started };
+    };
+    const brackets = timed(Array.from({ length: count }, (_, k) => `  N${k}((c))\n\n`).join("\n"));
+    const blocks = timed(Array.from({ length: count }, (_, k) => `  N${k}@{\n    shape: circle\n  }`).join("\n"));
+
+    expect(blocks.result.diagnostics).toEqual([]);
+    expect(blocks.result.document?.kind === "flowchart" && blocks.result.document.nodes.length).toBe(count);
+    expect(blocks.elapsed).toBeLessThan(5 * brackets.elapsed);
+  });
+
+  it("draws a group with no arrow (`A@{ … } & B`), as a bare `A & B` is drawn", () => {
+    // Measured: Mermaid 12.2.0 draws both nodes.
+    const { document, diagnostics } = parseOk("flowchart TB\n  A@{ shape: circle } & B");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.shape])).toEqual([
+      ["A", "circle"],
+      ["B", "rect"],
+    ]);
+  });
+
+  it("refuses a block never closed at its `@`, and reads nothing after it", () => {
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  A@{ shape: circle\n  B --> C");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      { severity: "error", message: 'The "@{" is never closed. End the block with "}"', line: 2, column: 4 },
+    ]);
+  });
+
+  it.each([
+    ["after the block", "flowchart TB\n  subgraph S\n    A\n  end\n  B --> S@{ shape: circle }", 5, 10],
+    ["before the block", "flowchart TB\n  S@{ shape: circle }\n  subgraph S\n    A\n  end", 2, 4],
+  ])("refuses a block on a subgraph's id written %s", (_, source, line, column) => {
+    const { document, diagnostics } = parseFlowchart(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: '"S" is a subgraph, and a subgraph takes no "@{ … }" block. Leave the block out',
+        line,
+        column,
+      },
+    ]);
+  });
+
+  it("refuses a block on the line that opens a subgraph", () => {
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  subgraph S@{ shape: circle }\n    A\n  end");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'A subgraph takes no "@{ … }" block. Leave the block out: subgraph S',
+        line: 2,
+        column: 13,
+      },
+    ]);
+  });
+});
+
+/**
+ * An `@{` that stands where no node is written is text, and opens no block
+ * that could run on into the lines below. Measured on Mermaid 12.2.0:
+ * `A -- x@{y --> B` ⏎ `C` draws A, B and C, the edge labelled `x@{y`.
+ */
+describe("an `@{` written where no node is", () => {
+  it("is text in an arrow's own label, and the lines after it are read on their own", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  A -- x@{y --> B\n  C --> D\n  E");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.line])).toEqual([
+      ["A", 2],
+      ["B", 2],
+      ["C", 3],
+      ["D", 3],
+      ["E", 4],
+    ]);
+    expect(document.edges.map((edge) => [edge.from, edge.to, edge.label?.text ?? null])).toEqual([
+      ["A", "B", "x@{y"],
+      ["C", "D", null],
+    ]);
+  });
+
+  it("keeps a closed `@{ … }` inside a `|label|` as the label's text, and reads the next line on its own", () => {
+    // Mermaid 12.2.0 refuses this too ("got 'DIAMOND_START'"); see below.
+    const { document, diagnostics } = parseOk("flowchart TB\n  A -->|a@{b}| B\n  C");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => [edge.from, edge.to, edge.label?.text ?? null])).toEqual([["A", "B", "a@{b}"]]);
+    expect(document.nodes.map((node) => [node.id, node.line])).toEqual([
+      ["A", 2],
+      ["B", 2],
+      ["C", 3],
+    ]);
+  });
+
+  it("opens no block inside a `|label|`, so the line after it is read on its own", () => {
+    // Mermaid 12.2.0 refuses a brace in a `|label|` ("got 'DIAMOND_START'"),
+    // which Siren draws as text, `@{` or not; what this pins is only that
+    // the next line is not swallowed.
+    const { document, diagnostics } = parseOk("flowchart TB\n  A -->|mail@{x| B\n  C");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.line])).toEqual([
+      ["A", 2],
+      ["B", 2],
+      ["C", 3],
+    ]);
+  });
+});
+
+/**
+ * An `@{` in a statement that writes no node. Measured on Mermaid 12.2.0:
+ * `accTitle: a@{b`, `accDescr { a@{b }`, a `%%` comment, a quoted label
+ * and a `click` string hold it as text; `subgraph t a@{b`, `classDef c
+ * fill:#f@{` and `style C fill:#f00@{` are parse errors on their own line.
+ * None of them runs on into the line after it.
+ */
+describe("an `@{` in a statement that writes no node", () => {
+  it("is part of an accessible title, and the next line is a node", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  accTitle: a@{b\n  C");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.accTitle).toBe("a@{b");
+    expect(document.nodes.map((node) => [node.id, node.line])).toEqual([["C", 3]]);
+  });
+
+  it("is refused in a subgraph title on its own line, and the block's lines are read", () => {
+    const { diagnostics } = parseFlowchart("flowchart TB\n  subgraph t a@{b\n    C\n  end");
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'A subgraph takes no "@{ … }" block. Leave the block out: subgraph t a',
+        line: 2,
+        column: 15,
+      },
+    ]);
+  });
+
+  it.each(["classDef c fill:#f@{", "style C fill:#f00@{"])("is no block in `%s`, which reaches no further line", (written) => {
+    const { diagnostics } = parseFlowchart(`flowchart TB\n  ${written}\n  C --> D`);
+
+    expect(diagnostics.filter((d) => d.line !== 2)).toEqual([]);
+    expect(diagnostics.map((d) => d.message)).not.toContain('The "@{" is never closed. End the block with "}"');
+  });
+
+  it.each([
+    ["a comment", "%% a@{b"],
+    ["a braced accessible description", "accDescr { a@{b }"],
+    ["a quoted label", 'A["a@{b"]'],
+    ["a click's string", 'click C "https://x.org/a@{b"'],
+  ])("is text in %s, and the next line is a node", (_, written) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  C\n  ${written}\n  D`, parseSiren);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toContain("D");
+  });
+});
+
+/** The refusal of an id that begins with a keyword, as the tests below expect it. */
+function keywordIdMessage(id: string, keyword: string, fix: string): string {
+  return `"${id}" begins with the keyword "${keyword}", and is read as that keyword. Rename it, such as ${fix}.`;
+}
+
+/**
+ * An id that begins with one of the flowchart lexer's keywords followed by a
+ * character that is not `[A-Za-z0-9_]`. Measured on Mermaid 12.2.0: its
+ * lexer tries `style\b`, `linkStyle\b`, `interpolate\b`, `classDef\b`,
+ * `class\b`, `flowchart-elk\b`, `swimlane-beta\b`, `graph\b`, `flowchart\b`,
+ * `subgraph\b`, `end\b`, `_self\b`, `_blank\b`, `_parent\b` and `_top\b`
+ * before an id, first match wins, so `end-x`, `style.x`, `graph%x` and the
+ * rest are a keyword and then text — a parse error at the top level. An id
+ * that only contains the word (`endx`, `end_x`, `End-x`, `A-end`), or begins
+ * with a word the lexer reads only before a space (`click`, `call`, `href`)
+ * or reads as an id after all (`default`, `v`, `direction`), is an id.
+ */
+describe("an id that begins with a keyword", () => {
+  it.each([
+    ["end-x", "end", "endX"],
+    ["end%x", "end", "endX"],
+    ["end[x]", "end", "endNode"],
+    ["end(x)", "end", "endNode"],
+    ["end:::c", "end", "endNode"],
+    ["style-x", "style", "styleX"],
+    ["linkStyle.x", "linkStyle", "linkStyleX"],
+    ["interpolate-x", "interpolate", "interpolateX"],
+    ["classDef-x", "classDef", "classDefX"],
+    ["class.x", "class", "classX"],
+    ["graph-x", "graph", "graphX"],
+    ["flowchart-x", "flowchart", "flowchartX"],
+    ["flowchart-elkx", "flowchart", "flowchartElkx"],
+    ["flowchart-elk-x", "flowchart-elk", "flowchartElkX"],
+    ["swimlane-beta-x", "swimlane-beta", "swimlaneBetaX"],
+    ["subgraph-x", "subgraph", "subgraphX"],
+    ["_self-x", "_self", "_selfX"],
+    ["_blank.x", "_blank", "_blankX"],
+    ["_parent%x", "_parent", "_parentX"],
+    ["_top-x", "_top", "_topX"],
+  ])("refuses `%s` on a line of its own, at the id", (written, keyword, fix) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+    const id = /^[^[(:]*/.exec(written)![0];
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      { severity: "error", message: keywordIdMessage(id, keyword, fix), line: 2, column: 3 },
+    ]);
+  });
+
+  it.each([
+    ["A --> end-x", "end-x", "end", "endX", 9],
+    ["A --> end", "end", "end", "endNode", 9],
+    ["A --> style", "style", "style", "styleNode", 9],
+    ["A --> class:::c", "class", "class", "classNode", 9],
+    ["A & end-x --> B", "end-x", "end", "endX", 7],
+    ["end.x@{ shape: circle } --> B", "end.x", "end", "endX", 3],
+    ["A -->|yes| _top[x]", "_top", "_top", "_topNode", 14],
+  ])("refuses %s, at the endpoint's id", (written, id, keyword, fix, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: keywordIdMessage(id, keyword, fix), line: 2, column }]);
+  });
+
+  it.each([
+    ["end-x", "end-x", "endX", 5],
+    ["end%x", "end%x", "endX", 5],
+    ["end.x", "end.x", "endX", 5],
+    ["end&x", "end&x", "endX", 5],
+    ["end-x[l]", "end-x", "endX", 5],
+    ["end-x:::c", "end-x", "endX", 5],
+    ["end-x & C", "end-x", "endX", 5],
+    ["A;end-x", "end-x", "endX", 7],
+    ["end-x --> B", "end-x", "endX", 5],
+  ])("refuses `%s` inside a subgraph once, the block still ended by its own `end`", (written, id, fix, column) => {
+    // Measured: Mermaid 12.2.0 ends the block at `end` and draws a node
+    // `-x` (`%x`, `.x`, `&x`) outside it — a picture nobody wrote. Siren
+    // refuses the id and leaves the block open, so the author's own `end`
+    // below closes it and is not a second mistake.
+    const { document, diagnostics } = parseFlowchart(
+      `flowchart TB\n  subgraph s\n    A\n    ${written}\n    B\n  end`,
+    );
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: keywordIdMessage(id, "end", fix), line: 4, column }]);
+  });
+
+  it.each([
+    ["end-x", 5],
+    ["end-x --> B", 5],
+  ])("refuses `%s` in a subgraph with no `end` of its own, which is then unterminated", (written, column) => {
+    const { diagnostics } = parseFlowchart(`flowchart TB\n  subgraph s\n    A\n    ${written}`);
+
+    expect(diagnostics).toEqual([
+      { severity: "error", message: keywordIdMessage("end-x", "end", "endX"), line: 4, column },
+      { severity: "error", message: 'Unterminated "subgraph s" block: missing matching "end"', line: 2, column: 3 },
+    ]);
+  });
+
+  it.each([
+    ["end B", "B"],
+    ["end   B", "B"],
+    ["end B[x]", "B[x]"],
+    ["end B --> C", "B --> C"],
+  ])("refuses `%s` inside a subgraph, which ends the block and then reads the rest outside it", (written, rest) => {
+    // Measured: Mermaid 12.2.0 ends the block at `end` and draws what
+    // follows outside it, with no diagnostic.
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  subgraph s\n    A\n    ${written}\n  end`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `"end" ends the subgraph here, and "${rest}" after it is read outside the block. Write "end" on a line of its own.`,
+        line: 4,
+        column: 5,
+      },
+    ]);
+  });
+
+  it("refuses a subgraph named `end`, which Mermaid reads as the block's own end, once", () => {
+    // Measured: Mermaid 12.2.0 draws `subgraph end` ⏎ `A` ⏎ `end` as an
+    // empty frame without `A`, and refuses it with an edge inside.
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  subgraph end\n    A\n  end");
 
     expect(document).toBeNull();
     expect(diagnostics).toEqual([
       {
         severity: "error",
         message:
-          `Siren does not support the "@{ … }" node syntax yet. ` +
-          `Write the shape with brackets instead, such as ${id}[text], ${id}((text)) or ${id}{text}`,
+          'A subgraph title cannot end with the word "end", which closes the block. ' +
+          'Put the whole title in quotes: subgraph "end"',
         line: 2,
-        column,
+        column: 12,
       },
     ]);
+  });
+
+  it("reads `click end` as written, which Mermaid reads as an id there", () => {
+    const { document, diagnostics } = parseOk('flowchart TB\n  A\n  click end "https://x.org"');
+
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions.map((interaction) => interaction.targetId)).toEqual(["end"]);
+  });
+
+  it("still reads `end;B` inside a subgraph as the block's end and then a node", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  subgraph s\n    A\n    end;B");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs.map((block) => block.nodeIds)).toEqual([["A"]]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B"]);
+  });
+
+  it.each([
+    ["A\n  style end-x fill:red", "end-x", "endX", 3, 9],
+    ["A\n  class end-x hot", "end-x", "endX", 3, 9],
+    ["A\n  class A,end.x hot", "end.x", "endX", 3, 11],
+  ])("refuses %j, at the styled id", (written, id, fix, line, column) => {
+    // Measured: both are parse errors in Mermaid 12.2.0.
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: keywordIdMessage(id, "end", fix), line, column }]);
+  });
+
+  it("reads `click end-x` and `subgraph end-x` as written, which Mermaid reads as ids there", () => {
+    const { document, diagnostics } = parseOk('flowchart TB\n  subgraph end-x\n    A\n  end\n  click A "https://x.org"\n  click end-x "https://x.org"');
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs.map((block) => block.name)).toEqual(["end-x"]);
+    expect(document.interactions.map((interaction) => interaction.targetId)).toEqual(["A", "end-x"]);
+  });
+
+  it.each([
+    ["A --> click", "click"],
+    ["A --> click --> B", "click"],
+    ["A & click", "click"],
+    ["A & click --> B", "click"],
+    ["click & A", "click"],
+    ["click --> A", "click"],
+    ["A --> call", "call"],
+    ["call --> A", "call"],
+    ["A & call", "call"],
+    ["A --> href", "href"],
+    ["href --> A", "href"],
+    ["A & href", "href"],
+  ])("refuses `%s`, where the id is a word read as a keyword before a space or the line's end", (written, keyword) => {
+    // Measured: Mermaid 12.2.0's lexer reads `click`, `call` and `href`
+    // as keywords before whitespace (a line break included): each of these
+    // is a parse error ("got 'CLICK'"), or, for `click & A` and
+    // `click --> A`, an empty diagram.
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: keywordIdMessage(keyword, keyword, `${keyword}Node`),
+        line: 2,
+        column: written.indexOf(keyword) + 3,
+      },
+    ]);
+  });
+
+  it.each([
+    ["A --> click ;B", "click"],
+    ["A --> call ;B", "call"],
+    ["A --> href ;B", "href"],
+    ["A & click ;", "click"],
+  ])("refuses `%s`, where a space before the `;` makes the word a keyword", (written, keyword) => {
+    // Measured: each is a parse error in Mermaid 12.2.0 ("got 'CLICK'").
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: keywordIdMessage(keyword, keyword, `${keyword}Node`),
+        line: 2,
+        column: written.indexOf(keyword) + 3,
+      },
+    ]);
+  });
+
+  it.each([
+    ["A --> click;B", ["A", "click", "B"]],
+    ["A --> click[x]", ["A", "click"]],
+    ["A --> call[x]", ["A", "call"]],
+    ["A --> href[x]", ["A", "href"]],
+    ["click-x --> A", ["click-x", "A"]],
+    ["A --> clickx", ["A", "clickx"]],
+  ])("draws `%s`, where the word is followed by neither a space nor the line's end", (written, ids) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(ids);
+  });
+
+  it.each([
+    "endx",
+    "end_x",
+    "ends",
+    "stylex",
+    "style_x",
+    "End-x",
+    "swimlane-x",
+    "swimlane-betax",
+    "click-x",
+    "call-x",
+    "href-x",
+    "direction-x",
+    "default-x",
+    "v-x",
+    "A-end",
+    "x-end-y",
+    "A.end",
+  ])("draws `%s` as a node", (written) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written} --> B`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual([written, "B"]);
   });
 });
 
@@ -311,8 +1066,6 @@ describe("an edge written with an id", () => {
 
     expect(diagnostics.map((d) => d.message)).toEqual([
       'Siren does not support edge ids ("e1@") yet. Leave the id out: A[x y@-z] --> B',
-      'Siren does not support the "@{ … }" node syntax yet. ' +
-        "Write the shape with brackets instead, such as y[text], y((text)) or y{text}",
     ]);
   });
 
@@ -1642,6 +2395,171 @@ describe("a `%%` in the middle of a flowchart line", () => {
  * line — at `;`, at `&`, at an arrow, at a `%%` — measured on Mermaid
  * 12.2.0 with `pnpm --filter siren-core probe`.
  */
+/**
+ * An id that begins with `%%`. Measured on Mermaid 12.2.0: a `%%` where an
+ * endpoint begins — after an arrow, its `|label|`, or an `&` with a space on
+ * each side — is the start of an id, not a comment: `A --> %%B` draws the
+ * node `%%B`, as do the rest below. After a space anywhere else
+ * (`A %%B`, `A --> B %%x`) it is a parse error, and so is `A --> %% B`.
+ */
+describe("an id that begins with `%%`", () => {
+  it.each([
+    ["A --> %%B", ["A", "%%B"], [["A", "%%B"]]],
+    ["A-->%%B", ["A", "%%B"], [["A", "%%B"]]],
+    ["A -->|l| %%B", ["A", "%%B"], [["A", "%%B"]]],
+    ["A -- t --> %%B", ["A", "%%B"], [["A", "%%B"]]],
+    ["A ==> %%B", ["A", "%%B"], [["A", "%%B"]]],
+    ["A --> %%B --> C", ["A", "%%B", "C"], [["A", "%%B"], ["%%B", "C"]]],
+    ["A --> %%B[lbl]", ["A", "%%B"], [["A", "%%B"]]],
+    ["A --> %%B:::c", ["A", "%%B"], [["A", "%%B"]]],
+    ["A --> %%", ["A", "%%"], [["A", "%%"]]],
+    ["A --> %%%B", ["A", "%%%B"], [["A", "%%%B"]]],
+    ["A & %%B --> C", ["A", "%%B", "C"], [["A", "C"], ["%%B", "C"]]],
+    ["A --> %%end-x", ["A", "%%end-x"], [["A", "%%end-x"]]],
+  ])("draws `%s` with an id beginning in percent signs", (written, nodes, edges) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(nodes);
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual(edges);
+  });
+
+  it.each([
+    ["A;%%B", 5],
+    ["A;%%", 5],
+    ["A --> B; %%c", 12],
+  ])("refuses `%s`, saying a percent pair after a semicolon would be read as a node", (written, column) => {
+    // Measured: Mermaid 12.2.0 draws a node `%%B` (`%%`, `%%c`) there — a
+    // statement of its own, which an author writing a comment did not mean.
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'A "%%" after ";" begins a statement, so it is read as a node, not a comment. ' +
+          "Move the comment to a line of its own.",
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it.each([
+    ["A --> %% B", 9],
+    ["A --> %% x", 9],
+    ["A --> B --> %% c", 15],
+    ["A --> B & %% note", 13],
+    ["A & B & %% x", 11],
+    ["A --> B %%x", 11],
+    ["A[x] %%B", 8],
+    ["class A c --> %%x", 17],
+    ['click A "u" "t" --> %%x', 23],
+  ])("still refuses `%s` at its percent signs, as a mid-line comment", (written, column) => {
+    // Measured: each is a parse error in Mermaid 12.2.0. A `%%` with a space
+    // after it is a comment's own spelling, and a statement that writes no
+    // node has no endpoint for a `%%` to begin.
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'A "%%" in the middle of a line is not a comment: only a line that starts with "%%" is one. ' +
+          "If it is a comment, move it to a line of its own.",
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it("still refuses `A --> %%B C`, where the id is followed by a second word", () => {
+    expect(parseFlowchart("flowchart TB\n  A --> %%B C").diagnostics).toEqual([
+      { severity: "error", message: 'Unrecognized flowchart line: "A --> %%B C"', line: 2, column: 3 },
+    ]);
+  });
+});
+
+/**
+ * A group of nodes joined by `&` with no arrow. Measured on Mermaid 12.2.0:
+ * each is drawn, as it would be on a line of its own, and an `&` glued to
+ * an id is a character of it (`A&B` is the one node `A&B`).
+ */
+describe("a group of nodes with no arrow", () => {
+  it.each([
+    ["A & B", ["A", "B"]],
+    ["a-b & c", ["a-b", "c"]],
+    ["A & B & C", ["A", "B", "C"]],
+    ["A[x] & B[y]", ["A", "B"]],
+    ["A & B[x]", ["A", "B"]],
+    ["A & B:::c", ["A", "B"]],
+    ["A:::c & B", ["A", "B"]],
+    ["A & B; C", ["A", "B", "C"]],
+    ["A & %%B", ["A", "%%B"]],
+  ])("draws `%s` as its nodes, with no edge", (written, ids) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(ids);
+    expect(document.edges).toEqual([]);
+  });
+
+  it.each([
+    ["A&B", "A & B", 4],
+    ["A& B", "A & B", 4],
+    ["A &B", "A & B", 5],
+    ["A[x]&B", "A[x] & B", 7],
+  ])("refuses `%s`, an `&` without a space on each side, as it does with an arrow", (written, fixed, column) => {
+    // Measured: Mermaid 12.2.0 draws `A&B` as the one node `A&B`, and
+    // refuses `A& B` and `A &B`.
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `An "&" joins nodes only with a space on each side. Write: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it.each([
+    ["& A", 3, "before"],
+    ["A &", 5, "after"],
+    ["A & --> B", 5, "after"],
+    ["A --> & B", 9, "before"],
+  ])("refuses `%s`, an `&` with no node on one side, at the `&`", (written, column, side) => {
+    // Measured: each is a parse error in Mermaid 12.2.0.
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `An "&" joins two nodes, and this one has none ${side} it. Write a node there, or leave the "&" out.`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it("reads each node's label and definition as it would on a line of its own", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  subgraph s\n    A[x] & B{y}:::hot\n  end");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label.text, node.shape])).toEqual([
+      ["A", "x", "rect"],
+      ["B", "y", "rhombus"],
+    ]);
+    expect(document.subgraphs.map((block) => block.nodeIds)).toEqual([["A", "B"]]);
+    expect(document.styles.map((style) => [style.targetIds, style.name])).toEqual([[["B"], "hot"]]);
+  });
+});
+
 describe("the text a flowchart line holds, which no separator cuts", () => {
   it("reads an asymmetric node's label, opened by the `>` right after its id, as one label whatever separator it holds", () => {
     // Measured: `A>a;b] --> B`, `A>a-->b] --> B` and `A>a&b] --> B` record
@@ -1685,3 +2603,230 @@ describe("the text a flowchart line holds, which no separator cuts", () => {
     ]);
   });
 });
+
+/**
+ * A class name beyond `\w`. Measured in headless Chrome on Mermaid 12.2.0:
+ * Mermaid writes each `classDef` as the CSS rule `.<name> > *` and paints the
+ * node with its style, so every name that makes that rule parse is drawn
+ * styled — `c-d`, `c.d`, `c#d`, `c+d`, `-c`, `c-`, `_c`, `cé`, `日本`, `c\d`
+ * — in `:::`, in `class` and in `classDef` alike.
+ */
+describe("a flowchart class name beyond letters, digits and `_`", () => {
+  it.each(["c-d", "c.d", "c#d", "c+d", "-c", "c-", "_c", "cé", "日本", "c\\d"])(
+    "reads `%s` in `classDef`, `:::` and `class`",
+    (name) => {
+      const { document, diagnostics } = parseOk(
+        `flowchart TB\n  classDef ${name} fill:#f00\n  A:::${name} --> B\n  C:::${name}\n  class B ${name}`,
+      );
+
+      expect(diagnostics).toEqual([]);
+      expect(document.styles.map((style) => [style.styleKind, style.targetIds, style.name])).toEqual([
+        ["classDef", [], name],
+        ["apply", ["A"], name],
+        ["apply", ["C"], name],
+        ["apply", ["B"], name],
+      ]);
+    },
+  );
+});
+
+/**
+ * A class name Mermaid 12.2.0 cannot style. Measured in headless Chrome:
+ * each of these makes the CSS rule `.<name> > *` fail to parse, and Mermaid
+ * then draws nothing at all (a `classDef` defining one does so even when no
+ * node uses it).
+ */
+describe("a flowchart class name Mermaid cannot style", () => {
+  const message = (name: string) =>
+    `"${name}" cannot be a class name. Use letters (of any script), digits, "_", "\\" and single "-" signs, ` +
+    'with no digit first, and ".", "#" or "+" only between such words.';
+
+  it.each(["c%", "1c", "-1c", "c.", "c..d", "c.1", "c#", "c#1", "#c", ".c", "c+", "+c", "c:d", "c!", "c$", "c*", "c?", "c/d", "c'd", "c`d", "%c"])(
+    "refuses `%s` in `classDef`, `:::` and `class`, at the name",
+    (name) => {
+      const { document, diagnostics } = parseFlowchart(
+        `flowchart TB\n  classDef ${name} fill:#f00\n  A:::${name} --> B\n  class B ${name}`,
+      );
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        { severity: "error", message: message(name), line: 2, column: 12 },
+        { severity: "error", message: message(name), line: 3, column: 7 },
+        { severity: "error", message: message(name), line: 4, column: 11 },
+      ]);
+    },
+  );
+});
+
+describe("a run after `:::` that is no class name", () => {
+  it.each(["A:::c~~~B", "A --> B:::c==C", "B:::c--C", "A:::c:::c", "A:::c[x]", "A:::c|x|", 'A:::c"x"', "A:::c%%x", "A:::c->B"])(
+    "does not blame the class name in `%s`, where the run goes on into other syntax",
+    (written) => {
+      const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+      expect(document).toBeNull();
+      expect(diagnostics.map((d) => d.message).filter((message) => message.includes("cannot be a class name"))).toEqual([]);
+    },
+  );
+});
+
+/**
+ * A `,` in a class name. Measured in headless Chrome on Mermaid 12.2.0:
+ * `classDef c,d fill:#f00` defines both `c` and `d`, each node it styles
+ * drawn filled; `class A c,d` and `A:::c,d` give the node the one class
+ * `c,d`, which no `classDef` defines, so it is drawn unstyled with no
+ * diagnostic.
+ */
+describe("a `,` in a flowchart class name", () => {
+  it("defines each name of a `classDef c,d`", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  classDef c,d fill:#f00\n  A:::c\n  B:::d");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles.map((style) => [style.styleKind, style.name])).toEqual([
+      ["classDef", "c"],
+      ["classDef", "d"],
+      ["apply", "c"],
+      ["apply", "d"],
+    ]);
+  });
+
+  it.each([
+    ["A\n  class A c,d", 3, 11],
+    ["A:::c,d", 2, 7],
+  ])("refuses %j, which applies one class `c,d` that styles nothing", (written, line, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  classDef c fill:#f00\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          '"c,d" is read as one class name, which no classDef defines, so no style reaches the node. ' +
+          "Apply one class at a time.",
+        line: line + 1,
+        column,
+      },
+    ]);
+  });
+});
+
+/**
+ * Positions after an `@{ … }` block written across lines: every statement,
+ * node, edge and diagnostic is placed on the physical line and column the
+ * author wrote it at, not on the line the block opened on.
+ */
+describe("positions after a node's `@{ … }` block written across lines", () => {
+  it.each([
+    ["A@{\n    shape: circle\n  } ~~> B", 4, 5],
+    ["A@{\n    shape: circle\n  }:::c", 4, 4],
+    ["A@{\n    shape: circle\n  } --> end-x", 4, 9],
+    ["A@{\n    shape: circle\n  } & end-x", 4, 7],
+    ["A@{\n    shape: circle\n  }&B --> C", 4, 4],
+    ["A@{\n    shape: circle\n  } --> B e1@--> C", 4, 11],
+    ["A@{\n    shape: circle\n  } --> B %% x", 4, 11],
+  ])("reports a mistake after the block's `}` where it stands: %j", (written, line, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => [d.line, d.column])).toEqual([[line, column]]);
+  });
+
+  it.each([
+    ["A@{\n    shape: circle\n  } --> B C", 'Unrecognized flowchart line: "A@{ shape: circle } --> B C"'],
+    ["A@{\n    shape: circle\n  } -->", 'Malformed edge: missing target after "-->" in "A@{ shape: circle } -->"'],
+  ])("quotes the statement on one line in its message: %j", (written, message) => {
+    const { diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics.map((d) => d.message)).toEqual([message]);
+  });
+
+  it.each([
+    [
+      "A@{\n    shape: circle\n    label: x\n  }:::c",
+      'Write ":::c" before the "@{ … }" block: A:::c@{ … }',
+    ],
+    [
+      "A@{\n    shape: circle\n    label: x\n  }&B --> C",
+      'An "&" joins nodes only with a space on each side. Write: A@{ … } & B --> C',
+    ],
+  ])("suggests a fix without flattening a block written across lines into invalid YAML: %j", (written, message) => {
+    // Flattened, `A:::c@{ shape: circle label: x }` would be a block of
+    // invalid YAML if pasted; the block is left out of the fix instead.
+    const { diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics.map((d) => d.message)).toEqual([message]);
+  });
+
+  it("keeps a line break the author wrote inside a Markdown string in the quoted statement", () => {
+    // Only the breaks an `@{ … }` block carries are collapsed: a Markdown
+    // string's own break is part of the label the author wrote.
+    const { diagnostics } = parseFlowchart('flowchart TB\n  A["`one\n  two`"] C');
+
+    expect(diagnostics.map((d) => d.message)).toEqual(['Unrecognized flowchart line: "A["`one\n  two`"] C"']);
+  });
+
+  it("reads many statements on one line in time linear in the line", () => {
+    // Timed against the same statements on lines of their own, so that the
+    // machine's speed cancels out: a position worked out from the start of
+    // the line for each statement is quadratic, 30,000 of them over ten
+    // times the lines'; linear, about the same.
+    const count = 30_000;
+    const timed = (body: string) => {
+      const started = performance.now();
+      const result = parseFlowchart(`flowchart TB\n${body}`);
+      return { result, elapsed: performance.now() - started };
+    };
+    const ids = Array.from({ length: count }, (_, k) => `N${k}`);
+    const ownLines = timed(ids.map((id) => `  ${id}`).join("\n"));
+    const oneLine = timed(`  ${ids.join(";")}`);
+
+    expect(oneLine.result.diagnostics).toEqual([]);
+    expect(oneLine.result.document?.kind === "flowchart" && oneLine.result.document.nodes.length).toBe(count);
+    expect(oneLine.elapsed).toBeLessThan(4 * ownLines.elapsed);
+  });
+
+  it("places a style, a classDef and a linkStyle after the block's `}`, and a timeline below it, on their own lines", () => {
+    const { document, diagnostics } = parseOk(
+      [
+        "flowchart TB",
+        "  A@{",
+        "    shape: circle }; style A fill:#f00",
+        "  B@{",
+        "    shape: hex }; classDef hot stroke:#00f",
+        "  C@{",
+        "    shape: diam } --> A; linkStyle 0 stroke:#0f0",
+        "timeline:",
+        "  enter A fade",
+      ].join("\n"),
+      parseSiren,
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles.map((style) => [style.styleKind, style.line, style.column])).toEqual([
+      ["style", 3, 22],
+      ["classDef", 5, 19],
+    ]);
+    expect(document.linkStyles.map((style) => [style.line, style.column])).toEqual([[7, 26]]);
+    expect(document.timeline?.entries.map((entry) => [entry.targetId, entry.line, entry.column])).toEqual([
+      ["A", 9, 3],
+    ]);
+  });
+
+  it("places a statement written after the block's `}` on the block's last line there", () => {
+    const { document, diagnostics } = parseOk(
+      "flowchart TB\n  A@{\n    shape: circle }; E -- x@{y --> F\n  G",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.line, node.column])).toEqual([
+      ["A", 2, 3],
+      ["E", 3, 22],
+      ["F", 3, 22],
+      ["G", 4, 3],
+    ]);
+    expect(document.edges.map((edge) => [edge.from, edge.to, edge.sourceLine, edge.sourceColumn])).toEqual([
+      ["E", "F", 3, 22],
+    ]);
+  });
+});
+
