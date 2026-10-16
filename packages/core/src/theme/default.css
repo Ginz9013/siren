@@ -298,6 +298,44 @@
 }
 
 /*
+ * An animated edge (`e1@{ animate: true }`, `animation: fast|slow`): its
+ * dashes march along it, as Mermaid 12.2.0 draws one (its stylesheet's
+ * `.edge-animation-fast`/`-slow`, measured in headless Chrome) — a 9,5
+ * dash that beats a dotted line's and an author's `linkStyle` dash alike,
+ * walked from an offset of 900 to 0 every 20s or 50s. Mermaid wins those
+ * with `!important`; here two classes outrank a line's one, and the model
+ * leaves an animated edge no author dash to beat. A drawing of its own,
+ * independent of the timeline, and still under `prefers-reduced-motion`
+ * (below).
+ */
+@keyframes siren-edge-march {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.siren-edge.siren-edge-animation-fast {
+  stroke-dasharray: 9 5;
+  stroke-dashoffset: 900;
+  animation: siren-edge-march 20s linear infinite;
+  stroke-linecap: round;
+}
+
+.siren-edge.siren-edge-animation-slow {
+  stroke-dasharray: 9 5;
+  stroke-dashoffset: 900;
+  animation: siren-edge-march 50s linear infinite;
+  stroke-linecap: round;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .siren-edge.siren-edge-animation-fast,
+  .siren-edge.siren-edge-animation-slow {
+    animation: none;
+  }
+}
+
+/*
  * The text an edge carries, drawn as a sibling of the path rather than
  * inside it, so none of the three rules above reaches it — and it must not
  * inherit them if it did: `.siren-edge` declares `fill: none`, which on a

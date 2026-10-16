@@ -12,6 +12,7 @@ import type {
   LinkTarget,
   NodeShape,
   SirenEdge,
+  SirenEdgeData,
   SirenNode,
   SirenSubgraph,
   NamedTimeline,
@@ -1268,27 +1269,46 @@ function refuseNodeLabel(text: string): { message: string; offset: number } | nu
 const EDGE_ID_RE = /^.*\S\s+([^\s"]+)@$/d;
 
 /**
- * The keys of an edge's `@{ … }` block that change how Mermaid 12.2.0 draws
- * the edge (`FlowDB.addVertex`, measured) and that Siren does not draw yet.
- * Any other key is read by Mermaid and ignored for an edge
+ * What an edge's `@{ … }` block says, loaded as a node's block is
+ * (`loadDataBlock`), and what is wrong with it. Mermaid 12.2.0 reads three
+ * keys for an edge (`FlowDB.addVertex`, measured) — `animate`, tested for
+ * truth; `animation`, a class named `edge-animation-<value>` that only
+ * `fast` and `slow` style; and `curve` — and reads and ignores any other
  * (`e1@{ label: x }` draws no label, measured).
  */
-const UNSUPPORTED_EDGE_KEYS: ReadonlySet<string> = new Set(["animate", "animation", "curve"]);
-
-/**
- * What is wrong with the text between an edge's `@{` and its `}`, loaded as
- * a node's block is (`loadDataBlock`).
- */
-function readEdgeData(written: string): DataBlockProblem[] {
+function readEdgeData(written: string): {
+  problems: DataBlockProblem[];
+  data: Omit<SirenEdgeData, "line" | "column">;
+} {
   const loaded = loadDataBlock(written, "curve: linear");
   if ("problem" in loaded) {
-    return [loaded.problem];
+    return { problems: [loaded.problem], data: {} };
   }
-  return Object.keys(loaded.doc).map((key) =>
-    UNSUPPORTED_EDGE_KEYS.has(key)
-      ? { severity: "error", message: `Siren does not support "${key}" in an edge's "@{ … }" block yet. Leave it out` }
-      : { severity: "warning", message: `"${key}" is not a key of an edge's "@{ … }" block, and is ignored. Remove it` },
-  );
+  const problems: DataBlockProblem[] = [];
+  const data: Omit<SirenEdgeData, "line" | "column"> = {};
+  for (const [key, value] of Object.entries(loaded.doc)) {
+    if (key === "animate") {
+      data.animate = Boolean(value);
+    } else if (key === "animation") {
+      if (value === "fast" || value === "slow") {
+        data.animation = value;
+      } else {
+        problems.push({ severity: "error", message: `There is no animation "${String(value)}". Use fast or slow` });
+      }
+    } else if (key === "curve") {
+      if (typeof value === "string") {
+        data.curve = value;
+      } else {
+        problems.push({ severity: "error", message: 'A curve is a name, such as "curve: linear"' });
+      }
+    } else {
+      problems.push({
+        severity: "warning",
+        message: `"${key}" is not a key of an edge's "@{ … }" block, and is ignored. Remove it`,
+      });
+    }
+  }
+  return { problems, data };
 }
 
 /**
@@ -2865,12 +2885,19 @@ export function parseFlowchart(source: string): DiagramParseResult {
     // On a line of its own only: as an edge's endpoint (`C --> e1@{ … }`)
     // it is a node, which the edge id then clashes with.
     if (data !== undefined && edgeIds.has(id) && writtenAs === "a declaration") {
-      for (const { severity, message, offset } of readEdgeData(data.content)) {
+      const read = readEdgeData(data.content);
+      for (const { severity, message, offset } of read.problems) {
         const at = offset === undefined ? data.at : data.at + NODE_DATA_OPENER.length + offset;
         diagnostics.push({ severity, message, ...positionIn(statement, at) });
         if (severity === "error") {
           sawError = true;
         }
+      }
+      // The edge the id names, and only it: a repeated id is the model's to
+      // refuse, and leaves this block on the first edge written with it.
+      const edge = edges.find((written) => written.id === id);
+      if (edge !== undefined) {
+        edge.data = { ...edge.data, ...read.data, ...positionIn(statement, data.at) };
       }
       return;
     }

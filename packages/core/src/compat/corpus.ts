@@ -3891,13 +3891,20 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     source: `flowchart TB
       A e1@--> B
       e1@{ animate: true }`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "Mermaid 12.2.0 names the edge `e1` and reads the `@{ … }` after it as " +
       "that edge's data (measured; with no edge `e1` the same line is a " +
-      "node), animating the edge. Siren reads the id and the block as the " +
-      "edge's, and refuses only the `animate` key, which it does not draw " +
-      "yet, saying to leave it out.",
+      "node), marching its dashes 20s a cycle. Siren draws the edge `e1` " +
+      "with the same march (nook 01M51XAE8B); it refused `animate` before.",
+    assert: (result) => {
+      expectSame("edges", edges(result), ["e1"]);
+      expectSame(
+        "e1's classes",
+        elements(result, 'path.siren-edge[data-siren-id="e1"]')[0]?.getAttribute("class"),
+        "siren-edge siren-edge-animation-fast",
+      );
+    },
   },
   {
     id: "fc-text-markdown",
@@ -13197,11 +13204,19 @@ line2\`"]`,
       A e1@--> B
       classDef c stroke-width:9px
       class e1 c`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "Mermaid 12.2.0 paints the edge `e1` with `c`'s declarations (measured, " +
-      "`stroke-width:9px` on its path). Siren does not apply a class to an " +
-      "edge yet, and says so, pointing at `linkStyle`.",
+      "`stroke-width:9px` on its path). Siren paints it the same, beneath " +
+      "any `linkStyle` naming it (nook 01M51XAE8B); it refused the class " +
+      "before.",
+    assert: (result) => {
+      expectSame(
+        "e1's style",
+        elements(result, 'path.siren-edge[data-siren-id="e1"]')[0]?.getAttribute("style"),
+        "stroke-width:9px",
+      );
+    },
   },
   {
     id: "fc-acc-title-with-arrow",
@@ -13253,6 +13268,37 @@ line2\`"]`,
         "stroke:#f00;stroke-width:4px",
       );
       expectSame("B laid out right of A", nodeCenter(result, "B").x > nodeCenter(result, "A").x, true);
+    },
+  },
+  {
+    id: "fc-edge-data-animation-and-curve",
+    kind: "flowchart",
+    source: `flowchart TB
+      A e1@--> D
+      A e2@-.-> B
+      B --> D
+      e1@{ animation: slow, curve: linear }
+      e2@{ animate: true }
+      linkStyle 1 stroke:#f00,stroke-dasharray:2 2`,
+    status: "supported",
+    meaning:
+      "An edge's own data animates it and picks its curve: Mermaid 12.2.0 " +
+      "marches `e1`'s dashes 50s a cycle and `e2`'s 20s, the march's 9,5 dash " +
+      "beating the dotted line's and the `linkStyle` dash while its " +
+      "`stroke:#f00` still paints `e2` (measured in headless Chrome). On ELK " +
+      "Mermaid draws every edge rounded whatever `curve:` says; Siren draws " +
+      "`e1` linear, as it draws `linkStyle … interpolate` (nook 01M51XAE8B).",
+    assert: (result) => {
+      const classOf = (id: string) =>
+        elements(result, `path.siren-edge[data-siren-id="${id}"]`)[0]?.getAttribute("class");
+      expectSame("e1's classes", classOf("e1"), "siren-edge siren-edge-animation-slow");
+      expectSame("e2's classes", classOf("e2"), "siren-edge siren-edge-dotted siren-edge-animation-fast");
+      expectSame(
+        "e2's style",
+        elements(result, 'path.siren-edge[data-siren-id="e2"]')[0]?.getAttribute("style"),
+        "stroke:#f00",
+      );
+      expectSame("e1's curve", edgeCurve(result, "e1"), "through its route");
     },
   },
 

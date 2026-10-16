@@ -1881,3 +1881,37 @@ describe("default theme's invisible edge", () => {
     );
   });
 });
+
+describe("default theme's animated edge", () => {
+  /** The declarations of the one rule whose selector is exactly `selector`. */
+  const ruleBody = (selector: string): string => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return themeRules.match(new RegExp(`(?:^|[}\\s])${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+  };
+
+  it.each([
+    ["fast", "20s"],
+    ["slow", "50s"],
+  ])("marches a %s edge's dashes once every %s, as Mermaid draws it", (speed, duration) => {
+    // Mermaid 12.2.0's own rule, measured in headless Chrome:
+    // `stroke-dasharray: 9,5 !important; stroke-dashoffset: 900;
+    // animation: dash 20s linear infinite; stroke-linecap: round`, its
+    // `dash` keyframes taking the offset to 0. The dash is `!important`
+    // there, so it beats a dotted line and a `linkStyle` dash alike; this
+    // theme writes no `!important`, so it beats a line's class by
+    // specificity, and the model leaves an animated edge no author dash.
+    const body = ruleBody(`.siren-edge.siren-edge-animation-${speed}`);
+
+    expect(body).toMatch(/stroke-dasharray:\s*9\s*,?\s*5;/);
+    expect(body).toMatch(/stroke-dashoffset:\s*900;/);
+    expect(body).toMatch(new RegExp(`animation:\\s*siren-edge-march\\s+${duration}\\s+linear\\s+infinite;`));
+    expect(body).toMatch(/stroke-linecap:\s*round;/);
+    expect(defaultThemeCss).toMatch(/@keyframes siren-edge-march\s*\{\s*to\s*\{\s*stroke-dashoffset:\s*0;\s*\}\s*\}/);
+  });
+
+  it("stops the march for a reader who asked for reduced motion", () => {
+    expect(defaultThemeCss).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.siren-edge\.siren-edge-animation-fast,\s*\.siren-edge\.siren-edge-animation-slow\s*\{\s*animation:\s*none;\s*\}\s*\}/,
+    );
+  });
+});

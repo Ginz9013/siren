@@ -284,8 +284,31 @@ export interface SirenEdge {
   id?: string;
   idLine?: number;
   idColumn?: number;
+  /**
+   * What `e1@{ … }` blocks written below the edge said about it, each key a
+   * later block wrote laid over an earlier one's — absent when none was
+   * written.
+   */
+  data?: SirenEdgeData;
   sourceLine?: number;
   sourceColumn?: number;
+}
+
+/** How fast an animated edge's dashes march: 20s or 50s a cycle. */
+export type EdgeAnimation = "fast" | "slow";
+
+/**
+ * The keys of an edge's `@{ … }` block that change how it is drawn, as
+ * written: `animate` read for truth, as Mermaid reads it, `animation` one of
+ * the two speeds, and `curve` a name still to be checked against the curves
+ * Siren draws. `line`/`column` are where the last block stands.
+ */
+export interface SirenEdgeData {
+  animate?: boolean;
+  animation?: EdgeAnimation;
+  curve?: string;
+  line: number;
+  column: number;
 }
 
 /**
@@ -1520,8 +1543,18 @@ export interface GraphEdge {
    * grows a field when the author wrote something for it, so a document
    * with no `interpolate` builds exactly the edges it built before. An
    * unknown name the author did write is present, as the `rounded` it draws.
+   *
+   * An edge's own `e1@{ curve: … }` sets it too, on the same terms as a
+   * `linkStyle N interpolate`: whichever of the two is written later wins,
+   * and either beats `linkStyle default`.
    */
   curve?: Curve;
+  /**
+   * How fast this edge's dashes march, when its `e1@{ … }` data animates it
+   * (`animate: true` is `fast`; `animation` names the speed). Absent when
+   * nothing animates it. A drawing of its own, independent of the timeline.
+   */
+  animation?: EdgeAnimation;
 }
 
 /**

@@ -554,7 +554,11 @@ A pair's repeats are still counted across every edge between it, named or not, s
 then `A --> B` is `e1` and `A-B#2`: naming one edge never renumbers another (Mermaid 12.2.0 counts
 the same way, measured). An edge id is spelled in a node id's alphabet and names exactly one thing,
 so one that a node or another edge already holds, one on an arrow joining a group, and one outside
-that alphabet are refused. `e1@{ … }` written below the edge is the edge's data, not a node's.
+that alphabet are refused. `e1@{ … }` written below the edge is the edge's data, not a node's:
+`animate`/`animation` march its dashes (a drawing of its own, independent of the timeline, stopped
+under `prefers-reduced-motion`), and `curve` picks its **Curve** on the terms `linkStyle … interpolate`
+does, the later of the two winning. `class e1 c` paints the edge with a `classDef`, beneath any
+`linkStyle`.
 Two ids the author did not write can still meet — the node `A-B` and the edge `A --> B` — and a
 document like that is drawn; only a `timeline:` action naming such a shared id is refused, since it
 cannot say which of the two it means (nook `01M51XADJK`).

@@ -1919,3 +1919,29 @@ describe("an invisible edge drawn", () => {
     expect(path.getAttribute("style")).toBe("stroke:#f00;stroke-width:4px");
   });
 });
+
+/**
+ * An edge its `e1@{ … }` data animates. Measured in headless Chrome on
+ * Mermaid 12.2.0: the path carries a class that marches its dashes —
+ * `animate: true` and `animation: fast` 20s a cycle, `animation: slow` 50s —
+ * and an edge with neither carries none.
+ */
+describe("an animated edge drawn", () => {
+  it.each([
+    ["animate: true", "siren-edge-animation-fast"],
+    ["animation: fast", "siren-edge-animation-fast"],
+    ["animation: slow", "siren-edge-animation-slow"],
+  ])("gives `%s` the class %s", (written, className) => {
+    const result = render(`flowchart LR\nA e1@--> B\ne1@{ ${written} }`, document.createElement("div"));
+    const path = result.svg!.querySelector('path.siren-edge[data-siren-id="e1"]')!;
+
+    expect(result.diagnostics).toEqual([]);
+    expect(path.getAttribute("class")).toBe(`siren-edge ${className}`);
+  });
+
+  it("gives an edge nothing animates no animation class", () => {
+    const result = render("flowchart LR\nA e1@--> B\ne1@{ animate: false }", document.createElement("div"));
+
+    expect(result.svg!.querySelector('path.siren-edge[data-siren-id="e1"]')!.getAttribute("class")).toBe("siren-edge");
+  });
+});

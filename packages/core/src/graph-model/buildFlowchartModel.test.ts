@@ -637,11 +637,6 @@ describe("buildFlowchartModel's node statements naming an edge id", () => {
       { styleKind: "style" as const, authoredAs: "style", targetIds: ["e1"], name: null, properties: [{ property: "stroke", value: "#f00" }], line: 3, column: 7 },
       '"e1" is an edge, and style reaches only a node. Style an edge with linkStyle and its number',
     ],
-    [
-      "class",
-      { styleKind: "apply" as const, authoredAs: "class", targetIds: ["e1"], name: "c", properties: [], line: 3, column: 7 },
-      'Siren does not apply a class to an edge yet ("e1"). Style the edge with linkStyle and its number',
-    ],
   ])("refuses `%s` on it", (_statement, declaration, message) => {
     const { graph, diagnostics } = buildFlowchartModel(
       flowchartDocument({
@@ -656,6 +651,103 @@ describe("buildFlowchartModel's node statements naming an edge id", () => {
 
     expect(graph.edges.map((drawn) => drawn.id)).toEqual(["e1"]);
     expect(diagnostics).toEqual([{ severity: "error", message, line: 3, column: 7 }]);
+  });
+
+  /** `classDef c …` on line 2, and `class <targets> c` on `line`. */
+  const classStatements = (properties: { property: string; value: string }[], line = 3, targetIds = ["e1"]) => [
+    { styleKind: "classDef" as const, authoredAs: "classDef", targetIds: [], name: "c", properties, line: 2, column: 1 },
+    { styleKind: "apply" as const, authoredAs: "class", targetIds, name: "c", properties: [], line, column: 7 },
+  ];
+
+  it("paints it with the class's declarations, the line's and the label's", () => {
+    // Measured in headless Chrome on Mermaid 12.2.0: `class e1 c` writes
+    // `c`'s declarations onto the edge's path, its `color` reaching the
+    // label as a `linkStyle`'s does; `class A,e1 c` paints both.
+    const { graph, diagnostics } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" })],
+        edges: [edge],
+        styles: classStatements(
+          [
+            { property: "stroke-width", value: "9px" },
+            { property: "color", value: "#00f" },
+          ],
+          3,
+          ["A", "e1"],
+        ),
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(graph.edges[0]!.style).toEqual({
+      frame: [{ property: "stroke-width", value: "9px" }],
+      // `color` is written as the label's `fill`, as a `linkStyle`'s is.
+      text: [{ property: "fill", value: "#00f" }],
+    });
+    expect(graph.nodes[0]!.style.frame).toEqual([{ property: "stroke-width", value: "9px" }]);
+  });
+
+  it("lets a linkStyle win over the class, wherever it is written", () => {
+    // Measured: `linkStyle 0 stroke:#0f0` above `class e1 c` (c being
+    // `stroke:#f00,stroke-width:9px`) still draws the line green, 9px wide.
+    const { graph, diagnostics } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" })],
+        edges: [edge],
+        styles: classStatements([
+          { property: "stroke", value: "#f00" },
+          { property: "stroke-width", value: "9px" },
+        ]),
+        linkStyles: [{ targets: ["0"], properties: [{ property: "stroke", value: "#0f0" }], line: 1, column: 1 }],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(graph.edges[0]!.style.frame).toEqual([
+      { property: "stroke", value: "#0f0" },
+      { property: "stroke-width", value: "9px" },
+    ]);
+  });
+
+  it("refuses a class written above the edge, which reaches nothing", () => {
+    // Measured: `class e1 c` above `A e1@--> B` paints nothing.
+    const { diagnostics } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" })],
+        edges: [edge],
+        styles: classStatements([{ property: "stroke", value: "#f00" }], 1),
+      }),
+    );
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'The class statement names the edge "e1" above the line it is written on, so it reaches nothing. Move it below the edge',
+        line: 1,
+        column: 7,
+      },
+    ]);
+  });
+
+  it("refuses an `animation` a class would give it, pointing at the edge's own data", () => {
+    // Mermaid animates it with keyframes of its own, which Siren's
+    // stylesheet does not carry under that name.
+    const { diagnostics } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" })],
+        edges: [edge],
+        styles: classStatements([{ property: "animation", value: "dash 25s linear infinite" }]),
+      }),
+    );
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'A class cannot animate the edge "e1". Write e1@{ animate: true } below the edge instead',
+        line: 3,
+        column: 7,
+      },
+    ]);
   });
 });
 
@@ -684,5 +776,98 @@ describe("buildFlowchartModel's invisible edge", () => {
       ["B-C", "solid", "arrow"],
     ]);
     expect(graph.edges[0]!.style.frame).toEqual([{ property: "stroke-width", value: "4px" }]);
+  });
+});
+
+/**
+ * An edge's `e1@{ … }` data: its animation, and its curve beside
+ * `linkStyle … interpolate`. Measured on Mermaid 12.2.0: `animate` tested
+ * for truth draws `fast`, and `animation` names the speed whatever
+ * `animate` says. A block's `curve` and a `linkStyle N interpolate` each set
+ * the edge's one curve as they are read, so the one written later wins,
+ * and either beats `linkStyle default` (`FlowDB`; on ELK Mermaid draws
+ * every edge rounded whatever it says, and Siren draws the curve, as it
+ * does for `interpolate`).
+ */
+describe("buildFlowchartModel's edge data", () => {
+  function withData(
+    data: Partial<NonNullable<FlowchartDocument["edges"][number]["data"]>>,
+    linkStyles: FlowchartDocument["linkStyles"] = [],
+  ): FlowchartDocument {
+    return flowchartDocument({
+      nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" })],
+      edges: [
+        {
+          from: "A",
+          to: "B",
+          line: "solid",
+          fromEnd: "none",
+          toEnd: "arrow",
+          minLength: 1,
+          label: null,
+          id: "e1",
+          idLine: 2,
+          idColumn: 5,
+          data: { line: 3, column: 5, ...data },
+        },
+      ],
+      linkStyles,
+    });
+  }
+
+  it.each([
+    [{ animate: true }, "fast"],
+    [{ animation: "slow" as const }, "slow"],
+    [{ animate: false }, undefined],
+    [{ animate: false, animation: "slow" as const }, "slow"],
+    [{ animate: true, animation: "slow" as const }, "slow"],
+  ])("animates %j as %s", (data, animation) => {
+    const { graph, diagnostics } = buildFlowchartModel(withData(data));
+
+    expect(diagnostics).toEqual([]);
+    expect(graph.edges[0]!.animation).toBe(animation);
+  });
+
+  it("leaves an animated edge no author dash, which the march beats in Mermaid, keeping the rest", () => {
+    // Measured in headless Chrome: Mermaid's `stroke-dasharray: 9,5
+    // !important` beats `linkStyle 0 stroke-dasharray:2 2`, while the
+    // `stroke:#f00` beside it still paints the line.
+    const { graph, diagnostics } = buildFlowchartModel(
+      withData({ animate: true }, [
+        {
+          targets: ["0"],
+          properties: [
+            { property: "stroke-dasharray", value: "2 2" },
+            { property: "stroke", value: "#f00" },
+          ],
+          line: 4,
+          column: 1,
+        },
+      ]),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(graph.edges[0]!.style.frame).toEqual([{ property: "stroke", value: "#f00" }]);
+  });
+
+  it.each([
+    ["the block alone", 3, [], "linear"],
+    ["a linkStyle written before the block", 3, [{ targets: ["0"], interpolate: "step", properties: [], line: 2, column: 1 }], "linear"],
+    ["a linkStyle written after the block", 3, [{ targets: ["0"], interpolate: "step", properties: [], line: 4, column: 1 }], "step"],
+    ["a linkStyle default written after the block", 3, [{ targets: ["default"], interpolate: "step", properties: [], line: 4, column: 1 }], "linear"],
+  ])("draws a `curve: linear` with %s", (_case, line, linkStyles, curve) => {
+    const { graph, diagnostics } = buildFlowchartModel(withData({ curve: "linear", line }, linkStyles));
+
+    expect(diagnostics).toEqual([]);
+    expect(graph.edges[0]!.curve).toBe(curve);
+  });
+
+  it.each([
+    ["cardinal", 'The curve "cardinal" is one Siren does not draw yet. Curves: basis, linear, step, stepBefore, stepAfter, rounded.'],
+    ["bogus", 'There is no curve "bogus". Curves: basis, linear, step, stepBefore, stepAfter, rounded.'],
+  ])("refuses `curve: %s` at the block", (name, message) => {
+    const { diagnostics } = buildFlowchartModel(withData({ curve: name }));
+
+    expect(diagnostics).toEqual([{ severity: "error", message, line: 3, column: 5 }]);
   });
 });

@@ -1938,8 +1938,14 @@ const SILENTLY_WRONG = 0;
  * `cls-member-visibility-space`, `cls-method-nameless` and
  * `cls-member-empty-line`, new beside it, are `supported`.
  * `silently-wrong` does not move.
+ *
+ * **72 → 70: two rows supported.** `01M51XAE8BFH3E4K0KPYZ26GC7` drew a
+ * flowchart edge's `@{ animate: true }` (`fc-edge-id`) and applied a
+ * `classDef` to an edge id (`fc-edge-id-class`), each refused before.
+ * `fc-edge-data-animation-and-curve`, new beside them, is `supported`.
+ * `silently-wrong` does not move.
  */
-const REJECTED = 72;
+const REJECTED = 70;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

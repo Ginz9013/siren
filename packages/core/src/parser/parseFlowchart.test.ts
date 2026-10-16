@@ -2887,23 +2887,45 @@ describe("an edge's `@{ … }` block", () => {
     expect(document.edges.map((edge) => edge.id)).toEqual(["e1"]);
   });
 
-  it.each(["animate: true", "animation: fast", "curve: linear"])(
-    "refuses `%s` as not supported yet, saying to leave it out",
-    (written) => {
-      const key = written.split(":")[0];
-      const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A e1@--> B\n  e1@{ ${written} }`);
+  it.each([
+    ["animate: true", { animate: true }],
+    ["animate: false", { animate: false }],
+    // Mermaid 12.2.0 tests `animate` for truth, so any other value animates.
+    ["animate: yes", { animate: true }],
+    ["animation: slow", { animation: "slow" }],
+    ["animation: fast", { animation: "fast" }],
+    ["animate: false, animation: slow", { animate: false, animation: "slow" }],
+    ["curve: linear", { curve: "linear" }],
+  ])("reads `%s` onto the edge", (written, data) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A e1@--> B\n  e1@{ ${written} }`);
 
-      expect(document).toBeNull();
-      expect(diagnostics).toEqual([
-        {
-          severity: "error",
-          message: `Siren does not support "${key}" in an edge's "@{ … }" block yet. Leave it out`,
-          line: 3,
-          column: 5,
-        },
-      ]);
-    },
-  );
+    expect(diagnostics).toEqual([]);
+    expect(document.edges[0]!.data).toEqual({ ...data, line: 3, column: 5 });
+  });
+
+  it("lays a later block's keys over an earlier one's", () => {
+    const { document } = parseOk(
+      "flowchart TB\n  A e1@--> B\n  e1@{ animate: true, curve: step }\n  e1@{ curve: linear }",
+    );
+
+    expect(document.edges[0]!.data).toEqual({ animate: true, curve: "linear", line: 4, column: 5 });
+  });
+
+  it("refuses an animation that is neither fast nor slow", () => {
+    // Measured in headless Chrome on Mermaid 12.2.0: `animation: weird`
+    // writes a class no rule styles, so the edge is drawn still.
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  A e1@--> B\n  e1@{ animation: weird }");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'There is no animation "weird". Use fast or slow',
+        line: 3,
+        column: 5,
+      },
+    ]);
+  });
 
   it("refuses a block that is not valid YAML, at the place it stops reading", () => {
     const { document, diagnostics } = parseFlowchart("flowchart TB\n  A e1@--> B\n  e1@{ label: [x }");

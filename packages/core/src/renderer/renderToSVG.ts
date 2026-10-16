@@ -444,7 +444,11 @@ function buildEdgeLabel(
 /** The classes one edge's path wears: the name every edge has, plus its line's own. */
 function edgeClasses(edge: PositionedEdge): string {
   const lineClass = EDGE_LINE_CLASS[edge.line];
-  return lineClass === null ? "siren-edge" : `siren-edge ${lineClass}`;
+  // An animated edge's marching dashes are a class for the reason a line
+  // style is: the theme owns the motion, and can stop it for a reader who
+  // asked for less (`prefers-reduced-motion`).
+  const animationClass = edge.animation === undefined ? null : `siren-edge-animation-${edge.animation}`;
+  return ["siren-edge", lineClass, animationClass].filter((name) => name !== null).join(" ");
 }
 
 /**

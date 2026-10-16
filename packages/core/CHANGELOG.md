@@ -184,7 +184,22 @@ divider and now takes none (see **Changed**).
   be refused, saying to leave the id out.
 - An `@{ … }` block on an edge id written below the edge (`e1@{ … }`) is read as that edge's data:
   a key other than `animate`, `animation` and `curve` is ignored with a warning, as Mermaid 12.2.0
-  ignores it; those three are refused as not drawn yet. The block used to be refused whole.
+  ignores it. The block used to be refused whole.
+- A flowchart edge's `e1@{ … }` data animates it and picks its curve (nook `01M51XAE8B`, measured
+  in headless Chrome). `animate: true` (any true value) and `animation: fast` march the edge's
+  dashes once every 20s, `animation: slow` every 50s, as Mermaid 12.2.0 draws them, with the march's
+  dash beating a dotted line's and a `linkStyle` dash; `animation` names the speed whatever
+  `animate` says. The march is the theme's (`.siren-edge-animation-fast`/`-slow`), independent of
+  the timeline, and stops under `prefers-reduced-motion: reduce`. `curve: <name>` draws the edge
+  with that curve, as `linkStyle … interpolate` does — on ELK too, where Mermaid draws every edge
+  rounded — the later of a `curve:` and a `linkStyle N interpolate` winning, and either beating
+  `linkStyle default`. An animation other than `fast` or `slow`, a curve Siren does not draw yet
+  and a name that is no curve are refused.
+- `class e1 c` applies a `classDef` to the edge with that id, as Mermaid 12.2.0 paints it (nook
+  `01M51XAE8B`, measured): its declarations reach the line, and `color` the label, beneath any
+  `linkStyle` naming the edge wherever either is written. A `class` written above the edge, which
+  Mermaid applies to nothing, and a class that would animate the edge (write `e1@{ animate: true }`)
+  are refused. It used to be refused as not drawn yet.
 - A flowchart node's `@{ shape: … }` block draws six figures (nook `01M51XACRX8H03160HPE1WQFZ4`,
   measured in headless Chrome): `bucket` (a body tapering under an open rim), `person` (a rounded
   body under a round head), `console` (a window with a `>_` prompt), `browser` (a window with a bar
@@ -476,10 +491,10 @@ divider and now takes none (see **Changed**).
   `01M51XADJK`): `A end-x@--> B`, `A style.x@--> B` and `A default@--> B` read the keyword as the
   keyword, as Mermaid 12.2.0 does, and are refused with a suggested name; `A S@--> B` beside
   `subgraph S` is refused, saying to give the edge another id.
-- **A `click`, `style` or `class` naming a flowchart edge id is refused** (nook `01M51XADJK`): a
-  click and a `style` reach only a node, and Mermaid 12.2.0 draws them as nothing; `class e1 c`
-  paints the edge in Mermaid, which Siren does not draw yet. Each says to style an edge with
-  `linkStyle` instead, or that a click reaches only a node.
+- **A `click` or `style` naming a flowchart edge id is refused** (nook `01M51XADJK`): a click and
+  a `style` reach only a node, and Mermaid 12.2.0 draws them as nothing. Each says to style an edge
+  with `linkStyle` instead, or that a click reaches only a node (`class e1 c` is drawn; see
+  **Added**).
 - **A flowchart class name Mermaid cannot style is refused** (nook `01M51Q7FSS`): Mermaid 12.2.0
   writes each `classDef` as the CSS rule `.<name> > *`, and a name that makes it fail to parse
   (`1c`, `c.`, `c..d`, `c:d`, `c%`, `c!`, `c/d` and the like) stops the whole diagram rendering in a
