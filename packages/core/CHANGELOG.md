@@ -117,6 +117,14 @@ refused (see **Changed**).
 
 ### Added
 
+- More flowchart lines are read as Mermaid 12.2.0 reads them (nook `01M51Q7FK5`): a `%%` where an
+  endpoint begins — after an arrow, its `|label|`, or an `&` with a space on each side — is the
+  start of an id, not a comment (`A --> %%B`, `A -->|l| %%B`, `A & %%B --> C`, `A --> %%`), and a
+  group of nodes joined by `&` with no arrow draws each node as a line of its own would
+  (`A & B`, `A[x] & B{y}:::hot`, `A@{ shape: circle } & B`). Each used to be refused, as a
+  mid-line `%%` or an unrecognized line. A `%%` anywhere else after a space (`A %%B`,
+  `A --> B %%x`) is still refused, and an arrowless group whose `&` is not spaced on each side
+  (`A&B`, which Mermaid draws as the one node `A&B`) gets the spacing error an edge's group gets.
 - A flowchart node's `@{ … }` data block is read as Mermaid 12.2.0 reads it, for what Siren can
   draw (nook `01M51Q7F65`): `shape:` takes the 45 names that are one of the fourteen node shapes
   (`rect`, `rounded`, `stadium`, `fr-rect`, `cyl`, `circle`, `diam`, `hex`, `lean-r`, `lean-l`,
@@ -272,6 +280,9 @@ refused (see **Changed**).
 
 ### Changed
 
+- A flowchart `%%` that begins a statement after a `;` (`A;%%B`, `A --> B; %%c`), which Mermaid
+  12.2.0 draws as a node, is refused saying so and to move the comment to a line of its own, where
+  it was told only that a mid-line `%%` is not a comment (nook `01M51Q7FK5`).
 - **A flowchart node id that begins with a keyword is refused** (nook `01M51Q7FCN`): Mermaid
   12.2.0's lexer reads `style`, `linkStyle`, `interpolate`, `classDef`, `class`, `graph`,
   `flowchart`, `flowchart-elk`, `swimlane-beta`, `subgraph`, `end`, `_self`, `_blank`, `_parent`

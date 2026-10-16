@@ -611,14 +611,14 @@ describe("an `@{ … }` block written where it cannot stand", () => {
     expect(blocks.elapsed).toBeLessThan(5 * brackets.elapsed);
   });
 
-  it("leaves a group with no arrow (`A@{ … } & B`) to the error a bare `A & B` gets", () => {
-    // Mermaid 12.2.0 draws both nodes; a group with no arrow is its own
-    // ticket, and until then the line is not told to lose its `& B`.
-    const { document, diagnostics } = parseFlowchart("flowchart TB\n  A@{ shape: circle } & B");
+  it("draws a group with no arrow (`A@{ … } & B`), as a bare `A & B` is drawn", () => {
+    // Measured: Mermaid 12.2.0 draws both nodes.
+    const { document, diagnostics } = parseOk("flowchart TB\n  A@{ shape: circle } & B");
 
-    expect(document).toBeNull();
-    expect(diagnostics).toEqual([
-      { severity: "error", message: 'Unrecognized flowchart line: "A@{ shape: circle } & B"', line: 2, column: 3 },
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.shape])).toEqual([
+      ["A", "circle"],
+      ["B", "rect"],
     ]);
   });
 
@@ -2326,6 +2326,120 @@ describe("a `%%` in the middle of a flowchart line", () => {
  * line — at `;`, at `&`, at an arrow, at a `%%` — measured on Mermaid
  * 12.2.0 with `pnpm --filter siren-core probe`.
  */
+/**
+ * An id that begins with `%%`. Measured on Mermaid 12.2.0: a `%%` where an
+ * endpoint begins — after an arrow, its `|label|`, or an `&` with a space on
+ * each side — is the start of an id, not a comment: `A --> %%B` draws the
+ * node `%%B`, as do the rest below. After a space anywhere else
+ * (`A %%B`, `A --> B %%x`) it is a parse error, and so is `A --> %% B`.
+ */
+describe("an id that begins with `%%`", () => {
+  it.each([
+    ["A --> %%B", ["A", "%%B"], [["A", "%%B"]]],
+    ["A-->%%B", ["A", "%%B"], [["A", "%%B"]]],
+    ["A -->|l| %%B", ["A", "%%B"], [["A", "%%B"]]],
+    ["A -- t --> %%B", ["A", "%%B"], [["A", "%%B"]]],
+    ["A ==> %%B", ["A", "%%B"], [["A", "%%B"]]],
+    ["A --> %%B --> C", ["A", "%%B", "C"], [["A", "%%B"], ["%%B", "C"]]],
+    ["A --> %%B[lbl]", ["A", "%%B"], [["A", "%%B"]]],
+    ["A --> %%B:::c", ["A", "%%B"], [["A", "%%B"]]],
+    ["A --> %%", ["A", "%%"], [["A", "%%"]]],
+    ["A --> %%%B", ["A", "%%%B"], [["A", "%%%B"]]],
+    ["A & %%B --> C", ["A", "%%B", "C"], [["A", "C"], ["%%B", "C"]]],
+    ["A --> %%end-x", ["A", "%%end-x"], [["A", "%%end-x"]]],
+  ])("draws `%s` with an id beginning in percent signs", (written, nodes, edges) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(nodes);
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual(edges);
+  });
+
+  it.each([
+    ["A;%%B", 5],
+    ["A;%%", 5],
+    ["A --> B; %%c", 12],
+  ])("refuses `%s`, saying a percent pair after a semicolon would be read as a node", (written, column) => {
+    // Measured: Mermaid 12.2.0 draws a node `%%B` (`%%`, `%%c`) there — a
+    // statement of its own, which an author writing a comment did not mean.
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'A "%%" after ";" begins a statement, so it is read as a node, not a comment. ' +
+          "Move the comment to a line of its own.",
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it.each(["A --> %% B", "A --> %%B C", "A --> B %%x", "A[x] %%B"])("still refuses `%s`", (written) => {
+    expect(parseFlowchart(`flowchart TB\n  ${written}`).document).toBeNull();
+  });
+});
+
+/**
+ * A group of nodes joined by `&` with no arrow. Measured on Mermaid 12.2.0:
+ * each is drawn, as it would be on a line of its own, and an `&` glued to
+ * an id is a character of it (`A&B` is the one node `A&B`).
+ */
+describe("a group of nodes with no arrow", () => {
+  it.each([
+    ["A & B", ["A", "B"]],
+    ["a-b & c", ["a-b", "c"]],
+    ["A & B & C", ["A", "B", "C"]],
+    ["A[x] & B[y]", ["A", "B"]],
+    ["A & B[x]", ["A", "B"]],
+    ["A & B:::c", ["A", "B"]],
+    ["A:::c & B", ["A", "B"]],
+    ["A & B; C", ["A", "B", "C"]],
+    ["A & %%B", ["A", "%%B"]],
+  ])("draws `%s` as its nodes, with no edge", (written, ids) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(ids);
+    expect(document.edges).toEqual([]);
+  });
+
+  it.each([
+    ["A&B", "A & B", 4],
+    ["A& B", "A & B", 4],
+    ["A &B", "A & B", 5],
+    ["A[x]&B", "A[x] & B", 7],
+  ])("refuses `%s`, an `&` without a space on each side, as it does with an arrow", (written, fixed, column) => {
+    // Measured: Mermaid 12.2.0 draws `A&B` as the one node `A&B`, and
+    // refuses `A& B` and `A &B`.
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `An "&" joins nodes only with a space on each side. Write: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it("reads each node's label and definition as it would on a line of its own", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  subgraph s\n    A[x] & B{y}:::hot\n  end");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label.text, node.shape])).toEqual([
+      ["A", "x", "rect"],
+      ["B", "y", "rhombus"],
+    ]);
+    expect(document.subgraphs.map((block) => block.nodeIds)).toEqual([["A", "B"]]);
+    expect(document.styles.map((style) => [style.targetIds, style.name])).toEqual([[["B"], "hot"]]);
+  });
+});
+
 describe("the text a flowchart line holds, which no separator cuts", () => {
   it("reads an asymmetric node's label, opened by the `>` right after its id, as one label whatever separator it holds", () => {
     // Measured: `A>a;b] --> B`, `A>a-->b] --> B` and `A>a&b] --> B` record

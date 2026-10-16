@@ -1857,8 +1857,18 @@ const SILENTLY_WRONG = 0;
  * which Siren used to refuse as an unrecognized line, with no row to say
  * so. No `supported` row moved: `cls-generic-forms`, new beside them, is
  * `supported`. `silently-wrong` does not move.
+ *
+ * **55 → 56: case (2), a refusal written down for the first time.**
+ * `01M51Q7FK5E65XVPWJYGYPN1ST` read a flowchart `%%` where an endpoint
+ * begins as the start of an id, as Mermaid 12.2.0 does, and kept refusing
+ * one after a `;`, which Mermaid draws as a node an author writing a
+ * comment did not mean (ADR-0001), now saying so:
+ * `fc-percent-after-semicolon` writes it down. Siren refused it before as a
+ * mid-line `%%`, with no row to say so. No `supported` row moved.
+ * `fc-percent-id-and-arrowless-group`, new beside it, is `supported`.
+ * `silently-wrong` does not move.
  */
-const REJECTED = 55;
+const REJECTED = 56;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

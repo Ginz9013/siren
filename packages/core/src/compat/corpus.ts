@@ -4222,6 +4222,35 @@ line2\`"]`,
       "on its own line renders in both.",
   },
   {
+    id: "fc-percent-id-and-arrowless-group",
+    kind: "flowchart",
+    source: `flowchart TB
+      A --> %%B
+      C & D[d]`,
+    status: "supported",
+    meaning:
+      "A `%%` where an endpoint begins is the start of an id, and an `&` group " +
+      "needs no arrow: Mermaid 12.2.0 draws the edge A to the node `%%B`, and " +
+      "the nodes C and D (measured). Siren draws the same.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]", "%%B[%%B]", "C[C]", "D[d]"]);
+      expectSame("edges", edges(result), ["A-%%B"]);
+    },
+  },
+  {
+    id: "fc-percent-after-semicolon",
+    kind: "flowchart",
+    source: `flowchart TB
+      A --> B; %%c`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A `%%` after a " +
+      "`;` begins a statement, so Mermaid 12.2.0 draws a node `%%c` beside the " +
+      "edge (measured), where an author writing a comment meant none. Siren " +
+      "refuses it (ADR-0001), at the `%%`, saying it is read as a node and to " +
+      "move the comment to a line of its own.",
+  },
+  {
     id: "fc-comment-mid-line-text",
     kind: "flowchart",
     source: `flowchart TB

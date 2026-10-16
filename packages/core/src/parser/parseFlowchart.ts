@@ -1596,9 +1596,39 @@ function splitStatements(rawLine: string): { text: string; column: number }[] {
  * `click A "u" "a %% b"` as written, measured.
  */
 function midLinePercentAt(text: string): number | null {
-  const { parts } = cutOutsideLabel(text, MID_LINE_PERCENT_RE);
-  return parts.length === 1 ? null : parts[0]!.length;
+  const { parts, separators } = cutOutsideLabel(text, MID_LINE_PERCENT_RE);
+  const offsets = offsetsOf(parts, separators);
+  for (let cut = 0; cut < separators.length; cut++) {
+    const at = offsets[cut]! + parts[cut]!.length;
+    if (!opensEndpoint(text.slice(0, at))) {
+      return at;
+    }
+  }
+  return null;
 }
+
+/**
+ * Whether an endpoint begins right after `before`: it ends with an arrow
+ * (its `|label|` included) or with an `&` that has a space on each side,
+ * then nothing but spaces. A `%%` there begins an id, not a comment:
+ * Mermaid 12.2.0 draws `A --> %%B`, `A-->%%B`, `A -->|l| %%B`,
+ * `A -- t --> %%B` and `A & %%B` with a node `%%B` (measured).
+ */
+function opensEndpoint(before: string): boolean {
+  if (SPACED_GROUP_SEPARATOR_AT_END_RE.test(before)) {
+    return true;
+  }
+  const { parts, separators } = cutOutsideLabel(before, ARROW_RE);
+  return separators.length > 0 && parts[parts.length - 1]!.trim() === "";
+}
+
+/** Why a statement after a `;` that begins with `%%` is refused (`A;%%B`). */
+const PERCENT_AFTER_SEMICOLON_MESSAGE =
+  'A "%%" after ";" begins a statement, so it is read as a node, not a comment. ' +
+  "Move the comment to a line of its own.";
+
+/** An `&` with a space on each side, at the end of a text but for spaces. */
+const SPACED_GROUP_SEPARATOR_AT_END_RE = /\s&\s+$/;
 
 /**
  * What `midLinePercentAt` looks for: a `%%` that does not continue an id.
@@ -1606,7 +1636,8 @@ function midLinePercentAt(text: string): number | null {
  * the id's own — measured on Mermaid 12.2.0, `A%%B`, `A%%B --> C`,
  * `A-->B%%C`, `A%%` and `A%% --> B` record the ids `A%%B`, `B%%C` and `A%%`
  * (01M4ZWT8PR). Written after a space or a bracket it begins no id this
- * parser reads: `A %% x` and `A %%B` are parse errors there, measured.
+ * parser reads: `A %% x` and `A %%B` are parse errors there, measured —
+ * except where an endpoint begins (`opensEndpoint`).
  */
 const MID_LINE_PERCENT_RE = new RegExp(`${NOT_AFTER_ID}%%`, "y");
 
@@ -2599,7 +2630,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
       continue;
     }
 
-    for (const piece of splitStatements(rawLine)) {
+    for (const [pieceIndex, piece] of splitStatements(rawLine).entries()) {
       const line = piece.text;
       const column = piece.column;
       const statement: Statement = { text: line, line: lineNumber, column };
@@ -2648,10 +2679,31 @@ export function parseFlowchart(source: string): DiagramParseResult {
         }
         return false;
       };
+      // An `&` without a space on each side in `parts` (standing at
+      // `partAt`), refused — true when one was, which ends the statement.
+      const refuseUnspacedGroups = (parts: readonly string[], partAt: readonly number[]): boolean => {
+        const unspaced = unspacedGroupSeparators(line, parts, partAt);
+        if (unspaced.length === 0) {
+          return false;
+        }
+        diagnostics.push({
+          severity: "error",
+          message:
+            `An "${GROUP_SEPARATOR}" joins nodes only with a space on each side. ` +
+            `Write: ${spacedGroupSeparators(line, unspaced)}`,
+          line: lineNumber,
+          column: column + unspaced[0]!,
+        });
+        sawError = true;
+        return true;
+      };
       const refusePercent = () => {
         diagnostics.push({
           severity: "error",
-          message: MID_LINE_PERCENT_MESSAGE,
+          // A statement after a `;` that begins with `%%` (`A;%%B`, `A --> B;
+          // %%c`): Mermaid 12.2.0 draws it as a node `%%B` (measured), which
+          // an author writing a comment there did not mean.
+          message: percentAt === 0 && pieceIndex > 0 ? PERCENT_AFTER_SEMICOLON_MESSAGE : MID_LINE_PERCENT_MESSAGE,
           line: lineNumber,
           column: column + percentAt!,
         });
@@ -2903,17 +2955,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
         // label's problem is reported at its own column: the pieces and the
         // separators that cut them lie end to end, and add up to the line.
         const partAt = offsetsOf(arrowParts, arrowTokens);
-        const unspaced = unspacedGroupSeparators(line, arrowParts, partAt);
-        if (unspaced.length > 0) {
-          diagnostics.push({
-            severity: "error",
-            message:
-              `An "${GROUP_SEPARATOR}" joins nodes only with a space on each side. ` +
-              `Write: ${spacedGroupSeparators(line, unspaced)}`,
-            line: lineNumber,
-            column: column + unspaced[0]!,
-          });
-          sawError = true;
+        if (refuseUnspacedGroups(arrowParts, partAt)) {
           continue;
         }
         // Each piece kept beside what it read as, so an unreadable one can be
@@ -3167,6 +3209,39 @@ export function parseFlowchart(source: string): DiagramParseResult {
         i--;
         continue readLines;
       }
+
+      // A group of nodes with no arrow, `A & B[x]`: each drawn as it would
+      // be on a line of its own, as Mermaid 12.2.0 draws them (measured).
+      // Every piece is read before any is declared, so an unreadable one
+      // refuses the whole statement, at itself. A line that begins with a
+      // keyword (`end&x`) is that keyword's mistake, not a group's.
+      const { parts: groupParts, separators: groupSeparators } = cutOutsideLabel(line, GROUP_SEPARATOR);
+      if (groupParts.length > 1 && refuseKeywordId(line, false) === null) {
+        if (refuseUnspacedGroups([line], [0])) {
+          continue;
+        }
+        const groupAt = offsetsOf(groupParts, groupSeparators);
+        const members = groupParts.map((part, index) => readEndpoint(part, groupAt[index]!));
+        const unreadable = members.findIndex((member) => member === null);
+        if (unreadable !== -1) {
+          const part = groupParts[unreadable]!;
+          const lead = part.length - part.trimStart().length;
+          const nodeRefusal = refuseNode(part.trim(), "an edge endpoint");
+          diagnostics.push({
+            severity: "error",
+            message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${line}"`,
+            line: lineNumber,
+            column: nodeRefusal === null ? column : column + groupAt[unreadable]! + lead + nodeRefusal.offset,
+          });
+          sawError = true;
+          continue;
+        }
+        for (const member of members as EdgeEndpoint[]) {
+          addNodeAsWritten(member, statement);
+        }
+        continue;
+      }
+
       const withData = lineBlocks.length === 0 ? null : readEndpoint(line, 0);
       if (withData !== null) {
         addNodeAsWritten(withData, statement);
