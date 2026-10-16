@@ -356,6 +356,49 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     ]);
   });
 
+  it("reads a member name that starts with a digit or holds `-`, `.` or a non-ASCII letter, in both member forms", () => {
+    // Measured on Mermaid 12.2.0 (Chrome), in a class block and after
+    // `A :` alike: `+x 1`, `+int 2x`, `+1`, `+1foo()`, `+x 1.5`, `+x a-b`,
+    // `+x a.b`, `+x é`, `+x 1_a`, `+é()`, `+a-b()` and `+a.b()` are each
+    // drawn as written, and `+x 1#lt;` as `+x 1<`.
+    const members = [
+      "+x 1",
+      "+int 2x",
+      "+1",
+      "+1foo()",
+      "+x 1.5",
+      "+x a-b",
+      "+x a.b",
+      "+x é",
+      "+x 1_a",
+      "+é()",
+      "+a-b()",
+      "+a.b()",
+      "+x 1#lt;",
+    ];
+    const block = parseOk(`classDiagram\n  class A {\n${members.map((m) => `    ${m}`).join("\n")}\n  }`);
+    expect(block.diagnostics).toEqual([]);
+    expect(block.document.classes.flatMap((c) => c.members.map(reconstruct))).toEqual(members);
+    const inline = parseOk(`classDiagram\n${members.map((m) => `  A : ${m}`).join("\n")}`);
+    expect(inline.diagnostics).toEqual([]);
+    expect(inline.document.classes.flatMap((c) => c.members.map(reconstruct))).toEqual(members);
+    expect(block.document.classes[0].members.map((m) => [m.memberKind, m.name])).toEqual([
+      ["attribute", "1"],
+      ["attribute", "2x"],
+      ["attribute", "1"],
+      ["method", "1foo"],
+      ["attribute", "1.5"],
+      ["attribute", "a-b"],
+      ["attribute", "a.b"],
+      ["attribute", "é"],
+      ["attribute", "1_a"],
+      ["method", "é"],
+      ["method", "a-b"],
+      ["method", "a.b"],
+      ["attribute", "1#lt;"],
+    ]);
+  });
+
   it("reads a generic on either end of a relationship as the class's generic", () => {
     // Measured on Mermaid 12.2.0 (Chrome): `A~T~ --> B` draws `A<T>` → B,
     // with multiplicities and a label as well, with or without a space
@@ -1817,6 +1860,66 @@ describe("parseClassDiagram — a class block closed on a member's line", () => 
       expect([text, parseClassDiagram(`classDiagram\n  class A {\n    ${text}\n  }`).diagnostics]).toEqual([
         text,
         [{ severity: "error", message: separated(text), line: 3, column: 5 }],
+      ]);
+    }
+  });
+
+  it("reads the `;` ending a character reference as the reference's, in a block", () => {
+    // Measured on Mermaid 12.2.0 (Chrome): in a class block `+&lt; x`,
+    // `+&amp; x`, `+x &lt;`, `+x &#60;`, `+x &#x3c;`, `+x &zz;`, `+x a&lt;b`,
+    // `+&lt;foo()` and `+x &lt` are each one member (drawn `+< x`, `+& x`,
+    // `+x <`, `+x &<`, `+x &&x3c;`, `+x &zz;`, `+x a<b`, `+<foo()`, `+x <`),
+    // kept here as written for layout to decode.
+    const members = [
+      "+&lt; x",
+      "+&amp; x",
+      "+x &lt;",
+      "+x &#60;",
+      "+x &#x3c;",
+      "+x &zz;",
+      "+x a&lt;b",
+      "+&lt;foo()",
+      "+x &lt",
+    ];
+    for (const body of [
+      `  class A {\n${members.map((m) => `    ${m}`).join("\n")}\n  }`,
+      ...members.map((m) => `  class A { ${m} }`),
+    ]) {
+      const { document, diagnostics } = parseOk(`classDiagram\n${body}`);
+      expect([body, diagnostics]).toEqual([body, []]);
+      expect(members).toEqual(expect.arrayContaining(document.classes.flatMap((c) => c.members.map(reconstruct))));
+    }
+    // A `;` after one is still a separator, and a reference does not make
+    // the `;` of `# lt; x` (no code: a space) or `+x a;b` any less of one.
+    const separated = (text: string) =>
+      `Unrecognized class member: "${text}". A ";" does not separate members: write each member on a line of its own.`;
+    for (const text of ["+x &lt;; y", "+int x &lt; y; z", "# lt; x", "+x a;b"]) {
+      expect([text, parseClassDiagram(`classDiagram\n  class A {\n    ${text}\n  }`).diagnostics]).toEqual([
+        text,
+        [{ severity: "error", message: separated(text), line: 3, column: 5 }],
+      ]);
+    }
+  });
+
+  it("reads a `#…;` that is no entity code as a name of its own at the end of a block's member", () => {
+    // Measured on Mermaid 12.2.0 (Chrome): in a class block `+x #a-b;`,
+    // `+x #é;` and `+x #;` are drawn as written — none is an entity code
+    // (`#\w+;`) — while after `A :` each is a lexical error at the `;`,
+    // refused as before.
+    const members = ["+x #a-b;", "+x #é;", "+x #;"];
+    const { document, diagnostics } = parseOk(
+      `classDiagram\n  class A {\n${members.map((m) => `    ${m}`).join("\n")}\n  }`,
+    );
+    expect(diagnostics).toEqual([]);
+    expect(document.classes[0].members.map((m) => [reconstruct(m), m.name])).toEqual([
+      ["+x #a-b;", "#a-b;"],
+      ["+x #é;", "#é;"],
+      ["+x #;", "#;"],
+    ]);
+    for (const member of members) {
+      expect(parseClassDiagram(`classDiagram\n  A : ${member}`).diagnostics.map((d) => d.message)).toEqual([
+        `A ";" cannot be written in the member "${member}": it does not separate members. ` +
+          'Write each member on a line of its own, with no ";".',
       ]);
     }
   });

@@ -613,6 +613,18 @@ drawn decoded, `A<<>` (see **Changed**).
   `~#quot;~` `A<">`, as Mermaid 12.2.0 draws them, and the box is sized from the decoded name. A
   bracketed label written after such a generic (`class A~#lt;~["L"]`) still replaces the name
   whole.
+- **A class member's name may start with a digit and hold `-`, `.` or a letter of any script**
+  (nook `01M51Q7GD59NHR6MFZEC13NJ1K`), in a class block and after `A :` alike: `+int 2x`, `+x 1`,
+  `+x 1.5`, `+x a-b`, `+x a.b`, `+x é`, `+1foo()` and `+a-b()` are drawn as written, as Mermaid
+  12.2.0 draws them. Siren used to refuse each as an unrecognized member.
+- **In a class block, the `;` ending an HTML character reference is the reference's**, not a member
+  separator (nook `01M51Q7GD59NHR6MFZEC13NJ1K`): `+&lt; x`, `+&amp; x`, `+x &lt;`, `+x &#60;` and
+  `+&lt;foo()` are one member each, decoded when drawn (`+< x`, `+& x`, `+x <`, `+x &<`,
+  `+<foo()`), as Mermaid 12.2.0 draws them; a reference may stand in a member's name, also after
+  `A :` when it has no `;` (`+x &lt`). A `#…;` that is no entity code, written as a block member's
+  name (`+x #a-b;`, `+x #é;`, `+x #;`), is drawn as written. A `;` that ends neither still
+  separates nothing and is refused (`+x a;b`, `# lt; x`), and after `A :` every `;` is refused as
+  before.
 
 ### Fixed
 

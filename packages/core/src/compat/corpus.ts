@@ -5709,6 +5709,27 @@ line2\`"]`,
       "write the interface's name alone. A generic on a class end " +
       "(`Duck~T~ --> Pond`) renders in both.",
   },
+  {
+    id: "cls-member-name-digit-and-reference",
+    kind: "class",
+    source: `classDiagram
+      class Version {
+        +int 2nd
+        +String &lt;tag&gt;
+        +&lt; x
+      }`,
+    status: "supported",
+    meaning:
+      "A member's name may start with a digit, and a class block's member " +
+      "may hold an HTML character reference, its `;` the reference's rather " +
+      "than a member separator. Measured on Mermaid 12.2.0 (Chrome): " +
+      "`+int 2nd`, `+String <tag>` and `+< x`. Siren used to refuse the " +
+      "first as an unrecognized member and the other two at their `;`.",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Version"]);
+      expectSame("members", members(result, "Version"), ["+int 2nd", "+String <tag>", "+< x"]);
+    },
+  },
   // -------------------------------------------------------------------------
   // sequenceDiagram
   // -------------------------------------------------------------------------

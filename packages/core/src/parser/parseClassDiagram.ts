@@ -408,6 +408,28 @@ function maskEntityCodes(text: string): string {
 }
 
 /**
+ * An HTML character reference as an author writes one — `&lt;`, `&amp;`,
+ * `&#60;`, `&#x3c;`, or a name the browser does not know (`&zz;`) — its
+ * `;` optional, as the browser's is for the legacy names (`&lt`). Mermaid
+ * 12.2.0 hands a class block's member text to the browser, which resolves
+ * them (measured, Chrome: `+&lt; x` draws `+< x`, `+x &lt` `+x <`).
+ */
+const CHARACTER_REFERENCE_RE = /&(?:#[xX][0-9a-fA-F]+|#\d+|[A-Za-z][A-Za-z0-9]*);?/g;
+
+/**
+ * `text` with its entity codes masked (`maskEntityCodes`) and each
+ * character reference written over by `&`s of its length, so a search for
+ * `;` in a class block's member finds only a `;` that ends neither: one
+ * ending a reference is the reference's (measured on Mermaid 12.2.0,
+ * Chrome: `+&lt; x`, `+&amp; x` and `+x a&lt;b` are each one member).
+ * Positions are kept.
+ */
+function maskReferences(text: string): string {
+  // References first: `&#60;` is one, though `#60;` inside it is a code.
+  return maskEntityCodes(text.replace(CHARACTER_REFERENCE_RE, (reference) => "&".repeat(reference.length)));
+}
+
+/**
  * The error for a class name's generic holding another one — `generic` as
  * captured between its outer tildes (`List~int~`), at `line`:`column`, the
  * column of its opening `~` — or `null` when it holds no `~`. Mermaid
@@ -494,21 +516,37 @@ const NAMESPACE_BODY_KINDS: ReadonlySet<StatementKind> = new Set(["namespace", "
 /** The inline member form, `Bird : +fly()`. */
 const INLINE_MEMBER_RE = /^(\w+)\s*:\s*(.+)$/d;
 /**
- * What a member's own name may look like, once markers and type are off: an
- * identifier, which a `<br>` (already respelled by `MEMBER_BREAK_RE`) may
- * stand inside — `+id<br>int` is one name, as Mermaid reads it.
+ * What a member's own name may look like, once markers and type are off: a
+ * letter, digit or `_` of any script, then those, `-` and `.`, which a
+ * `<br>` (already respelled by `MEMBER_BREAK_RE`) may stand inside —
+ * `+id<br>int` is one name, as Mermaid reads it. Measured on Mermaid 12.2.0
+ * (Chrome), in a block and after `A :` alike: `+x 1`, `+int 2x`, `+1foo()`,
+ * `+x 1.5`, `+x a-b`, `+x a.b`, `+x é` and `+a-b()` are drawn as written.
  */
-const MEMBER_NAME_RE = /^[A-Za-z_]\w*(?:<br>\w*)*$/;
+const MEMBER_NAME_RE = /^[\p{L}\p{N}_][\p{L}\p{N}_.-]*(?:<br>[\p{L}\p{N}_.-]*)*$/u;
+
+/**
+ * A whole member name that looks like an entity code and is none — a `#`,
+ * then anything but a space, `#` or `;`, then `;`: `#a-b;`, `#é;`, `#;`.
+ * Mermaid 12.2.0 leaves it alone (`#\w+;` is all it encodes), and a class
+ * block draws it as written (measured, Chrome: `+x #a-b;`, `+x #é;`, `+x
+ * #;`). After `A :` its `;` is refused before the name is read.
+ */
+const LITERAL_HASH_NAME_RE = /^#[^\s#;]*;$/;
 
 /**
  * Whether `name` may be a member's own name: `MEMBER_NAME_RE`, with an
  * entity code standing wherever a word character may — Mermaid 12.2.0
  * encodes each `#\w+;` into word-like text before it parses, so `+x #lt;`,
  * `+int a#lt;b` and `+#lt;foo()` are members (measured), their codes
- * decoded when drawn.
+ * decoded when drawn. A character reference stands there too
+ * (`CHARACTER_REFERENCE_RE`): `+x &lt;` and `+&lt;foo()` in a class block
+ * are drawn `+x <` and `+<foo()` (measured, Chrome); after `A :` its `;` is
+ * refused before the name is read.
  */
 function isMemberName(name: string): boolean {
-  return MEMBER_NAME_RE.test(replaceEntityCodes(name, () => "_"));
+  if (LITERAL_HASH_NAME_RE.test(name)) return true;
+  return MEMBER_NAME_RE.test(replaceEntityCodes(name.replace(CHARACTER_REFERENCE_RE, "_"), () => "_"));
 }
 /**
  * Mermaid's own row-break pattern, which it applies to a member's text and
@@ -1673,8 +1711,9 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         // it is what was written: `+foo(a; b)` keeps the parameters `a; b`.
         // A `;` ending the member separates nothing: `+int x;` is one
         // attribute to Mermaid as written, refused only as unrecognized.
-        // An entity code's own `;` is no `;` at all (`maskEntityCodes`).
-        const separated = maskEntityCodes(text)
+        // An entity code's or a character reference's own `;` is no `;` at
+        // all (`maskReferences`).
+        const separated = maskReferences(text)
           .replace(/\([^)]*\)|~[^~]*~/g, "")
           .replace(/;\s*$/, "")
           .includes(";")
