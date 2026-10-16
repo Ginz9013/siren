@@ -1,2 +1,3 @@
 {"id":"01M51WGK9914VH9YKHCYB8E3BM","t":1,"a":"83a1","op":"create","title":"class：classifier `$`／`*` 照 Mermaid 用樣式表示"}
 {"id":"01M51WGK9KQ6V4031A73AFAD8P","t":2,"a":"83a1","op":"set","k":"description","v":"# class：classifier `$`／`*` 照 Mermaid 用樣式表示\n\n由 board backlog-batch-1016 決定 17 留下。Mermaid 12.2.0 會把 `$`（static）和 `*`（abstract）從成員文字中拿掉，改用樣式表示（底線、斜體）：`+x$` 畫成 `+x`，`+foo()$ bool` 畫成 `+foo() : bool`。Siren 目前把這兩個字元當文字畫出，例如 `+foo() : $ bool`、`+foo() : bool$`。實作前先用 Chrome 實測樣式與字元的確切位置。"}
+{"id":"01M51XB98FR88VQPZSZH7W3TAQ","t":3,"a":"83a1","op":"comment","body":"由 board backlog-clear-1016（spec 01M51XABY67X1Z8AFJ5M7SY9KJ）接手，落地時關閉。"}
