@@ -938,24 +938,37 @@ function classBox(result: SirenRenderResult, id: string): Point {
   return { x: Number(frame.getAttribute("x")), y: Number(frame.getAttribute("y")) };
 }
 
-/** Whether the class `id`'s box is drawn inside the frame of the namespace labelled `label`. */
-function insideNamespace(result: SirenRenderResult, id: string, label: string): boolean {
-  const namespace = Array.from(svgOf(result).querySelectorAll("g.siren-namespace")).find(
-    (g) => g.querySelector("text.siren-namespace-label")?.textContent === label,
-  );
-  const frame = namespace?.querySelector("rect.siren-namespace-frame") ?? null;
-  if (frame === null) return false;
-  const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(frame.getAttribute(name)));
-  const box = classBox(result, id);
-  return box.x >= x && box.x <= x + width && box.y >= y && box.y <= y + height;
-}
-
 /** The frame of the namespace `id` (its `data-siren-id`), as drawn. */
 function namespaceFrame(result: SirenRenderResult, id: string): { x: number; y: number; width: number; height: number } {
   const frame = svgOf(result).querySelector(`g.siren-namespace[data-siren-id="${id}"] rect.siren-namespace-frame`);
   if (frame === null) throw new Error(`no namespace "${id}" was drawn`);
+  return frameRect(frame);
+}
+
+function frameRect(frame: Element): { x: number; y: number; width: number; height: number } {
   const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(frame.getAttribute(name)));
   return { x, y, width, height };
+}
+
+/**
+ * Whether the class `id`'s box is drawn inside the frame of a namespace: the
+ * one labelled `namespace`, or the one whose `data-siren-id` is
+ * `namespace.id` — the way to tell apart two frames with one label.
+ */
+function insideNamespace(result: SirenRenderResult, id: string, namespace: string | { id: string }): boolean {
+  let frame: { x: number; y: number; width: number; height: number };
+  if (typeof namespace === "string") {
+    const group = Array.from(svgOf(result).querySelectorAll("g.siren-namespace")).find(
+      (g) => g.querySelector("text.siren-namespace-label")?.textContent === namespace,
+    );
+    const rect = group?.querySelector("rect.siren-namespace-frame") ?? null;
+    if (rect === null) return false;
+    frame = frameRect(rect);
+  } else {
+    frame = namespaceFrame(result, namespace.id);
+  }
+  const box = classBox(result, id);
+  return box.x >= frame.x && box.x <= frame.x + frame.width && box.y >= frame.y && box.y <= frame.y + frame.height;
 }
 
 /** Whether the namespace `inner`'s frame is drawn wholly inside the namespace `outer`'s, by id. */
@@ -963,13 +976,6 @@ function namespaceInsideNamespace(result: SirenRenderResult, inner: string, oute
   const a = namespaceFrame(result, inner);
   const b = namespaceFrame(result, outer);
   return a.x > b.x && a.y > b.y && a.x + a.width < b.x + b.width && a.y + a.height < b.y + b.height;
-}
-
-/** Whether the class `id`'s box is drawn inside the frame of the namespace `namespaceId`, by id. */
-function classInsideNamespaceId(result: SirenRenderResult, id: string, namespaceId: string): boolean {
-  const frame = namespaceFrame(result, namespaceId);
-  const box = classBox(result, id);
-  return box.x > frame.x && box.x < frame.x + frame.width && box.y > frame.y && box.y < frame.y + frame.height;
 }
 
 /** Every member line drawn inside the class `id`, in draw order. */
@@ -4573,9 +4579,9 @@ line2\`"]`,
       );
       expectSame("namespace labels", texts(result, "text.siren-namespace-label"), ["Outer", "Inner", "Zoo", "Cage"]);
       expectSame("Inner is inside Outer", namespaceInsideNamespace(result, "namespace:2", "namespace:1"), true);
-      expectSame("Lion is inside Inner", classInsideNamespaceId(result, "Lion", "namespace:2"), true);
+      expectSame("Lion is inside Inner", insideNamespace(result, "Lion", { id: "namespace:2" }), true);
       expectSame("Cage is inside Zoo", namespaceInsideNamespace(result, "namespace:4", "namespace:3"), true);
-      expectSame("Tiger is inside Cage", classInsideNamespaceId(result, "Tiger", "namespace:4"), true);
+      expectSame("Tiger is inside Cage", insideNamespace(result, "Tiger", { id: "namespace:4" }), true);
       expectSame("Zoo is outside Outer", namespaceInsideNamespace(result, "namespace:3", "namespace:1"), false);
     },
   },
@@ -4614,15 +4620,15 @@ line2\`"]`,
         texts(result, "text.siren-namespace-label"),
         ["The Zoo", "Cats", "Birds", "Cats"],
       );
-      expectSame("Keeper is inside Zoo", classInsideNamespaceId(result, "Keeper", "namespace:1"), true);
+      expectSame("Keeper is inside Zoo", insideNamespace(result, "Keeper", { id: "namespace:1" }), true);
       expectSame("Zoo.Cats is inside Zoo", namespaceInsideNamespace(result, "namespace:2", "namespace:1"), true);
       expectSame("Zoo.Birds is inside Zoo", namespaceInsideNamespace(result, "namespace:3", "namespace:1"), true);
-      expectSame("Lion is inside Zoo.Cats", classInsideNamespaceId(result, "Lion", "namespace:2"), true);
-      expectSame("Parrot is inside Zoo.Birds", classInsideNamespaceId(result, "Parrot", "namespace:3"), true);
-      expectSame("Keeper is outside Zoo.Cats", classInsideNamespaceId(result, "Keeper", "namespace:2"), false);
+      expectSame("Lion is inside Zoo.Cats", insideNamespace(result, "Lion", { id: "namespace:2" }), true);
+      expectSame("Parrot is inside Zoo.Birds", insideNamespace(result, "Parrot", { id: "namespace:3" }), true);
+      expectSame("Keeper is outside Zoo.Cats", insideNamespace(result, "Keeper", { id: "namespace:2" }), false);
       expectSame("the top-level Cats is outside Zoo", namespaceInsideNamespace(result, "namespace:4", "namespace:1"), false);
-      expectSame("Tabby is inside the top-level Cats", classInsideNamespaceId(result, "Tabby", "namespace:4"), true);
-      expectSame("Visitor is outside Zoo", classInsideNamespaceId(result, "Visitor", "namespace:1"), false);
+      expectSame("Tabby is inside the top-level Cats", insideNamespace(result, "Tabby", { id: "namespace:4" }), true);
+      expectSame("Visitor is outside Zoo", insideNamespace(result, "Visitor", { id: "namespace:1" }), false);
       expectSame("relationships", relationships(result).length, 2);
     },
   },

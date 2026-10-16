@@ -215,8 +215,8 @@ function resolveClasses(
  * 1-based counter in document order, which the parser makes the order the
  * blocks open in, so an outer namespace is numbered before the ones inside
  * it, as `buildFlowchartModel` numbers `subgraph:N` — while the label the
- * author wrote in brackets, or else the last segment of its qualified name
- * (the name the block wrote), becomes the frame's `label`. A nested one
+ * author wrote in brackets, or else its own `name` (not the qualified one),
+ * becomes the frame's `label`. A nested one
  * carries the generated id of the namespace around it as its `parentId`.
  *
  * The `:` separator is load-bearing, not decoration: see `generatedId`.
@@ -249,10 +249,7 @@ function resolveNamespaces(
   return document.namespaces.map((namespace, index) => {
     const id = generatedId("namespace", index + 1);
     idByQualifiedName.set(namespace.id, id);
-    const parentId =
-      namespace.parentId === undefined || namespace.parentId === null
-        ? null
-        : (idByQualifiedName.get(namespace.parentId) ?? null);
+    const parentId = namespace.parentId === null ? null : (idByQualifiedName.get(namespace.parentId) ?? null);
     const classIds: string[] = [];
 
     for (const classId of namespace.classIds) {
@@ -284,11 +281,9 @@ function resolveNamespaces(
     }
 
     // A name is an identifier and has no tag in it to read, so a namespace
-    // written without a label is labelled by its name as one plain run —
-    // the name the block wrote, not the qualified one: `M` inside N, not
-    // `N.M`.
-    const name = namespace.id.slice(namespace.id.lastIndexOf(".") + 1);
-    return { id, parentId, label: namespace.label ?? plainLabel(name), classIds };
+    // written without a label is labelled by its own name as one plain run —
+    // `M` inside N, not the qualified `N.M`.
+    return { id, parentId, label: namespace.label ?? plainLabel(namespace.name), classIds };
   });
 }
 

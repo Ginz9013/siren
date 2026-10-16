@@ -76,8 +76,8 @@ open, outer first, where they used to be numbered in the order the blocks closed
   and drawn even when it holds no class of its own. Each frame keeps its own label and its own
   `data-siren-id`, so a timeline reaches the outer frame too. A namespace is known by its qualified
   name (decision `01M51B4M3C`): the `M` inside N is `N.M`, and a top-level `namespace M` is another
-  frame. `ClassNamespace` gains `parentId` and its `id` is the qualified name;
-  `ResolvedClassNamespace` gains `parentId`. Siren used to draw only the innermost frame.
+  frame. `ClassNamespace` gains `name` (its own name) and `parentId`, and its `id` is the qualified
+  name; `ResolvedClassNamespace` gains `parentId`. Siren used to draw only the innermost frame.
 - More flowchart subgraph headers are read as Mermaid 12.2.0 reads them (nook `01M4ZY2D3D`): a
   word glued to a quoted title runs on from it (`subgraph "t"zz` is the handle and title `tzz`,
   `subgraph "t"zz yy` the title `tzz yy` under no handle), and a quoted handle may carry a

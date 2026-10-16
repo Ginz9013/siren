@@ -1867,11 +1867,18 @@ export interface ClassNamespace {
    */
   id: string;
   /**
-   * The qualified name of the block this one is written inside; absent (or
-   * `null`) for a block at the top level, which is how the parser writes one. Blocks are listed in the order
-   * they open, so a parent always comes before its children.
+   * The namespace's own name: the last segment of `id`, which titles its
+   * frame when the block wrote no label — `M` for the `N.M` written inside
+   * `namespace N`. Carried beside `id` so nothing downstream has to split a
+   * qualified name to find it.
    */
-  parentId?: string | null;
+  name: string;
+  /**
+   * The qualified name of the block this one is written inside, or `null`
+   * for a block at the top level. Blocks are listed in the order they open,
+   * so a parent always comes before its children.
+   */
+  parentId: string | null;
   /**
    * The label written in brackets after the name — `namespace Zoo["Big
    * Zoo"] {` — or `null` when the block wrote none, in which case the frame

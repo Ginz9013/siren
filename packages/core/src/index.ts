@@ -449,7 +449,7 @@ export function render(
     // to the same terms as the other two. **No document reaches this branch's
     // failure path today** — the construct that defeats the engine is a
     // cluster carrying its own direction, and a class diagram's only cluster
-    // is a namespace, which Mermaid neither nests nor gives a direction to.
+    // is a namespace, which Mermaid never gives a direction to.
     // It is written anyway because the guard it is catching is a check on the
     // *shape of the engine's answer*, not on that one construct: leaving this
     // site bare would mean a future source of a missing coordinate escapes

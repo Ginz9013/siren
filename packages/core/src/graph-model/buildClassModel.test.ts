@@ -255,8 +255,8 @@ describe("buildClassModel", () => {
           classDecl({ id: "Button" }),
         ],
         namespaces: [
-          { id: "BaseShapes", label: null, classIds: ["Triangle", "Square"] },
-          { id: "Widgets", label: null, classIds: ["Button"] },
+          { id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle", "Square"] },
+          { id: "Widgets", name: "Widgets", parentId: null, label: null, classIds: ["Button"] },
         ],
       }),
     );
@@ -281,8 +281,8 @@ describe("buildClassModel", () => {
       classDocument({
         classes: [classDecl({ id: "Triangle" }), classDecl({ id: "Square" })],
         namespaces: [
-          { id: "BaseShapes", label: null, classIds: ["Triangle", "Square"], line: 2, column: 1 },
-          { id: "Widgets", label: null, classIds: ["Triangle"], line: 7, column: 1 },
+          { id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle", "Square"], line: 2, column: 1 },
+          { id: "Widgets", name: "Widgets", parentId: null, label: null, classIds: ["Triangle"], line: 7, column: 1 },
         ],
       }),
     );
@@ -318,9 +318,9 @@ describe("buildClassModel", () => {
       classDocument({
         classes: [classDecl({ id: "X" }), classDecl({ id: "A" }), classDecl({ id: "B" })],
         namespaces: [
-          { id: "N", label: null, classIds: ["X"] },
-          { id: "N.M", parentId: "N", label: null, classIds: ["A"] },
-          { id: "M", label: null, classIds: ["B"] },
+          { id: "N", name: "N", parentId: null, label: null, classIds: ["X"] },
+          { id: "N.M", name: "M", parentId: "N", label: null, classIds: ["A"] },
+          { id: "M", name: "M", parentId: null, label: null, classIds: ["B"] },
         ],
       }),
     );
@@ -341,9 +341,9 @@ describe("buildClassModel", () => {
       classDocument({
         classes: [classDecl({ id: "A" })],
         namespaces: [
-          { id: "N", label: null, classIds: [] },
-          { id: "N.M", parentId: "N", label: null, classIds: [] },
-          { id: "N.M.L", parentId: "N.M", label: null, classIds: ["A"] },
+          { id: "N", name: "N", parentId: null, label: null, classIds: [] },
+          { id: "N.M", name: "M", parentId: "N", label: null, classIds: [] },
+          { id: "N.M.L", name: "L", parentId: "N.M", label: null, classIds: ["A"] },
         ],
       }),
     );
@@ -364,8 +364,8 @@ describe("buildClassModel", () => {
       classDocument({
         classes: [classDecl({ id: "A" })],
         namespaces: [
-          { id: "N", label: null, classIds: ["A"], line: 2, column: 1 },
-          { id: "N.M", parentId: "N", label: null, classIds: ["A"], line: 4, column: 3 },
+          { id: "N", name: "N", parentId: null, label: null, classIds: ["A"], line: 2, column: 1 },
+          { id: "N.M", name: "M", parentId: "N", label: null, classIds: ["A"], line: 4, column: 3 },
         ],
       }),
     );
@@ -385,7 +385,7 @@ describe("buildClassModel", () => {
     const { model } = buildClassModel(
       classDocument({
         classes: [classDecl({ id: "Triangle" }), classDecl({ id: "Loose" })],
-        namespaces: [{ id: "BaseShapes", label: null, classIds: ["Triangle"] }],
+        namespaces: [{ id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle"] }],
       }),
     );
 
@@ -396,7 +396,7 @@ describe("buildClassModel", () => {
     const { model, diagnostics } = buildClassModel(
       classDocument({
         classes: [classDecl({ id: "Triangle" })],
-        namespaces: [{ id: "BaseShapes", label: null, classIds: ["Triangle", "Square"] }],
+        namespaces: [{ id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle", "Square"] }],
       }),
     );
 
@@ -628,7 +628,7 @@ describe("buildClassModel", () => {
     const { model, diagnostics } = buildClassModel(
       classDocument({
         classes: [classDecl({ id: "Triangle" })],
-        namespaces: [{ id: "BaseShapes", label: null, classIds: ["Triangle"] }],
+        namespaces: [{ id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle"] }],
         notes: [{ label: plainLabel("shapes live here"), targetId: "Triangle" }],
         timeline: {
           entries: [
@@ -1497,7 +1497,7 @@ describe("buildClassModel", () => {
       classDocument({
         classes: [classDecl({ id: "namespace" }), classDecl({ id: "1" })],
         relationships: [relationship({ from: "namespace", to: "1" })],
-        namespaces: [{ id: "Shapes", label: null, classIds: ["namespace"] }],
+        namespaces: [{ id: "Shapes", name: "Shapes", parentId: null, label: null, classIds: ["namespace"] }],
         notes: [{ label: plainLabel("about shapes"), targetId: "namespace" }],
         timeline: {
           entries: [
@@ -1595,8 +1595,8 @@ describe("buildClassModel — labels", () => {
       classDocument({
         classes: [classDecl({ id: "Lion" }), classDecl({ id: "Cow" })],
         namespaces: [
-          { id: "Zoo", label: rowsLabel("Big", "Zoo"), classIds: ["Lion"] },
-          { id: "Farm", label: null, classIds: ["Cow"] },
+          { id: "Zoo", name: "Zoo", parentId: null, label: rowsLabel("Big", "Zoo"), classIds: ["Lion"] },
+          { id: "Farm", name: "Farm", parentId: null, label: null, classIds: ["Cow"] },
         ],
       }),
     );

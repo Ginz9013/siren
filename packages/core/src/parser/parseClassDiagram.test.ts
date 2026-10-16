@@ -467,7 +467,7 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
 
     expect(diagnostics).toEqual([]);
     expect(document.namespaces).toEqual([
-      { id: "BaseShapes", label: null, classIds: ["Triangle", "Square"], line: 2, column: 3 },
+      { id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle", "Square"], line: 2, column: 3 },
     ]);
     expect(document.classes.map((c) => c.id)).toEqual(["Triangle", "Square"]);
     expect(document.classes[1].members.map((m) => m.name)).toEqual(["id", "getArea"]);
@@ -1718,7 +1718,7 @@ describe("parseClassDiagram — a namespace block written on one line", () => {
     ] as const) {
       const document = classOk(body);
       expect([body, namespacesOf(document)]).toEqual([body, namespaces]);
-      expect([body, document.namespaces.map((n) => n.parentId ?? null)]).toEqual([
+      expect([body, document.namespaces.map((n) => n.parentId)]).toEqual([
         body,
         namespaces.length === 2 ? [null, "N"] : [null],
       ]);
@@ -1813,7 +1813,7 @@ describe("parseClassDiagram — a namespace block written on one line", () => {
 describe("parseClassDiagram — nested namespace blocks", () => {
   const classOk = (body: string) => parseOk(`classDiagram\n${body}`).document;
   const nestingOf = (document: ClassDocument) =>
-    document.namespaces.map((n) => [n.id, n.parentId ?? null, n.classIds]);
+    document.namespaces.map((n) => [n.id, n.parentId, n.classIds]);
 
   it("records a namespace written inside another on lines of their own under its qualified name, outer first", () => {
     // Measured: the cluster N around the cluster `N.M` around A, and a class

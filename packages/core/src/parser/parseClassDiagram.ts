@@ -856,8 +856,8 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       const parentId = enclosingNamespace;
       const namespace: ClassNamespace = {
         id: parentId === null ? namespaceOpenMatch[1] : `${parentId}.${namespaceOpenMatch[1]}`,
-        // Absent at the top level, where there is no block around it.
-        ...(parentId === null ? {} : { parentId }),
+        name: namespaceOpenMatch[1],
+        parentId,
         label: null,
         classIds,
         line: lineNumber,
