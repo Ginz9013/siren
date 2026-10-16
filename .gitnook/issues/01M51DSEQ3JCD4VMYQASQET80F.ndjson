@@ -3,3 +3,4 @@
 {"id":"01M51DSXQ2PAGFZRPKKYPVTX3M","t":3,"a":"83a1","op":"set","k":"status","v":"todo"}
 {"id":"01M51E9RBCVR8D0ZQK4W35JKA5","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M51EK0VJNY6R9WE54KN54RR3","t":5,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M51FFCKY0H5ASKFXGGWGJ73P","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
