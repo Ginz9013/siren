@@ -397,6 +397,12 @@ left-to-right flow. A frame
 may wear a **paint** beside `siren-node-frame` — hollow, ink (the stroke colour), bare (no paint)
 or note — a class rather than an inline declaration, so a highlight still outlines it and an
 author's `style` still wins.
+The shapes with a **curved outline** (`curvedShapes.ts`, nook `01M51XACHPG8EB9R9JNH0C71HV`) are
+records too — `delay`, `curv-trap`, `h-cyl`, `lin-cyl`, `bow-rect`, `doc`, `lin-doc`, `tag-doc`,
+`docs`, `flag`, `brace`, `brace-r` and `braces`. A round end, a cylinder's end and a brace's curl
+are SVG arcs; a **wavy edge** is Mermaid's sine wave, sampled at its 51 points. A brace is an open
+path painted hollow. Where Mermaid sizes a clearance from the unpadded text, which a record never
+sees, the padded label stands in for it.
 
 **A node's label is a Label** (below), like every flowchart label: an edge's and a subgraph
 title's too. `SirenNode`/`GraphNode`/`PositionedNode` carry it as `label`, and `PositionedNode` adds

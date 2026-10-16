@@ -177,6 +177,19 @@ each time; and for one with a method whose last parameter list is padded or foll
   carries from layout to the renderer. `state` draws the 5px-cornered rectangle Mermaid's handler
   asks for; Mermaid itself draws it sized `NaN`, so only the label shows. Each used to be refused
   as a shape not drawn yet.
+- A flowchart node's `@{ shape: … }` block draws the thirteen shapes of Mermaid 12.2.0 with a
+  curved outline (nook 01M51XACHPG8EB9R9JNH0C71HV, measured in headless Chrome): `delay`
+  (`half-rounded-rectangle`), `curv-trap` (`curved-trapezoid`, `display`), `h-cyl` (`das`,
+  `horizontal-cylinder`), `lin-cyl` (`disk`, `lined-cylinder`), `bow-rect` (`stored-data`,
+  `bow-tie-rectangle`), `doc` (`document`), `lin-doc` (`lined-document`), `tag-doc`
+  (`tagged-document`), `docs` (`documents`, `st-doc`, `stacked-document`), `flag` (`paper-tape`),
+  `brace` (`comment`, `brace-l`), `brace-r` and `braces`. Each is sized by Mermaid's formula for
+  it and puts its label where Mermaid does; round ends, cylinder ends and brace curls are SVG
+  arcs, and a wavy edge is Mermaid's sine wave in its 51 points. A brace is an open path painted
+  hollow, as Mermaid leaves it unfilled. Where Mermaid sizes a round end's clearance from the
+  unpadded text, Siren sizes it from the padded label, so a `delay` or `curv-trap` holds its whole
+  padded label; and a `lin-doc`'s line stops on the wave, where Mermaid runs it a little past.
+  Each used to be refused as a shape not drawn yet.
 - Node shapes are drawn and sized from one table (`layout/shapes/`): each shape is a record of its
   box, where its label goes and the elements its outline is drawn with, read by `layoutGraph` and
   `renderToSVG`. The fourteen bracket shapes draw exactly as before. A frame can wear a paint of

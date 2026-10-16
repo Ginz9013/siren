@@ -440,7 +440,7 @@ const SHAPE_CHOICES = "rect, rounded, stadium, fr-rect, cyl, circle, diam, hex, 
  * lowercase"); `shape: 1` throws.
  */
 describe("a `shape:` Siren does not draw", () => {
-  it.each(["cloud", "doc", "lin-cyl", "icon"])(
+  it.each(["cloud", "icon"])(
     "refuses `shape: %s` at the `@`, as a shape not drawn yet",
     (name) => {
       const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> Bc@{ shape: ${name} }`);
@@ -2983,6 +2983,37 @@ const TABLE_SHAPE_NAMES: ReadonlyArray<[string, NodeShape]> = [
 
 describe("a node written with a `@{ shape: … }` name from the shape table", () => {
   it.each(TABLE_SHAPE_NAMES)("draws `shape: %s` as the %s shape", (name, shape) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A@{ shape: ${name} }`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes).toEqual([{ id: "A", label: plainLabel("A"), shape, line: 2, column: 3 }]);
+  });
+});
+
+/**
+ * The `shape:` names of the shapes with a curved outline that Siren draws
+ * through its shape table: each shape's short name and every alias
+ * `shapesDefs` lists for its handler. Measured
+ * in Chrome: every alias draws the same box and outline as its short name.
+ */
+const CURVED_SHAPE_NAMES: ReadonlyArray<[string, NodeShape]> = [
+  ...(["delay", "half-rounded-rectangle"] as const).map((name) => [name, "half-rounded-rectangle"] as [string, NodeShape]),
+  ...(["curv-trap", "curved-trapezoid", "display"] as const).map((name) => [name, "curved-trapezoid"] as [string, NodeShape]),
+  ...(["h-cyl", "das", "horizontal-cylinder"] as const).map((name) => [name, "horizontal-cylinder"] as [string, NodeShape]),
+  ...(["lin-cyl", "disk", "lined-cylinder"] as const).map((name) => [name, "lined-cylinder"] as [string, NodeShape]),
+  ...(["bow-rect", "stored-data", "bow-tie-rectangle"] as const).map((name) => [name, "bow-tie-rectangle"] as [string, NodeShape]),
+  ...(["doc", "document"] as const).map((name) => [name, "document"] as [string, NodeShape]),
+  ...(["lin-doc", "lined-document"] as const).map((name) => [name, "lined-document"] as [string, NodeShape]),
+  ...(["tag-doc", "tagged-document"] as const).map((name) => [name, "tagged-document"] as [string, NodeShape]),
+  ...(["docs", "documents", "st-doc", "stacked-document"] as const).map((name) => [name, "stacked-document"] as [string, NodeShape]),
+  ...(["flag", "paper-tape"] as const).map((name) => [name, "flag"] as [string, NodeShape]),
+  ...(["brace", "comment", "brace-l"] as const).map((name) => [name, "brace-left"] as [string, NodeShape]),
+  ...(["brace-r"] as const).map((name) => [name, "brace-right"] as [string, NodeShape]),
+  ...(["braces"] as const).map((name) => [name, "braces"] as [string, NodeShape]),
+];
+
+describe("a node written with a `@{ shape: … }` name of a curved shape", () => {
+  it.each(CURVED_SHAPE_NAMES)("draws `shape: %s` as the %s shape", (name, shape) => {
     const { document, diagnostics } = parseOk(`flowchart TB\n  A@{ shape: ${name} }`);
 
     expect(diagnostics).toEqual([]);

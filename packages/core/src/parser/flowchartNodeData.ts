@@ -73,6 +73,20 @@ const TABLE_SHAPE_NAMES: ReadonlyArray<readonly [NodeShape, readonly [string, ..
   ["anchor", ["anchor"]],
   ["crossed-circle", ["cross-circ", "summary", "crossed-circle"]],
   ["choice", ["choice"]],
+  // The shapes with a curved outline.
+  ["half-rounded-rectangle", ["delay", "half-rounded-rectangle"]],
+  ["curved-trapezoid", ["curv-trap", "curved-trapezoid", "display"]],
+  ["horizontal-cylinder", ["h-cyl", "das", "horizontal-cylinder"]],
+  ["lined-cylinder", ["lin-cyl", "disk", "lined-cylinder"]],
+  ["bow-tie-rectangle", ["bow-rect", "stored-data", "bow-tie-rectangle"]],
+  ["document", ["doc", "document"]],
+  ["lined-document", ["lin-doc", "lined-document"]],
+  ["tagged-document", ["tag-doc", "tagged-document"]],
+  ["stacked-document", ["docs", "documents", "st-doc", "stacked-document"]],
+  ["flag", ["flag", "paper-tape"]],
+  ["brace-left", ["brace", "comment", "brace-l"]],
+  ["brace-right", ["brace-r"]],
+  ["braces", ["braces"]],
 ];
 
 const SHAPE_NAMES = [...BRACKET_SHAPE_NAMES, ...TABLE_SHAPE_NAMES];
@@ -90,12 +104,6 @@ export const NODE_DATA_SHAPES: ReadonlyMap<string, NodeShape> = new Map(
  * from a name that is no shape at all only so the message can say which.
  */
 const UNDRAWN_SHAPE_NAMES: ReadonlySet<string> = new Set([
-  // The shapes with a curved outline
-  ...["delay", "half-rounded-rectangle", "curv-trap", "curved-trapezoid", "display", "h-cyl", "das"],
-  ...["horizontal-cylinder", "lin-cyl", "disk", "lined-cylinder", "bow-rect", "stored-data"],
-  ...["bow-tie-rectangle", "doc", "document", "docs", "documents", "st-doc", "stacked-document", "tag-doc"],
-  ...["tagged-document", "flag", "paper-tape", "brace", "comment", "brace-l", "brace-r", "braces", "lin-doc"],
-  ...["lined-document"],
   // The shapes drawn as a figure
   ...["bucket", "person", "console", "browser", "cloud", "bang"],
   // An icon

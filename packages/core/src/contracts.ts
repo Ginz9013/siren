@@ -108,7 +108,21 @@ export type NodeShape =
   | "filled-circle"
   | "anchor"
   | "crossed-circle"
-  | "choice";
+  | "choice"
+  // The shapes with a curved outline.
+  | "half-rounded-rectangle"
+  | "curved-trapezoid"
+  | "horizontal-cylinder"
+  | "lined-cylinder"
+  | "bow-tie-rectangle"
+  | "document"
+  | "lined-document"
+  | "tagged-document"
+  | "stacked-document"
+  | "flag"
+  | "brace-left"
+  | "brace-right"
+  | "braces";
 
 /** Effect names accepted by `enter`/`exit` timeline actions. */
 export type EnterExitEffect =

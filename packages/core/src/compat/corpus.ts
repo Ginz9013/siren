@@ -731,6 +731,54 @@ function pathThrough(cycle: readonly string[]): string {
 }
 
 /**
+ * Every frame one flowchart node draws, each as the segments its path runs
+ * through in order — `line`, `curve` (an arc), or `wave` for a run of ten or
+ * more straight segments evenly spaced across, which is how a sampled sine
+ * wave is drawn — named
+ * by where their ends sit inside that frame's extent, and prefixed by the
+ * paint classes it wears beside `siren-node-frame`. Subpaths are separated
+ * by ` / `.
+ *
+ * For the curved shapes a `@{ shape: … }` block names (nook
+ * `01M51XACHPG8EB9R9JNH0C71HV`), whose wavy edges `nodeOutline` cannot name:
+ * a wave is one stretch of the outline however finely it is sampled.
+ */
+function segmentOutlines(result: SirenRenderResult, id: string): string[] {
+  const group = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"]`);
+  if (group === null) throw new Error(`no node "${id}" was drawn`);
+  return Array.from(group.querySelectorAll(".siren-node-frame")).map((frame) => {
+    const classes = (frame.getAttribute("class") ?? "").split(/\s+/).filter((c) => c !== "siren-node-frame");
+    const subpaths = subpathsOf(frame.getAttribute("d") ?? "");
+    const named = positionNamer(subpaths.flat().flatMap((s) => [s.from, s.to]));
+    const described = subpaths.map((segments) => {
+      const parts: string[] = [];
+      for (let i = 0; i < segments.length; ) {
+        const step = segments[i].to[0] - segments[i].from[0];
+        let run = i;
+        while (
+          run < segments.length &&
+          !segments[run].curved &&
+          step !== 0 &&
+          Math.abs(segments[run].to[0] - segments[run].from[0] - step) < 0.02
+        ) {
+          run++;
+        }
+        if (run - i >= 10) {
+          parts.push(`wave ${named(segments[i].from)}-${named(segments[run - 1].to)}`);
+          i = run;
+          continue;
+        }
+        const s = segments[i];
+        parts.push(`${s.curved ? "curve" : "line"} ${named(s.from)}-${named(s.to)}`);
+        i++;
+      }
+      return parts.join(", ");
+    });
+    return [frame.tagName, ...classes].join(" ") + `: ${described.join(" / ")}`;
+  });
+}
+
+/**
  * The figure a set of `<circle>` frames draws, named by how many rings it
  * is and whether they are concentric.
  *
@@ -3543,6 +3591,199 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       "Siren refuses it at the label, saying the shape draws no text and to " +
       "remove the label or choose a shape that draws one (ADR-0001; nook " +
       "01M51XACB6).",
+  },
+  {
+    id: "fc-node-shape-data-rounded-ends",
+    kind: "flowchart",
+    source: `flowchart LR
+      A@{ shape: delay, label: "Wait" } --> B@{ shape: curv-trap, label: "Show" }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws two outlines with one round end that its " +
+      "`@{ … }` block names (measured in Chrome, classic look): `delay` a " +
+      "rectangle whose right end is a half circle, `curv-trap` (a display) " +
+      "one whose left end is a point and whose right end is a half circle. " +
+      "Siren draws the same two from its shape table, the ends as arcs " +
+      "(nook 01M51XACHPG8EB9R9JNH0C71HV).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Wait]", "B[Show]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+      expectSame(
+        "outline",
+        nodeOutline(result, "A"),
+        "an unnamed curved path: line left,top-right,top, curve right,top-right,bottom, " +
+          "line right,bottom-left,bottom, line left,bottom-left,top",
+      );
+      expectSame(
+        "outline",
+        nodeOutline(result, "B"),
+        "an unnamed curved path: line right,top-in-left,top, line in-left,top-left,mid, " +
+          "line left,mid-in-left,bottom, line in-left,bottom-right,bottom, curve right,bottom-right,top",
+      );
+    },
+  },
+  {
+    id: "fc-node-shape-data-cylinders",
+    kind: "flowchart",
+    source: `flowchart LR
+      A@{ shape: h-cyl, label: "Direct" } --> B@{ shape: lin-cyl, label: "Disk" }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws two cylinders its `@{ … }` block names (measured " +
+      "in Chrome, classic look): `h-cyl` lying on its side, its lid at the " +
+      "right end and its label left of the lid, and `lin-cyl` standing up " +
+      "with a line just below its lid and its label below the lid. Siren " +
+      "draws the same two from its shape table, each as a tube and a whole " +
+      "lid over it (nook 01M51XACHPG8EB9R9JNH0C71HV).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Direct]", "B[Disk]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+      expectSame(
+        "outline",
+        nodeOutline(result, "A"),
+        "an unnamed curved path: curve left,bottom-left,top, line left,top-right,top, " +
+          "curve right,top-right,bottom, line right,bottom-left,bottom / " +
+          "curve right,top-right,bottom, curve right,bottom-right,top",
+      );
+      expectSame(
+        "outline",
+        nodeOutline(result, "B"),
+        "an unnamed curved path: curve left,top-right,top, line right,top-right,bottom, " +
+          "curve right,bottom-left,bottom, line left,bottom-left,top / " +
+          "curve left,top-right,top, curve right,top-left,top / curve left,in-top-right,in-top",
+      );
+    },
+  },
+  {
+    id: "fc-node-shape-data-bow-tie",
+    kind: "flowchart",
+    source: `flowchart LR
+      A@{ shape: bow-rect, label: "Stored" } --> B`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws `bow-rect` (stored data) as a rectangle whose " +
+      "left end bulges out and whose right end curves in, each half an " +
+      "ellipse (measured in Chrome, classic look). Siren draws the same from " +
+      "its shape table, the ends as arcs (nook 01M51XACHPG8EB9R9JNH0C71HV).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Stored]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+      expectSame(
+        "outline",
+        nodeOutline(result, "A"),
+        "an unnamed curved path: line right,top-left,top, curve left,top-left,bottom, " +
+          "line left,bottom-right,bottom, curve right,bottom-right,top",
+      );
+    },
+  },
+  {
+    id: "fc-node-shape-data-documents",
+    kind: "flowchart",
+    source: `flowchart LR
+      A@{ shape: doc, label: "Report" } --> B@{ shape: lin-doc, label: "Lined" }
+      B --> C@{ shape: tag-doc, label: "Tagged" }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws three documents its `@{ … }` block names, each " +
+      "a rectangle whose bottom is a sine wave (measured in Chrome, classic " +
+      "look): `doc` plain, `lin-doc` with a line down its left side, " +
+      "`tag-doc` with a filled tag over its bottom right corner. Siren draws " +
+      "the same three from its shape table, the wave sampled as Mermaid " +
+      "samples it (nook 01M51XACHPG8EB9R9JNH0C71HV).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Report]", "B[Lined]", "C[Tagged]"]);
+      expectSame("edges", edges(result), ["A-B", "B-C"]);
+      expectSame("outline", segmentOutlines(result, "A"), [
+        "path: wave left,in-bottom-right,in-bottom, line right,in-bottom-right,top, " +
+          "line right,top-left,top, line left,top-left,in-bottom",
+      ]);
+      expectSame("outline", segmentOutlines(result, "B"), [
+        "path: wave left,in-bottom-right,in-bottom, line right,in-bottom-right,top, " +
+          "line right,top-left,top, line left,top-left,in-bottom / line in-left,top-in-left,in-bottom",
+      ]);
+      expectSame("outline", segmentOutlines(result, "C"), [
+        "path: wave left,in-bottom-right,in-bottom, line right,in-bottom-right,top, " +
+          "line right,top-left,top, line left,top-left,in-bottom",
+        "path: line left,bottom-right,top, line right,top-right,in-bottom, " +
+          "line right,in-bottom-right,in-bottom, wave right,in-bottom-left,in-bottom, line left,in-bottom-left,bottom",
+      ]);
+    },
+  },
+  {
+    id: "fc-node-shape-data-stacked-documents",
+    kind: "flowchart",
+    source: `flowchart LR
+      A@{ shape: docs, label: "Pages" } --> B`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws `docs` (documents) as three stacked sheets, the " +
+      "front one at the bottom left with a sine wave for its bottom, and its " +
+      "label on the front sheet (measured in Chrome, classic look): the " +
+      "stack's silhouette, then the middle sheet's edges over it. Siren draws " +
+      "the same from its shape table (nook 01M51XACHPG8EB9R9JNH0C71HV).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Pages]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+      expectSame("outline", segmentOutlines(result, "A"), [
+        "path: line left,in-top-left,in-bottom, wave left,in-bottom-in-right,in-bottom, " +
+          "line in-right,in-bottom-in-right,in-bottom, line in-right,in-bottom-in-right,in-bottom, " +
+          "line in-right,in-bottom-in-right,in-bottom, line in-right,in-bottom-right,in-bottom, " +
+          "line right,in-bottom-right,top, line right,top-in-left,top, line in-left,top-in-left,in-top, " +
+          "line in-left,in-top-in-left,in-top, line in-left,in-top-in-left,in-top, line in-left,in-top-left,in-top",
+        "path: line left,in-top-in-right,in-top, line in-right,in-top-in-right,bottom, " +
+          "line in-right,bottom-right,bottom, line right,bottom-right,top, line right,top-left,top, " +
+          "line left,top-left,in-top",
+      ]);
+    },
+  },
+  {
+    id: "fc-node-shape-data-flag",
+    kind: "flowchart",
+    source: `flowchart LR
+      A@{ shape: flag, label: "Tape" } --> B`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws `flag` (a paper tape) as a band whose top and " +
+      "bottom are the same whole cycle of a sine wave, its label centred " +
+      "(measured in Chrome, classic look). Siren draws the same from its " +
+      "shape table, the waves sampled as Mermaid samples them (nook " +
+      "01M51XACHPG8EB9R9JNH0C71HV).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Tape]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+      expectSame("outline", segmentOutlines(result, "A"), [
+        "path: wave left,in-bottom-right,in-bottom, line right,in-bottom-right,in-top, " +
+          "wave right,in-top-left,in-top, line left,in-top-left,in-bottom",
+      ]);
+    },
+  },
+  {
+    id: "fc-node-shape-data-braces",
+    kind: "flowchart",
+    source: `flowchart LR
+      A@{ shape: brace, label: "Note" } --> B@{ shape: brace-r, label: "Aside" }
+      B --> C@{ shape: braces, label: "Both" }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws three comments its `@{ … }` block names as curly " +
+      "braces beside the label, open paths with no outline round the label " +
+      "(measured in Chrome, classic look): `brace` one on the left, `brace-r` " +
+      "one on the right, `braces` one on each side. Siren draws the same " +
+      "from its shape table, each brace an open path of quarter-circle arcs " +
+      "painted hollow (nook 01M51XACHPG8EB9R9JNH0C71HV).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Note]", "B[Aside]", "C[Both]"]);
+      expectSame("edges", edges(result), ["A-B", "B-C"]);
+      const left =
+        "path siren-node-hollow: curve right,bottom-mid,in-bottom, line mid,in-bottom-mid,in-bottom, " +
+        "curve mid,in-bottom-left,mid, curve left,mid-mid,in-top, line mid,in-top-mid,in-top, curve mid,in-top-right,top";
+      const right =
+        "path siren-node-hollow: curve left,top-mid,in-top, line mid,in-top-mid,in-top, " +
+        "curve mid,in-top-right,mid, curve right,mid-mid,in-bottom, line mid,in-bottom-mid,in-bottom, curve mid,in-bottom-left,bottom";
+      expectSame("outline", segmentOutlines(result, "A"), [left]);
+      expectSame("outline", segmentOutlines(result, "B"), [right]);
+      expectSame("outline", segmentOutlines(result, "C"), [left, right]);
+    },
   },
   {
     id: "fc-node-shape-data-undrawn",
