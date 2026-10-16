@@ -1,3 +1,5 @@
 {"id":"01M51WGKGANWP5AHWX3A5MEPY9","t":1,"a":"83a1","op":"create","title":"flowchart／時間軸：board backlog-batch-1016 實作時發現的其餘落差"}
 {"id":"01M51WGKGMRCG8SEZ6EANKYYDC","t":2,"a":"83a1","op":"set","k":"description","v":"# flowchart／時間軸：board backlog-batch-1016 實作時發現的其餘落差\n\n都是既有問題，跟 Mermaid 12.2.0 對照（ADR-0001／0017）：\n\n- `|label|` 裡的任何 `{`：Mermaid 拒絕（got 'DIAMOND_START'），Siren 照畫，例如 `A -->|a{b| B`、`A -->|mail@{x| B`。\n- `classDef c fill:#f@{`、`style C fill:#f00@{`：Mermaid 拒絕，Siren 接受。\n- `style A fill:#f00 --> %%x`、`linkStyle 0 stroke:red --> %%x`：Mermaid 拒絕，Siren 照收。\n- `accTitle: a --> b`：可能被邊的路徑先切開（未測）。\n- `~~~` 隱形連線：`A~~~B`、`A:::c~~~B`，Mermaid 照畫，Siren 不支援。\n- 時間軸：其他圖的 `enter %%B fade` 報「Unrecognized timeline action: \"enter\"」，訊息沒說明 `%%` 開了註解。"}
 {"id":"01M51XB9EX6X40RH67FAA06JCD","t":3,"a":"83a1","op":"comment","body":"由 board backlog-clear-1016（spec 01M51XABY67X1Z8AFJ5M7SY9KJ）接手，落地時關閉。"}
+{"id":"01M52VPAFT40HTMHX4YJNH3EC9","t":4,"a":"83a1","op":"comment","body":"由 board backlog-clear-1016 完成：T8、T9、T13、T15。"}
+{"id":"01M52VPBHKB6BFK2MK15RMADFA","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
