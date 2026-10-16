@@ -2638,7 +2638,7 @@ describe("a flowchart class name beyond letters, digits and `_`", () => {
  */
 describe("a flowchart class name Mermaid cannot style", () => {
   const message = (name: string) =>
-    `"${name}" cannot be a class name. Use letters (of any script), digits, "_", "-" and "\\", ` +
+    `"${name}" cannot be a class name. Use letters (of any script), digits, "_", "\\" and single "-" signs, ` +
     'with no digit first, and ".", "#" or "+" only between such words.';
 
   it.each(["c%", "1c", "-1c", "c.", "c..d", "c.1", "c#", "c#1", "#c", ".c", "c+", "+c", "c:d", "c!", "c$", "c*", "c?", "c/d", "c'd", "c`d", "%c"])(
@@ -2659,7 +2659,7 @@ describe("a flowchart class name Mermaid cannot style", () => {
 });
 
 describe("a run after `:::` that is no class name", () => {
-  it.each(["A:::c~~~B", "A --> B:::c==C", "B:::c--C", "A:::c:::c", "A:::c[x]"])(
+  it.each(["A:::c~~~B", "A --> B:::c==C", "B:::c--C", "A:::c:::c", "A:::c[x]", "A:::c|x|", 'A:::c"x"', "A:::c%%x", "A:::c->B"])(
     "does not blame the class name in `%s`, where the run goes on into other syntax",
     (written) => {
       const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
@@ -2734,14 +2734,82 @@ describe("positions after a node's `@{ … }` block written across lines", () =>
   it.each([
     ["A@{\n    shape: circle\n  } --> B C", 'Unrecognized flowchart line: "A@{ shape: circle } --> B C"'],
     ["A@{\n    shape: circle\n  } -->", 'Malformed edge: missing target after "-->" in "A@{ shape: circle } -->"'],
-    [
-      "A@{\n    shape: circle\n  }:::c",
-      'Write ":::c" before the "@{ … }" block: A:::c@{ shape: circle }',
-    ],
   ])("quotes the statement on one line in its message: %j", (written, message) => {
     const { diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
 
     expect(diagnostics.map((d) => d.message)).toEqual([message]);
+  });
+
+  it.each([
+    [
+      "A@{\n    shape: circle\n    label: x\n  }:::c",
+      'Write ":::c" before the "@{ … }" block: A:::c@{ … }',
+    ],
+    [
+      "A@{\n    shape: circle\n    label: x\n  }&B --> C",
+      'An "&" joins nodes only with a space on each side. Write: A@{ … } & B --> C',
+    ],
+  ])("suggests a fix without flattening a block written across lines into invalid YAML: %j", (written, message) => {
+    // Flattened, `A:::c@{ shape: circle label: x }` would be a block of
+    // invalid YAML if pasted; the block is left out of the fix instead.
+    const { diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics.map((d) => d.message)).toEqual([message]);
+  });
+
+  it("keeps a line break the author wrote inside a Markdown string in the quoted statement", () => {
+    // Only the breaks an `@{ … }` block carries are collapsed: a Markdown
+    // string's own break is part of the label the author wrote.
+    const { diagnostics } = parseFlowchart('flowchart TB\n  A["`one\n  two`"] C');
+
+    expect(diagnostics.map((d) => d.message)).toEqual(['Unrecognized flowchart line: "A["`one\n  two`"] C"']);
+  });
+
+  it("reads many statements on one line in time linear in the line", () => {
+    // Timed against the same statements on lines of their own, so that the
+    // machine's speed cancels out: a position worked out from the start of
+    // the line for each statement is quadratic, 30,000 of them over ten
+    // times the lines'; linear, about the same.
+    const count = 30_000;
+    const timed = (body: string) => {
+      const started = performance.now();
+      const result = parseFlowchart(`flowchart TB\n${body}`);
+      return { result, elapsed: performance.now() - started };
+    };
+    const ids = Array.from({ length: count }, (_, k) => `N${k}`);
+    const ownLines = timed(ids.map((id) => `  ${id}`).join("\n"));
+    const oneLine = timed(`  ${ids.join(";")}`);
+
+    expect(oneLine.result.diagnostics).toEqual([]);
+    expect(oneLine.result.document?.kind === "flowchart" && oneLine.result.document.nodes.length).toBe(count);
+    expect(oneLine.elapsed).toBeLessThan(4 * ownLines.elapsed);
+  });
+
+  it("places a style, a classDef and a linkStyle after the block's `}`, and a timeline below it, on their own lines", () => {
+    const { document, diagnostics } = parseOk(
+      [
+        "flowchart TB",
+        "  A@{",
+        "    shape: circle }; style A fill:#f00",
+        "  B@{",
+        "    shape: hex }; classDef hot stroke:#00f",
+        "  C@{",
+        "    shape: diam } --> A; linkStyle 0 stroke:#0f0",
+        "timeline:",
+        "  enter A fade",
+      ].join("\n"),
+      parseSiren,
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles.map((style) => [style.styleKind, style.line, style.column])).toEqual([
+      ["style", 3, 22],
+      ["classDef", 5, 19],
+    ]);
+    expect(document.linkStyles.map((style) => [style.line, style.column])).toEqual([[7, 26]]);
+    expect(document.timeline?.entries.map((entry) => [entry.targetId, entry.line, entry.column])).toEqual([
+      ["A", 9, 3],
+    ]);
   });
 
   it("places a statement written after the block's `}` on the block's last line there", () => {

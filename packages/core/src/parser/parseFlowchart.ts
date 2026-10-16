@@ -1223,7 +1223,7 @@ function refuseEdgeId(
   return {
     message:
       `Siren does not support edge ids ("${edgeId[1]}@") yet. ` +
-      `Leave the id out: ${withoutIds.map((part, index) => part + (arrows[index] ?? "")).join("")}`,
+      `Leave the id out: ${withBlocksElided(withoutIds.map((part, index) => part + (arrows[index] ?? "")).join(""))}`,
     offset: edgeId.indices![1]![0],
     ids,
   };
@@ -1266,14 +1266,15 @@ const LOOSE_CLASS_NAMES: ReadonlyArray<{ re: RegExp; applies: boolean }> = [
 
 /**
  * What, inside a loosely read class name, says the run is something else
- * going on — an arrow (`--`, `==`, `~~`, `-.`), a bracket or another
- * `:::` — so it is no class name to blame: `A:::c~~~B`, `A:::c[x]`.
+ * going on — an arrow (`--`, `==`, `~~`, `-.`, `->`), a bracket, an edge
+ * label's `|`, a quote, a `%%` or another `:::` — so it is no class name to
+ * blame: `A:::c~~~B`, `A:::c[x]`, `A:::c|x|`.
  */
-const NOT_A_CLASS_NAME_RE = /--|==|~~|-\.|:::|[[\](){}]/;
+const NOT_A_CLASS_NAME_RE = /--|==|~~|-\.|->|:::|%%|[[\](){}|"]/;
 
 /** What a class name may hold, said to an author whose name holds something else. */
 const CLASS_NAME_RULE =
-  'Use letters (of any script), digits, "_", "-" and "\\", with no digit first, ' +
+  'Use letters (of any script), digits, "_", "\\" and single "-" signs, with no digit first, ' +
   'and ".", "#" or "+" only between such words.';
 
 /**
@@ -1374,7 +1375,9 @@ function refuseNodeData(text: string): { message: string; offset: number } | nul
   const written = text.slice(block.at, block.end);
   if (head !== head.trimEnd()) {
     return {
-      message: `Write "${NODE_DATA_OPENER}" right after the node, with no space: ${head.trimEnd()}${text.slice(block.at)}`,
+      message:
+        `Write "${NODE_DATA_OPENER}" right after the node, with no space: ` +
+        withBlocksElided(`${head.trimEnd()}${text.slice(block.at)}`),
       offset: block.at,
     };
   }
@@ -1383,7 +1386,9 @@ function refuseNodeData(text: string): { message: string; offset: number } | nul
   const definition = new RegExp(String.raw`^\s*:::(${CLASS_NAME})`).exec(rest);
   if (definition !== null) {
     return {
-      message: `Write ":::${definition[1]}" before the "${NODE_DATA_OPENER} … }" block: ${head}:::${definition[1]}${written}`,
+      message:
+        `Write ":::${definition[1]}" before the "${NODE_DATA_OPENER} … }" block: ` +
+        withBlocksElided(`${head}:::${definition[1]}${written}`),
       offset: restAt,
     };
   }
@@ -1399,7 +1404,10 @@ function refuseNodeData(text: string): { message: string; offset: number } | nul
     return null;
   }
   if (rest.trim() !== "") {
-    return { message: `Nothing may follow a node's "${NODE_DATA_OPENER} … }" block: "${rest.trim()}"`, offset: restAt };
+    return {
+      message: `Nothing may follow a node's "${NODE_DATA_OPENER} … }" block: "${quotedOnOneLine(rest.trim())}"`,
+      offset: restAt,
+    };
   }
   return refuseNodeLabel(head);
 }
@@ -1596,6 +1604,41 @@ const ASYMMETRIC_OPENER = ">";
  */
 const ID_CHAR_RE = new RegExp(ID_CHAR);
 
+/**
+ * `text` with each `@{ … }` block in it passed through `rewrite` — the one
+ * walk the two below share, so they agree on where a block is.
+ */
+function mapNodeDataBlocks(text: string, rewrite: (block: string) => string): string {
+  let out = "";
+  let from = 0;
+  for (const { at, end } of nodeDataBlocksOf(text)) {
+    const stop = end ?? text.length;
+    out += text.slice(from, at) + rewrite(text.slice(at, stop));
+    from = stop;
+  }
+  return out + text.slice(from);
+}
+
+/**
+ * Author text as a message quotes it: on one line. A statement an `@{ … }`
+ * block carried across lines holds their breaks inside the block, and
+ * each, with the indentation around it, is quoted as one space:
+ * `A@{ shape: circle } --> B C`. A break anywhere else — inside a Markdown
+ * string, say — is the author's and stays.
+ */
+function quotedOnOneLine(text: string): string {
+  return mapNodeDataBlocks(text, (block) => block.replace(/\s*\n\s*/g, " "));
+}
+
+/**
+ * A fix as a message suggests it: each `@{ … }` block written across lines
+ * shown as `@{ … }`, since flattened onto one line its YAML would no longer
+ * be what the author wrote (`shape: circle label: x` is not two keys).
+ */
+function withBlocksElided(text: string): string {
+  return mapNodeDataBlocks(text, (block) => (block.includes("\n") ? `${NODE_DATA_OPENER} … }` : block));
+}
+
 /** `cutOutsideLabel` for the two callers whose separator says nothing worth keeping. */
 function splitOutsideLabel(text: string, separator: string): string[] {
   return cutOutsideLabel(text, separator).parts;
@@ -1621,12 +1664,41 @@ interface Statement {
  * before the position moves it one line down and restarts the column count.
  */
 function positionIn(statement: Statement, offset: number): { line: number; column: number } {
-  const before = statement.text.slice(0, offset);
-  const lastBreak = before.lastIndexOf("\n");
-  return {
-    line: statement.line + before.split("\n").length - 1,
-    column: lastBreak === -1 ? statement.column + before.length : before.length - lastBreak,
-  };
+  return positionAfterBreaks(lineBreaksOf(statement.text), offset, statement.line, statement.column);
+}
+
+/** The offset of every line break in `text`, in order. */
+function lineBreaksOf(text: string): number[] {
+  const breaks: number[] = [];
+  for (let at = text.indexOf("\n"); at !== -1; at = text.indexOf("\n", at + 1)) {
+    breaks.push(at);
+  }
+  return breaks;
+}
+
+/**
+ * Where `offset` stands in a text whose line breaks are at `breaks` and
+ * whose first character is at `line`:`column`: each break before it moves
+ * it a line down and restarts the column count. The breaks are searched by
+ * halving, so asking for many offsets in one long text stays cheap.
+ */
+function positionAfterBreaks(
+  breaks: readonly number[],
+  offset: number,
+  line: number,
+  column: number,
+): { line: number; column: number } {
+  let low = 0;
+  let high = breaks.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (breaks[middle]! < offset) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return low === 0 ? { line, column: column + offset } : { line: line + low, column: offset - breaks[low - 1]! };
 }
 
 /**
@@ -2721,14 +2793,8 @@ export function parseFlowchart(source: string): DiagramParseResult {
     // line breaks — a Markdown fence (`joinMarkdownFences`) or an `@{ … }`
     // block (`runOn`) carries the lines it joins — and each one moves what
     // follows it a line down and restarts the column count.
-    const rawPosition = (offset: number): { line: number; column: number } => {
-      const before = rawLine.slice(0, offset);
-      const lastBreak = before.lastIndexOf("\n");
-      return {
-        line: rawLineNumber + before.split("\n").length - 1,
-        column: lastBreak === -1 ? offset + 1 : offset - lastBreak,
-      };
-    };
+    const rawBreaks = lineBreaksOf(rawLine);
+    const rawPosition = (offset: number) => positionAfterBreaks(rawBreaks, offset, rawLineNumber, 1);
 
     // The braced accDescr, read across lines before the line is split into
     // statements. What follows its `}` goes back into `lines` at the `}`
@@ -2837,7 +2903,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
           severity: "error",
           message:
             `An "${GROUP_SEPARATOR}" joins nodes only with a space on each side. ` +
-            `Write: ${spacedGroupSeparators(line, unspaced)}`,
+            `Write: ${withBlocksElided(spacedGroupSeparators(line, unspaced))}`,
           ...positionIn(statement, unspaced[0]!),
         });
         sawError = true;
@@ -2885,7 +2951,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
         const nodeRefusal = refuseNode(piece.text.trim(), "an edge endpoint");
         diagnostics.push({
           severity: "error",
-          message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${line}"`,
+          message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${quotedOnOneLine(line)}"`,
           ...positionIn(statement, nodeRefusal === null ? 0 : piece.at + lead + nodeRefusal.offset),
         });
         sawError = true;
@@ -2975,7 +3041,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
         if (title === null) {
           diagnostics.push({
             severity: "error",
-            message: `Unrecognized flowchart line: "${line}"`,
+            message: `Unrecognized flowchart line: "${quotedOnOneLine(line)}"`,
             line: lineNumber,
             column,
           });
@@ -3113,7 +3179,9 @@ export function parseFlowchart(source: string): DiagramParseResult {
             // The token the author actually wrote, not `-->`: with thirteen
             // spellings, quoting one of them at an author who wrote another
             // sends them looking for a typo they did not make.
-            message: `Malformed edge: missing target after "${arrowTokens[arrowTokens.length - 1]}" in "${line}"`,
+            message:
+              `Malformed edge: missing target after "${arrowTokens[arrowTokens.length - 1]}" ` +
+              `in "${quotedOnOneLine(line)}"`,
             line: lineNumber,
             column,
           });
@@ -3130,7 +3198,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
         if (unreadable !== undefined) {
           diagnostics.push({
             severity: "error",
-            message: `Siren does not draw the arrow "${unreadable}" yet: "${line}"`,
+            message: `Siren does not draw the arrow "${unreadable}" yet: "${quotedOnOneLine(line)}"`,
             line: lineNumber,
             column,
           });
@@ -3484,7 +3552,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
       const nodeRefusal = refuseNode(line, "a statement");
       diagnostics.push({
         severity: "error",
-        message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${line}"`,
+        message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${quotedOnOneLine(line)}"`,
         ...positionIn(statement, nodeRefusal?.offset ?? 0),
       });
       sawError = true;
@@ -3558,14 +3626,6 @@ export function parseFlowchart(source: string): DiagramParseResult {
       column: block.column,
     });
     sawError = true;
-  }
-
-  // A statement an `@{ … }` block or a Markdown fence carried across lines
-  // holds their line breaks, and a message quoting it would too. Each is
-  // quoted on one line instead, its breaks and the indentation around them
-  // read as one space: `A@{ shape: circle } --> B C`.
-  for (const diagnostic of diagnostics) {
-    diagnostic.message = diagnostic.message.replace(/\s*\n\s*/g, " ");
   }
 
   if (mode === "before-header" || direction === null) {
