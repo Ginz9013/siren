@@ -1763,8 +1763,17 @@ const SILENTLY_WRONG = 0;
  * `cls-namespace-body-statement` writes it down. No `supported` row moved:
  * none wrote such a statement in a namespace. `silently-wrong` does not
  * move.
+ *
+ * **43 → 44: case (2), a refusal written down for the first time.**
+ * `01M51DSEQ3` refused every `;` in an inline member (`A : +int x; y`,
+ * `A : +foo(a; b)`, `A : +int x;`), as Mermaid 12.2.0's lexer does
+ * ("Lexical error … Unrecognized text" at the `;`, measured), an entity
+ * code's own `;` aside. Siren used to draw the first two, with no row to
+ * say so: `cls-inline-member-semicolon` writes it down. No `supported` row
+ * moved: none wrote a `;` in an inline member. `silently-wrong` does not
+ * move.
  */
-const REJECTED = 43;
+const REJECTED = 44;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

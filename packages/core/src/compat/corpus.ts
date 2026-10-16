@@ -4379,6 +4379,25 @@ line2\`"]`,
       "kept as written. One member per line renders in both.",
   },
   {
+    id: "cls-inline-member-semicolon",
+    kind: "class",
+    source: `classDiagram
+      class Animal
+      Animal : +int age; int legs
+      Animal : +run(a; b)`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** An inline member " +
+      "(`Animal : …`) takes no `;`: Mermaid 12.2.0's lexer refuses one " +
+      "anywhere in it — between two members, ending one, inside a method's " +
+      "parentheses or a `~generic~` (\"Lexical error … Unrecognized text\" " +
+      "at the `;`, measured). Siren refuses it too (ADR-0017), with an error " +
+      "at the `;` saying to write each member on a line of its own. The `;` " +
+      "ending an entity code (`#59;`) is the code's, in both. Siren used to " +
+      "draw each line as one member, `+int age; int legs` and `+run(a; b)`, " +
+      "with no diagnostic.",
+  },
+  {
     id: "cls-inline-member",
     kind: "class",
     source: `classDiagram

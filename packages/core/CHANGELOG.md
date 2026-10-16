@@ -77,6 +77,9 @@ namespace inside a namespace (a relationship, `<<annotation>> A`, `direction`, `
 `classDef`, `cssClass`, `click`, `link`, `callback`, an inline member, `accTitle` or `accDescr`),
 which is now refused (see **Changed**).
 
+Breaking for a class document with a `;` in an inline member (`A : +int x; y`, `A : +foo(a; b)`),
+which is now refused (see **Changed**).
+
 ### Added
 
 - A dotted class namespace name (`namespace N.M { class A }`) is read as Mermaid 12.2.0 reads it
@@ -206,6 +209,11 @@ which is now refused (see **Changed**).
 
 ### Changed
 
+- **A `;` in an inline class member is refused** (nook `01M51DSEQ3`), as Mermaid 12.2.0's lexer
+  refuses it: `A : +int x; y`, `A : +foo(a; b)`, `A : +int x;` and a `;` in a type, a return type,
+  a `~generic~` or quotes each get one error at the `;`, saying to write each member on a line of
+  its own. The `;` ending an entity code (`#59;`, `#lt;`) is the code's and still reads. The first
+  two used to be drawn as one member each, the others refused as an unrecognized member.
 - **A class namespace holds only classes, notes and namespaces** (nook `01M51DSEGE`), as Mermaid
   12.2.0 reads it: any other statement in a namespace body — a relationship, `<<annotation>> A`,
   `direction`, `style`, `classDef`, `cssClass`, `click`, `link`, `callback`, an inline member

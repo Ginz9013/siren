@@ -2162,3 +2162,62 @@ describe("parseClassDiagram — the statements a namespace body holds", () => {
     ]);
   });
 });
+
+/**
+ * A `;` in an inline member (spec `class-leniency`, measured on Mermaid
+ * 12.2.0): `A : +int x; y`, `A : +foo(a; b)` and `A : +int x;` are each a
+ * lexical error at the `;`, wherever in the member it stands — so Siren
+ * refuses every one there (ADR-0017), in the words of the class block's
+ * `;` rule.
+ */
+describe("parseClassDiagram — a `;` in an inline member", () => {
+  const semicolon = (member: string) =>
+    `A ";" cannot be written in the member "${member}": it does not separate members. ` +
+    'Write each member on a line of its own, with no ";".';
+
+  it.each([
+    ["between two members", "+int x; y"],
+    ["between two members, unspaced", "+int x;y"],
+    ["inside a method's parentheses", "+foo(a; b)"],
+    ["ending the member", "+int x;"],
+    ["after a space, ending the member", "+x ;"],
+    ["inside the type", "in;t x"],
+    ["inside the return type", "+foo() in;t"],
+    ["ending the return type", "+foo() int;"],
+    ["inside a generic", "+List~in;t~ x"],
+    ["inside a method's generic", "+foo~T;U~()"],
+    ["inside quotes", '"a;b"'],
+    ["alone", ";"],
+  ])("refuses a `;` %s, once, at the `;`", (_, member) => {
+    const { document, diagnostics } = parseClassDiagram(`classDiagram\n  class A\n  A : ${member}`);
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      { severity: "error", message: semicolon(member), line: 3, column: 7 + member.indexOf(";") },
+    ]);
+  });
+});
+
+describe("parseClassDiagram — an entity code's `;` in an inline member", () => {
+  it("reads the `;` ending an entity code as the code's, not as a `;`", () => {
+    // Measured: Mermaid 12.2.0 encodes `#lt;` and `#59;` before its lexer
+    // runs, so `A : +x #lt; y`, `A : +foo(#59;)` and `A : +x #59; y` draw
+    // one member each.
+    for (const member of ["+x #lt; y", "+foo(#59;)", "+x #59; y"]) {
+      const { document, diagnostics } = parseClassDiagram(`classDiagram\n  class A\n  A : ${member}`);
+      expect([member, document?.kind, diagnostics]).toEqual([member, "class", []]);
+    }
+  });
+
+  it("still refuses a `;` beside an entity code, at that `;`", () => {
+    // Measured: `#lt;; y`, `#lt; y; z`, `#;` and `# lt;` are lexical errors.
+    for (const [member, at] of [
+      ["+x #lt;; y", 7],
+      ["+int x #lt; y; z", 13],
+      ["+x #;", 4],
+      ["+x # lt;", 7],
+    ] as const) {
+      const { diagnostics } = parseClassDiagram(`classDiagram\n  class A\n  A : ${member}`);
+      expect([member, diagnostics.map((d) => [d.line, d.column])]).toEqual([member, [[3, 7 + at]]]);
+    }
+  });
+});

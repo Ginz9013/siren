@@ -289,7 +289,7 @@ const STATEMENTS_A_COMMENT_MAY_FOLLOW = [
 const NAMESPACE_BODY_STATEMENTS = [NAMESPACE_OPEN_RE, CLASS_BLOCK_OPEN_RE, CLASS_DECL_RE, NOTE_FOR_RE, NOTE_RE];
 
 /** The inline member form, `Bird : +fly()`. */
-const INLINE_MEMBER_RE = /^(\w+)\s*:\s*(.+)$/;
+const INLINE_MEMBER_RE = /^(\w+)\s*:\s*(.+)$/d;
 /**
  * What a member's own name may look like, once markers and type are off: an
  * identifier, which a `<br>` (already respelled by `MEMBER_BREAK_RE`) may
@@ -1435,6 +1435,28 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     const inlineMemberMatch = holdsShorthand ? null : INLINE_MEMBER_RE.exec(line);
     if (inlineMemberMatch !== null) {
       const [, id, memberText] = inlineMemberMatch;
+      // Measured: Mermaid 12.2.0's lexer refuses a `;` anywhere in an inline
+      // member — between two members, ending one, inside `(…)`, `~…~` or
+      // quotes alike ("Lexical error … Unrecognized text" at the `;`) — so
+      // Siren refuses every one there (ADR-0017), unlike a class block,
+      // which keeps a `;` inside a method's parentheses. The `;` ending an
+      // entity code (`#lt;`, `#59;`) is the code's: Mermaid encodes each
+      // `/#\w+;/` before its lexer runs (measured: `A : +x #59; y` draws).
+      const semicolon = line
+        .replace(/#\w+;/g, (code) => "#".repeat(code.length))
+        .indexOf(";", inlineMemberMatch.indices![2]![0]);
+      if (semicolon !== -1) {
+        diagnostics.push({
+          severity: "error",
+          message:
+            `A ";" cannot be written in the member "${memberText}": it does not separate members. ` +
+            'Write each member on a line of its own, with no ";".',
+          line: lineNumber,
+          column: column + semicolon,
+        });
+        sawError = true;
+        return startIndex;
+      }
       const member = parseMember(memberText, lineNumber, column);
       if (member === null) {
         diagnostics.push({
