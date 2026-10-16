@@ -8711,3 +8711,22 @@ describe("render() — a figure a `@{ shape: … }` block names", () => {
     expect(group.getAttribute("data-siren-shape")).toBe("browser");
   });
 });
+
+describe("render() of a flowchart with subgraphs nested inside one that keeps a direction", () => {
+  it("draws an edge between a node and one in a subgraph nested below it, side by side as the direction says", () => {
+    // Measured (Mermaid 12.2.0, Chrome): `F` and the subgraph `C` holding
+    // `G` sit side by side inside `A`'s `direction LR`, `G` to the right,
+    // and the edge runs from `F` to `G`.
+    const result = render(
+      "flowchart TB\nsubgraph A\ndirection LR\nsubgraph B\nF\nsubgraph C\nG\nend\nend\nend\nF --> G",
+      document.createElement("div"),
+    );
+    expect(result.diagnostics).toEqual([]);
+    const centreX = (id: string) => {
+      const shape = result.svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect`)!;
+      return Number(shape.getAttribute("x")) + Number(shape.getAttribute("width")) / 2;
+    };
+    expect(centreX("G")).toBeGreaterThan(centreX("F"));
+    expect(result.svg!.querySelectorAll("path.siren-edge")).toHaveLength(1);
+  });
+});

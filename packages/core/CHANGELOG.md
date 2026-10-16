@@ -916,6 +916,14 @@ divider and now takes none (see **Changed**).
 
 ### Fixed
 
+- `render()` no longer throws a `TypeError` for a flowchart edge between subgraphs nested inside one
+  that keeps a `direction` (nook `01M521TCGA`): `subgraph A` with `direction LR` holding `B`, which
+  holds `F` and a subgraph `C` holding `G`, with `F --> G`. A subgraph such an edge crosses is now
+  laid out in its ends' common ancestor's pass, as Mermaid 12.2.0 lays it out, so the edge is routed
+  and `F` and `G` are drawn side by side. A sweep over nested subgraphs, directions and edges
+  across levels finds no other throw; an edge from a subgraph to its own member inside one that
+  keeps a direction, which Mermaid 12.2.0 cannot draw either, is still refused with the layout
+  engine's error.
 - A flowchart `accTitle:` or `accDescr:` holding an arrow (`accTitle: a --> b`) keeps the whole line
   as the title or description, as Mermaid 12.2.0 does (nook `01M51XADTQ`). It used to be cut at the
   arrow and refused as an unrecognized line.

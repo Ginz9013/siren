@@ -300,6 +300,15 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
       const elkNode = elkNodeById.get(node.id)!;
       // Rotated only inside the root's own `INCLUDE_CHILDREN` pass; see `clusterShape`.
       Object.assign(elkNode, clusterShape(node.cluster, hasMembers.has(node.id), vertical && !inOwnPass(node)));
+      if (voided.has(node.id)) {
+        // Mermaid's `setIncludeChildrenPolicy`: a cluster an edge crosses on
+        // its way to the two ends' common ancestor is laid out in the same
+        // pass as that ancestor, said in so many words. Left unsaid, it
+        // inherits the hierarchy handling of the nearest cluster above that
+        // keeps a direction — a pass of its own — and ELK, laying it out
+        // apart, routes no edge across its frame (no sections at all).
+        elkNode.layoutOptions = { ...elkNode.layoutOptions, "elk.hierarchyHandling": "INCLUDE_CHILDREN" };
+      }
       if (ownPass(node)) {
         // Mermaid's `buildSubgraphLayoutOptions` for a subgraph with a `dir`:
         // laid out on its own, in its own direction, then placed in its
