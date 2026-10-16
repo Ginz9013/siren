@@ -9,8 +9,10 @@ While the version is 0.x, a minor release may contain breaking changes.
 ## [Unreleased]
 
 Breaking for a flowchart `style`, `classDef` or `linkStyle` whose declarations hold an `@`, a `{`
-or `}`, or an arrow (`fill:a@b`, `fill:@{x`, `fill:a-->b`), and for an edge `|label|` holding an
-unquoted bracket (`A -->|a{b| B`), which are now refused (see **Changed**).
+or `}`, an arrow, or any run an arrow is made of — two dashes (`stroke:var(--x)`, `stroke:a--b`),
+a dash and a dot (`fill:a-.b`), an `=` or a `~` (`fill:a=b`, `fill:a~b`) — and for an edge
+`|label|` holding an unquoted bracket (`A -->|a{b| B`) or a quote anywhere but where it opens
+(`A -->|a"{"b| B`), which are now refused (see **Changed**).
 
 Breaking for a flowchart document whose `timeline:` names an id that a node and an edge are both
 stamped with (the node `A-B` beside the edge `A --> B`), which is now refused (see **Changed**).
@@ -165,12 +167,14 @@ divider and now takes none (see **Changed**).
   author's `fill` repaints), `cross-circ` (`summary`, `crossed-circle`), and the undocumented
   `choice` (a 28px diamond) and `anchor` (a 2px dot). None of them draws a label. Each used to be
   refused as a shape not drawn yet.
-- A flowchart invisible link, `A ~~~ B` (nook `01M51XAE1J`): laid out like any edge and drawn with no
+- A flowchart invisible edge, `A ~~~ B` (nook `01M51XAE1J`): laid out like any edge and drawn with no
   stroke width and no marker, as Mermaid 12.2.0 draws it, with or without spaces, to an `&` group,
   after an edge id and in a chain. A `|label|` on it is drawn; it counts among the edges a
   `linkStyle` numbers, and `linkStyle N stroke-width:4px` paints it visible. Each `~` past three
   holds its target one rank further away (`~~~~` is two ranks), as Mermaid counts them. It used to
   be refused as an unrecognized line; `A ~~ B`, `A ~~~> B` and a marker on either end stay refused.
+  A timeline's `highlight … outline` leaves an invisible edge invisible; an author makes one
+  visible with `linkStyle`, not with a highlight.
 - A flowchart edge may be written with an id of its own (nook `01M51XADJK`): `A e1@--> B`, before
   any arrow spelling, before a label in either spelling (`A e1@-->|x| B`, `A e1@-- x --> B`) and on
   each link of a chain (`A e1@--> B e2@--> C`). The edge is drawn and stamped `data-siren-id="e1"`
@@ -436,12 +440,16 @@ divider and now takes none (see **Changed**).
 - **A flowchart styling value holding an `@`, a brace or an arrow is refused** (nook
   `01M51XADTQ`): `style A fill:a@b`, `classDef c fill:@{x`, `classDef c fill:a{b`,
   `linkStyle 0 fill:a-->b` and the like are parse errors in Mermaid 12.2.0, and Siren used to read
-  them as values. Each is refused at the character, saying to leave it out; `stroke-dasharray: 5 5`,
-  `font-family: a b`, `#f00` and `a-b` are values as before.
+  them as values. So is any run an arrow is made of: two or more dashes (`stroke:var(--x)`,
+  `stroke-dasharray:5--5`), a dash and a dot (`fill:a-.b`), and any `=` or `~` (`fill:a=b`,
+  `fill:a~b`). Each is refused at the run, quoted as written, saying to leave it out;
+  `stroke-dasharray: 5 5`, `font-family: a b`, `#f00`, `a-b` and `a.-b` are values as before.
 - **An unquoted bracket in a flowchart edge's `|label|` is refused** (nook `01M51XADTQ`):
   `A -->|a{b| B`, and `}`, `(`, `)`, `[` or `]` there, are parse errors in Mermaid 12.2.0, and Siren
   drew them as the label. Each is refused at the bracket, suggesting the label in quotes
   (`A -->|"a{b"| B`); a quoted label and the other spelling, `A -- a{b --> B`, are drawn as before.
+  A quote anywhere but where the label opens (`A -->|a"{"b| B`, `A -->|a "b"| B`) is refused the
+  same way, saying a label can be quoted only as a whole.
 - **A class member's classifier is drawn as a style, not as a character** (nook `01M51XAEEX`):
   Mermaid 12.2.0 draws `+x$` as `+x` underlined and `+y*` as `+y` in italics, the style on the
   whole line, visibility and return type included. Siren drew the `$` or `*` at the end of the

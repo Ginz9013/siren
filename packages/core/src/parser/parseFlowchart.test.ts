@@ -3270,13 +3270,13 @@ describe("a label written for a shape that draws no text", () => {
 });
 
 /**
- * An invisible link, `A ~~~ B`. Measured on Mermaid 12.2.0: `~~~` is
+ * An invisible edge, `A ~~~ B`. Measured on Mermaid 12.2.0: `~~~` is
  * `type="arrow_open" stroke="invisible"`, with or without spaces, after a
  * `:::` class, to an `&` group, after an edge id and with a `|label|`; each
  * further `~` is one more rank (`~~~~` is `length=2`, `~~~~~~` is
  * `length=4`). `A ~~ B`, `A ~~~> B`, `A <~~~ B` and `A o~~~ B` are errors.
  */
-describe("an invisible link", () => {
+describe("an invisible edge", () => {
   it.each([
     ["A ~~~ B", [["A", "B", 1, null]]],
     ["A~~~B", [["A", "B", 1, null]]],

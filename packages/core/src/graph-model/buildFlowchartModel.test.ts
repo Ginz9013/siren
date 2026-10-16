@@ -658,3 +658,31 @@ describe("buildFlowchartModel's node statements naming an edge id", () => {
     expect(diagnostics).toEqual([{ severity: "error", message, line: 3, column: 7 }]);
   });
 });
+
+describe("buildFlowchartModel's invisible edge", () => {
+  it("carries an invisible edge through like any other, counted among the edges a linkStyle numbers", () => {
+    const edge = (from: string, to: string, line: "solid" | "invisible") => ({
+      from,
+      to,
+      line,
+      fromEnd: "none" as const,
+      toEnd: line === "solid" ? ("arrow" as const) : ("none" as const),
+      minLength: 1,
+      label: null,
+    });
+    const { graph, diagnostics } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" }), sirenNode({ id: "C" })],
+        edges: [edge("A", "B", "invisible"), edge("B", "C", "solid")],
+        linkStyles: [{ targets: ["0"], properties: [{ property: "stroke-width", value: "4px" }], line: 4, column: 3 }],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(graph.edges.map((drawn) => [drawn.id, drawn.line, drawn.toEnd])).toEqual([
+      ["A-B", "invisible", "none"],
+      ["B-C", "solid", "arrow"],
+    ]);
+    expect(graph.edges[0]!.style.frame).toEqual([{ property: "stroke-width", value: "4px" }]);
+  });
+});

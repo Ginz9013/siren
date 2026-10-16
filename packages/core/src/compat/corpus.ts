@@ -180,7 +180,9 @@ function edgeDrawing(result: SirenRenderResult, id: string): string {
     ? "dotted"
     : classes.includes("siren-edge-thick")
       ? "thick"
-      : "solid";
+      : classes.includes("siren-edge-invisible")
+        ? "invisible"
+        : "solid";
 
   const endAt = (side: "start" | "end"): string => {
     const reference = path.getAttribute(`marker-${side}`);
@@ -13233,7 +13235,7 @@ line2\`"]`,
       linkStyle 2 stroke:#f00,stroke-width:4px`,
     status: "supported",
     meaning:
-      "`~~~` is an invisible link: Mermaid 12.2.0 lays it out like any edge " +
+      "`~~~` is an invisible edge: Mermaid 12.2.0 lays it out like any edge " +
       "and draws its path with `stroke-width: 0` and no marker, its label " +
       "`x` still drawn, and counts it among the edges a `linkStyle` numbers, " +
       "so `linkStyle 2` paints C-D visible (measured with the probe, and its " +
@@ -13241,11 +13243,9 @@ line2\`"]`,
       "Siren refused `~~~` as an unrecognized line (nook 01M51XAE1J).",
     assert: (result) => {
       expectSame("edges", edges(result), ["A-B", "B-C", "C-D"]);
-      expectSame(
-        "the invisible ones",
-        elements(result, "path.siren-edge.siren-edge-invisible").map(idOf),
-        ["A-B", "C-D"],
-      );
+      expectSame("A-B's drawing", edgeDrawing(result, "A-B"), "invisible none none");
+      expectSame("B-C's drawing", edgeDrawing(result, "B-C"), "solid none arrow");
+      expectSame("C-D's drawing", edgeDrawing(result, "C-D"), "invisible none none");
       expectSame("A-B's label", edgeLabel(result, "A-B"), "x");
       expectSame(
         "C-D painted by linkStyle 2",

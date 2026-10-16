@@ -1878,12 +1878,12 @@ describe("a flowchart's line hops", () => {
 });
 
 /**
- * An invisible link, `A ~~~ B`. Mermaid 12.2.0 lays the edge out like any
+ * An invisible edge, `A ~~~ B`. Mermaid 12.2.0 lays the edge out like any
  * other and draws its path with `stroke-width: 0` (its stylesheet's
  * `.edge-thickness-invisible`) and no marker, its label still drawn; a `linkStyle`
  * naming it (counted among the edges like any other) paints it visible.
  */
-describe("an invisible link drawn", () => {
+describe("an invisible edge drawn", () => {
   /** `default.css`'s text, read off disk for the reason `theme/default.test.ts` gives. */
   const defaultThemeCss = (
     globalThis as unknown as {

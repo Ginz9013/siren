@@ -563,16 +563,17 @@ cannot say which of the two it means (nook `01M51XADJK`).
 seventeen arrows** — the third time this codebase has made that call, after a sequence
 **message**'s `{ line, head }` and a **relationship**'s `fromEnd`/`toEnd`. A **line**
 (`solid` `--`, `thick` `==`, `dotted` `-.-`, whose opening dash is decoration so `.-` is the same
-body), an **end** on each side (`none`, `arrow` `>`, `circle` `o`, `cross` `x`), and a **length**.
+body, and `invisible` `~~~`), an **end** on each side (`none`, `arrow` `>`, `circle` `o`, `cross` `x`), and a **length**.
 So `A <-.-> B` is not an eighteenth arrow: it is a dotted line with an arrow at each end. A single
 end marker always lands on the *to*-end, measured; only the doubled spellings `<-->`, `o--o` and
 `x--x` decorate the from-end. All four fields are required on `GraphEdge`, so a plain arrow is one
 state rather than the absence of one — the rule `GraphNode.shape` already follows.
 
-**An invisible link, `A ~~~ B`, is the fourth line**, `invisible`: it is laid out and drawn as a
-path like any edge, but themed with no width and given no end marker, so only its label shows.
-It is still an edge in every other sense — it has an id, a timeline can name it, and `linkStyle`
-counts it and can paint it visible.
+**An invisible edge, `A ~~~ B`, is drawn with the fourth line**, `invisible`: it is laid out and
+drawn as a path like any edge, but themed with no width and given no end marker, so only its label
+shows. It is still an edge in every other sense — it has an id, a timeline can name it, and
+`linkStyle` counts it and can paint it visible. A `highlight … outline` leaves it invisible: an
+author shows one with `linkStyle`, never with a timeline step.
 
 **The length is the axis that is not about drawing.** `A ----> B` counts its dashes and reaches
 layout as `minLength`, so its target sits three ranks away instead of one and the drawn diagram
@@ -604,7 +605,8 @@ arrowhead minted for that colour, and `color` paints the label. The second half 
 not chosen** — Mermaid writes `fill` onto the label's own `<text>` — so dropping it, which is what
 happened while an edge had no text, was a silent mis-render.
 
-The line style is emitted as a **CSS class** (`siren-edge-dotted`, `siren-edge-thick`) and never
+The line style is emitted as a **CSS class** (`siren-edge-dotted`, `siren-edge-thick`,
+`siren-edge-invisible`) and never
 as an inline declaration, on the single `<path>` an edge is drawn as. Inline, it would have
 outranked the theme, an author's `linkStyle` and a `timeline:` block's `highlight X outline`
 alike — on the one element all three already land on.

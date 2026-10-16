@@ -454,6 +454,7 @@ M --x N[Cross end]
 N <--> O[Both ends]
 O -->|pipe label| P[Labelled]
 P -- inline label --> Q[Labelled too]
+Q ~~~ U[Invisibly linked]
 subgraph Outer
   subgraph Inner
     R[Grouped] --> S[Grouped too]
@@ -1856,3 +1857,27 @@ describe("default theme's paint for a node's shape-table frames", () => {
   });
 });
 
+describe("default theme's invisible edge", () => {
+  it("draws an invisible edge with no width, and keeps it so under an outline highlight", () => {
+    // A timeline's `highlight … outline` does not make an invisible edge
+    // visible: an author shows one with `linkStyle`, which is inline and
+    // wins over every rule here.
+    const svg = renderThemedSVG(EVERY_FLOWCHART_FEATURE);
+    const path = svg.querySelector('path.siren-edge[data-siren-id="Q-U"]')!;
+
+    expect(path.classList.contains("siren-edge-invisible")).toBe(true);
+    expect(getComputedStyle(path).strokeWidth).toBe("0");
+    path.classList.add("siren-highlight-outline");
+    const highlighted = getComputedStyle(path).strokeWidth;
+    path.classList.remove("siren-highlight-outline");
+    expect(highlighted).toBe("0");
+
+    // jsdom's cascade is not specificity-aware (see above), so the cascade
+    // alone cannot show that a browser agrees: `.siren-edge.siren-highlight-outline`
+    // outranks a one-class `.siren-edge-invisible` there. The rule that keeps
+    // the edge invisible has to outrank it by itself.
+    expect(themeRules).toMatch(
+      /\.siren-edge\.siren-edge-invisible\.siren-highlight-outline\s*\{[^}]*stroke-width:\s*0;/,
+    );
+  });
+});

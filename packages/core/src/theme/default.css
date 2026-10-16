@@ -259,7 +259,7 @@
 }
 
 /*
- * The two lines an edge can be drawn with that the base rule above is not.
+ * The three lines an edge can be drawn with that the base rule above is not.
  * A solid edge has no class of its own: the rule above *is* the solid line,
  * so `A --> B` and `.siren-edge` stay one thing.
  *
@@ -277,6 +277,13 @@
  * that); and an author's own `linkStyle 0 stroke-width:6px` beats all of
  * them for the property it names, while leaving the ones it does not — a
  * recoloured dotted edge stays dotted.
+ *
+ * The invisible line (`A ~~~ B`) is the one exception to that order: it is
+ * drawn with no width, as Mermaid 12.2.0 draws it (its own stylesheet's
+ * `.edge-thickness-invisible { stroke-width: 0 }`), its label a sibling that
+ * stays drawn, and a highlight leaves it so — see the rule after
+ * `.siren-edge.siren-highlight-outline`. An author shows one with
+ * `linkStyle N stroke-width:4px`, which is inline and wins.
  */
 .siren-edge-dotted {
   stroke-dasharray: var(--siren-edge-dash);
@@ -284,6 +291,10 @@
 
 .siren-edge-thick {
   stroke-width: var(--siren-edge-thick-stroke-width);
+}
+
+.siren-edge-invisible {
+  stroke-width: 0;
 }
 
 /*
@@ -1197,6 +1208,12 @@
     stroke-width var(--siren-highlight-duration) ease-out;
 }
 
+/* An invisible edge stays invisible under an outline highlight: three
+   classes, so it outranks the rule above wherever it is written. */
+.siren-edge.siren-edge-invisible.siren-highlight-outline {
+  stroke-width: 0;
+}
+
 /*
  * A subgraph is addressable from a `timeline:` block under its generated id
  * (`highlight subgraph:1 outline`), exactly as a class diagram's namespace
@@ -1586,15 +1603,4 @@
 .siren-activation-bar.siren-highlight-glow {
   stroke: var(--siren-highlight-color);
   transition: stroke var(--siren-highlight-duration) ease-out;
-}
-
-/*
- * An invisible link (`A ~~~ B`): laid out like any edge and drawn with no
- * width, as Mermaid 12.2.0 draws it (its own stylesheet's
- * `.edge-thickness-invisible { stroke-width: 0 }`). Its label is a sibling
- * and stays drawn; an author's `linkStyle N stroke-width:4px` is inline and
- * wins, which is how Mermaid lets an author show one.
- */
-.siren-edge-invisible {
-  stroke-width: 0;
 }

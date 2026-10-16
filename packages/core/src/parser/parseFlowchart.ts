@@ -757,14 +757,14 @@ function refusedInPipeLabel(
   const contentAt = match!.indices![4]![0];
   // A quoted run where the label opens is the label's own; past it, only
   // what stands outside quotes is the author's text.
-  const opens = content.length - content.trimStart().length;
-  let from = opens;
-  if (content[opens] === LABEL_FENCE) {
-    const closes = content.indexOf(LABEL_FENCE, opens + 1);
-    if (closes === -1) {
+  const labelStart = content.length - content.trimStart().length;
+  let from = labelStart;
+  if (content[labelStart] === LABEL_FENCE) {
+    const closingFence = content.indexOf(LABEL_FENCE, labelStart + 1);
+    if (closingFence === -1) {
       return null;
     }
-    from = closes + 1;
+    from = closingFence + 1;
   }
   for (let index = from; index < content.length; index++) {
     const character = content[index]!;
@@ -1005,7 +1005,7 @@ function readArrow(token: string): ArrowForm | null {
     return null;
   }
 
-  // An invisible link takes no marker at either end: Mermaid 12.2.0 refuses
+  // An invisible edge takes no marker at either end: Mermaid 12.2.0 refuses
   // `A ~~~> B`, `A <~~~ B` and `A o~~~ B` (measured).
   const invisible = body.startsWith("~");
   if (invisible && (start !== undefined || end !== undefined)) {
