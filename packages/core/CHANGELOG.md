@@ -89,8 +89,9 @@ comment after a `direction` statement, where it changes the direction applied
 starting with the value (`A : +int direction` then `LRClass --> B`). Each is now refused (see
 **Changed**).
 
-Breaking for a class document with an entity code in a member (`+#lt; x`, `+foo(#9829;)`), which
-used to be drawn as written and is now drawn decoded, `+< x` and `+foo(♥)` (see **Changed**).
+Breaking for a class document with an entity code or a character reference in a member
+(`+#lt; x`, `+foo(#9829;)`, `+&lt x`), which used to be drawn as written and is now drawn decoded,
+`+< x`, `+foo(♥)` and `+< x` (see **Changed**).
 
 ### Added
 
@@ -228,7 +229,10 @@ used to be drawn as written and is now drawn decoded, `+< x` and `+foo(♥)` (se
   (`+#zz; x` draws `+&zz; x`). The member is measured as drawn. A code may stand where the name
   does (`+x #lt;`, `+int a#lt;b`, `+#lt;foo()`), which used to be refused as an unrecognized
   member; a `~generic~` opens at a code (`+List~#lt;~ x` draws `+List<<> x`); and a `#` opening a
-  code is no visibility marker (`#lt; x` draws `< x`). The codes used to be drawn as written.
+  code is no visibility marker (`#lt; x` draws `< x`). Mermaid escapes a member's `<` and `>` but
+  not its `&`, so a character reference written in it resolves too, in the same pass as the codes
+  (`+&lt x` draws `+< x`, `+a&copyb x` `+a©b x`, `+#amp;lt#59; x` `+&lt; x`); `&lt;`, with its
+  `;`, is still refused by the `;` rule. The codes and references used to be drawn as written.
 - **A class-diagram line holding a `direction` inside it is refused** (nook `01M51K83NB`):
   Mermaid 12.2.0's lexer reads any top-level line containing `direction TB`, `BT`, `RL` or `LR`,
   anywhere and glued or not (`xdirection LR`, `direction LRx`), as one direction statement, and

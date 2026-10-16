@@ -401,12 +401,35 @@ export function htmlText(written: string, context: ReferenceContext): string {
 }
 
 /**
+ * A Mermaid **entity code**: `#`, a run of word characters, `;` — Mermaid's
+ * own `/#\w+;/`, which it encodes before any diagram is parsed (`#a-b;` is
+ * not one). The one spelling of that pattern; read it through
+ * `replaceEntityCodes` and `entityCodeAt`.
+ */
+const ENTITY_CODE = /#(\w+);/g;
+
+/**
+ * `text` with each entity code in it replaced by what `replace` returns for
+ * it, given the whole code (`#lt;`) and its name (`lt`).
+ */
+export function replaceEntityCodes(text: string, replace: (code: string, name: string) => string): string {
+  return text.replace(ENTITY_CODE, (code: string, name: string) => replace(code, name));
+}
+
+/** Whether an entity code starts at index `at` of `text`. */
+export function entityCodeAt(text: string, at: number): boolean {
+  const sticky = new RegExp(ENTITY_CODE.source, "y");
+  sticky.lastIndex = at;
+  return sticky.test(text);
+}
+
+/**
  * Mermaid's entity codes in `text` as the character references Mermaid
  * hands the browser: `#name;` as `&name;`, and `#NN;` as `&#NN;` — its own
- * `/#\w+;/` rewrite, so a code is a word character run (`#a-b;` is not one).
+ * rewrite.
  */
 function entityCodesAsReferences(text: string): string {
-  return text.replace(/#(\w+);/g, (_, name: string) => (/^\d+$/.test(name) ? `&#${name};` : `&${name};`));
+  return replaceEntityCodes(text, (_, name) => (/^\d+$/.test(name) ? `&#${name};` : `&${name};`));
 }
 
 /**
@@ -415,7 +438,7 @@ function entityCodesAsReferences(text: string): string {
  * other text it had escaped, as it does sequence text.
  */
 export function resolveEntityCodes(text: string): string {
-  return text.replace(/#\w+;/g, (code) => resolveCharacterReferences(entityCodesAsReferences(code), "text"));
+  return replaceEntityCodes(text, (code) => resolveCharacterReferences(entityCodesAsReferences(code), "text"));
 }
 
 /**

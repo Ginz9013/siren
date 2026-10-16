@@ -17,7 +17,7 @@ import type {
   LabelBox,
 } from "../contracts";
 import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
-import { resolveEntityCodes } from "../label/characterReferences";
+import { entityCodeAt, htmlText } from "../label/characterReferences";
 import { atConnectorLabelSize, plainLabel } from "../label/label";
 import { layoutLabel } from "../label/layoutLabel";
 import { wrapConnectorLabel } from "../label/wrapLabel";
@@ -55,11 +55,14 @@ const MULTIPLICITY_MARKER_CLEARANCE = 6;
  * goes last, as Mermaid writes it (`-id$`, `#quack(int times)*`), so one
  * rule covers both member kinds whether or not a return type follows.
  *
- * Its entity codes are decoded last, once the line is composed: Mermaid
- * 12.2.0 escapes a member's text and decodes the codes in it when it draws
- * (measured in Chrome: `+#lt; x` draws `+< x`, `+foo(#9829;)` `+foo(♥)`,
- * `+#zz; x` `+&zz; x`) — the decoding sequence text gets, so the same
- * `resolveEntityCodes`. The line is measured as decoded, too.
+ * Its entity codes and character references are decoded last, once the
+ * line is composed: Mermaid 12.2.0 escapes a member's `<` and `>` but not
+ * its `&`, and hands the browser its entity codes as character references,
+ * so the browser resolves both in one pass (measured in Chrome: `+#lt; x`
+ * draws `+< x`, `+foo(#9829;)` `+foo(♥)`, `+#zz; x` `+&zz; x`, `+&lt x`
+ * `+< x`, `+#amp;lt#59; x` `+&lt; x`) — the decoding a label's text gets,
+ * so the same `htmlText`. The line is measured as decoded, and drawn
+ * through `textContent`, so no tag in it is read.
  */
 function memberText(member: ClassMember): string {
   const visibility = member.visibility ?? "";
@@ -68,10 +71,10 @@ function memberText(member: ClassMember): string {
     const returnType =
       member.returnType === null ? "" : ` ${angleBrackets(member.returnType)}`;
     const parameters = angleBrackets(member.parameters ?? "");
-    return resolveEntityCodes(`${visibility}${member.name}(${parameters})${returnType}${classifier}`);
+    return htmlText(`${visibility}${member.name}(${parameters})${returnType}${classifier}`, "text");
   }
   const type = member.type === null ? "" : `${angleBrackets(member.type)} `;
-  return resolveEntityCodes(`${visibility}${type}${member.name}${classifier}`);
+  return htmlText(`${visibility}${type}${member.name}${classifier}`, "text");
 }
 
 /**
@@ -125,14 +128,16 @@ function opensTypeName(ch: string | undefined): boolean {
  * types only leaves it untouched by construction rather than by heuristic.
  */
 function angleBrackets(type: string): string {
-  const chars = [...type];
+  // UTF-16 units, not code points, so an index into `chars` is one into
+  // `type` for `entityCodeAt`; no character this reads or writes is astral.
+  const chars = type.split("");
   const openIndices: number[] = [];
   for (let i = 0; i < chars.length; i += 1) {
     if (chars[i] !== "~") continue;
     // An entity code opens one as a type name does: Mermaid 12.2.0 pairs
     // the tildes while the code is still encoded as word-like text, so
     // `List~#lt;~` draws `List<<>` (measured).
-    if (opensTypeName(chars[i + 1]) || /^#\w+;/.test(chars.slice(i + 1).join(""))) {
+    if (opensTypeName(chars[i + 1]) || entityCodeAt(type, i + 1)) {
       openIndices.push(i);
       continue;
     }

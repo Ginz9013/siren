@@ -531,6 +531,22 @@ describe("layoutClassDiagram", () => {
       ]);
     });
 
+    it("resolves an HTML character reference the author wrote, as the label path does", () => {
+      // Measured: Mermaid escapes a member's `<` and `>` but not its `&`, so
+      // the browser resolves `+&lt x` to `+< x`, `+&amp x` to `+& x`,
+      // `+&#60 x` to `+< x` and `+a&copyb x` to `+a©b x` — in one pass with
+      // the entity codes, so `+#amp;lt#59; x` draws `+&lt; x`.
+      expect(
+        drawn(
+          attribute({ visibility: "+", type: "&lt", name: "x" }),
+          attribute({ visibility: "+", type: "&amp", name: "x" }),
+          attribute({ visibility: "+", type: "&#60", name: "x" }),
+          attribute({ visibility: "+", type: "a&copyb", name: "x" }),
+          attribute({ visibility: "+", type: "#amp;lt#59;", name: "x" }),
+        ),
+      ).toEqual(["+< x", "+& x", "+< x", "+a©b x", "+&lt; x"]);
+    });
+
     it("opens a generic at an entity code, as at a type name", () => {
       // Measured: `+List~#lt;~ x` draws `+List<<> x`, `+List~int#lt;~ x`
       // `+List<int<> x`, and `+foo(Map~#9829;~ m)` `+foo(Map<♥> m)` —

@@ -18,6 +18,7 @@ import type {
   StyleDecl,
   StyleProperty,
 } from "../contracts";
+import { entityCodeAt, replaceEntityCodes } from "../label/characterReferences";
 import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchClassDirection, matchDiagramHeader } from "./parseDirection";
@@ -376,7 +377,7 @@ function codeSpan(text: string): string {
  * and `class A { +x #59; y }` each draw one member). Positions are kept.
  */
 function maskEntityCodes(text: string): string {
-  return text.replace(/#\w+;/g, (code) => "#".repeat(code.length));
+  return replaceEntityCodes(text, (code) => "#".repeat(code.length));
 }
 
 /**
@@ -444,7 +445,7 @@ const MEMBER_NAME_RE = /^[A-Za-z_]\w*(?:<br>\w*)*$/;
  * decoded when drawn.
  */
 function isMemberName(name: string): boolean {
-  return MEMBER_NAME_RE.test(name.replace(/#\w+;/g, "_"));
+  return MEMBER_NAME_RE.test(replaceEntityCodes(name, () => "_"));
 }
 /**
  * Mermaid's own row-break pattern, which it applies to a member's text and
@@ -501,20 +502,23 @@ function endpointFor(marker: string | undefined): ClassRelationshipEnd {
  * `+swim() bool`, `draw()*` — into its parts, or returns `null` when the
  * line is not a member at all (the caller turns that into a diagnostic).
  *
- * Each part is kept as the author wrote it, so the renderer can print the
- * line back verbatim: a `+` stays a `+`, a type stays whatever text stood
- * before the name, and a parameter list stays the raw text between the
- * parens.
+ * Each part is kept as the author wrote it, entity codes and character
+ * references undecoded, so layout can compose the line from them: a `+`
+ * stays a `+`, a type stays whatever text stood before the name, and a
+ * parameter list stays the raw text between the parens. Layout decodes the
+ * composed line (`memberText`) — `+#lt; x` is drawn `+< x`.
  *
  * A leading `~` is read as the package-visibility marker, never as the
  * opening of a `~generic~` — that ambiguity is Mermaid's own, and Mermaid
- * resolves it the same way.
+ * resolves it the same way. A leading `#` that opens an entity code is the
+ * code's, never the protected marker (`#lt; x` has no visibility).
  *
  * **A member is not a label** (ADR-0015), so nothing here goes through
- * `readLabel`: Mermaid escapes a member's text in both label modes, and the
- * one thing it does to it first — respelling `<br/>`, `<br />` and `<BR>`
- * as `<br>` — is done here too (`MEMBER_BREAK_RE`), so `+id<br/>int` is drawn as the
- * characters `+id<br>int` and `+<b>id</b> int` as written.
+ * `readLabel`: Mermaid escapes a member's `<` and `>` in both label modes,
+ * so no tag in it is read, and the one thing it does to it first —
+ * respelling `<br/>`, `<br />` and `<BR>` as `<br>` — is done here too
+ * (`MEMBER_BREAK_RE`), so `+id<br/>int` is drawn as the characters
+ * `+id<br>int` and `+<b>id</b> int` as written.
  */
 function parseMember(text: string, line: number, column: number): ClassMember | null {
   let rest = text.trim().replace(MEMBER_BREAK_RE, "<br>");
@@ -530,7 +534,7 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
   const firstChar = rest.slice(0, 1);
   // A `#` opening an entity code is the code's: Mermaid 12.2.0 encodes
   // `#lt; x` before it looks for a marker, and draws `< x` (measured).
-  if (VISIBILITY_MARKERS.has(firstChar) && !/^#\w+;/.test(rest)) {
+  if (VISIBILITY_MARKERS.has(firstChar) && !entityCodeAt(rest, 0)) {
     visibility = firstChar as ClassMemberVisibility;
     rest = rest.slice(1).trim();
   }

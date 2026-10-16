@@ -418,8 +418,9 @@ first `>` outside a quoted value ends it, and one the label ends inside is dropp
 after its `<` (`x <y` draws `x `), while a `<` before anything else is a character (`a < b`). Which
 tags a place honors is its **dialect**: `html`, the whole vocabulary, for the places
 Mermaid draws as HTML; `sequence`, only `<br>` and entity codes, for sequence text, which Mermaid
-draws as SVG in both modes. A class **member** is not a label at all: Mermaid escapes it in both
-modes, so it is kept as written. A **row break** is `<br>` in any case, with or without attributes
+draws as SVG in both modes. A class **member** is not a label at all: Mermaid escapes its `<` and `>` in
+both modes, so no tag in it is read, but not its `&`, so it is drawn with its entity codes and
+character references decoded, as a label's text is (`+#lt; x` and `+&lt x` draw `+< x`). A **row break** is `<br>` in any case, with or without attributes
 and a closing `/` — `<br>`, `<br/>`, `<br />`, `<BR>` and `<br class="x">` all break a row, the last
 because Mermaid's HTML labels keep it as an element, though its own `/<br\s*\/?>/gi` does not match
 it; in the `sequence` dialect that narrower pattern is the picture, so `<br class="x">` is drawn as
@@ -829,10 +830,11 @@ boxes, so say "the apply-directive" for it), node, entity, box
 One attribute or method line inside a class, carrying an optional visibility marker (`+` public,
 `-` private, `#` protected, `~` package), an optional classifier (`*` abstract, `$` static), a
 name, an optional type, and — for methods — a parameter list and an optional return type.
-Rendered verbatim, as the author spelled it: a member is **not** a Label, because Mermaid escapes
-its text in both label modes, so no tag in it is read — the one change made first, as Mermaid makes
-it, is respelling `<br/>`, `<br />` and `<BR>` as `<br>`, which is then drawn as those four
-characters. Attributes and methods draw in two separate
+Drawn as the author spelled it, its entity codes and character references decoded (`+#lt; x` draws
+`+< x`, `+&lt x` too): a member is **not** a Label, because Mermaid escapes its `<` and `>` in both
+label modes, so no tag in it is read — the one change made first, as Mermaid makes it, is
+respelling `<br/>`, `<br />` and `<BR>` as `<br>`, which is then drawn as those four characters. A
+`#` opening an entity code is the code's, not the protected marker (`#lt; x` has no visibility). Attributes and methods draw in two separate
 compartments, in declaration order within each, with a divider above every populated one.
 _Avoid_: field, property (that is a CSS declaration's property in an author style), attribute
 (alone — that is one of the two kinds of member, and it is also an SVG attribute; say "attribute
