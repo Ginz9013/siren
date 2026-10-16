@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseFlowchart } from "./parseFlowchart";
+import { SHAPE_NAME_LISTS } from "./flowchartNodeData";
 import { parseSiren } from "./parseSiren";
 import type { Diagnostic, DiagramParseResult, FlowchartDocument, NodeShape, SirenNode } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
@@ -428,7 +429,7 @@ describe("a node's `@{ … }` block written across lines", () => {
   });
 });
 
-/** The fourteen short names a refused `shape:` is told to choose from, in that order. */
+/** The examples a refused `shape:` is pointed to: the fourteen bracket shapes' short names, in that order. */
 const SHAPE_CHOICES = "rect, rounded, stadium, fr-rect, cyl, circle, diam, hex, lean-r, lean-l, trap-b, trap-t, dbl-circ, odd";
 
 /**
@@ -448,7 +449,7 @@ describe("a `shape:` Siren does not draw", () => {
       expect(diagnostics).toEqual([
         {
           severity: "error",
-          message: `Siren does not draw the shape "${name}" yet. Use one of: ${SHAPE_CHOICES}`,
+          message: `Siren does not draw the shape "${name}" yet. Use a shape such as: ${SHAPE_CHOICES}`,
           line: 2,
           column: 11,
         },
@@ -457,12 +458,12 @@ describe("a `shape:` Siren does not draw", () => {
   );
 
   it.each([
-    ["foo", `There is no shape "foo". Use one of: ${SHAPE_CHOICES}`],
+    ["foo", `There is no shape "foo". Use a shape such as: ${SHAPE_CHOICES}`],
     ["Rect", 'There is no shape "Rect". Shape names are lower-case, with "-" between words: rect'],
     ["lean_right", 'There is no shape "lean_right". Shape names are lower-case, with "-" between words: lean-right'],
     [
       "squareRect",
-      `There is no shape "squareRect". Shape names are lower-case, with "-" between words. Use one of: ${SHAPE_CHOICES}`,
+      `There is no shape "squareRect". Shape names are lower-case, with "-" between words. Use a shape such as: ${SHAPE_CHOICES}`,
     ],
     ["1", 'A shape is a name, such as "shape: circle"'],
   ])("refuses `shape: %s` as no shape", (name, message) => {
@@ -2954,8 +2955,7 @@ describe("an edge id that begins with a keyword", () => {
 
 /**
  * The `shape:` names Mermaid 12.2.0 reads only in a node's `@{ … }` block
- * and Siren draws through its shape table (nook
- * `01M51XAC4N7X7GE0CS5TK2PMTY`): each shape's short name, every alias
+ * and Siren draws through its shape table: each shape's short name, every alias
  * `shapesDefs` lists for its handler, and the undocumented lowercase names
  * its shape map also accepts. Measured in Chrome: every alias draws the
  * same box and outline as its short name.
@@ -3097,5 +3097,17 @@ describe("a styling value holding an `@`, a brace or an arrow", () => {
 
     expect(diagnostics).toEqual([]);
     expect(document.styles.map((style) => style.properties.map((property) => property.value))).toEqual([[value]]);
+  });
+});
+
+describe("the three lists of `shape:` names", () => {
+  it("name each shape name once: drawn by a bracket shape, drawn from the shape table, or not drawn yet", () => {
+    const { bracket, table, undrawn } = SHAPE_NAME_LISTS;
+    const names = [...bracket, ...table, ...undrawn];
+    const repeated = names.filter((name, i) => names.indexOf(name) !== i);
+    expect(repeated).toEqual([]);
+    expect(bracket.length).toBeGreaterThan(0);
+    expect(table.length).toBeGreaterThan(0);
+    expect(undrawn.length).toBeGreaterThan(0);
   });
 });

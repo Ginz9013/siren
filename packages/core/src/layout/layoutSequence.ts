@@ -51,8 +51,9 @@ const ACTOR_FIGURE_HEIGHT = 2 * PARTICIPANT_PADDING_Y;
  * and may be wider than it; the participant's `width`, and with it lane
  * spacing, stays the label's. Exported because the renderer draws the
  * figure at this width (`renderSequenceToSVG`'s `buildActorIcon`), as
- * `layoutGraph`'s `SHAPE_LEAN` is shared with `renderToSVG`: one number the
- * layout stops arrows at and the renderer draws to.
+ * a flowchart node shape's proportions live in one shape-table record
+ * (`layout/shapes/`) read by both `layoutGraph` and `renderToSVG`: one number
+ * the layout stops arrows at and the renderer draws to.
  */
 export const ACTOR_FIGURE_WIDTH = 36;
 /**

@@ -1788,8 +1788,7 @@ describe("default theme's paint for a connector label's background", () => {
 });
 
 /**
- * The paints a shape-table frame can wear beside `siren-node-frame` (nook
- * `01M51XAC4N7X7GE0CS5TK2PMTY`). Each is a class rather than an inline
+ * The paints a shape-table frame can wear beside `siren-node-frame`. Each is a class rather than an inline
  * declaration, so the highlight rules — which select more classes — still
  * outline the frame, and an author's inline `style` still wins.
  */

@@ -2,8 +2,7 @@ import type { Direction, StyleProperty } from "../../contracts";
 
 /**
  * The vocabulary of the **shape table**: what one flowchart node shape is,
- * as data that layout and the renderer both read (nook
- * `01M51XAC4N7X7GE0CS5TK2PMTY`).
+ * as data that layout and the renderer both read.
  *
  * A shape is three answers, and nothing else in the pipeline knows a
  * shape's name:
@@ -13,9 +12,12 @@ import type { Direction, StyleProperty } from "../../contracts";
  *   hands the renderer the offset as `PositionedNode.labelOffset`).
  * - `frames` — the elements the outline is drawn with (`renderToSVG`).
  *
- * A new shape is a new record in one of the group files beside this one and
- * a name in the parser's `SHAPE_NAMES`; `layoutGraph.ts` and
- * `renderToSVG.ts` read the table and never learn it exists.
+ * A new shape is three additions: its member in the `NodeShape` union
+ * (`contracts.ts`), its record in one of the group files beside this one,
+ * and its names in the parser's `TABLE_SHAPE_NAMES`
+ * (`parser/flowchartNodeData.ts`, which also drops them from the names not
+ * drawn yet). `layoutGraph.ts` and `renderToSVG.ts` read the table and never
+ * learn it exists.
  */
 
 /** A width and a height. */
@@ -69,19 +71,22 @@ export interface ShapeSpec {
 }
 
 /**
- * How a frame is filled: with the node's own fill (the theme's, or the
- * author's), with nothing, or with the colour the node's lines are drawn
- * in. Classes rather than inline declarations, so the timeline's highlight
+ * How a frame is painted: filled with the node's own fill (the theme's, or
+ * the author's), with nothing, or with the colour the node's lines are
+ * drawn in; neither filled nor stroked (`bare`, a text block); or with a
+ * note's paint (`note`). Classes rather than inline declarations, so the timeline's highlight
  * rules — which select more classes — still outline every frame, and an
  * author's own `fill` still wins.
  */
-export type FramePaint = "node" | "none" | "line";
+export type FramePaint = "node" | "none" | "line" | "bare" | "note";
 
 /** The classes each paint adds beside `siren-node-frame`. */
 export const FRAME_PAINT: Readonly<Record<FramePaint, readonly string[]>> = {
   node: [],
   none: ["siren-node-hollow"],
   line: ["siren-node-ink"],
+  bare: ["siren-node-bare"],
+  note: ["siren-node-note"],
 };
 
 /** The label's own box, centred on `box`: where a shape with no `labelRect` puts it. */

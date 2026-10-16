@@ -81,8 +81,8 @@ export type NodeShape =
   | "trapezoid"
   | "trapezoid-alt"
   // The shapes Mermaid names only in a node's `@{ shape: … }` block, each
-  // one record in the shape table (`layout/shapes/`; nook
-  // `01M51XAC4N7X7GE0CS5TK2PMTY`), named by the alias Mermaid spells out.
+  // one record in the shape table (`layout/shapes/`), named by the alias
+  // Mermaid spells out.
   | "notched-rectangle"
   | "folder"
   | "notched-pentagon"

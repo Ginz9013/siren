@@ -39,8 +39,8 @@ const BRACKET_SHAPE_NAMES: ReadonlyArray<readonly [NodeShape, readonly [string, 
 
 /**
  * Every `shape:` name of the shapes Mermaid 12.2.0 names only in a `@{ … }`
- * block and Siren draws from its shape table (nook
- * `01M51XAC4N7X7GE0CS5TK2PMTY`): the short name, every alias `shapesDefs`
+ * block and Siren draws from its shape table (`layout/shapes/`): the short
+ * name, every alias `shapesDefs`
  * lists for the shape's handler, and the undocumented lowercase names its
  * shape map also accepts. Measured: every alias draws what its short name
  * draws. A shape added to the table adds its row here.
@@ -96,10 +96,25 @@ const UNDRAWN_SHAPE_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * What a refused name is told to choose from: one short name for each of
- * the fourteen shapes Mermaid also spells with brackets. Not every shape
- * Siren draws — a list of every one would bury the answer — and a list that
- * stays the same as the shape table grows.
+ * Every name in each of the three lists, for the test that keeps them
+ * disjoint: a name in two of them would be drawn by whichever list is read
+ * first and described wrongly by the other.
+ */
+export const SHAPE_NAME_LISTS: {
+  readonly bracket: readonly string[];
+  readonly table: readonly string[];
+  readonly undrawn: readonly string[];
+} = {
+  bracket: BRACKET_SHAPE_NAMES.flatMap(([, names]) => names),
+  table: TABLE_SHAPE_NAMES.flatMap(([, names]) => names),
+  undrawn: [...UNDRAWN_SHAPE_NAMES],
+};
+
+/**
+ * The examples a refused name is pointed to, introduced as examples ("such
+ * as"): one short name for each of the fourteen shapes Mermaid also spells
+ * with brackets. Not every shape Siren draws — a list of every one would
+ * bury the answer — and a list that stays the same as the shape table grows.
  */
 const SHAPE_CHOICES = BRACKET_SHAPE_NAMES.map(([, [shortName]]) => shortName).join(", ");
 
@@ -245,15 +260,15 @@ function readShape(value: unknown, problems: DataBlockProblem[]): NodeShape | nu
     const rule = `There is no shape "${value}". Shape names are lower-case, with "-" between words`;
     problems.push({
       severity: "error",
-      message: NODE_DATA_SHAPES.has(spelled) ? `${rule}: ${spelled}` : `${rule}. Use one of: ${SHAPE_CHOICES}`,
+      message: NODE_DATA_SHAPES.has(spelled) ? `${rule}: ${spelled}` : `${rule}. Use a shape such as: ${SHAPE_CHOICES}`,
     });
   } else if (UNDRAWN_SHAPE_NAMES.has(value)) {
     problems.push({
       severity: "error",
-      message: `Siren does not draw the shape "${value}" yet. Use one of: ${SHAPE_CHOICES}`,
+      message: `Siren does not draw the shape "${value}" yet. Use a shape such as: ${SHAPE_CHOICES}`,
     });
   } else {
-    problems.push({ severity: "error", message: `There is no shape "${value}". Use one of: ${SHAPE_CHOICES}` });
+    problems.push({ severity: "error", message: `There is no shape "${value}". Use a shape such as: ${SHAPE_CHOICES}` });
   }
   return null;
 }

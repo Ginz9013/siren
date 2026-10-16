@@ -8673,3 +8673,27 @@ describe("render() of a flowchart edge with its own id", () => {
     expect(result.diagnostics[0]!.message).toContain('"A-B" is the id of more than one thing');
   });
 });
+
+describe("render() puts a shape's label where its shape table record says", () => {
+  it("centres a three-row label on a sloped rectangle's rectangle, under the slope, in an LR flowchart", () => {
+    const container = document.createElement("div");
+    const { diagnostics } = render('flowchart LR\n  A@{ shape: sl-rect, label: "a<br>b<br>c" } --> B', container);
+    expect(diagnostics).toEqual([]);
+
+    const group = container.querySelector('g.siren-node[data-siren-id="A"]')!;
+    // The outline is `left,slope-top left,bottom right,bottom right,top`.
+    const points = group
+      .querySelector(".siren-node-frame")!
+      .getAttribute("d")!
+      .match(/-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?/g)!
+      .map((pair) => pair.split(",").map(Number));
+    const [[, slopeTop], [, bottom], , [, top]] = points;
+    const rows = Array.from(group.querySelectorAll("tspan.siren-label-row")).map((row) => Number(row.getAttribute("y")));
+
+    // The middle row sits at the middle of the rectangle under the slope —
+    // not at the middle of the node's box.
+    expect(rows).toHaveLength(3);
+    expect(rows[1]).toBeCloseTo((slopeTop! + bottom!) / 2, 9);
+    expect(rows[1]).not.toBeCloseTo((top! + bottom!) / 2, 0);
+  });
+});

@@ -169,11 +169,12 @@
   fill: var(--siren-node-stroke);
 }
 
-/* `siren-node-note` is a note node's frame. It takes the surface every
-   other note in Siren takes (`.siren-note-frame`): Mermaid 12.2.0 asks for
-   its note colours here and then paints the node's (measured), and a note
-   token of its own would stay light under a theme that redeclares the
-   palette on a container. A theme repaints notes through this class. */
+/* `siren-node-note` is a note node's frame, painted with the node's own fill
+   and stroke tokens — the paint `.siren-note-frame` gives a class or state
+   diagram's note. Mermaid 12.2.0 asks for its note colours here and then
+   paints the node's (measured), and a note token of its own would stay light
+   under a theme that redeclares the palette on a container. A theme repaints
+   a note node through this class. */
 .siren-node-frame.siren-node-note {
   fill: var(--siren-node-fill);
   stroke: var(--siren-node-stroke);

@@ -3,14 +3,16 @@ import { closedPath, edgesOf, FRAME_PAINT, pathFrame, type Rect, rectFrame, type
 
 /**
  * Shape-table records for the shapes Mermaid 12.2.0 names only in a node's
- * `@{ shape: … }` block whose outline is straight lines (nook
- * `01M51XAC4N7X7GE0CS5TK2PMTY`).
+ * `@{ shape: … }` block whose outline is straight lines.
  *
  * Each follows its Mermaid handler's formula (classic look), applied to the
  * padded label — the box a rectangle would draw — and the label goes where
  * that handler puts it. Proportions are Mermaid's; the path is Siren's own
  * (ADR-0004: a shape's kind is the contract, not its exact outline).
  */
+
+/** Mermaid's flowchart node padding (`flowchart.padding`, 15px). */
+const NODE_PADDING = 15;
 
 /** Mermaid's `NOTCH_SIZE`: the side of a notched rectangle's cut corner. */
 const NOTCH = 12;
@@ -330,7 +332,7 @@ export const POLYGON_SHAPES = {
   // still a frame — an author's `style` and a highlight both reach it.
   text: {
     box: (label) => label,
-    frames: (box) => [rectFrame(box, { classes: ["siren-node-bare"] })],
+    frames: (box) => [rectFrame(box, { classes: FRAME_PAINT.bare })],
   },
   // `composite` (undocumented; Mermaid draws `<rect class="basic cluster
   // composite">`): a group's frame standing alone as a node — as big as a
@@ -343,15 +345,16 @@ export const POLYGON_SHAPES = {
   // one, wearing a note's paint.
   note: {
     box: (label) => label,
-    frames: (box) => [rectFrame(box, { classes: ["siren-node-note"] })],
+    frames: (box) => [rectFrame(box, { classes: FRAME_PAINT.note })],
   },
-  // `datastore` (Mermaid's `datastore`): a rectangle as big as a plain one
-  // whose stroke is dashed by its own width and height, so that only the
+  // `datastore` (Mermaid's `datastore`): a rectangle wider than a plain one
+  // by `2 x NODE_PADDING` — Mermaid hands `drawRect` `labelPaddingX:
+  // padding x 2`, the node padding once more on each side — whose stroke is dashed by its own width and height, so that only the
   // top and the bottom are drawn. Its corners are square — a rounded corner
   // would lengthen the path and slide the dashes off the edges — and both
   // declarations are the shape's, ahead of any the author writes.
   "data-store": {
-    box: (label) => label,
+    box: (label) => ({ width: label.width + 2 * NODE_PADDING, height: label.height }),
     frames: (box) => [
       rectFrame(box, {
         style: [

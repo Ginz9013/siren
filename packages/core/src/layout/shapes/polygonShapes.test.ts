@@ -353,9 +353,11 @@ describe("a note (`note`, undocumented)", () => {
 });
 
 describe("a data store (`datastore`)", () => {
-  it("is as big as a rectangle and centres its label", () => {
+  it("is wider than a rectangle by twice Mermaid's 15px node padding, and centres its label", () => {
+    // `datastore` hands `drawRect` `labelPaddingX: padding x 2`: each side
+    // gets the node padding (15px) once more than the padded label has.
     const node = laidOut("data-store", LONG);
-    expect([node.width, node.height]).toEqual([152, 27]);
+    expect([node.width, node.height]).toEqual([152 + 30, 27]);
     expect(node.labelOffset).toBeUndefined();
   });
 

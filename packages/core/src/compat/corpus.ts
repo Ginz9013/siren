@@ -709,8 +709,8 @@ function nodeOutline(result: SirenRenderResult, id: string): string {
  * as `rect` with the classes it wears beside `siren-node-frame` and the
  * declarations it carries inline.
  *
- * For the shapes a `@{ shape: … }` block names (nook
- * `01M51XAC4N7X7GE0CS5TK2PMTY`), which `nodeOutline` has no names for:
+ * For the shapes only a `@{ shape: … }` block names, which `nodeOutline`
+ * has no names for:
  * a row states the cycle it expects through `canonicalCycle`, from the
  * vertices of Mermaid's own handler.
  */
@@ -3354,7 +3354,7 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       "rectangle under a slope rising to the right, `tri` a triangle " +
       "standing on its base with the label at the bottom, `flip-tri` one " +
       "pointing down with the label at the top. Siren draws the same five " +
-      "from its shape table (nook 01M51XAC4N7X7GE0CS5TK2PMTY).",
+      "from its shape table (nook 01M51XAC4N).",
     assert: (result) => {
       expectSame("nodes", nodes(result), ["A[Card]", "B[Loop]", "C[Input]", "D[Extract]", "E[File]"]);
       expectSame("edges", edges(result), ["A-B", "B-C", "C-D", "D-E"]);
@@ -3387,7 +3387,7 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       "its top and one down its left, `st-rect` as three stacked sheets, " +
       "`tag-rect` with a tag in its bottom right corner. Each puts its label " +
       "clear of the marking. Siren draws the same six from its shape table " +
-      "(nook 01M51XAC4N7X7GE0CS5TK2PMTY).",
+      "(nook 01M51XAC4N).",
     assert: (result) => {
       expectSame("nodes", nodes(result), ["A[Docs]", "B[Shaded]", "C[Divided]", "D[Storage]", "E[Batch]", "F[Tagged]"]);
       expectSame("edges", edges(result), ["A-B", "B-C", "C-D", "D-E", "E-F"]);
@@ -3447,9 +3447,12 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       "Mermaid 12.2.0 draws five rectangles its `@{ … }` block names, painted " +
       "differently (measured in Chrome, classic look): `text` neither filled " +
       "nor stroked, `datastore` stroked along its top and bottom only (a " +
-      "dash its own width and height long), and the undocumented `note` and " +
-      "`composite` as a note and as a group's frame. Siren draws the same " +
-      "from its shape table (nook 01M51XAC4N7X7GE0CS5TK2PMTY). ⚠️ " +
+      "dash its own width and height long), and the undocumented `note` as " +
+      "a rectangle. Siren draws the same from its shape table (nook " +
+      "01M51XAC4N). ⚠️ **`composite` differs in paint.** Mermaid draws it " +
+      "as a rectangle classed `cluster composite` and fills it white " +
+      "(measured); Siren draws it unfilled, the paint its own group frame " +
+      "(a subgraph) takes. ⚠️ " +
       "**`state` diverges.** Mermaid's handler asks for a rectangle with 5px " +
       "corners and draws one sized `NaN`, so only the label shows; Siren " +
       "draws the rectangle with 5px corners that the handler asks for.",
@@ -3472,10 +3475,10 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       A@{ shape: cloud, label: "x" } --> B`,
     status: "rejected",
     meaning:
-      "Mermaid 12.2.0 draws `A` as a cloud (measured), one of the 39 shapes " +
-      "its `@{ … }` names that Siren has no geometry for. Refused at the " +
-      "`@`, saying the shape is not drawn yet and naming the fourteen it can " +
-      "draw.",
+      "Mermaid 12.2.0 draws `A` as a cloud (measured), one of the shapes " +
+      "its `@{ … }` names that Siren has no geometry for yet. Refused at the " +
+      "`@`, saying the shape is not drawn yet and naming shapes it can draw " +
+      "as examples.",
   },
   {
     id: "fc-node-shape-data-icon",
