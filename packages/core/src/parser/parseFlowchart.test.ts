@@ -3821,7 +3821,7 @@ describe("an image node's `@{ … }` keys", () => {
     ],
     ['img: "data:image/png;base64,R0lGODlh"', "The image's data is not a PNG image, so its size cannot be read. Check the data, or the type its data URL names"],
     ["img: 3", 'An image is a data URL, such as img: "data:image/png;base64,…"'],
-    [`img: "${PNG}", icon: "fa:user"`, "A node draws an icon or an image, not both. Remove one of them"],
+    [`img: "${PNG}", icon: "fa:user"`, "A node with an image draws the image, so its icon would be dropped. Remove the icon, or the image"],
     [`img: "${PNG}", w: 0`, 'An image\'s width is a number of pixels above 0, such as "w: 64"'],
     [`img: "${PNG}", h: tall`, 'An image\'s height is a number of pixels above 0, such as "h: 64"'],
     [`img: "${PNG}", constraint: yes`, 'An image\'s "constraint" is "on" or "off", not "yes"'],

@@ -13516,8 +13516,8 @@ line2\`"]`,
       "Mermaid 12.2.0 loads the image at the URL and draws it. Siren never " +
       "fetches anything while drawing, so it draws an image only from a " +
       "data URL the document holds and refuses any other, saying to embed " +
-      "the image: a deliberate departure, recorded as its own decision (nook " +
-      "01M51XAD6416EJHSDVWB725NRY).",
+      "the image: a deliberate departure, recorded as its own decision " +
+      "(nook 01M52V0X4P).",
   },
   {
     id: "fc-node-image-constraint-unknown",
@@ -13540,7 +13540,7 @@ line2\`"]`,
     meaning:
       "Mermaid 12.2.0 draws a node given both an `img:` and an `icon:` as " +
       "the image and drops the icon without a word (`getTypeFromVertex`, " +
-      "measured), refused under ADR-0001, asking for one of them (nook " +
+      "measured), refused under ADR-0001, saying the icon would be dropped (nook " +
       "01M51XAD6416EJHSDVWB725NRY).",
   },
 

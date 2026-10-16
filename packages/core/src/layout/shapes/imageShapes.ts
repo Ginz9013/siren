@@ -1,5 +1,5 @@
 import type { GraphNode, NodeImage, NodeShape } from "../../contracts";
-import { rectFrame, type Rect, type ShapeSpec, type Size } from "./shape";
+import { FIGURE_LABEL_GAP, rectFrame, type Rect, type ShapeSpec, type Size } from "./shape";
 
 /**
  * The shape-table record of an image node (`A@{ img: "data:…" }`): the
@@ -11,9 +11,6 @@ import { rectFrame, type Rect, type ShapeSpec, type Size } from "./shape";
  * and the size its author asked for are the node's own (`GraphNode.image`).
  */
 
-/** How far a label stands from the image (Mermaid's `labelPadding`). */
-const LABEL_GAP = 8;
-
 /**
  * The narrowest a labelled image is drawn: the flowchart's `wrappingWidth`,
  * 120 (Mermaid's `imageRawWidth = max(label ? wrappingWidth : 0, …)`,
@@ -21,8 +18,12 @@ const LABEL_GAP = 8;
  */
 const LABELLED_MIN_WIDTH = 120;
 
-/** An image node's `image` when it has none: a hand-built node, drawn as a 0-size image. */
-const NO_IMAGE: NodeImage = { src: "", naturalWidth: 0, naturalHeight: 0, w: null, h: null, constraint: false, pos: "b" };
+/**
+ * An image node's `image` when it has none — a node built by hand, which no
+ * parsed document makes: a 1 x 1 image with no source, so its proportions
+ * are a number.
+ */
+const NO_IMAGE: NodeImage = { src: "", naturalWidth: 1, naturalHeight: 1, w: null, h: null, constraint: false, pos: "b" };
 
 const imageOf = (node: GraphNode | undefined): NodeImage => node?.image ?? NO_IMAGE;
 
@@ -69,7 +70,7 @@ export const IMAGE_SHAPES = {
       const label = labelOf(padded, node);
       return {
         width: Math.max(image.width, label.width),
-        height: image.height + (label.height > 0 ? LABEL_GAP + label.height : 0),
+        height: image.height + (label.height > 0 ? FIGURE_LABEL_GAP + label.height : 0),
       };
     },
     labelRect: (box, padded, node) => {

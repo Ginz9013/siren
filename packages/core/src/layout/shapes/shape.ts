@@ -198,3 +198,9 @@ export function edgesOf(box: Rect): { left: number; right: number; top: number; 
     midY: box.y + box.height / 2,
   };
 }
+
+/**
+ * How far a figure's label stands from the figure — an icon's or an
+ * image's (Mermaid's `labelPadding`, 8 when the node has a label).
+ */
+export const FIGURE_LABEL_GAP = 8;

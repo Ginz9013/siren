@@ -3,6 +3,7 @@ import { DEFAULT_ICON_SIZE } from "../../nodeShapeTraits";
 import {
   closedPath,
   edgesOf,
+  FIGURE_LABEL_GAP,
   FRAME_PAINT,
   pathFrame,
   rectFrame,
@@ -25,9 +26,6 @@ import {
 
 /** An icon node's `icon` when it has none: `shape: icon` read as nothing else. */
 const NO_ICON: NodeIcon = { name: null, form: null, pos: "b", size: DEFAULT_ICON_SIZE };
-
-/** How far a label stands from the figure (Mermaid's `labelPadding`). */
-const LABEL_GAP = 8;
 
 /**
  * How much wider and taller than the icon a square or rounded form is: the
@@ -158,7 +156,7 @@ export const ICON_SHAPES = {
       const label = labelOf(padded, node);
       return {
         width: Math.max(side, label.width),
-        height: side + (label.height > 0 ? LABEL_GAP + label.height : 0),
+        height: side + (label.height > 0 ? FIGURE_LABEL_GAP + label.height : 0),
       };
     },
     labelRect: (box, padded, node) => {

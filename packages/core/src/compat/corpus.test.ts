@@ -1954,7 +1954,7 @@ const SILENTLY_WRONG = 0;
  * `silently-wrong` does not move.
  *
  * **71 → 73: one row falls, three refusals written down for the first
- * time.** `01M51XACZJ8QSCSGEDZE7M4XDK` drew icon nodes from packs the
+ * time.** `01M51XACZJ` drew icon nodes from packs the
  * caller registers: `fc-node-shape-data-undrawn` (`shape: icon`) moved from
  * `rejected` to `supported` (71 → 70). It refused an icon `form`, a `pos`
  * and an `h` Mermaid 12.2.0 draws silently wrong (`fc-node-icon-form-unknown`,
@@ -1974,7 +1974,7 @@ const SILENTLY_WRONG = 0;
  * does not move.
  *
  * **75 → 78: case (2), three refusals written down for the first time.**
- * `01M51XAD6416EJHSDVWB725NRY` drew an image node from a data URL
+ * `01M51XAD64` drew an image node from a data URL
  * (`fc-node-image-data-url`, `supported`) and refused an image at a URL
  * (`fc-node-image-url`), which Mermaid 12.2.0 loads and Siren never fetches
  * — a deliberate departure — and, under ADR-0001, a `constraint` Mermaid

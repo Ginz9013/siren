@@ -1392,4 +1392,6 @@ _Avoid_: icon set, icon library, icon font
 A flowchart node drawn as an image (`A@{ img: "data:image/…", w, h, constraint, pos }`). Its image
 is a `data:` URL the document holds — never one Siren fetches, since it draws without touching the
 network — of a PNG, GIF, JPEG, WebP or SVG, whose natural size is read off the data's own header.
+An image node draws no icon: Mermaid draws a node given both an `img:` and an `icon:` as the image
+and drops the icon without a word, so Siren refuses the pair, saying the icon would be dropped.
 _Avoid_: picture node, image shape (there is no `shape:` name for it)

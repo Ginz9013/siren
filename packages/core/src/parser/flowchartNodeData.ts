@@ -289,6 +289,22 @@ export function readNodeData(written: string): NodeData {
   return { problems, shape, label, mediaKeys };
 }
 
+/**
+ * What each key that shapes an icon or image node shapes, worded for the
+ * warning about one written where it shapes nothing: `form` an icon with an
+ * `icon:`, `constraint` an image, and `pos`, `h` and `w` either. `icon` and
+ * `img` make the node what it is, so they shape it wherever written.
+ */
+const KEY_REACH: Partial<
+  Record<MediaKey, { node: string; given: string; shapes: (kind: "icon" | "image" | null, named: boolean) => boolean }>
+> = {
+  form: { node: "an icon", given: "an icon", shapes: (kind, named) => kind === "icon" && named },
+  constraint: { node: "an image", given: "an image", shapes: (kind) => kind === "image" },
+  pos: { node: "an icon or image", given: "an icon or an image", shapes: (kind) => kind !== null },
+  h: { node: "an icon or image", given: "an icon or an image", shapes: (kind) => kind !== null },
+  w: { node: "an icon or image", given: "an icon or an image", shapes: (kind) => kind !== null },
+};
+
 /** Where a key was written, and a problem with what a node's media keys say. */
 type SettledProblem<At> = { severity: "error" | "warning"; message: string; at: At };
 
@@ -322,21 +338,15 @@ export function settleNodeMedia<At>(
   const img = written.get("img");
   const named = written.get("icon");
   const kind = img !== undefined ? "image" : named !== undefined || shape === "icon" ? "icon" : null;
-  // What each key shapes: `form` an icon with an `icon:`, `constraint` an
-  // image, and `pos`, `h` and `w` either.
-  const shapes = (key: MediaKey) =>
-    key === "form" ? kind === "icon" && named !== undefined : key === "constraint" ? kind === "image" : kind !== null;
   for (const [key, { at }] of written) {
-    if (key === "icon" || key === "img" || shapes(key)) {
-      continue;
+    const reach = KEY_REACH[key];
+    if (reach !== undefined && !reach.shapes(kind, named !== undefined)) {
+      problems.push({
+        severity: "warning",
+        message: `"${key}" only shapes ${reach.node} node, and is ignored here. Remove it, or give the node ${reach.given}`,
+        at,
+      });
     }
-    const what = key === "form" ? "an icon" : key === "constraint" ? "an image" : "an icon or an image";
-    const node = key === "form" ? "an icon" : key === "constraint" ? "an image" : "an icon or image";
-    problems.push({
-      severity: "warning",
-      message: `"${key}" only shapes ${node} node, and is ignored here. Remove it, or give the node ${what}`,
-      at,
-    });
   }
   if (kind === null) {
     return { shape, problems };
@@ -361,7 +371,8 @@ export function settleNodeMedia<At>(
   };
   if (kind === "image") {
     if (named !== undefined) {
-      refuse("icon", "A node draws an icon or an image, not both. Remove one of them");
+      // Mermaid draws the image and drops the icon without a word.
+      refuse("icon", "A node with an image draws the image, so its icon would be dropped. Remove the icon, or the image");
     }
     const w = length("w", 'An image\'s width is a number of pixels above 0, such as "w: 64"');
     const h = length("h", 'An image\'s height is a number of pixels above 0, such as "h: 64"');

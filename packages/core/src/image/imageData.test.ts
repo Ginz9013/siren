@@ -79,6 +79,13 @@ describe("the natural size of a data URL's image", () => {
     }
   });
 
+  it("reads base64 data with ASCII whitespace in it, which the browser strips", () => {
+    const url = dataUrl("image/png", png(40, 20));
+    const [head, data] = url.split(",") as [string, string];
+    const spaced = `${head},${data.slice(0, 5)} ${data.slice(5, 9)}\n${data.slice(9, 20)}\t\r\f${data.slice(20)}\n`;
+    expect(readImageData(spaced)).toEqual({ image: { width: 40, height: 20 } });
+  });
+
   it("refuses data that is not the image its type names", () => {
     expect(readImageData(dataUrl("image/png", [...ascii("GIF89a"), 1, 0, 1, 0]))).toEqual({
       problem: "The image's data is not a PNG image, so its size cannot be read. Check the data, or the type its data URL names",
@@ -111,7 +118,7 @@ describe("an `img:` that Siren does not draw", () => {
     });
   });
 
-  it.each(["data:image/png;base64", "data:image/png;base64,@@@@", "data:image/png;base64,iVBO R"])(
+  it.each(["data:image/png;base64", "data:image/png;base64,@@@@", "data:image/png;base64,iVB=ORw"])(
     "refuses %s as a data URL that is not well-formed",
     (url) => {
       expect(readImageData(url)).toEqual({
@@ -119,6 +126,27 @@ describe("an `img:` that Siren does not draw", () => {
       });
     },
   );
+
+  it("counts the bytes a data URL written as text decodes to, not its characters", () => {
+    const head = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>';
+    // 1.5 million characters of three UTF-8 bytes each: 4.5 MB.
+    expect(readImageData(`data:image/svg+xml,${head}${"字".repeat(1_500_000)}`)).toEqual({
+      problem: "The image is larger than 4 MB, which Siren does not draw. Use a smaller image",
+    });
+    // 4.5 million characters, `%20` 1.5 million times: 1.5 MB.
+    expect(readImageData(`data:image/svg+xml,${head}${"%20".repeat(1_500_000)}`)).toEqual({ image: { width: 1, height: 1 } });
+  });
+
+  it("refuses an image more than 16384 pixels a side, by its header", () => {
+    const problem = (width: number, height: number) => ({
+      problem: `The image is ${width} x ${height} pixels, more than the 16384 a side Siren draws. Use a smaller image`,
+    });
+    expect(readImageData(dataUrl("image/png", png(4294967295, 1)))).toEqual(problem(4294967295, 1));
+    expect(readImageData(dataUrl("image/png", png(1, 16385)))).toEqual(problem(1, 16385));
+    expect(readImageData(dataUrl("image/png", png(16384, 16384)))).toEqual({ image: { width: 16384, height: 16384 } });
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="100000" height="1"/>';
+    expect(readImageData(`data:image/svg+xml,${svg}`)).toEqual(problem(100000, 1));
+  });
 
   it("refuses an image larger than 4 MB", () => {
     const url = `data:image/png;base64,${"A".repeat(Math.ceil(((4 * 1024 * 1024 + 3) * 4) / 3 / 4) * 4)}`;
@@ -161,9 +189,56 @@ describe("the natural size of an SVG data URL", () => {
     expect(readImageData(`data:image/svg+xml,${encodeURIComponent(text)}`)).toEqual({ image: { width: 7, height: 9 } });
   });
 
+  it("reads a length that is not one as not given, as Chrome does", () => {
+    expect(readImageData(svg('width="abc" height="20"'))).toEqual({ image: { width: 300, height: 20 } });
+  });
+
+  it.each(['width="-5" height="20"', 'width="0" height="20"', 'width="-5" viewBox="0 0 40 10"'])(
+    "refuses <svg %s>, which Chrome sizes 0 across, so nothing would be drawn",
+    (attributes) => {
+      expect(readImageData(svg(attributes))).toEqual({
+        problem:
+          'The SVG image is 0 pixels wide or tall, so nothing of it would be drawn. Give its "width" and "height" a size above 0',
+      });
+    },
+  );
+
+  it("reads `;base64` only as a data URL's last parameter, as the browser does", () => {
+    const text = '<svg xmlns="http://www.w3.org/2000/svg" width="7" height="9"/>';
+    // Base64 data under `;base64;charset=…` is read as text, and is no SVG.
+    expect(readImageData(`data:image/svg+xml;base64;charset=utf-8,${btoa(text)}`)).toEqual({
+      problem: "The image's data is not an SVG image, so its size cannot be read. Check the data, or the type its data URL names",
+    });
+    expect(readImageData(`data:image/svg+xml;base64;x=y,${encodeURIComponent(text)}`)).toEqual({ image: { width: 7, height: 9 } });
+    expect(readImageData(`data:image/svg+xml;charset=utf-8;base64,${btoa(text)}`)).toEqual({ image: { width: 7, height: 9 } });
+  });
+
   it("refuses data with no <svg> element", () => {
     expect(readImageData(`data:image/svg+xml;base64,${btoa("<html></html>")}`)).toEqual({
       problem: "The image's data is not an SVG image, so its size cannot be read. Check the data, or the type its data URL names",
     });
+  });
+});
+
+/**
+ * Reading an image's size takes time in proportion to its data, however
+ * the data is written: a document is untrusted text, and one written to
+ * make a pattern backtrack must not stall the page that draws it.
+ */
+describe("reading an image's size in bounded time", () => {
+  const timed = (url: string) => {
+    const start = performance.now();
+    readImageData(url);
+    return performance.now() - start;
+  };
+
+  it("reads a doctype of nested brackets with no end quickly", () => {
+    expect(timed(`data:image/svg+xml,<!DOCTYPE ${"[]]".repeat(17)}`)).toBeLessThan(50);
+    expect(timed(`data:image/svg+xml,<!DOCTYPE ${"[]]".repeat(700)}`)).toBeLessThan(50);
+  });
+
+  it("reads a long run of digits that is no length quickly", () => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${"1".repeat(20000)}x!" height="2"/>`;
+    expect(timed(`data:image/svg+xml,${svg}`)).toBeLessThan(50);
   });
 });
