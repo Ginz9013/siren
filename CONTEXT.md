@@ -818,8 +818,8 @@ declared name, with a generic parameter *not* part of it: `class Registry~T~` ha
 `Registry` and draws as `Registry<T>`. It may carry a bracketed `["label"]` after the name and any
 generic (`class Order["Order<br/>Line"]`, also on the block form), drawn in place of the name and
 generic; the label is a **Label** in the `html` dialect, and the name stays the id. A second
-declaration of the same name merges members rather than erroring (a second, different label is
-ignored with a warning — the first one is kept). May carry one **annotation** (`<<interface>>`, `<<abstract>>`, or any
+declaration of the same name merges members rather than erroring (a later, different label
+replaces the earlier one silently, as Mermaid draws it). May carry one **annotation** (`<<interface>>`, `<<abstract>>`, or any
 author-chosen text), drawn in guillemets above the name — an annotation labels the class it
 is written in, unlike a note, which is a box of its own. A class keeps the generic its first naming
 gave it (none, if that naming wrote none) and the first annotation written; a different one written
