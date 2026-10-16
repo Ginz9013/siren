@@ -276,6 +276,18 @@ const STATEMENTS_A_COMMENT_MAY_FOLLOW = [
   STANDALONE_ANNOTATION_RE,
 ];
 
+/**
+ * The statements a `namespace` body may hold: a class declaration in any
+ * form, a note, a nested namespace — and a comment, which never reaches
+ * here as a statement. Mermaid 12.2.0's grammar takes nothing else there
+ * (measured: a relationship, `<<annotation>> A`, `direction`, `style`,
+ * `classDef`, `cssClass`, `click`, `link`, `callback`, an inline member and
+ * `accTitle` / `accDescr` are each "Expecting 'NAMESPACE', 'CLASS',
+ * 'NOTE_FOR', 'NOTE', got …"). The one place that rule lives: every other
+ * statement is refused where it stands in a namespace (ADR-0017).
+ */
+const NAMESPACE_BODY_STATEMENTS = [NAMESPACE_OPEN_RE, CLASS_BLOCK_OPEN_RE, CLASS_DECL_RE, NOTE_FOR_RE, NOTE_RE];
+
 /** The inline member form, `Bird : +fly()`. */
 const INLINE_MEMBER_RE = /^(\w+)\s*:\s*(.+)$/;
 /**
@@ -568,6 +580,12 @@ export function parseClassDiagram(source: string): DiagramParseResult {
   let lastClosedBlock: { id: string; closedAt: number } | null = null;
   /** How many `namespace` blocks enclose the statement being parsed. */
   let namespaceDepth = 0;
+  /**
+   * The index of the line last refused as no statement at all, or -1: such
+   * a line is not refused as misplaced in a namespace as well, since moving
+   * it out would not make it one.
+   */
+  let unreadLineIndex = -1;
   /**
    * The innermost `namespace` block enclosing the statement being parsed, or
    * `null` at the top level: what a qualified name is built from, and where
@@ -922,9 +940,29 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         // level, which is what lets a namespace hold block-form classes:
         // the inner call consumes that class's own `}`, so it is never
         // mistaken for the namespace's.
-        const holdsStatement = lines[index].trim().length > 0;
+        const statementLine = lines[index];
+        const statement = statementLine.trim();
+        const holdsStatement = statement.length > 0;
         heldStatement ||= holdsStatement;
+        // A statement no namespace may hold is still parsed — so a block
+        // form consumes its own lines, its `}` never mistaken for the
+        // namespace's — and the error, which nulls the document, comes first.
+        const percent = percentOutsideQuotes(statement);
+        const written = percent === -1 ? statement : statement.slice(0, percent).trimEnd();
+        const misplaced = holdsStatement && !NAMESPACE_BODY_STATEMENTS.some((pattern) => pattern.test(written));
+        const misplacedAt = diagnostics.length;
         const lastIndex = holdsStatement ? parseStatement(index, classIds) : index;
+        if (misplaced && unreadLineIndex !== index) {
+          diagnostics.splice(misplacedAt, 0, {
+            severity: "error",
+            message:
+              `"${written}" cannot be written inside "namespace ${namespaceOpenMatch[1]}": ` +
+              "only classes, notes and namespaces go there. Move it outside the namespace.",
+            line: index + 1,
+            column: statementLine.length - statementLine.trimStart().length + 1,
+          });
+          sawError = true;
+        }
         if (pendingNamespaceCloses !== null) {
           const pending = pendingNamespaceCloses;
           pending.count--;
@@ -1473,6 +1511,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         column,
       });
       sawError = true;
+      unreadLineIndex = startIndex;
       return startIndex;
     }
 
@@ -1483,6 +1522,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       column,
     });
     sawError = true;
+    unreadLineIndex = startIndex;
     return startIndex;
   };
 

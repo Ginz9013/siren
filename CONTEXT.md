@@ -889,7 +889,10 @@ qualified name is the same namespace: its blocks merge into one frame holding al
 dotted name is the same nesting on one line: `namespace N.M {` is the `M` inside `N`, creating an
 `N` titled `N` if no block opens one and merging with one that does. A note written in a namespace
 is that namespace's (`ResolvedClassNamespace.noteIds`) and drawn inside its frame, so a namespace
-holding only a note is framed too. A namespace may carry a bracketed `["label"]` after its name
+holding only a note is framed too. A namespace body holds class declarations, notes, nested
+namespaces and comments, and nothing else: a relationship, a `style`, an inline member or any other
+statement written there is refused, to be moved outside the namespace (nook `01M51DSEGE`). A
+namespace may carry a bracketed `["label"]` after its name
 (`namespace Zoo["Big Zoo"] {`), drawn as the frame's title in place of the name — a **Label** in the
 `html` dialect; of a reopened namespace's labels, the last one written wins, and a dotted name's
 label titles its last part only. Addressable in a `timeline:` block under a generated id

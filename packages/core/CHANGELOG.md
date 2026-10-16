@@ -72,6 +72,11 @@ Breaking for a class document that opens one namespace more than once (`namespac
 and later `namespace N { class Y }`): its blocks are now one frame under one `namespace:N` id,
 where each used to be a frame and an id of its own, so the ids after it shift (see **Changed**).
 
+Breaking for a class document with a statement other than a class declaration, a note or a nested
+namespace inside a namespace (a relationship, `<<annotation>> A`, `direction`, `style`,
+`classDef`, `cssClass`, `click`, `link`, `callback`, an inline member, `accTitle` or `accDescr`),
+which is now refused (see **Changed**).
+
 ### Added
 
 - A dotted class namespace name (`namespace N.M { class A }`) is read as Mermaid 12.2.0 reads it
@@ -201,6 +206,13 @@ where each used to be a frame and an id of its own, so the ids after it shift (s
 
 ### Changed
 
+- **A class namespace holds only classes, notes and namespaces** (nook `01M51DSEGE`), as Mermaid
+  12.2.0 reads it: any other statement in a namespace body — a relationship, `<<annotation>> A`,
+  `direction`, `style`, `classDef`, `cssClass`, `click`, `link`, `callback`, an inline member
+  (`A : +x`), `accTitle` or `accDescr` — is refused at that statement, with an error saying to
+  move it outside the namespace. On a one-line, nested or dotted namespace too. Such statements
+  used to be drawn as if written outside, and a namespace holding only `direction LR` drew no frame
+  and gave no diagnostic. A line no statement reads is still refused as unrecognized, once.
 - **A note written in a class namespace is drawn inside its frame** (nook `01M51B440V`, decision
   `01M51B4M3C`), as Mermaid 12.2.0 draws it: `note "x"` and `note for X "x"` alike, the latter
   even when X stands outside the namespace, its connector running out across the frame. In a

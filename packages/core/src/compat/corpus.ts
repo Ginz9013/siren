@@ -4767,6 +4767,30 @@ line2\`"]`,
       "line, with a second error at its `}`.",
   },
   {
+    id: "cls-namespace-body-statement",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo {
+        class Lion
+        class Tiger
+        Lion --> Tiger
+        style Lion fill:#f00
+        Lion : +roar()
+      }`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A namespace holds " +
+      "classes, notes, namespaces and comments, and nothing else: Mermaid " +
+      "12.2.0 refuses a relationship, a standalone `<<annotation>>`, " +
+      "`direction`, `style`, `classDef`, `cssClass`, `click`, `link`, " +
+      "`callback`, an inline member and `accTitle` / `accDescr` there " +
+      "(\"Expecting 'NAMESPACE', 'CLASS', 'NOTE_FOR', 'NOTE', got …\", " +
+      "measured). Siren refuses them too (ADR-0017), with an error at each " +
+      "such statement saying to move it outside the namespace. Siren used " +
+      "to draw them as if written outside, and a namespace holding only " +
+      "`direction LR` as no frame, with no diagnostic.",
+  },
+  {
     id: "cls-namespace-note",
     kind: "class",
     source: `classDiagram

@@ -1753,8 +1753,18 @@ const SILENTLY_WRONG = 0;
  * one error at the name saying what to write. No `supported` row moved.
  * `cls-namespace-dotted`, new beside it, is `supported`. `silently-wrong`
  * does not move.
+ *
+ * **42 → 43: case (2), a refusal written down for the first time.**
+ * `01M51DSEGE` refused every statement but a class declaration, a note and
+ * a nested namespace inside a namespace body, as Mermaid 12.2.0 does
+ * ("Expecting 'NAMESPACE', 'CLASS', 'NOTE_FOR', 'NOTE', got …", measured).
+ * Siren used to draw a relationship, a `style`, an inline member and the
+ * rest there as if written outside, with no row to say so:
+ * `cls-namespace-body-statement` writes it down. No `supported` row moved:
+ * none wrote such a statement in a namespace. `silently-wrong` does not
+ * move.
  */
-const REJECTED = 42;
+const REJECTED = 43;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
