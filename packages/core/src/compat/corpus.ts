@@ -4860,6 +4860,25 @@ line2\`"]`,
       "member, top to bottom.",
   },
   {
+    id: "cls-accdescr-text-after-brace",
+    kind: "class",
+    source: `classDiagram
+      accDescr { Orders and their items } class Order
+      Order --> Item`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** In a class " +
+      "diagram the `}` closing `accDescr { ... }` ends the statement, so " +
+      "Mermaid 12.2.0 refuses anything after it on its line (\"Expecting " +
+      "'NEWLINE', 'EOF', got 'CLASS'\", measured), on a multi-line block's " +
+      "`}` line too; a `%%` comment there holds only on the last line, as " +
+      "after a relationship. Siren refuses it too (ADR-0017), with an error " +
+      "at the text saying to move it to a line of its own. Siren used to " +
+      "read the text as the next statement and draw `Order`, as every other " +
+      "kind's `accDescr { }` reads it, with no row to say so. `class Order` " +
+      "on its own line renders in both.",
+  },
+  {
     id: "cls-direction-td",
     kind: "class",
     source: `classDiagram

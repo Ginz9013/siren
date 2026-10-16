@@ -213,6 +213,8 @@ export function matchClassDirection(line: string): Direction | null {
   return match === null ? null : (CANONICAL_DIRECTION.get(match[1]) ?? null);
 }
 
+const CLASS_DIRECTION_TD_RE = /^direction\s+TD(?=\s*(?:%%|$))/;
+
 /**
  * Whether a class diagram's line is a `direction TD` statement, bare or with
  * a `%%` comment after it. A class diagram has no `TD` alias: measured on
@@ -222,9 +224,7 @@ export function matchClassDirection(line: string): Direction | null {
  * flowchart's `direction` statement reads it through that matcher; this one
  * is how the class parser tells the alias apart before asking.
  */
-const CLASS_DIRECTION_TD_RE = /^direction\s+TD(?=\s*(?:%%|$))/;
-
-export function writesClassDirectionTD(line: string): boolean {
+export function isClassDirectionTD(line: string): boolean {
   return CLASS_DIRECTION_TD_RE.test(line);
 }
 

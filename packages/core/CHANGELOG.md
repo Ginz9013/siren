@@ -563,8 +563,9 @@ for one with text after the `}` that closes an `accDescr { ... }` block on its l
   is a `g.siren-participant` wearing the participant's `data-siren-id`, so a timeline action on the
   participant still reaches it. `PositionedDestroyMark` and the `destroyMark` element kind are
   removed from the positioned layout, and the default theme drops their styles.
-- **A class diagram's `direction TD` is refused** (backlog-batch-1016 T5), alone, after another
-  `direction` or with a `%%` comment, saying to write `direction TB` for top to bottom. Mermaid
+- **A class diagram's `direction TD` is refused** (nook `01M51Q7G098SYMMW8BCGM22H2R`), alone, after
+  another `direction` or with a `%%` comment, saying to write `direction TB` for top to bottom;
+  inside a namespace it gets the namespace's placement error, as `direction LR` there does. Mermaid
   12.2.0's class lexer has no `TD` alias: `direction LR` then `direction TD` is laid out left to
   right, and `direction TD %% x` runs on into the next line. Siren used to read it as TB. A
   flowchart's `direction TD` is unchanged.

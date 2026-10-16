@@ -21,7 +21,7 @@ import type {
 import { entityCodeAt, replaceEntityCodes } from "../label/characterReferences";
 import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
-import { listAcceptedHeaders, matchClassDirection, matchDiagramHeader, writesClassDirectionTD } from "./parseDirection";
+import { isClassDirectionTD, listAcceptedHeaders, matchClassDirection, matchDiagramHeader } from "./parseDirection";
 import { readAccDescrBlock } from "./readAccDescrBlock";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 import { headerPercentError, midLinePercentError } from "./midLinePercent";
@@ -303,7 +303,11 @@ function appliedDirection(line: string): { direction: Direction; index: number }
 /**
  * `class C direction XX`: a class declaration followed by `direction` and a
  * value no direction rule names (`TD`, `lr`, `XX`), which the class rule
- * reads as the one class `CdirectionXX` (measured).
+ * reads as the one class `CdirectionXX` (measured). Only this bare form:
+ * with a `;`, a `%%` comment, a `~generic~` or `:::style` on the line,
+ * Mermaid 12.2.0 draws no such class but refuses the line (a lexical or
+ * parse error, measured), so those keep the unrecognized-line error rather
+ * than one naming a class nobody would see.
  */
 const CLASS_THEN_DIRECTION_RE = /^class\s+(\w+)\s+direction\s+(\w+)$/;
 
@@ -343,9 +347,12 @@ function readDirectionStatement(line: string): Direction | null {
  * wherever it stands (measured) — unless the comment names a direction the
  * lexer applies instead, its `.*` reaching it (`appliedDirection`):
  * `direction LR %% direction RL` lays the diagram out right to left, while
- * `direction RL %% direction LR` is RL either way (measured). `direction TD`
- * names no direction to that rule; with nothing after it that does, the
- * statement parser refuses it (`writesClassDirectionTD`).
+ * `direction RL %% direction LR` is RL either way (measured). `own` reads
+ * `direction TD` as TB, since `matchClassDirection` keeps the flowchart's
+ * alias: `direction TD %% direction LR` is therefore no statement here and
+ * is refused for the `direction LR` the lexer applies, while `direction TD
+ * %% x` is one, which the statement parser refuses before reading it
+ * (`isClassDirectionTD`).
  */
 function isDirectionWithComment(line: string, percent: number): boolean {
   const own = readDirectionStatement(line.slice(0, percent).trimEnd());
@@ -987,9 +994,12 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     const lineNumber = startIndex + 1;
     const column = textColumn(rawLine);
 
-    // `TD` is a flowchart's alias, not a class diagram's (backlog-batch-1016
-    // T5): refused wherever it stands, saying which spelling to write.
-    if (writesClassDirectionTD(line)) {
+    // `TD` is a flowchart's alias, not a class diagram's: refused saying
+    // which spelling to write. Inside a namespace the placement is the
+    // problem, as for any `direction` there, so the namespace's one error
+    // says so and this one is not added.
+    if (isClassDirectionTD(line)) {
+      if (namespaceMembers !== null) return { lastIndex: startIndex, read: "direction" };
       diagnostics.push({
         severity: "error",
         message: "`direction TD` is not a class-diagram direction: write `direction TB` for top to bottom.",
@@ -1040,8 +1050,8 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       }
       accDescr = block.description;
       if (block.rest === null) return { lastIndex: block.closeIndex, read: "accessibility" };
-      // Unlike every other kind's, a class diagram's `}` must end its line
-      // (backlog-batch-1016 T5): Mermaid 12.2.0 refuses `accDescr { d }
+      // Unlike every other kind's, a class diagram's `}` must end its line:
+      // Mermaid 12.2.0 refuses `accDescr { d }
       // class C` and a multi-line block's `} direction LR` ("Expecting
       // 'NEWLINE', 'EOF', got …", measured), so the text after it is
       // refused rather than read as the next statement (ADR-0017). A `%%`
@@ -1059,7 +1069,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       } else {
         diagnostics.push({
           severity: "error",
-          message: `Nothing may follow the \`}\` that closes \`accDescr { ... }\` on its line: move ${JSON.stringify(rest)} to a line of its own.`,
+          message: `Nothing may follow the \`}\` that closes \`accDescr { ... }\` on its line: move ${codeSpan(rest)} to a line of its own.`,
           line: restLine,
           column: restColumn,
         });
@@ -1764,7 +1774,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     // words into one name — measured on Mermaid 12.2.0 (Chrome), `class C
     // direction XX`, `… TD` and `… lr` each draw one class, `CdirectionXX`
     // and so on, and set no direction. A picture nobody wrote (ADR-0001),
-    // refused saying so (backlog-batch-1016 T5).
+    // refused saying so.
     const gluedDirection = CLASS_THEN_DIRECTION_RE.exec(line);
     if (gluedDirection !== null) {
       diagnostics.push({
