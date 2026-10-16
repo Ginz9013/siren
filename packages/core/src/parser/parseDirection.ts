@@ -214,6 +214,21 @@ export function matchClassDirection(line: string): Direction | null {
 }
 
 /**
+ * Whether a class diagram's line is a `direction TD` statement, bare or with
+ * a `%%` comment after it. A class diagram has no `TD` alias: measured on
+ * Mermaid 12.2.0, its class lexer has no rule for it, so `direction LR` then
+ * `direction TD` is laid out left to right, and `direction TD %% x` runs on
+ * into the next line. `matchClassDirection` still resolves `TD`, because the
+ * flowchart's `direction` statement reads it through that matcher; this one
+ * is how the class parser tells the alias apart before asking.
+ */
+const CLASS_DIRECTION_TD_RE = /^direction\s+TD(?=\s*(?:%%|$))/;
+
+export function writesClassDirectionTD(line: string): boolean {
+  return CLASS_DIRECTION_TD_RE.test(line);
+}
+
+/**
  * A state diagram's `direction` statement, which unlike a class diagram's is
  * read in any case, keyword and value alike: measured on Mermaid 12.2.0,
  * `Direction Rl` sets RL and `direction Td` sets TB in a state diagram,

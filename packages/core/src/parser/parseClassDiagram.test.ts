@@ -550,14 +550,20 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     expect(withoutDirection.document.direction).toBe("TB");
   });
 
-  it("accepts the TD alias for TB, exactly as the flowchart header does", () => {
-    const parsed = parseOk(`classDiagram
+  it("refuses `direction TD`: a class diagram has no TD alias, unlike a flowchart", () => {
+    // backlog-batch-1016 T5, measured on Mermaid 12.2.0: the class lexer
+    // has no `TD` rule, so `direction TD` sets nothing (`direction LR` then
+    // `direction TD` is laid out left to right) — the full set of cases is
+    // in the describe block on `direction TD` below.
+    const parsed = parseClassDiagram(`classDiagram
   direction TD
   Animal <|-- Duck
 `);
 
-    expect(parsed.diagnostics).toEqual([]);
-    expect(parsed.document.direction).toBe("TB");
+    expect(parsed.document).toBeNull();
+    expect(parsed.diagnostics.map((d) => d.message)).toEqual([
+      "`direction TD` is not a class-diagram direction: write `direction TB` for top to bottom.",
+    ]);
   });
 
   it("parses a click href interaction, with and without the trailing tooltip", () => {
@@ -1294,6 +1300,40 @@ describe("parseClassDiagram — accTitle and accDescr", () => {
     for (const source of ["classDiagram\n  accDescr {\n  }\n  class A\n", "classDiagram\n  accDescr {\n  one\n  class A\n"]) {
       expect([source, parseClassDiagram(source).document]).toEqual([source, null]);
     }
+  });
+
+  it("refuses text after the block's closing `}`, at that text", () => {
+    // backlog-batch-1016 T5, measured on Mermaid 12.2.0: unlike a
+    // flowchart's, a class diagram's `}` must end its line — `accDescr { d }
+    // class C`, `… } foo` and a multi-line block's `} direction LR` are
+    // parse errors ("Expecting 'NEWLINE', 'EOF', got …").
+    const after = (rest: string) =>
+      `Nothing may follow the \`}\` that closes \`accDescr { ... }\` on its line: move "${rest}" to a line of its own.`;
+    for (const [source, rest, line, column] of [
+      ["classDiagram\n  accDescr { d } class C\n  class A", "class C", 2, 18],
+      ["classDiagram\n  accDescr { d } foo\n  class A", "foo", 2, 18],
+      ["classDiagram\n  accDescr {\n    d\n  } direction LR\n  class A", "direction LR", 4, 5],
+    ] as const) {
+      const { document, diagnostics } = parseClassDiagram(source);
+      expect([source, document, diagnostics]).toEqual([
+        source,
+        null,
+        [{ severity: "error", message: after(rest), line, column }],
+      ]);
+    }
+  });
+
+  it("reads a `%%` comment after the block's `}` on the last line only, as after any statement", () => {
+    // Measured: `accDescr { d } %% x` as the document's last line is drawn
+    // with the description; followed by another line it is a parse error.
+    const last = parseOk("classDiagram\n  class A\n  accDescr { d } %% x");
+    expect(last.diagnostics).toEqual([]);
+    expect(last.document.accDescr).toBe("d");
+    const { document, diagnostics } = parseClassDiagram("classDiagram\n  accDescr { d } %% x\n  class A");
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => [d.message.startsWith('A "%%" in the middle of a line'), d.line, d.column])).toEqual([
+      [true, 2, 18],
+    ]);
   });
 });
 
@@ -2570,18 +2610,41 @@ describe("parseClassDiagram — a `direction` written inside another line", () =
 
   it("leaves a `%%` comment line, and a direction value the rule does not name, to the rules they meet", () => {
     // Measured: a line that starts with `%%` is removed before the lexer
-    // runs, as `parseSiren` removes it; `class C direction lr`, `class C
-    // direction TD` and `class C direction XX` are each one class,
-    // `Cdirectionlr` and so on — no direction is read — which Siren refuses
-    // as an unrecognized line.
+    // runs, as `parseSiren` removes it; `Direction LR` is no statement, which
+    // Siren refuses as an unrecognized line.
     const comment = parseSiren("classDiagram\n  %% direction LR\n  class C");
     expect(comment.diagnostics).toEqual([]);
     expect(comment.document?.kind === "class" ? comment.document.direction : null).toBe("TB");
-    for (const statement of ["class C direction lr", "class C direction TD", "class C direction XX", "Direction LR"]) {
+    expect(refusedAt("Direction LR")).toEqual([
+      "Direction LR",
+      null,
+      [{ severity: "error", message: 'Unrecognized classDiagram line: "Direction LR"', line: 3, column: 3 }],
+    ]);
+  });
+
+  it("refuses `class C direction XX` saying it is one class, and where the direction goes", () => {
+    // backlog-batch-1016 T5, measured on Mermaid 12.2.0 (Chrome): `class C
+    // direction lr`, `class C direction TD` and `class C direction XX` are
+    // each one class, `Cdirectionlr`, `CdirectionTD`, `CdirectionXX` — no
+    // direction is read — a picture nobody wrote (ADR-0001).
+    for (const [statement, name] of [
+      ["class C direction XX", "CdirectionXX"],
+      ["class C direction TD", "CdirectionTD"],
+      ["class C direction lr", "Cdirectionlr"],
+    ] as const) {
       expect(refusedAt(statement)).toEqual([
         statement,
         null,
-        [{ severity: "error", message: `Unrecognized classDiagram line: "${statement}"`, line: 3, column: 3 }],
+        [
+          {
+            severity: "error",
+            message:
+              `\`${statement}\` would declare one class named \`${name}\`, not a class and a direction. ` +
+              "Write the direction on a line of its own, such as `direction LR`.",
+            line: 3,
+            column: 3,
+          },
+        ],
       ]);
     }
   });
@@ -2643,5 +2706,41 @@ describe("parseClassDiagram — an entity code in a member", () => {
       ["method", "#lt;foo", ""],
       ["method", "f#lt;oo", "int a"],
     ]);
+  });
+});
+
+/**
+ * `direction TD` in a class diagram (backlog-batch-1016 T5), measured on
+ * Mermaid 12.2.0: the class lexer has no `TD` rule, so `direction LR` then
+ * `direction TD` is laid out left to right, and `direction TD %% x` runs on
+ * into the next line (`A --> B` after it draws a class `directionTDA`).
+ * Refused wherever it stands, saying to write `TB`; a flowchart's `TD` is
+ * untouched.
+ */
+describe("parseClassDiagram — `direction TD`", () => {
+  const NOT_A_DIRECTION = "`direction TD` is not a class-diagram direction: write `direction TB` for top to bottom.";
+
+  it("refuses it alone, after another direction, and with a `%%` comment, at its `direction`", () => {
+    for (const [source, line] of [
+      ["classDiagram\n  direction TD\n  A --> B", 2],
+      ["classDiagram\n  direction LR\n  direction TD\n  A --> B", 3],
+      ["classDiagram\n  direction TD %% x\n  A --> B", 2],
+      ["classDiagram\n  A --> B\n  direction TD", 3],
+    ] as const) {
+      const { document, diagnostics } = parseClassDiagram(source);
+      expect([source, document, diagnostics]).toEqual([
+        source,
+        null,
+        [{ severity: "error", message: NOT_A_DIRECTION, line, column: 3 }],
+      ]);
+    }
+  });
+
+  it("still reads `direction TD` written as a member inside a class block", () => {
+    // Measured: the block's body is another lexer state; the member is drawn.
+    const { document, diagnostics } = parseOk("classDiagram\n  class A {\n    direction TD\n  }");
+    expect(diagnostics).toEqual([]);
+    expect(document.direction).toBe("TB");
+    expect(document.classes[0].members).toHaveLength(1);
   });
 });

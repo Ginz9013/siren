@@ -4860,6 +4860,42 @@ line2\`"]`,
       "member, top to bottom.",
   },
   {
+    id: "cls-direction-td",
+    kind: "class",
+    source: `classDiagram
+      direction LR
+      direction TD
+      Order --> Item`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A class " +
+      "diagram has no `TD` alias: Mermaid 12.2.0's class lexer has no rule " +
+      "for it, so `direction TD` sets nothing and this diagram is laid out " +
+      "left to right (measured, Chrome), not top to bottom as the last " +
+      "statement says. `direction TD %% x` is worse, running on into the " +
+      "next line (`Order --> Item` after it draws a class " +
+      "`directionTDOrder`). Siren refuses `direction TD` wherever it stands " +
+      "(ADR-0001), with one error saying to write `direction TB`. Siren used " +
+      "to read it as TB. A flowchart's `direction TD` is a real alias and is " +
+      "unaffected.",
+  },
+  {
+    id: "cls-class-then-direction-value",
+    kind: "class",
+    source: `classDiagram
+      class Order direction XX`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A value no " +
+      "direction rule names (`XX`, `TD`, `lr`) leaves the line to the class " +
+      "rule, which glues its words into one name: Mermaid 12.2.0 draws the " +
+      "single class `OrderdirectionXX` and sets no direction (measured, " +
+      "Chrome). Siren refuses it (ADR-0001), with one error naming the class " +
+      "the line would declare and saying to write the direction on a line " +
+      "of its own. Siren refused it before as an unrecognized line, with no " +
+      "row to say so.",
+  },
+  {
     id: "cls-namespace-body-statement",
     kind: "class",
     source: `classDiagram

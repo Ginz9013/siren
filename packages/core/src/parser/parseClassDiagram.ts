@@ -21,7 +21,7 @@ import type {
 import { entityCodeAt, replaceEntityCodes } from "../label/characterReferences";
 import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
-import { listAcceptedHeaders, matchClassDirection, matchDiagramHeader } from "./parseDirection";
+import { listAcceptedHeaders, matchClassDirection, matchDiagramHeader, writesClassDirectionTD } from "./parseDirection";
 import { readAccDescrBlock } from "./readAccDescrBlock";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 import { headerPercentError, midLinePercentError } from "./midLinePercent";
@@ -301,6 +301,13 @@ function appliedDirection(line: string): { direction: Direction; index: number }
 }
 
 /**
+ * `class C direction XX`: a class declaration followed by `direction` and a
+ * value no direction rule names (`TD`, `lr`, `XX`), which the class rule
+ * reads as the one class `CdirectionXX` (measured).
+ */
+const CLASS_THEN_DIRECTION_RE = /^class\s+(\w+)\s+direction\s+(\w+)$/;
+
+/**
  * The same rule across a line break: its `\s+` matches one, blank lines
  * too, so a line ending in `direction` (`DIRECTION_AT_END_RE`) and the next
  * non-blank line starting with a value (`DIRECTION_CONTINUED_RE`, `TBD`
@@ -337,8 +344,8 @@ function readDirectionStatement(line: string): Direction | null {
  * lexer applies instead, its `.*` reaching it (`appliedDirection`):
  * `direction LR %% direction RL` lays the diagram out right to left, while
  * `direction RL %% direction LR` is RL either way (measured). `direction TD`
- * names no direction to that rule; with nothing after it that does, it is
- * read as written.
+ * names no direction to that rule; with nothing after it that does, the
+ * statement parser refuses it (`writesClassDirectionTD`).
  */
 function isDirectionWithComment(line: string, percent: number): boolean {
   const own = readDirectionStatement(line.slice(0, percent).trimEnd());
@@ -980,6 +987,19 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     const lineNumber = startIndex + 1;
     const column = textColumn(rawLine);
 
+    // `TD` is a flowchart's alias, not a class diagram's (backlog-batch-1016
+    // T5): refused wherever it stands, saying which spelling to write.
+    if (writesClassDirectionTD(line)) {
+      diagnostics.push({
+        severity: "error",
+        message: "`direction TD` is not a class-diagram direction: write `direction TB` for top to bottom.",
+        line: lineNumber,
+        column,
+      });
+      sawError = true;
+      return { lastIndex: startIndex, read: "direction" };
+    }
+
     const directionStatement = readDirectionStatement(line);
     if (directionStatement !== null) {
       direction = directionStatement;
@@ -1020,8 +1040,32 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       }
       accDescr = block.description;
       if (block.rest === null) return { lastIndex: block.closeIndex, read: "accessibility" };
-      lines[block.closeIndex] = block.rest;
-      return { lastIndex: block.closeIndex - 1, read: "accessibility" };
+      // Unlike every other kind's, a class diagram's `}` must end its line
+      // (backlog-batch-1016 T5): Mermaid 12.2.0 refuses `accDescr { d }
+      // class C` and a multi-line block's `} direction LR` ("Expecting
+      // 'NEWLINE', 'EOF', got …", measured), so the text after it is
+      // refused rather than read as the next statement (ADR-0017). A `%%`
+      // there is a comment on the document's last line and refused on any
+      // other, as after the statements in `STATEMENTS_A_COMMENT_MAY_FOLLOW`
+      // (measured).
+      const rest = block.rest.trim();
+      const restLine = block.closeIndex + 1;
+      const restColumn = block.rest.length - block.rest.trimStart().length + 1;
+      if (rest.startsWith("%%")) {
+        if (block.closeIndex !== lastStatementIndex) {
+          diagnostics.push(midLinePercentError(restLine, restColumn));
+          sawError = true;
+        }
+      } else {
+        diagnostics.push({
+          severity: "error",
+          message: `Nothing may follow the \`}\` that closes \`accDescr { ... }\` on its line: move ${JSON.stringify(rest)} to a line of its own.`,
+          line: restLine,
+          column: restColumn,
+        });
+        sawError = true;
+      }
+      return { lastIndex: block.closeIndex, read: "accessibility" };
     }
 
     const namespaceOpenMatch = NAMESPACE_OPEN_RE.exec(line);
@@ -1708,6 +1752,26 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         message:
           `Member "${line}" is outside class "${lastClosedBlock.id}": the "}" on line ${previous + 1} already closed its block. ` +
           'Move the "}" below the class\'s last member.',
+        line: lineNumber,
+        column,
+      });
+      sawError = true;
+      return { lastIndex: startIndex, read: null };
+    }
+
+    // `class C direction XX`: a value the direction rules do not name
+    // (`DIRECTION_RULES`) leaves the line to the class rule, which glues its
+    // words into one name — measured on Mermaid 12.2.0 (Chrome), `class C
+    // direction XX`, `… TD` and `… lr` each draw one class, `CdirectionXX`
+    // and so on, and set no direction. A picture nobody wrote (ADR-0001),
+    // refused saying so (backlog-batch-1016 T5).
+    const gluedDirection = CLASS_THEN_DIRECTION_RE.exec(line);
+    if (gluedDirection !== null) {
+      diagnostics.push({
+        severity: "error",
+        message:
+          `\`${line}\` would declare one class named \`${gluedDirection[1]}direction${gluedDirection[2]}\`, ` +
+          "not a class and a direction. Write the direction on a line of its own, such as `direction LR`.",
         line: lineNumber,
         column,
       });

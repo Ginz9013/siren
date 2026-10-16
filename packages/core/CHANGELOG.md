@@ -93,6 +93,11 @@ Breaking for a class document with an entity code or a character reference in a 
 (`+#lt; x`, `+foo(#9829;)`, `+&lt x`), which used to be drawn as written and is now drawn decoded,
 `+< x`, `+foo(♥)` and `+< x` (see **Changed**).
 
+Breaking for a class document with `direction TD`, which used to be read as `direction TB`, and
+for one with text after the `}` that closes an `accDescr { ... }` block on its line
+(`accDescr { d } class C`), which used to be read as the next statement. Each is now refused (see
+**Changed**).
+
 ### Added
 
 - A dotted class namespace name (`namespace N.M { class A }`) is read as Mermaid 12.2.0 reads it
@@ -558,6 +563,20 @@ Breaking for a class document with an entity code or a character reference in a 
   is a `g.siren-participant` wearing the participant's `data-siren-id`, so a timeline action on the
   participant still reaches it. `PositionedDestroyMark` and the `destroyMark` element kind are
   removed from the positioned layout, and the default theme drops their styles.
+- **A class diagram's `direction TD` is refused** (backlog-batch-1016 T5), alone, after another
+  `direction` or with a `%%` comment, saying to write `direction TB` for top to bottom. Mermaid
+  12.2.0's class lexer has no `TD` alias: `direction LR` then `direction TD` is laid out left to
+  right, and `direction TD %% x` runs on into the next line. Siren used to read it as TB. A
+  flowchart's `direction TD` is unchanged.
+- **Text after a class diagram's `accDescr { ... }` closing `}` is refused** (`accDescr { d } class
+  C`, a multi-line block's `} direction LR`), saying to move it to a line of its own, as Mermaid
+  12.2.0 refuses it in a class diagram; Siren used to read it as the next statement. A `%%` comment
+  there is read on the document's last line and refused on any other, as after a relationship.
+  Other diagram kinds are unchanged.
+- **`class C direction XX` is refused with an explanation** instead of as an unrecognized line: the
+  error says the line would declare one class named `CdirectionXX` and to write the direction on a
+  line of its own. Mermaid 12.2.0 draws that one class for any value no direction rule names (`XX`,
+  `TD`, `lr`).
 
 ### Fixed
 

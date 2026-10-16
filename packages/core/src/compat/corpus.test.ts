@@ -1796,8 +1796,19 @@ const SILENTLY_WRONG = 0;
  * mid-line `%%` for the `%%`), with no row to say so:
  * `cls-direction-inside-line` writes it down. No `supported` row moved:
  * none wrote a direction inside a line. `silently-wrong` does not move.
+ *
+ * **46 → 48: one refusal new, one written down for the first time.**
+ * `backlog-batch-1016` T5 refused a class diagram's `direction TD`, which
+ * Mermaid 12.2.0's class lexer has no rule for: `direction LR` then
+ * `direction TD` is laid out left to right (measured), and Siren used to
+ * read it as TB with no diagnostic, with no row to say so:
+ * `cls-direction-td` writes it down. It also gave `class C direction XX`,
+ * which Mermaid draws as the one class `CdirectionXX` (measured) and Siren
+ * already refused as an unrecognized line, an error saying so:
+ * `cls-class-then-direction-value`. No `supported` row moved: none wrote
+ * `direction TD` in a class diagram. `silently-wrong` does not move.
  */
-const REJECTED = 46;
+const REJECTED = 48;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
