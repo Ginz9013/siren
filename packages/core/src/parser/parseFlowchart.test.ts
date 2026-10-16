@@ -3158,7 +3158,6 @@ describe("a styling value holding an `@`, a brace or an arrow", () => {
     ["style A fill:a=b", "=", 17, "fill:a=b"],
     ["style A stroke-dasharray:5--5", "--", 29, "stroke-dasharray:5--5"],
     ["style A fill:a-.b", "-.", 17, "fill:a-.b"],
-    ["style A stroke:var(--x)", "--", 22, "stroke:var(--x)"],
   ])("refuses %j at it", (written, token, column, declarations) => {
     const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> B\n  ${written}`);
 
@@ -3360,6 +3359,81 @@ describe("the shape table and the shape names", () => {
 });
 
 /**
+ * A styling value holding a bracket, a `|` or a `->`. Measured on Mermaid
+ * 12.2.0: `fill:rgb(255,0,0)` ("got 'PS'"), `fill:a(b`, `fill:a)b`,
+ * `fill:a[b]`, `fill:a]b`, `fill:a|b` ("got 'PIPE'") and `fill:a->b`
+ * ("got 'MINUS'") are parse errors in `style`, `classDef` and `linkStyle`
+ * alike — in headless Chrome, `style A fill:rgb(255,0,0)` draws nothing at
+ * all, escaped commas or not, while `fill:#f00` paints the node.
+ */
+describe("a styling value holding a bracket, a pipe or a `->`", () => {
+  it.each([
+    ["style A fill:rgb(255,0,0)", "(", 19, "fill:rgb(255,0,0)", "Write the color as #ff0000"],
+    ["classDef c fill:rgba(0,128,255,0.5)", "(", 23, "fill:rgba(0,128,255,0.5)", "Write a color as a hex color or a name, such as #f00"],
+    ["linkStyle 0 stroke:rgb(0, 128, 255)", "(", 25, "stroke:rgb(0, 128, 255)", "Write the color as #0080ff"],
+    // Refused at its `(` now, before the `--` inside it.
+    ["style A stroke:var(--x)", "(", 21, "stroke:var(--x)", "Write a color as a hex color or a name, such as #f00"],
+    ["style A fill:a)b", ")", 17, "fill:a)b", "Leave it out"],
+    ["style A fill:a[b]", "[", 17, "fill:a[b]", "Leave it out"],
+    ["style A fill:a]b", "]", 17, "fill:a]b", "Leave it out"],
+    ["style A fill:a|b", "|", 17, "fill:a|b", "Leave it out"],
+    ["style A fill:a->b", "->", 17, "fill:a->b", "Leave it out"],
+  ])("refuses %j at it", (written, token, column, declarations, fix) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> B\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `A style declaration cannot hold "${token}": ${declarations}. ${fix}`,
+        line: 3,
+        column,
+      },
+    ]);
+  });
+});
+
+/**
+ * An `@` in the first word of an edge's `|label|`. Measured on Mermaid
+ * 12.2.0: `|a@b|`, `|@b|`, `|a@|`, `|a@ b|` and `|é@b|` are parse errors
+ * (the word read as an edge id, "got 'LINK_ID'"), while `|x a@b y|`,
+ * `|a @b|`, `| a@b|` and `|"a@b"|` are labels as written, and so is the
+ * other spelling, `A -- a@b --> B`.
+ */
+describe("an `@` in the first word of an edge's `|label|`", () => {
+  it.each([
+    ["A -->|a@b| B", 10, 'A -->|"a@b"| B'],
+    ["A -->|@b| B", 9, 'A -->|"@b"| B'],
+    ["A -->|a@ b| B", 10, 'A -->|"a@ b"| B'],
+  ])("refuses %j at the `@`, saying to quote the label", (written, column, fixed) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `An edge label without quotes cannot begin with a word holding "@". Put the whole label in quotes: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it.each([
+    ["A -->|x a@b y| B", "x a@b y"],
+    ["A -->|a @b| B", "a @b"],
+    ["A -->| a@b| B", "a@b"],
+    ['A -->|"a@b"| B', "a@b"],
+    ["A -- a@b --> B", "a@b"],
+  ])("draws %j with the label as written", (written, label) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => edge.label?.text)).toEqual([label]);
+  });
+});
+
+/**
  * A style aimed at a small circle or an anchor by name. Measured in Chrome:
  * Mermaid 12.2.0 draws both in their own paint whatever `style A …`,
  * `class A c` or `A:::c` says — the declaration silently does nothing — so
@@ -3387,5 +3461,84 @@ describe("a style aimed at a shape drawn in its own paint", () => {
   it("takes `classDef default` on a small circle and an anchor without a word", () => {
     const { diagnostics } = parseOk("flowchart TB\n  A@{ shape: sm-circ } --> B@{ shape: anchor }\n  classDef default fill:#f00");
     expect(diagnostics).toEqual([]);
+  });
+});
+
+/**
+ * A `|label|` opening with a quoted run and going on after it. Measured on
+ * Mermaid 12.2.0: `|"a" b|` is the label `a b`, `|"a"b|` is `ab` and
+ * `|"a" |` is `a` — the quotes come off the run and what follows is kept —
+ * while a quote after a space (`| "a" |`, `| "a"|`) is a parse error
+ * ("got 'STR'").
+ */
+describe("a `|label|` opening with a quoted run", () => {
+  it.each([
+    ['A -->|"a" b| B', "a b"],
+    ['A -->|"a"b| B', "ab"],
+    ['A -->|"a" | B', "a"],
+    ['A -->|"a{b" c| B', "a{b c"],
+  ])("draws %j as %j", (written, label) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => edge.label?.text)).toEqual([label]);
+  });
+
+  it.each([
+    ['A -->| "a" | B', 10],
+    ['A -->| "a"| B', 10],
+  ])("refuses %j at a quote written after a space", (written, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'An edge label can be quoted only as a whole. Put the whole label in quotes: A -->|"a"| B',
+        line: 2,
+        column,
+      },
+    ]);
+  });
+});
+
+/**
+ * An accessibility line holding a `;`. Measured on Mermaid 12.2.0:
+ * `accTitle: a --> b; C --> D` is the title `a --> b; C --> D`, drawing no
+ * edge C-D, `accDescr: c --> d; C --> D` the description likewise, and
+ * `accTitle: t;` the title `t;` — the line keeps everything after its `:`.
+ */
+describe("an accessibility line holding a `;`", () => {
+  it.each([
+    ["accTitle: a --> b; C --> D", "a --> b; C --> D", null],
+    ["accDescr: c --> d; C --> D", null, "c --> d; C --> D"],
+    ["accTitle: t;", "t;", null],
+    ["A --> B; accTitle: x; C --> D", "x; C --> D", null],
+  ])("keeps %j whole, drawing no edge from it", (written, accTitle, accDescr) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}\n  A --> B`);
+
+    expect(diagnostics).toEqual([]);
+    expect([document.accTitle, document.accDescr]).toEqual([accTitle, accDescr]);
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual(
+      written.startsWith("A --> B") ? [["A", "B"], ["A", "B"]] : [["A", "B"]],
+    );
+  });
+});
+
+/**
+ * A `<` in a `|label|` that opens no tag Siren draws. Measured on Mermaid
+ * 12.2.0 in headless Chrome: `A -->|a<b| B` draws the label `a`, the `<b`
+ * read as the start of a tag and dropped, and `A -->|a < b| B` draws
+ * `a < b`. Siren reads its labels the same way already; pinned here.
+ */
+describe("a `<` in an edge's `|label|`", () => {
+  it.each([
+    ["A -->|a<b| B", "a"],
+    ["A -->|a < b| B", "a < b"],
+  ])("draws %j as %j", (written, label) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => edge.label?.text)).toEqual([label]);
   });
 });

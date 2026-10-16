@@ -8,6 +8,14 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+Breaking for a flowchart `style`, `classDef` or `linkStyle` whose value uses a CSS function —
+`fill:rgb(255,0,0)`, `stroke:rgba(…)`, `fill:hsl(…)`, `stroke:var(--x)` — or holds a `(`, `)`, `[`,
+`]`, `|` or `->`, which is now refused: Mermaid 12.2.0 draws nothing at all for such a document.
+Write the colour as a hex colour or a name instead (`fill:#ff0000`, `fill:red`); for `rgb(r,g,b)`
+the message gives the hex to write. Breaking too for an edge `|label|` beginning with a word that
+holds an `@` (`A -->|a@b| B`) or with a quote after a space (`A -->| "a" | B`), which is now
+refused (see **Changed**).
+
 Breaking for a flowchart `style`, `classDef` or `linkStyle` whose declarations hold an `@`, a `{`
 or `}`, an arrow, or any run an arrow is made of — two dashes (`stroke:var(--x)`, `stroke:a--b`),
 a dash and a dot (`fill:a-.b`), an `=` or a `~` (`fill:a=b`, `fill:a~b`) — and for an edge
@@ -424,6 +432,17 @@ divider and now takes none (see **Changed**).
   author's `style`, as in Mermaid 12.2.0; a `style`, `class` or `:::` naming a small circle
   (`sm-circ`) or an anchor is refused where it is written, since it would change nothing.
 - A cloud's outline is fitted to its box exactly, however tall its label.
+- **A flowchart styling value holding a CSS function, a bracket, a `|` or a `->` is refused** (nook
+  `01M51Z206K`): `style A fill:rgb(255,0,0)` and every other `(`…`)` value (`rgba(`, `hsl(`,
+  `var(--x)`), `fill:a[b]`, `fill:a|b` and `fill:a->b` are parse errors in Mermaid 12.2.0, which
+  draws nothing for the document (measured in headless Chrome); Siren used to draw them. Each is
+  refused at the character: an `rgb(r,g,b)` colour is told the hex to write (`Write the color as
+  #ff0000`), another colour function to write a hex colour or a name, and anything else to leave
+  it out.
+- **An edge `|label|` beginning with a word that holds an `@`, or with a quote after a space, is
+  refused** (nook `01M51Z206K`): `A -->|a@b| B` (read as an edge id) and `A -->| "a" | B` are parse
+  errors in Mermaid 12.2.0, and Siren drew them. Each says to put the whole label in quotes;
+  `A -->|x a@b| B` and `A -- a@b --> B` are drawn as before.
 - A label written for a flowchart shape that draws no text — in brackets (`A[Ready]@{ shape: fork
   }`), as the block's `label:`, or on another line for the same node — is refused where it was
   written (nook `01M51XACB6`): Mermaid 12.2.0 drops it and draws the bare shape.
@@ -944,6 +963,12 @@ divider and now takes none (see **Changed**).
 
 ### Fixed
 
+- A flowchart `|label|` opening with a quoted run keeps what follows it, as Mermaid 12.2.0 joins
+  them (nook `01M51Z206K`): `A -->|"a" b| B` is drawn `a b` and `A -->|"a"b| B` `ab`; they used to
+  be drawn with their quotes.
+- A flowchart `accTitle:` or `accDescr:` holding a `;` keeps the whole line (nook `01M51Z206K`):
+  `accTitle: a --> b; C --> D` is the title `a --> b; C --> D`, as Mermaid 12.2.0 reads it, and
+  draws no edge C-D. It used to be cut at the `;`.
 - `render()` no longer throws a `TypeError` for a flowchart edge between subgraphs nested inside one
   that keeps a `direction` (nook `01M521TCGA`): `subgraph A` with `direction LR` holding `B`, which
   holds `F` and a subgraph `C` holding `G`, with `F --> G`. A subgraph such an edge crosses is now

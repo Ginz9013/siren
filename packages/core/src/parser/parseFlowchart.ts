@@ -744,13 +744,15 @@ const ARROW_PARTS_RE = new RegExp(`^${ARROW_TOKEN}$`, "d");
  * `null` when it holds nothing of the kind. Measured: a bracket outside
  * quotes (`A -->|a{b| B`, and `}`, `(`, `)`, `[`, `]`) and a quote anywhere
  * but where the label opens (`A -->|a"{"b| B`, `A -->|a "b"| B`) are parse
- * errors, while `A -->|"a{b"| B` and the other spelling, `A -- a{b --> B`,
- * are labels as written. Offsets are string indices, so a column counts
+ * errors, and so is an `@` in a first word written right after the `|`
+ * (`A -->|a@b| B`, read as an edge id), while `A -->|"a{b"| B`,
+ * `A -->|x a@b| B` and the other spelling, `A -- a{b --> B`, are labels as
+ * written. Offsets are string indices, so a column counts
  * UTF-16 code units like every other column here.
  */
 function refusedInPipeLabel(
   token: string,
-): { at: number; refused: "bracket" | "quote"; character: string; fixed: string } | null {
+): { at: number; refused: "bracket" | "quote" | "at"; character: string; fixed: string } | null {
   const match = ARROW_PARTS_RE.exec(token);
   const content = match?.[4];
   if (content === undefined) {
@@ -759,24 +761,29 @@ function refusedInPipeLabel(
   const contentAt = match!.indices![4]![0];
   // A quoted run where the label opens is the label's own; past it, only
   // what stands outside quotes is the author's text.
-  const labelStart = content.length - content.trimStart().length;
-  let from = labelStart;
-  if (content[labelStart] === LABEL_FENCE) {
-    const closingFence = content.indexOf(LABEL_FENCE, labelStart + 1);
+  // A quoted run opens the label only right after the `|`: a space before
+  // it is a parse error in Mermaid 12.2.0 (`| "a" |`, measured).
+  let from = 0;
+  if (content.startsWith(LABEL_FENCE)) {
+    const closingFence = content.indexOf(LABEL_FENCE, 1);
     if (closingFence === -1) {
       return null;
     }
     from = closingFence + 1;
   }
+  // An `@` in a word written right after the `|`, unless a `{` follows it:
+  // `|a@{b}|` is refused at its brace instead (measured).
+  const idAt = /^[^\s"]*?@(?!\{)/.exec(content)?.[0].length ?? 0;
+  const atIndex = idAt - 1;
   for (let index = from; index < content.length; index++) {
     const character = content[index]!;
-    if (character !== LABEL_FENCE && !LABEL_BRACKETS.includes(character)) {
+    if (character !== LABEL_FENCE && !LABEL_BRACKETS.includes(character) && index !== atIndex) {
       continue;
     }
     const label = content.trim().replaceAll(LABEL_FENCE, "");
     return {
       at: contentAt + index,
-      refused: character === LABEL_FENCE ? "quote" : "bracket",
+      refused: character === LABEL_FENCE ? "quote" : index === atIndex ? "at" : "bracket",
       character,
       fixed: `${token.slice(0, contentAt)}"${label}"${token.slice(contentAt + content.length)}`,
     };
@@ -906,11 +913,38 @@ const DECLARATION_LIST_KEYWORDS = ["style", "classDef", "linkStyle"] as const;
  * `fill:a{b`, `fill:a}b`), and any run an arrow is made of — two or more
  * dashes (`stroke:a--b`, `fill:a-->b`, `stroke:var(--x)`), a dash and dots
  * (`fill:a-.b`), and any `=` or `~` (`fill:a=b`, `fill:a==>b`,
- * `fill:a~~~b`). A single dash, or dots then a dash, is a value
- * (`fill:a-b`, `fill:a.-b`). Each run is matched whole, so a message quotes
- * the arrow or run as written rather than a piece of it.
+ * `fill:a~~~b`), or a dash before a `>` (`fill:a->b`). A single dash, or
+ * dots then a dash, is a value (`fill:a-b`, `fill:a.-b`). So is none of a
+ * bracket or a `|`: `(`, `)`, `[`, `]` and `|` are parse errors there too —
+ * which refuses every CSS function, `rgb(255,0,0)` and `var(--x)` included,
+ * since Mermaid draws nothing at all for one (measured in headless Chrome).
+ * Each run is matched whole, so a message quotes the arrow or run as
+ * written rather than a piece of it.
  */
-const STYLE_VALUE_REFUSED_RE = /@\{|[@{}]|-{2,}>?|-\.+-*>?|=+>?|~+/;
+const STYLE_VALUE_REFUSED_RE = /@\{|[@{}()[\]|]|-{2,}>?|->|-\.+-*>?|=+>?|~+/;
+
+/**
+ * What to write instead of a style value refused at `refused`: a colour
+ * function's colour written as a hex colour, worked out when it is an
+ * `rgb(r,g,b)` of whole numbers, and a hex colour or a name otherwise —
+ * which is how Mermaid takes a colour; anything else is left out.
+ */
+function styleValueFix(text: string, refused: RegExpExecArray): string {
+  if (refused[0] !== "(") {
+    return "Leave it out";
+  }
+  const rgb = /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)/.exec(
+    text.slice(text.lastIndexOf(":", refused.index) + 1).trimStart(),
+  );
+  if (rgb !== null && rgb[0].startsWith("rgb(")) {
+    const hex = rgb
+      .slice(1, 4)
+      .map((channel) => Math.min(Number(channel), 255).toString(16).padStart(2, "0"))
+      .join("");
+    return `Write the color as #${hex}`;
+  }
+  return "Write a color as a hex color or a name, such as #f00";
+}
 const DECLARATION_LIST_RE = new RegExp(`^(?:${DECLARATION_LIST_KEYWORDS.join("|")})\\s`);
 
 /** What an end marker draws, by the character that wrote it. */
@@ -997,7 +1031,7 @@ function readArrow(token: string): ArrowForm | null {
   if (body === undefined) {
     return readInlineLabelledArrow(token);
   }
-  const span = pipeLabel === undefined ? null : edgeLabelSpan(pipeLabel);
+  const span = pipeLabel === undefined ? null : pipeLabelSpan(pipeLabel);
   const label = span === null ? null : span.text;
   const labelAt = span === null ? 0 : match.indices![4]![0] + span.at;
   if (label === "") {
@@ -1086,12 +1120,30 @@ function readInlineLabelledArrow(token: string): ArrowForm | null {
  *
  * The outer `.trim()` runs before the fence is read rather than relying on
  * `labelSpan`'s own, because it is what lets the fenced pattern match at all
- * when an author padded outside the quotes — `A -->|  "yes"  | B` has
- * nothing to do with `^"..."$` until the surrounding spaces are gone.
+ * when an author padded outside the quotes — `A -- "yes" --> B` has
+ * nothing to do with `^"..."$` until the surrounding spaces are gone. (A
+ * `|label|` may not be padded before its quote: see `pipeLabelSpan`.)
  */
 function edgeLabelSpan(content: string): LabelSpan {
   const span = labelSpan(content.trim());
   return { text: span.text, at: content.length - content.trimStart().length + span.at };
+}
+
+/**
+ * A `|label|`'s text and where it begins: a quoted run opening the label
+ * loses its quotes and keeps what follows it, as Mermaid 12.2.0 joins the
+ * two (`|"a" b|` is `a b`, `|"a"b|` is `ab`, measured), and anything else
+ * is read as `edgeLabelSpan` reads it. A quote anywhere else, a space
+ * before the opening one included, is refused by `refusedInPipeLabel`
+ * before this is asked.
+ */
+function pipeLabelSpan(content: string): LabelSpan {
+  const closingFence = content.startsWith(LABEL_FENCE) ? content.indexOf(LABEL_FENCE, 1) : -1;
+  if (closingFence === -1 || content.slice(closingFence + 1).trim() === "") {
+    return edgeLabelSpan(content);
+  }
+  const joined = content.slice(1, closingFence) + content.slice(closingFence + 1);
+  return { text: joined.trim(), at: LABEL_FENCE.length + (joined.length - joined.trimStart().length) };
 }
 
 /** One place a node was written on an edge line, as written there. */
@@ -1871,6 +1923,13 @@ function splitStatements(rawLine: string): { text: string; column: number }[] {
           text: rawLine.slice(column - 1).replace(/[\s;]+$/, ""),
           column,
         });
+        return statements;
+      }
+      if (ACC_TITLE_RE.test(text) || ACC_DESCR_RE.test(text)) {
+        // An accessibility line keeps all of the line after its `:`, a `;`
+        // included (`accTitle: a; B --> C` is the title `a; B --> C` in
+        // Mermaid 12.2.0, measured), so it ends the line's statements.
+        statements.push({ text: rawLine.slice(column - 1).trimEnd(), column });
         return statements;
       }
       statements.push({ text, column });
@@ -2702,7 +2761,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
     if (refused !== null) {
       diagnostics.push({
         severity: "error",
-        message: `A style declaration cannot hold "${refused[0]}": ${text}. Leave it out`,
+        message: `A style declaration cannot hold "${refused[0]}": ${text}. ${styleValueFix(text, refused)}`,
         ...positionIn(statement, statement.text.length - text.length + refused.index),
       });
       sawError = true;
@@ -3394,7 +3453,9 @@ export function parseFlowchart(source: string): DiagramParseResult {
             message:
               (refused === "quote"
                 ? "An edge label can be quoted only as a whole. "
-                : `An edge label without quotes cannot hold "${character}". `) +
+                : refused === "at"
+                  ? `An edge label without quotes cannot begin with a word holding "${character}". `
+                  : `An edge label without quotes cannot hold "${character}". `) +
               `Put the whole label in quotes: ${withBlocksElided(fixedLine)}`,
             ...positionIn(statement, tokenAt + at),
           });

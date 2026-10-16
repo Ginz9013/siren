@@ -3614,23 +3614,15 @@ style Ghost fill:#fdd
     const container = document.createElement("div");
     // `Smuggles` is `fill:red`, not a `#` color: a `#` would make it a Mermaid style line, whose last `;` is dropped before the gate sees it.
     const source = `flowchart TD
-Fetches[Fetches] --> Executes[Executes]
 Smuggles[Smuggles] --> Escapes[Escapes]
-style Fetches fill:url(#evil),stroke:#c00
-style Executes fill:expression(alert(1)),stroke:#c00
 style Smuggles fill:red;position:fixed,stroke:#c00
-style Escapes fill:u\\72 l(#evil),stroke:#c00
 `;
 
     const result = render(source, container);
 
     const errors = result.diagnostics.filter((d) => d.severity === "error");
-    expect(errors).toHaveLength(4);
     expect(errors.map((d) => d.message)).toEqual([
-      'Style value for "fill" uses "url(", which can fetch a remote resource; dropping the declaration.',
-      'Style value for "fill" uses "expression(", which can execute script; dropping the declaration.',
       'Style value for "fill" contains ";", which would smuggle in a second declaration; dropping the declaration.',
-      'Style value for "fill" contains "\\", which can spell a rejected function as a CSS escape; dropping the declaration.',
     ]);
 
     const frameStyle = (id: string) =>
@@ -3638,17 +3630,35 @@ style Escapes fill:u\\72 l(#evil),stroke:#c00
         .svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
         .getAttribute("style");
 
-    // Only the sibling survives, in each case.
-    for (const id of ["Fetches", "Executes", "Smuggles", "Escapes"]) {
-      expect([id, frameStyle(id)]).toEqual([id, "stroke:#c00"]);
-    }
+    // Only the sibling survives.
+    expect(frameStyle("Smuggles")).toBe("stroke:#c00");
 
     // And nothing refused is anywhere in the serialized document, in any
     // attribute — the gate is about what the browser is handed, not about
     // which element it was handed on.
-    const markup = container.innerHTML;
-    for (const forbidden of ["url(#evil", "expression(", "position:fixed", "\\"]) {
-      expect([forbidden, markup.includes(forbidden)]).toEqual([forbidden, false]);
+    expect(container.innerHTML.includes("position:fixed")).toBe(false);
+  });
+
+  it("refuses a flowchart style value holding a CSS function before the gate, so none of it reaches the markup", () => {
+    // `url(`, `expression(` and an escaped `u\72 l(` all hold a `(`, which a
+    // flowchart's styling value cannot: Mermaid 12.2.0 refuses the line
+    // ("got 'PS'"), and so does the parser, at the `(`, before the shared
+    // gate is asked. The security point is the same: nothing of it is drawn.
+    for (const [value, column] of [
+      ["fill:url(#evil)", 17],
+      ["fill:expression(alert(1))", 24],
+      ["fill:u\\72 l(#evil)", 20],
+    ] as const) {
+      const container = document.createElement("div");
+      const result = render(`flowchart TD\nA --> B\nstyle A ${value},stroke:#c00\n`, container);
+
+      expect(result.svg).toBeNull();
+      expect(result.diagnostics.map((d) => [d.severity, d.line, d.column, d.message.split(":")[0]])).toEqual([
+        ["error", 3, column, 'A style declaration cannot hold "("'],
+      ]);
+      for (const forbidden of ["url(#evil", "expression(", "\\"]) {
+        expect([forbidden, container.innerHTML.includes(forbidden)]).toEqual([forbidden, false]);
+      }
     }
   });
 
@@ -4121,7 +4131,7 @@ linkStyle 0 stroke:#f00
     const result = render(
       `flowchart TD
 A[Start] --> B[End]
-linkStyle 0 stroke:url(#evil),stroke-width:4px
+linkStyle 0 stroke:red;position:fixed,stroke-width:4px
 `,
       container,
     );
@@ -4130,7 +4140,7 @@ linkStyle 0 stroke:url(#evil),stroke-width:4px
       {
         severity: "error",
         message:
-          'Style value for "stroke" uses "url(", which can fetch a remote resource; dropping the declaration.',
+          'Style value for "stroke" contains ";", which would smuggle in a second declaration; dropping the declaration.',
         line: 3,
         column: 1,
       },
@@ -4138,8 +4148,18 @@ linkStyle 0 stroke:url(#evil),stroke-width:4px
     expect(
       result.svg!.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("style"),
     ).toBe("stroke-width:4px");
-    // Not merely off the attribute: nowhere in the document. The one
-    // `url(` the markup may contain is the renderer's own marker reference.
+    // Not merely off the attribute: nowhere in the document.
+    expect(container.innerHTML.includes("position:fixed")).toBe(false);
+  });
+
+  it("refuses a `linkStyle` value holding a CSS function before the gate, so none of it reaches the markup", () => {
+    const container = document.createElement("div");
+    const result = render("flowchart TD\nA[Start] --> B[End]\nlinkStyle 0 stroke:url(#evil),stroke-width:4px\n", container);
+
+    expect(result.svg).toBeNull();
+    expect(result.diagnostics.map((d) => [d.severity, d.line, d.column, d.message.split(":")[0]])).toEqual([
+      ["error", 3, 23, 'A style declaration cannot hold "("'],
+    ]);
     expect(container.innerHTML.includes("url(#evil")).toBe(false);
   });
 

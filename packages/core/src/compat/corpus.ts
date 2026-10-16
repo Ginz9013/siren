@@ -13320,6 +13320,53 @@ line2\`"]`,
       expectSame("e1's curve", edgeCurve(result, "e1"), "through its route");
     },
   },
+  {
+    id: "fc-label-quoted-run-then-text",
+    kind: "flowchart",
+    source: `flowchart LR
+      A -->|"a" b| B
+      B -->|"c"d| C`,
+    status: "supported",
+    meaning:
+      "A `|label|` opening with a quoted run keeps what follows it, the " +
+      "quotes coming off: Mermaid 12.2.0 draws `a b` and `cd` (measured). " +
+      "Siren drew the quotes as text, `\"a\" b` (nook 01M51Z206K).",
+    assert: (result) => {
+      expectSame("A-B's label", edgeLabel(result, "A-B"), "a b");
+      expectSame("B-C's label", edgeLabel(result, "B-C"), "cd");
+    },
+  },
+  {
+    id: "fc-acc-title-with-semicolon",
+    kind: "flowchart",
+    source: `flowchart LR
+      accTitle: a --> b; C --> D
+      A --> B`,
+    status: "supported",
+    meaning:
+      "An accessibility line keeps everything after its `:`, a `;` included: " +
+      "Mermaid 12.2.0 records the title `a --> b; C --> D` and draws only " +
+      "A-B (measured). Siren cut the line at the `;` and drew an edge C-D " +
+      "(nook 01M51Z206K).",
+    assert: (result) => {
+      expectSame("the accessible title text", svgOf(result).querySelector("title")?.textContent, "a --> b; C --> D");
+      expectSame("edges", edges(result), ["A-B"]);
+    },
+  },
+  {
+    id: "fc-label-unclosed-tag",
+    kind: "flowchart",
+    source: `flowchart LR
+      A -->|a<b| B`,
+    status: "supported",
+    meaning:
+      "A `<` opening what reads as a tag is dropped from a `|label|`: " +
+      "Mermaid 12.2.0 draws the label `a` (measured in headless Chrome), and " +
+      "so does Siren.",
+    assert: (result) => {
+      expectSame("A-B's label", edgeLabel(result, "A-B"), "a");
+    },
+  },
 
   // -------------------------------------------------------------------------
   // labels — the HTML tag vocabulary (ADR-0015), kept in `labelCorpus.ts`

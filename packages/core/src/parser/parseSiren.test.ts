@@ -1385,14 +1385,14 @@ timeline:
   it("keeps a value's own commas and colons inside one flowchart declaration", () => {
     const source = `flowchart TD
   A[Start]
-  style A fill:rgb(255, 0, 0),stroke-width:2px
+  style A font-family:a b,stroke-width:2px
 `;
 
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
     expect(document.styles[0].properties).toEqual([
-      { property: "fill", value: "rgb(255, 0, 0)" },
+      { property: "font-family", value: "a b" },
       { property: "stroke-width", value: "2px" },
     ]);
   });
