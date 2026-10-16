@@ -71,8 +71,8 @@ const UNDRAWN_SHAPE_NAMES: ReadonlySet<string> = new Set([
 /** One short name per shape Siren draws: what a refused name is told to choose from. */
 const SHAPE_CHOICES = SHAPE_NAMES.map(([, [shortName]]) => shortName).join(", ");
 
-/** Something a block says that is not drawn as written, worded for the author. */
-export interface NodeDataProblem {
+/** Something an `@{ … }` block says that is not drawn as written, worded for the author. */
+export interface DataBlockProblem {
   severity: "error" | "warning";
   message: string;
   /**
@@ -84,7 +84,7 @@ export interface NodeDataProblem {
 
 /** What reading one `@{ … }` block found. */
 export interface NodeData {
-  problems: NodeDataProblem[];
+  problems: DataBlockProblem[];
   /** The shape it names, or `null` when it names none. */
   shape: NodeShape | null;
   /**
@@ -114,12 +114,17 @@ const UNSUPPORTED_KEYS: ReadonlySet<string> = new Set(["icon", "img", "form", "p
 const PLAIN_LABEL_TYPES: ReadonlySet<unknown> = new Set(["text", "string"]);
 
 /**
- * Reads the text between a node's `@{` and its `}`.
- *
- * A key Mermaid tests for truth is read only when its value is truthy, as
- * Mermaid reads it: `label: ""` and `shape:` (a null) say nothing.
+ * The text between an `@{` and its `}` — a node's block or an edge's —
+ * loaded as Mermaid 12.2.0 loads it: YAML under the JSON schema, a block on
+ * one line wrapped in `{ … }` first so that it reads as a flow mapping
+ * (`FlowDB.addVertex`, measured). Its key/value pairs, or the problem that
+ * stopped it; `example` is a pair worth writing in the block at hand, for
+ * the message about a block that is not pairs.
  */
-export function readNodeData(written: string): NodeData {
+export function loadDataBlock(
+  written: string,
+  example: string,
+): { doc: Record<string, unknown> } | { problem: DataBlockProblem } {
   // Mermaid's lexer turns a line break inside a quoted string, and the
   // indentation after it, into `<br/>` before the YAML is read (measured,
   // `label: "a⏎   b"` is `a<br/>b`); a block holding a line break anywhere
@@ -127,10 +132,8 @@ export function readNodeData(written: string): NodeData {
   const content = written.replace(/"[^"]*"?/g, (string) => string.replace(/\n\s*/g, "<br/>"));
   const flowMapping = !content.includes("\n");
   const yaml = flowMapping ? `{\n${content}\n}` : `${content}\n`;
-  const refused = (message: string, offset?: number): NodeData => ({
-    problems: [{ severity: "error", message, ...(offset === undefined ? {} : { offset }) }],
-    shape: null,
-    label: null,
+  const refused = (message: string, offset?: number) => ({
+    problem: { severity: "error" as const, message, ...(offset === undefined ? {} : { offset }) },
   });
   let loaded: unknown;
   try {
@@ -150,10 +153,24 @@ export function readNodeData(written: string): NodeData {
     throw error;
   }
   if (loaded !== null && loaded !== undefined && (typeof loaded !== "object" || Array.isArray(loaded))) {
-    return refused('Write the "@{ … }" block as "key: value" pairs, such as "shape: circle"');
+    return refused(`Write the "@{ … }" block as "key: value" pairs, such as "${example}"`);
   }
-  const doc = (loaded ?? {}) as Record<string, unknown>;
-  const problems: NodeDataProblem[] = [];
+  return { doc: (loaded ?? {}) as Record<string, unknown> };
+}
+
+/**
+ * Reads the text between a node's `@{` and its `}`.
+ *
+ * A key Mermaid tests for truth is read only when its value is truthy, as
+ * Mermaid reads it: `label: ""` and `shape:` (a null) say nothing.
+ */
+export function readNodeData(written: string): NodeData {
+  const loaded = loadDataBlock(written, "shape: circle");
+  if ("problem" in loaded) {
+    return { problems: [loaded.problem], shape: null, label: null };
+  }
+  const { doc } = loaded;
+  const problems: DataBlockProblem[] = [];
   for (const key of Object.keys(doc)) {
     if (UNSUPPORTED_KEYS.has(key)) {
       problems.push({
@@ -182,7 +199,7 @@ export function readNodeData(written: string): NodeData {
  * The checks are Mermaid 12.2.0's, in its order: a name with an upper-case
  * letter or a `_` is refused before it is looked up (`FlowDB.addVertex`).
  */
-function readShape(value: unknown, problems: NodeDataProblem[]): NodeShape | null {
+function readShape(value: unknown, problems: DataBlockProblem[]): NodeShape | null {
   if (typeof value !== "string") {
     problems.push({ severity: "error", message: 'A shape is a name, such as "shape: circle"' });
     return null;

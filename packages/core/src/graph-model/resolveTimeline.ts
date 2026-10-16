@@ -7,6 +7,17 @@ import type {
   TimelineEntry,
 } from "../contracts";
 
+/** What a diagram kind can say about its target ids beyond which exist. */
+export interface TimelineTargetOptions {
+  /**
+   * The ids of `validTargetIds` that more than one drawn thing answers to,
+   * so more than one element is stamped with each as its `data-siren-id`.
+   * The diagram is drawn as written; an action naming one of these is
+   * refused, since it cannot say which of them it means.
+   */
+  ambiguousTargetIds?: ReadonlySet<string>;
+}
+
 /**
  * Resolves a `timeline:` block against the ids a model just assigned: drops
  * entries naming an id nothing holds (with an error diagnostic), keeps one
@@ -41,19 +52,28 @@ export function resolveTimeline(
   timeline: SirenTimeline | null,
   validTargetIds: ReadonlySet<string>,
   diagnostics: Diagnostic[],
-  /**
-   * The ids of `validTargetIds` that more than one drawn thing answers to —
-   * a flowchart node `A-B` and the edge `A --> B` both stamp
-   * `data-siren-id="A-B"`. The document is drawn as written; an action
-   * naming one of these is refused, since it cannot say which it means.
-   */
-  sharedTargetIds: ReadonlySet<string> = new Set(),
+  { ambiguousTargetIds = new Set() }: TimelineTargetOptions = {},
 ): ResolvedTimeline {
   const entries: ResolvedTimelineEntry[] = [];
   let totalSteps = 0;
 
   if (timeline === null) {
     return { totalSteps, entries };
+  }
+
+  // Why an entry's target cannot be resolved, if it cannot: decided once per
+  // entry, here, and such an entry takes part in nothing below.
+  const unresolvable = new Map<TimelineEntry, string>();
+  for (const entry of timeline.entries) {
+    if (!validTargetIds.has(entry.targetId)) {
+      unresolvable.set(entry, `timeline: references unknown id "${entry.targetId}"`);
+    } else if (ambiguousTargetIds.has(entry.targetId)) {
+      unresolvable.set(
+        entry,
+        `timeline: "${entry.targetId}" is the id of more than one thing in the diagram, ` +
+          "so this action cannot tell which it means. Give one of them another id",
+      );
+    }
   }
 
   // Which `enter`/`exit` survives for each target: the numerically earliest
@@ -66,7 +86,7 @@ export function resolveTimeline(
   const winnerByDedupeKey = new Map<string, TimelineEntry>();
   for (const entry of timeline.entries) {
     if (entry.kind !== "enter" && entry.kind !== "exit") continue;
-    if (!validTargetIds.has(entry.targetId) || sharedTargetIds.has(entry.targetId)) continue;
+    if (unresolvable.has(entry)) continue;
 
     const dedupeKey = `${entry.kind}:${entry.targetId}`;
     const current = winnerByDedupeKey.get(dedupeKey);
@@ -78,25 +98,9 @@ export function resolveTimeline(
   const kept: TimelineEntry[] = [];
 
   for (const entry of timeline.entries) {
-    if (!validTargetIds.has(entry.targetId)) {
-      diagnostics.push({
-        severity: "error",
-        message: `timeline: references unknown id "${entry.targetId}"`,
-        line: entry.line,
-        column: entry.column,
-      });
-      continue;
-    }
-
-    if (sharedTargetIds.has(entry.targetId)) {
-      diagnostics.push({
-        severity: "error",
-        message:
-          `timeline: "${entry.targetId}" is the id of more than one thing in the diagram, ` +
-          "so this action cannot tell which it means. Give one of them another id",
-        line: entry.line,
-        column: entry.column,
-      });
+    const refusal = unresolvable.get(entry);
+    if (refusal !== undefined) {
+      diagnostics.push({ severity: "error", message: refusal, line: entry.line, column: entry.column });
       continue;
     }
 
@@ -277,11 +281,10 @@ export function resolveTimelineBlocks(
   validTargetIds: ReadonlySet<string>,
   { connectors, noun }: TimelineConnectors,
   diagnostics: Diagnostic[],
-  /** As `resolveTimeline`'s: the ids more than one drawn thing answers to. */
-  sharedTargetIds: ReadonlySet<string> = new Set(),
+  options: TimelineTargetOptions = {},
 ): ResolvedTimelineBlocks {
   const resolveOne = (timeline: SirenTimeline | null, into: Diagnostic[]): ResolvedTimeline => {
-    const resolved = resolveTimeline(timeline, validTargetIds, into, sharedTargetIds);
+    const resolved = resolveTimeline(timeline, validTargetIds, into, options);
     warnOnConnectorsOutlivingTheirEndpoints(resolved.entries, connectors, noun, into);
     return resolved;
   };

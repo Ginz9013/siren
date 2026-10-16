@@ -44,15 +44,40 @@ export function buildFlowchartModel(
   // id it names it by is minted here.
   const { subgraphs, idByName } = resolveSubgraphs(document, nodes);
   const edges = assignEdgeIds(document, idByName);
-  reportAuthoredEdgeIdClashes(document, nodes, edges, diagnostics);
+  reportAuthoredEdgeIdClashes(document, nodes, idByName, edges, diagnostics);
 
   // Every styling statement a flowchart can write except one — `style`,
   // `classDef`, and the apply-directive in both its `class` and its `:::`
   // spelling — names a node. `linkStyle` is the exception, and it is
   // resolved separately below.
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  // An id the author gave an edge, named by one of those node statements,
+  // is told so: Mermaid 12.2.0 draws `style e1 …` as nothing at all and
+  // `class e1 c` as the edge painted with `c` (measured), which Siren does
+  // not draw yet.
+  const authoredEdgeIds = new Set(document.edges.flatMap((edge) => (edge.id === undefined ? [] : [edge.id])));
+  const nodeStyles = document.styles.map((declaration) => {
+    if (declaration.styleKind === "classDef") {
+      return declaration;
+    }
+    const onEdges = declaration.targetIds.filter((id) => !nodeById.has(id) && authoredEdgeIds.has(id));
+    for (const id of onEdges) {
+      diagnostics.push({
+        severity: "error",
+        message:
+          declaration.styleKind === "style"
+            ? `"${id}" is an edge, and style reaches only a node. Style an edge with linkStyle and its number`
+            : `Siren does not apply a class to an edge yet ("${id}"). Style the edge with linkStyle and its number`,
+        line: declaration.line,
+        column: declaration.column,
+      });
+    }
+    return onEdges.length === 0
+      ? declaration
+      : { ...declaration, targetIds: declaration.targetIds.filter((id) => !onEdges.includes(id)) };
+  });
   for (const { targetId, style } of resolveStyles(
-    withImplicitDefaultClass(document.styles, [...nodeById.keys()]),
+    withImplicitDefaultClass(nodeStyles, [...nodeById.keys()]),
     new Set(nodeById.keys()),
     diagnostics,
   )) {
@@ -71,11 +96,22 @@ export function buildFlowchartModel(
   // `resolveInteractions` reads a flowchart's `click` statements without
   // knowing the kind it was handed. A node with no interaction of its own
   // keeps the `null` it was built with.
-  for (const interaction of resolveInteractions(
-    document.interactions,
-    new Set(nodeById.keys()),
-    diagnostics,
-  )) {
+  // An id the author gave an edge is no node, so a click naming it is told
+  // that, rather than that it names nothing: Mermaid 12.2.0 makes nothing
+  // clickable for `click e1 …` after `A e1@--> B` (measured).
+  const nodeInteractions = document.interactions.filter((interaction) => {
+    if (nodeById.has(interaction.targetId) || !authoredEdgeIds.has(interaction.targetId)) {
+      return true;
+    }
+    diagnostics.push({
+      severity: "error",
+      message: `"${interaction.targetId}" is an edge, and a click reaches only a node. Leave the click out, or name a node`,
+      line: interaction.line,
+      column: interaction.column,
+    });
+    return false;
+  });
+  for (const interaction of resolveInteractions(nodeInteractions, new Set(nodeById.keys()), diagnostics)) {
     nodeById.get(interaction.targetId)!.interaction = interaction;
   }
 
@@ -127,10 +163,10 @@ export function buildFlowchartModel(
   // An id two drawn things answer to — the node `A-B` and the edge
   // `A --> B` — which a timeline cannot name. An edge id the author wrote
   // never lands here: one that clashes is refused above.
-  const sharedTargetIds = new Set<string>();
+  const ambiguousTargetIds = new Set<string>();
   for (const id of targetIds) {
     if (validTargetIds.has(id)) {
-      sharedTargetIds.add(id);
+      ambiguousTargetIds.add(id);
     }
     validTargetIds.add(id);
   }
@@ -140,7 +176,7 @@ export function buildFlowchartModel(
     validTargetIds,
     { connectors: edges, noun: "edge" },
     diagnostics,
-    sharedTargetIds,
+    { ambiguousTargetIds },
   );
 
   const graph: GraphModel = {
@@ -372,6 +408,7 @@ function assignEdgeIds(
 function reportAuthoredEdgeIdClashes(
   document: FlowchartDocument,
   nodes: readonly GraphNode[],
+  subgraphIdByName: ReadonlyMap<string, string>,
   edges: readonly GraphEdge[],
   diagnostics: Diagnostic[],
 ): void {
@@ -394,6 +431,17 @@ function reportAuthoredEdgeIdClashes(
       diagnostics.push({
         severity: "error",
         message: `The edge id "${edge.id}" is already the id of the node "${edge.id}". Give the edge another id`,
+        line: edge.idLine,
+        column: edge.idColumn,
+      });
+      return;
+    }
+    // A subgraph's name is what an edge endpoint addresses its frame by, so
+    // an edge answering to it too would leave `C --> S` meaning two things.
+    if (subgraphIdByName.has(edge.id)) {
+      diagnostics.push({
+        severity: "error",
+        message: `The edge id "${edge.id}" is already the name of the subgraph "${edge.id}". Give the edge another id`,
         line: edge.idLine,
         column: edge.idColumn,
       });

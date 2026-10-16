@@ -1900,8 +1900,16 @@ const SILENTLY_WRONG = 0;
  * (`fc-edge-id-alphabet`). Siren refused every edge id before, with
  * `fc-edge-id` the one row to say so. No `supported` row moved.
  * `silently-wrong` does not move.
+ *
+ * **65 → 69: case (2), four refusals written down for the first time.**
+ * `01M51XADJKSGRYG5CM1GG0T91R`'s follow-up refused an edge id that names a
+ * subgraph (`fc-edge-id-names-a-subgraph`), and a `click`, `style` or
+ * `class` naming an edge id (`fc-edge-id-click`, `fc-edge-id-style`,
+ * `fc-edge-id-class`). Siren drew the subgraph case, the `style` and the
+ * `class` without a word, and refused the click as naming nothing. No
+ * `supported` row moved. `silently-wrong` does not move.
  */
-const REJECTED = 65;
+const REJECTED = 69;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

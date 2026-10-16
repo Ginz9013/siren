@@ -508,6 +508,27 @@ describe("buildFlowchartModel's authored edge ids", () => {
     ]);
   });
 
+  it("refuses an edge id that names a subgraph, at the edge id", () => {
+    // Measured on Mermaid 12.2.0: `subgraph S … end` then `A S@--> B` draws
+    // both, so a later `C --> S` would have to mean one of them.
+    const { diagnostics } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" }), sirenNode({ id: "C" })],
+        edges: [sirenEdge("A", "B", "S")],
+        subgraphs: [{ name: "S", label: plainLabel("S"), nodeIds: ["C"], subgraphs: [], direction: null }],
+      }),
+    );
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'The edge id "S" is already the name of the subgraph "S". Give the edge another id',
+        line: 2,
+        column: 5,
+      },
+    ]);
+  });
+
   it("lets a timeline name the edge by its own id", () => {
     const { graph, diagnostics } = buildFlowchartModel(
       flowchartDocument({
@@ -557,5 +578,83 @@ describe("buildFlowchartModel's timeline on an id a node and an edge share", () 
     expect(diagnostics).toEqual([]);
     expect(graph.edges.map((edge) => edge.id)).toEqual(["A-B"]);
     expect(graph.timeline.entries).toEqual([{ kind: "enter", step: 1, targetId: "A", effect: "fade" }]);
+  });
+});
+
+/**
+ * A `click`, `style` or `class` statement naming an edge by the id the
+ * author gave it (01M51XADJKSGRYG5CM1GG0T91R). Measured on Mermaid 12.2.0
+ * after `A e1@--> B`: `click e1 …` and `style e1 stroke:#f00` change nothing
+ * drawn, and `class e1 c` paints the edge with `c`'s declarations.
+ */
+describe("buildFlowchartModel's node statements naming an edge id", () => {
+  const edge = {
+    from: "A",
+    to: "B",
+    line: "solid" as const,
+    fromEnd: "none" as const,
+    toEnd: "arrow" as const,
+    minLength: 1,
+    label: null,
+    id: "e1",
+    idLine: 2,
+    idColumn: 3,
+  };
+
+  it("refuses a click on it, saying a click reaches only a node", () => {
+    const { graph, diagnostics } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" })],
+        edges: [edge],
+        interactions: [
+          {
+            interactionKind: "href",
+            targetId: "e1",
+            action: "https://example.com",
+            argument: null,
+            tooltip: null,
+            line: 3,
+            column: 1,
+          },
+        ],
+      }),
+    );
+
+    expect(graph.nodes.map((node) => node.interaction)).toEqual([null, null]);
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: '"e1" is an edge, and a click reaches only a node. Leave the click out, or name a node',
+        line: 3,
+        column: 1,
+      },
+    ]);
+  });
+
+  it.each([
+    [
+      "style",
+      { styleKind: "style" as const, authoredAs: "style", targetIds: ["e1"], name: null, properties: [{ property: "stroke", value: "#f00" }], line: 3, column: 7 },
+      '"e1" is an edge, and style reaches only a node. Style an edge with linkStyle and its number',
+    ],
+    [
+      "class",
+      { styleKind: "apply" as const, authoredAs: "class", targetIds: ["e1"], name: "c", properties: [], line: 3, column: 7 },
+      'Siren does not apply a class to an edge yet ("e1"). Style the edge with linkStyle and its number',
+    ],
+  ])("refuses `%s` on it", (_statement, declaration, message) => {
+    const { graph, diagnostics } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" })],
+        edges: [edge],
+        styles: [
+          { styleKind: "classDef", authoredAs: "classDef", targetIds: [], name: "c", properties: [{ property: "stroke-width", value: "9px" }], line: 2, column: 1 },
+          declaration,
+        ],
+      }),
+    );
+
+    expect(graph.edges.map((drawn) => drawn.id)).toEqual(["e1"]);
+    expect(diagnostics).toEqual([{ severity: "error", message, line: 3, column: 7 }]);
   });
 });

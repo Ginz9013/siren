@@ -405,7 +405,7 @@ describe("resolveTimeline with an id more than one target holds", () => {
       },
       new Set(["A", "B", "A-B"]),
       diagnostics,
-      new Set(["A-B"]),
+      { ambiguousTargetIds: new Set(["A-B"]) },
     );
 
     expect(resolved.entries).toEqual([{ kind: "enter", step: 1, targetId: "A", effect: "fade" }]);

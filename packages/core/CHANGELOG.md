@@ -337,6 +337,14 @@ after its `)` (`+foo()* bool`), which used to be drawn `+foo() : * bool` (see **
   `01M51XADJK`): the node `A-B` and the edge `A --> B` are both stamped `data-siren-id="A-B"`, so
   `enter A-B fade` cannot say which it means. The document is still drawn; give the edge an id of
   its own (`A e1@--> B`) or rename the node. It used to animate both.
+- **A flowchart edge id is also refused when it begins with a keyword or names a subgraph** (nook
+  `01M51XADJK`): `A end-x@--> B`, `A style.x@--> B` and `A default@--> B` read the keyword as the
+  keyword, as Mermaid 12.2.0 does, and are refused with a suggested name; `A S@--> B` beside
+  `subgraph S` is refused, saying to give the edge another id.
+- **A `click`, `style` or `class` naming a flowchart edge id is refused** (nook `01M51XADJK`): a
+  click and a `style` reach only a node, and Mermaid 12.2.0 draws them as nothing; `class e1 c`
+  paints the edge in Mermaid, which Siren does not draw yet. Each says to style an edge with
+  `linkStyle` instead, or that a click reaches only a node.
 - **A flowchart class name Mermaid cannot style is refused** (nook `01M51Q7FSS`): Mermaid 12.2.0
   writes each `classDef` as the CSS rule `.<name> > *`, and a name that makes it fail to parse
   (`1c`, `c.`, `c..d`, `c:d`, `c%`, `c!`, `c/d` and the like) stops the whole diagram rendering in a

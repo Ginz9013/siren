@@ -2926,3 +2926,41 @@ describe("an edge's `@{ … }` block", () => {
     expect(diagnostics[0]!.message).toMatch(/^The "@\{ … \}" block is not valid YAML \(/);
   });
 });
+
+/**
+ * An edge id that begins with a keyword (01M51XADJKSGRYG5CM1GG0T91R).
+ * Measured on Mermaid 12.2.0: `end@`, `end-x@`, `end.x@`, `subgraph@`,
+ * `style.x@`, `graph@`, `classDef@`, `interpolate@`, `_self@`, `default@`
+ * and `default-x@` are parse errors, the keyword read as the keyword;
+ * `endx@`, `defaultx@`, `click@`, `call@`, `href@`, `v@` and `direction@`
+ * are edge ids.
+ */
+describe("an edge id that begins with a keyword", () => {
+  it.each([
+    ["A end@--> B", "end", "end", "endNode"],
+    ["A end-x@--> B", "end-x", "end", "endX"],
+    ["A subgraph@--> B", "subgraph", "subgraph", "subgraphNode"],
+    ["A style.x@--> B", "style.x", "style", "styleX"],
+    ["A default@--> B", "default", "default", "defaultNode"],
+    ["A default-x@--> B", "default-x", "default", "defaultX"],
+  ])("refuses %j at the id", (written, id, keyword, fix) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `"${id}" begins with the keyword "${keyword}", and is read as that keyword. Rename it, such as ${fix}.`,
+        line: 2,
+        column: 5,
+      },
+    ]);
+  });
+
+  it.each(["endx", "defaultx", "click", "href", "v", "direction"])("reads `A %s@--> B` as an edge id", (id) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A ${id}@--> B`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => edge.id)).toEqual([id]);
+  });
+});

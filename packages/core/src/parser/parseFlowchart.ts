@@ -26,11 +26,11 @@ import { readAccDescrBlock } from "./readAccDescrBlock";
 import { listAcceptedHeaders, matchClassDirection, matchFlowchartHeader } from "./parseDirection";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 import { MID_LINE_PERCENT_MESSAGE } from "./midLinePercent";
-import { JSON_SCHEMA, load, YAMLException } from "js-yaml";
 import {
   blockRunOn,
+  type DataBlockProblem,
+  loadDataBlock,
   type NodeDataBlock,
-  type NodeDataProblem,
   NODE_DATA_OPENER,
   nodeDataEnd,
   readNodeData,
@@ -1209,40 +1209,28 @@ const EDGE_ID_RE = /^.*\S\s+([^\s"]+)@$/d;
 const UNSUPPORTED_EDGE_KEYS: ReadonlySet<string> = new Set(["animate", "animation", "curve"]);
 
 /**
- * What is wrong with the text between an edge's `@{` and its `}`, read as a
- * node's block is (`readNodeData`): YAML under the JSON schema, a block on
- * one line wrapped in `{ … }` first so that it reads as a flow mapping.
+ * What is wrong with the text between an edge's `@{` and its `}`, loaded as
+ * a node's block is (`loadDataBlock`).
  */
-function readEdgeData(written: string): NodeDataProblem[] {
-  const content = written.replace(/"[^"]*"?/g, (string) => string.replace(/\n\s*/g, "<br/>"));
-  const flowMapping = !content.includes("\n");
-  let loaded: unknown;
-  try {
-    loaded = load(flowMapping ? `{\n${content}\n}` : `${content}\n`, { schema: JSON_SCHEMA });
-  } catch (error) {
-    if (error instanceof YAMLException) {
-      const wrapping = flowMapping ? "{\n".length : 0;
-      const offset =
-        content === written ? Math.min(Math.max(error.mark.position - wrapping, 0), written.length) : undefined;
-      return [
-        {
-          severity: "error",
-          message: `The "@{ … }" block is not valid YAML (${error.reason})`,
-          ...(offset === undefined ? {} : { offset }),
-        },
-      ];
-    }
-    throw error;
+function readEdgeData(written: string): DataBlockProblem[] {
+  const loaded = loadDataBlock(written, "curve: linear");
+  if ("problem" in loaded) {
+    return [loaded.problem];
   }
-  if (loaded !== null && loaded !== undefined && (typeof loaded !== "object" || Array.isArray(loaded))) {
-    return [{ severity: "error", message: 'Write the "@{ … }" block as "key: value" pairs, such as "curve: linear"' }];
-  }
-  return Object.keys((loaded ?? {}) as Record<string, unknown>).map((key) =>
+  return Object.keys(loaded.doc).map((key) =>
     UNSUPPORTED_EDGE_KEYS.has(key)
       ? { severity: "error", message: `Siren does not support "${key}" in an edge's "@{ … }" block yet. Leave it out` }
       : { severity: "warning", message: `"${key}" is not a key of an edge's "@{ … }" block, and is ignored. Remove it` },
   );
 }
+
+/**
+ * A keyword an edge id cannot begin with: `ID_KEYWORDS`, read as a node id
+ * reads them, and `default`. Measured on Mermaid 12.2.0: `A end-x@--> B`,
+ * `A style.x@--> B` and `A default@--> B` are parse errors, the keyword read
+ * as the keyword, while `endx@`, `defaultx@`, `click@` and `v@` are ids.
+ */
+const EDGE_ID_KEYWORD_RE = new RegExp(`^(?:${ID_KEYWORDS.join("|")}|default)(?![A-Za-z0-9_])`);
 
 /** An edge id as written, `e1` of `A e1@--> B`. */
 interface EdgeIdWritten {
@@ -3281,6 +3269,17 @@ export function parseFlowchart(source: string): DiagramParseResult {
               `The edge id "${id}" holds a character an id cannot. ` +
               'Write it with letters, digits, "_", "-", "." and "%" only',
             ...positionIn(statement, partAt[misspelled]! + offset),
+          });
+          sawError = true;
+          continue;
+        }
+        const keywordId = linkIds.findIndex((linkId) => linkId !== null && EDGE_ID_KEYWORD_RE.test(linkId.id));
+        if (keywordId !== -1) {
+          const { id, offset } = linkIds[keywordId]!;
+          diagnostics.push({
+            severity: "error",
+            message: keywordIdMessage(id, EDGE_ID_KEYWORD_RE.exec(id)![0]),
+            ...positionIn(statement, partAt[keywordId]! + offset),
           });
           sawError = true;
           continue;

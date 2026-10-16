@@ -3362,9 +3362,9 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     meaning:
       "Mermaid 12.2.0 names the edge `e1` and reads the `@{ … }` after it as " +
       "that edge's data (measured; with no edge `e1` the same line is a " +
-      "node). Siren does not support edge ids yet (the `@{ … }` board): " +
-      "refused at the id, saying to leave it out, and the data line is told " +
-      "to go with it.",
+      "node), animating the edge. Siren reads the id and the block as the " +
+      "edge's, and refuses only the `animate` key, which it does not draw " +
+      "yet, saying to leave it out.",
   },
   {
     id: "fc-text-markdown",
@@ -12355,6 +12355,58 @@ line2\`"]`,
       "alphabet of a node id — letters, digits, `_`, `-`, `.` and `%` — so " +
       "the two can be compared and written in a timeline, and refuses the " +
       "rest at the id.",
+  },
+  {
+    id: "fc-edge-id-names-a-subgraph",
+    kind: "flowchart",
+    source: `flowchart LR
+      subgraph S
+        C
+      end
+      A S@--> B`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 draws the subgraph `S` and the edge A-B named `S` " +
+      "(measured), so an endpoint `S` written later would have to mean one " +
+      "of the two. Siren refuses an edge id that names a subgraph, saying to " +
+      "give the edge another id.",
+  },
+  {
+    id: "fc-edge-id-click",
+    kind: "flowchart",
+    source: `flowchart LR
+      A e1@--> B
+      click e1 href "https://example.com"`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 makes nothing clickable: a click reaches a node, and " +
+      "`e1` is an edge (measured). Siren refuses the click, saying it reaches " +
+      "only a node.",
+  },
+  {
+    id: "fc-edge-id-style",
+    kind: "flowchart",
+    source: `flowchart LR
+      A e1@--> B
+      style e1 stroke:#f00`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 draws the edge unstyled, the `style` reaching nothing " +
+      "(measured; ADR-0001). Siren refuses it, saying to style an edge with " +
+      "`linkStyle` and its number.",
+  },
+  {
+    id: "fc-edge-id-class",
+    kind: "flowchart",
+    source: `flowchart LR
+      A e1@--> B
+      classDef c stroke-width:9px
+      class e1 c`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 paints the edge `e1` with `c`'s declarations (measured, " +
+      "`stroke-width:9px` on its path). Siren does not apply a class to an " +
+      "edge yet, and says so, pointing at `linkStyle`.",
   },
 
   // -------------------------------------------------------------------------
