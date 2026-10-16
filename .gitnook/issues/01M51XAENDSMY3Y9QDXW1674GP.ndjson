@@ -3,3 +3,4 @@
 {"id":"01M51XB814W0TACFECJ2S1PMD7","t":3,"a":"83a1","op":"set","k":"status","v":"todo"}
 {"id":"01M51XT5V5K6M18RBA5CDD6F9D","t":4,"a":"83a1","op":"comment","body":"追加（T11 發現）：重複的成員行照 Mermaid 每份都畫；method 在最後一個後面有 ) 的 ( 切開。"}
 {"id":"01M51XZ78DED6A3ZYHW9H7Q1YY","t":5,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M51Z28HY98YQXET9DY1S255R","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
