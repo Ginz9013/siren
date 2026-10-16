@@ -3445,9 +3445,10 @@ describe("the shape table and the shape names", () => {
     // one; and every shape the parser refuses one for is a shape the table
     // draws. A small circle is in the set while its frame takes an author's
     // paint: `classDef default` reaches it (measured), a style by name does not.
-    const box = { x: 0, y: 0, width: 20, height: 20 };
+    // Only the box matters to a frame here; the rest of the node is unread.
+    const node = { x: 0, y: 0, width: 20, height: 20 } as unknown as Parameters<(typeof SHAPES)[NodeShape]["frames"]>[0];
     const unstyled = Object.entries(SHAPES)
-      .filter(([, spec]) => spec.frames(box).every((frame) => frame.authorStyle === false))
+      .filter(([, spec]) => spec.frames(node).every((frame) => frame.authorStyle === false))
       .map(([shape]) => shape);
     for (const shape of unstyled) {
       expect([shape, SHAPES_TAKING_NO_STYLE.has(shape as NodeShape)]).toEqual([shape, true]);
@@ -3701,6 +3702,73 @@ describe("an unclosed bold tag in an edge's `|label|`", () => {
         ["a", false],
         ["c", true],
       ],
+    ]);
+  });
+});
+
+/**
+ * A node's icon keys written over several `@{ … }` blocks, or beside
+ * brackets written elsewhere. Measured on Mermaid 12.2.0 (Chrome, a
+ * registered pack): each key is kept separately and the last value of each
+ * wins (`addVertex`), and a node with an `icon:` anywhere is an icon node
+ * whatever its `shape:` or brackets say (`getTypeFromVertex`) — so a `form`
+ * or `h` written before the `icon:` still shapes it.
+ */
+describe("an icon node's keys over several blocks", () => {
+  const nodeOf = (source: string) => {
+    const { document, diagnostics } = parseOk(source);
+    return { node: document.nodes.find((node) => node.id === "A")!, diagnostics };
+  };
+
+  it("takes a `form` or `h` written in a later block", () => {
+    const { node, diagnostics } = nodeOf('flowchart TB\n  A@{ icon: "t:sq" }\n  A@{ form: circle, h: 80 }');
+
+    expect(diagnostics).toEqual([]);
+    expect(node.shape).toBe("icon");
+    expect(node.icon).toEqual({ name: "t:sq", form: "circle", pos: "b", size: 80, line: 2, column: 4 });
+  });
+
+  it("takes a `form` or `h` written before the `icon:`", () => {
+    const { node, diagnostics } = nodeOf('flowchart TB\n  A@{ form: circle, h: 70 }\n  A@{ icon: "t:sq" }');
+
+    expect(diagnostics).toEqual([]);
+    expect(node.icon).toEqual({ name: "t:sq", form: "circle", pos: "b", size: 70, line: 3, column: 4 });
+  });
+
+  it("keeps the keys a later block leaves out", () => {
+    const { node } = nodeOf('flowchart TB\n  A@{ icon: "t:sq", h: 80, form: circle, pos: t }\n  A@{ icon: "t:big" }');
+
+    expect(node.icon).toEqual({ name: "t:big", form: "circle", pos: "t", size: 80, line: 3, column: 4 });
+  });
+
+  it("stays an icon node whatever a later `shape:` or brackets say", () => {
+    const shaped = nodeOf('flowchart TB\n  A@{ icon: "t:sq" }\n  A@{ shape: rect }').node;
+    const bracketed = nodeOf('flowchart TB\n  A@{ icon: "t:sq" }\n  A[Text]').node;
+
+    expect(shaped.shape).toBe("icon");
+    expect(bracketed.shape).toBe("icon");
+    expect(bracketed.label.text).toBe("Text");
+  });
+
+  it("gives `shape: icon` the icon a later block names", () => {
+    const { node } = nodeOf('flowchart TB\n  A@{ shape: icon, h: 70 }\n  A@{ icon: "t:sq", form: square }');
+
+    expect(node.label.text).toBe("");
+    expect(node.icon).toEqual({ name: "t:sq", form: "square", pos: "b", size: 70, line: 3, column: 4 });
+  });
+
+  it("warns about a key for a node that never becomes an icon, where the key was written", () => {
+    const { node, diagnostics } = nodeOf("flowchart TB\n  A@{ form: square }\n  A@{ shape: circle }");
+
+    expect(node.shape).toBe("circle");
+    expect(node.icon).toBeUndefined();
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: '"form" only shapes an icon node, and is ignored here. Remove it, or give the node an icon',
+        line: 2,
+        column: 4,
+      },
     ]);
   });
 });

@@ -117,8 +117,13 @@ export interface ShapeSpec {
    * on the box, which is where every shape but a handful puts it.
    */
   labelRect?(box: Rect, label: Size, node?: GraphNode): Rect;
-  /** The elements the outline is drawn with, inscribed in `box` — `node`'s box, when it is given. */
-  frames(box: Rect, node?: PositionedNode): ShapeFrame[];
+  /**
+   * The elements the outline is drawn with, inscribed in the box layout
+   * placed `node` in (its `x`, `y`, `width` and `height`). Most shapes read
+   * only that box; a shape drawn from more than its label (an icon) reads
+   * the node's own data too.
+   */
+  frames(node: PositionedNode): ShapeFrame[];
   /**
    * `false` for a shape that draws no text at all (a fork, a small circle):
    * the renderer leaves the label out. Absent, the label is drawn. The

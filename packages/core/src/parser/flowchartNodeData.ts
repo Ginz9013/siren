@@ -1,6 +1,6 @@
 import { JSON_SCHEMA, load, YAMLException } from "js-yaml";
 import type { NodeIcon, NodeShape } from "../contracts";
-import { SHAPES_DRAWN_WITHOUT_TEXT, SHAPES_TAKING_NO_STYLE } from "../nodeShapeTraits";
+import { DEFAULT_ICON_SIZE, SHAPES_DRAWN_WITHOUT_TEXT, SHAPES_TAKING_NO_STYLE } from "../nodeShapeTraits";
 
 /**
  * A flowchart node's `@{ … }` data block — `A@{ shape: circle, label: "x" }`
@@ -159,10 +159,11 @@ export interface NodeData {
    */
   label: { text: string; markdown: boolean } | null;
   /**
-   * The icon it draws — from `icon:`, or for `shape: icon` — or `null` when
-   * it draws none. Where the block stands is the caller's to add.
+   * The icon keys it writes, as written: what they draw is settled once
+   * every block for the node is read (`settleIcon`), since Mermaid merges
+   * them key by key.
    */
-  icon: Omit<NodeIcon, "line" | "column" | "glyph"> | null;
+  iconKeys: ReadonlyMap<IconKey, unknown>;
 }
 
 /** The keys this reader draws. */
@@ -176,8 +177,11 @@ const READ_KEYS: ReadonlySet<string> = new Set(["shape", "label", "labelType", "
  */
 const UNSUPPORTED_KEYS: ReadonlySet<string> = new Set(["img", "w", "constraint"]);
 
-/** An icon's size when its block gives none: Mermaid's `assetHeight ?? 48`. */
-const DEFAULT_ICON_SIZE = 48;
+/** The keys that shape an icon node. */
+const ICON_KEYS = ["icon", "form", "pos", "h"] as const;
+
+/** One of the keys that shape an icon node. */
+export type IconKey = (typeof ICON_KEYS)[number];
 
 /** The forms an icon is drawn in, beside none (Mermaid's `getTypeFromVertex`). */
 const ICON_FORMS: ReadonlySet<unknown> = new Set(["square", "circle", "rounded"]);
@@ -247,7 +251,7 @@ export function loadDataBlock(
 export function readNodeData(written: string): NodeData {
   const loaded = loadDataBlock(written, "shape: circle");
   if ("problem" in loaded) {
-    return { problems: [loaded.problem], shape: null, label: null, icon: null };
+    return { problems: [loaded.problem], shape: null, label: null, iconKeys: new Map() };
   }
   const { doc } = loaded;
   const problems: DataBlockProblem[] = [];
@@ -264,74 +268,88 @@ export function readNodeData(written: string): NodeData {
       });
     }
   }
-  let shape = doc.shape ? readShape(doc.shape, problems) : null;
+  const shape = doc.shape ? readShape(doc.shape, problems) : null;
   let label: NodeData["label"] = null;
   if (doc.label && typeof doc.label === "object") {
     problems.push({ severity: "error", message: 'A label is text, such as "label: Start"' });
   } else if (doc.label) {
     label = { text: String(doc.label), markdown: !PLAIN_LABEL_TYPES.has(doc.labelType) };
   }
-  const icon = readIcon(doc, shape, problems);
-  if (icon !== null) {
-    // An icon draws the node as an icon, whatever its `shape:` says.
-    shape = "icon";
+  // Each icon key as written, read only once every block for the node is:
+  // a key Mermaid tests for truth is kept only when its value is truthy, and
+  // `h` whenever it is written, so that `h: 0` is refused.
+  const iconKeys = new Map<IconKey, unknown>();
+  for (const key of ICON_KEYS) {
+    const value = doc[key];
+    if (key === "h" ? value !== undefined && value !== null : Boolean(value)) {
+      iconKeys.set(key, value);
+    }
   }
-  return { problems, shape, label, icon };
+  return { problems, shape, label, iconKeys };
 }
 
 /**
- * The icon a block draws, read as Mermaid 12.2.0 reads it: `icon:` makes
- * the node an icon (`getTypeFromVertex`), `form` picks what is drawn behind
- * it, `pos: t` puts the label above it and anything else below, and `h` is
- * its size. `shape: icon` with no `icon:` is an icon node drawing no icon,
- * which `pos` and `h` still shape and `form` does not.
+ * Settles what a node's icon keys, written over every block for it, draw —
+ * as Mermaid 12.2.0 reads them: each key keeps the last value written for
+ * it (`addVertex`), and a node with an `icon:` is an icon node whatever its
+ * `shape:` or brackets say (`getTypeFromVertex`), so a key written before
+ * the `icon:` still shapes it. `shape: icon` with no `icon:` is an icon node
+ * drawing no icon, which `pos` and `h` shape and `form` does not.
  *
  * A value Mermaid would draw silently wrong is refused: a form it does not
  * know falls back to none, a `pos` it does not know to below, and an `h`
  * that is no positive number breaks the size. A key for a node that is no
- * icon is warned about, since Mermaid ignores it.
+ * icon is warned about, since Mermaid ignores it. Each problem comes back
+ * with where its key was written (`at`).
  */
-function readIcon(doc: Record<string, unknown>, shape: NodeShape | null, problems: DataBlockProblem[]): NodeData["icon"] {
-  const named = Boolean(doc.icon);
-  const ignored = (key: string) =>
-    problems.push({
-      severity: "warning",
-      message: `"${key}" only shapes an icon node, and is ignored here. Remove it, or give the node an icon`,
-    });
-  if (named && (typeof doc.icon !== "string" || !ICON_NAME.test(doc.icon))) {
-    problems.push({ severity: "error", message: 'An icon is named by its pack and its name, such as icon: "fa:user"' });
-  }
-  let form: NodeIcon["form"] = null;
-  if (doc.form && !named) {
-    ignored("form");
-  } else if (doc.form && !ICON_FORMS.has(doc.form)) {
-    problems.push({ severity: "error", message: `There is no icon form "${String(doc.form)}". Use square, circle or rounded` });
-  } else if (doc.form) {
-    form = doc.form as NonNullable<NodeIcon["form"]>;
-  }
-  if (!named && shape !== "icon") {
-    for (const key of ["pos", "h"]) {
-      if (doc[key] !== undefined && doc[key] !== null) {
-        ignored(key);
-      }
+export function settleIcon<At>(
+  shape: NodeShape,
+  written: ReadonlyMap<IconKey, { value: unknown; at: At }>,
+): { shape: NodeShape; icon?: NodeIcon & { at?: At }; problems: Array<{ severity: "error" | "warning"; message: string; at: At }> } {
+  const problems: Array<{ severity: "error" | "warning"; message: string; at: At }> = [];
+  const named = written.get("icon");
+  const iconNode = named !== undefined || shape === "icon";
+  for (const [key, { at }] of written) {
+    if (key !== "icon" && !(iconNode && (named !== undefined || key !== "form"))) {
+      problems.push({
+        severity: "warning",
+        message: `"${key}" only shapes an icon node, and is ignored here. Remove it, or give the node an icon`,
+        at,
+      });
     }
-    return null;
   }
-  if (doc.pos && doc.pos !== "t" && doc.pos !== "b") {
-    problems.push({
-      severity: "error",
-      message: `An icon's label goes above it ("pos: t") or below it ("pos: b"), not "${String(doc.pos)}"`,
-    });
+  if (!iconNode) {
+    return { shape, problems };
   }
-  const written = doc.h === undefined || doc.h === null ? DEFAULT_ICON_SIZE : Number(doc.h);
-  if (!(written > 0) || !Number.isFinite(written)) {
-    problems.push({ severity: "error", message: 'An icon\'s size is a number of pixels above 0, such as "h: 64"' });
+  const refuse = (key: IconKey, message: string) => problems.push({ severity: "error", message, at: written.get(key)!.at });
+  if (named !== undefined && (typeof named.value !== "string" || !ICON_NAME.test(named.value))) {
+    refuse("icon", 'An icon is named by its pack and its name, such as icon: "fa:user"');
+  }
+  const form = named === undefined ? undefined : written.get("form")?.value;
+  if (form !== undefined && !ICON_FORMS.has(form)) {
+    refuse("form", `There is no icon form "${String(form)}". Use square, circle or rounded`);
+  }
+  const pos = written.get("pos")?.value;
+  if (pos !== undefined && pos !== "t" && pos !== "b") {
+    refuse("pos", `An icon's label goes above it ("pos: t") or below it ("pos: b"), not "${String(pos)}"`);
+  }
+  const h = written.get("h");
+  const size = h === undefined ? DEFAULT_ICON_SIZE : Number(h.value);
+  if (!(size > 0) || !Number.isFinite(size)) {
+    refuse("h", 'An icon\'s size is a number of pixels above 0, such as "h: 64"');
   }
   return {
-    name: named && typeof doc.icon === "string" ? doc.icon : null,
-    form,
-    pos: doc.pos === "t" ? "t" : "b",
-    size: written,
+    shape: "icon",
+    icon: {
+      name: named !== undefined && typeof named.value === "string" ? named.value : null,
+      form: form === undefined || !ICON_FORMS.has(form) ? null : (form as NonNullable<NodeIcon["form"]>),
+      pos: pos === "t" ? "t" : "b",
+      size,
+      // Where the `icon:` stands, for a problem with the icon it names;
+      // else where the first key shaping the node does.
+      ...(named !== undefined ? { at: named.at } : written.size > 0 ? { at: [...written.values()][0]!.at } : {}),
+    },
+    problems,
   };
 }
 

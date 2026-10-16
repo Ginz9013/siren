@@ -34,7 +34,9 @@ import {
   type NodeDataBlock,
   NODE_DATA_OPENER,
   nodeDataEnd,
+  type IconKey,
   readNodeData,
+  settleIcon,
   unchangedStyleMessage,
   unshownLabelMessage,
 } from "./flowchartNodeData";
@@ -2746,6 +2748,8 @@ export function parseFlowchart(source: string): DiagramParseResult {
    * node's final shape is known.
    */
   const labelWrittenAt = new Map<string, { line: number; column: number }>();
+  /** Each node's icon keys, as its `@{ … }` blocks wrote them, the last of each kept. */
+  const iconKeysWritten = new Map<string, Map<IconKey, { value: unknown; at: { line: number; column: number } }>>();
 
   let mode: "before-header" | "flowchart" = "before-header";
   let sawError = false;
@@ -2931,13 +2935,16 @@ export function parseFlowchart(source: string): DiagramParseResult {
       node.label = label;
       labelWrittenAt.set(id, positionIn(statement, data.at));
     }
-    if (read.icon !== null) {
-      node.icon = { ...read.icon, ...positionIn(statement, data.at) };
-      // An icon node given no label draws none (Mermaid 12.2.0's
-      // `addVertex`: no `label:`, and no text but the id).
-      if (read.icon.name !== null && read.label === null && node.label.text === id) {
-        node.label = plainLabel("");
-      }
+    // Kept key by key, and settled once every block is read (`settleIcon`).
+    const written = iconKeysWritten.get(id) ?? new Map();
+    for (const [key, value] of read.iconKeys) {
+      written.set(key, { value, at: positionIn(statement, data.at) });
+    }
+    iconKeysWritten.set(id, written);
+    // An icon node given no label draws none (Mermaid 12.2.0's `addVertex`:
+    // no `label:`, and no text but the id, when the `icon:` is read).
+    if (read.iconKeys.has("icon") && read.label === null && node.label.text === id) {
+      node.label = plainLabel("");
     }
   };
 
@@ -3931,6 +3938,28 @@ export function parseFlowchart(source: string): DiagramParseResult {
         ...position,
       });
       sawError = true;
+    }
+  }
+
+  // What each node's icon keys draw, now that every block is read: Mermaid
+  // 12.2.0 merges them key by key, and an `icon:` anywhere makes the node
+  // an icon node (measured).
+  for (const node of nodesById.values()) {
+    const written = iconKeysWritten.get(node.id) ?? new Map<IconKey, { value: unknown; at: { line: number; column: number } }>();
+    if (written.size === 0 && node.shape !== "icon") {
+      continue;
+    }
+    const settled = settleIcon(node.shape, written);
+    node.shape = settled.shape;
+    if (settled.icon !== undefined) {
+      const { at, ...icon } = settled.icon;
+      node.icon = { ...icon, ...(at ?? {}) };
+    }
+    for (const { severity, message, at } of settled.problems) {
+      diagnostics.push({ severity, message, ...at });
+      if (severity === "error") {
+        sawError = true;
+      }
     }
   }
 

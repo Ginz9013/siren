@@ -513,7 +513,7 @@ function buildSubgraph(subgraph: PositionedSubgraph): SVGGElement {
  * that is drawn.
  */
 function buildNodeFrames(node: PositionedNode): DrawnFrame[] {
-  return SHAPES[node.shape].frames(node, node).map((frame) => ({
+  return SHAPES[node.shape].frames(node).map((frame) => ({
     element: drawFrame(frame),
     classes: frame.classes ?? [],
     geometry: frame.style ?? [],

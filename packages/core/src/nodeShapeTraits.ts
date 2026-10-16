@@ -29,3 +29,6 @@ export const SHAPES_DRAWN_WITHOUT_TEXT: ReadonlySet<NodeShape> = new Set<NodeSha
  * parser refuses a declaration aimed at one by name.
  */
 export const SHAPES_TAKING_NO_STYLE: ReadonlySet<NodeShape> = new Set<NodeShape>(["small-circle", "anchor"]);
+
+/** An icon's size when its node gives none: Mermaid's `assetHeight ?? 48`. */
+export const DEFAULT_ICON_SIZE = 48;

@@ -1,4 +1,5 @@
 import type { GraphNode, NodeIcon, NodeShape, PositionedNode } from "../../contracts";
+import { DEFAULT_ICON_SIZE } from "../../nodeShapeTraits";
 import {
   closedPath,
   edgesOf,
@@ -23,7 +24,7 @@ import {
  */
 
 /** An icon node's `icon` when it has none: `shape: icon` read as nothing else. */
-const NO_ICON: NodeIcon = { name: null, form: null, pos: "b", size: 48 };
+const NO_ICON: NodeIcon = { name: null, form: null, pos: "b", size: DEFAULT_ICON_SIZE };
 
 /** How far a label stands from the figure (Mermaid's `labelPadding`). */
 const LABEL_GAP = 8;
@@ -169,10 +170,10 @@ export const ICON_SHAPES = {
         height: label.height,
       };
     },
-    frames: (box, node) => {
+    frames: (node) => {
       const icon = iconOf(node);
-      const figure = figureRect(box, icon);
-      return [formFrame(box, figure, icon), ...glyphFrame(figure, icon, node)];
+      const figure = figureRect(node, icon);
+      return [formFrame(node, figure, icon), ...glyphFrame(figure, icon, node)];
     },
   },
 } as const satisfies Partial<Record<NodeShape, ShapeSpec>>;
