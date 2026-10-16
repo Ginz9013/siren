@@ -434,13 +434,12 @@ const SHAPE_CHOICES = "rect, rounded, stadium, fr-rect, cyl, circle, diam, hex, 
 
 /**
  * A `shape:` Siren does not draw. Measured on Mermaid 12.2.0: it draws
- * `cloud`, `doc` and the rest of its documented shapes Siren has no
- * geometry for yet, and the undocumented `icon`; it refuses `foo` ("No such shape"),
+ * `icon`, the undocumented shape Siren has no geometry for yet; it refuses `foo` ("No such shape"),
  * and any name with an upper-case letter or a `_` ("Shape names should be
  * lowercase"); `shape: 1` throws.
  */
 describe("a `shape:` Siren does not draw", () => {
-  it.each(["cloud", "icon"])(
+  it.each(["icon"])(
     "refuses `shape: %s` at the `@`, as a shape not drawn yet",
     (name) => {
       const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> Bc@{ shape: ${name} }`);
@@ -3163,6 +3162,29 @@ const LABELLESS_SHAPE_NAMES: ReadonlyArray<[string, NodeShape]> = [
 
 describe("a node written with the `@{ shape: … }` name of a shape that draws no text", () => {
   it.each(LABELLESS_SHAPE_NAMES)("draws `shape: %s` as the %s shape", (name, shape) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A@{ shape: ${name} }`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes).toEqual([{ id: "A", label: plainLabel("A"), shape, line: 2, column: 3 }]);
+  });
+});
+
+/**
+ * The `shape:` names of the shapes Mermaid 12.2.0 draws as a figure plus
+ * decorations: `bucket`, `person`,
+ * `console`, `browser`, `cloud` and `bang`. Each is its short name alone —
+ * `shapesDefs` lists no other alias for any of them (measured: each draws
+ * in Chrome).
+ */
+describe("a node written with a `@{ shape: … }` name for a figure shape", () => {
+  it.each([
+    ["bucket", "bucket"],
+    ["person", "person"],
+    ["console", "console"],
+    ["browser", "browser"],
+    ["cloud", "cloud"],
+    ["bang", "bang"],
+  ] as Array<[string, NodeShape]>)("draws `shape: %s` as the %s shape", (name, shape) => {
     const { document, diagnostics } = parseOk(`flowchart TB\n  A@{ shape: ${name} }`);
 
     expect(diagnostics).toEqual([]);

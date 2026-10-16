@@ -3786,16 +3786,73 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "fc-node-shape-data-figures",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ shape: bucket, label: "Bucket" } --> B@{ shape: person, label: "User" }
+      B --> C@{ shape: console, label: "Shell" } --> D@{ shape: browser, label: "Web" }
+      D --> E@{ shape: cloud, label: "Cloud" } --> F@{ shape: bang, label: "Bang" }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws six figures its `@{ … }` block names (measured " +
+      "in Chrome, classic look): `bucket` a body tapering to its bottom " +
+      "under an open elliptical rim, `person` a rounded body under a round " +
+      "head, `console` a window with 12px corners and a `>_` prompt in its " +
+      "top left, `browser` a window with a bar holding three dots and an " +
+      "address bar, `cloud` an outline of ten bulging arcs, `bang` one of " +
+      "fourteen scalloped arcs. Each puts its label clear of the figure's " +
+      "marking — under the head, the prompt, the bar. Siren draws the same " +
+      "six from its shape table (nook 01M51XACRX8H03160HPE1WQFZ4); its " +
+      "prompt is two stroked glyphs rather than text.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Bucket]", "B[User]", "C[Shell]", "D[Web]", "E[Cloud]", "F[Bang]"]);
+      expectSame("edges", edges(result), ["A-B", "B-C", "C-D", "D-E", "E-F"]);
+      const drawnWith = (id: string) =>
+        Array.from(svgOf(result).querySelectorAll(`g.siren-node[data-siren-id="${id}"] .siren-node-frame`)).map(
+          (frame) => [frame.tagName, ...(frame.getAttribute("class") ?? "").split(/\s+/).filter((c) => c !== "siren-node-frame")].join(" "),
+        );
+      expectSame("frames", drawnWith("A"), ["path", "path siren-node-hollow"]);
+      expectSame("frames", drawnWith("B"), ["rect", "circle"]);
+      expectSame("frames", drawnWith("C"), ["rect", "path siren-node-hollow"]);
+      expectSame("frames", drawnWith("D"), [
+        "rect",
+        "line",
+        "circle siren-node-ink",
+        "circle siren-node-ink",
+        "circle siren-node-ink",
+        "rect siren-node-hollow",
+      ]);
+      expectSame("frames", drawnWith("E"), ["path"]);
+      expectSame("frames", drawnWith("F"), ["path"]);
+      // The label on the person's body, below its head, and below the
+      // middle of a console's and a browser's window, clear of the prompt
+      // and the bar.
+      const labelAndFrame = (id: string) => {
+        const group = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"]`)!;
+        const rect = group.querySelector("rect.siren-node-frame")!;
+        const top = Number(rect.getAttribute("y"));
+        return { y: Number(group.querySelector("text")!.getAttribute("y")), middle: top + Number(rect.getAttribute("height")) / 2 };
+      };
+      const person = labelAndFrame("B");
+      expectSame("label on the body", Math.round(person.y), Math.round(person.middle));
+      for (const id of ["C", "D"]) {
+        const window = labelAndFrame(id);
+        expectSame(`${id}'s label below the middle`, window.y > window.middle, true);
+      }
+    },
+  },
+  {
     id: "fc-node-shape-data-undrawn",
     kind: "flowchart",
     source: `flowchart TB
-      A@{ shape: cloud, label: "x" } --> B`,
+      A@{ shape: icon, label: "x" } --> B`,
     status: "rejected",
     meaning:
-      "Mermaid 12.2.0 draws `A` as a cloud (measured), one of the shapes " +
-      "its `@{ … }` names that Siren has no geometry for yet. Refused at the " +
-      "`@`, saying the shape is not drawn yet and naming shapes it can draw " +
-      "as examples.",
+      "Mermaid 12.2.0 draws `A` as an icon node (measured), a shape its " +
+      "`@{ … }` names that Siren has no geometry for yet. Refused at the `@`, " +
+      "saying the shape is not drawn yet and naming shapes it can draw as " +
+      "examples. **Was `shape: cloud`** until Siren drew the cloud (nook " +
+      "01M51XACRX).",
   },
   {
     id: "fc-node-shape-data-icon",

@@ -404,6 +404,13 @@ are SVG arcs; a **wavy edge** is Mermaid's sine wave, sampled at its 51 points. 
 path painted hollow. Where Mermaid sizes a clearance from the unpadded text, which a record never
 sees, the padded label stands in for it.
 
+The **figures** (`compositeShapes.ts`, nook `01M51XACRX8H03160HPE1WQFZ4`) — `bucket`, `person`,
+`console`, `browser`, `cloud`, `bang` — are drawn in more than one element: a body plus its
+decorations (a rim, a head, a prompt, a bar's dots and address bar), each a frame, so an author's
+`style` and a highlight reach all of them. A decoration Mermaid paints in the border colour wears a
+paint (hollow or ink) rather than a colour of its own. A cloud's and a bang's box is the extent of
+Mermaid's arcs rather than the `w x h` they join, and their label is centred on that `w x h`.
+
 **A node's label is a Label** (below), like every flowchart label: an edge's and a subgraph
 title's too. `SirenNode`/`GraphNode`/`PositionedNode` carry it as `label`, and `PositionedNode` adds
 the `labelBox` layout measured it into, which the node's shape was sized to hold. The fenced

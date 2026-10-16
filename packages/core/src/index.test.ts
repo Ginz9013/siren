@@ -8697,3 +8697,17 @@ describe("render() puts a shape's label where its shape table record says", () =
     expect(rows[1]).not.toBeCloseTo((top! + bottom!) / 2, 0);
   });
 });
+
+describe("render() — a figure a `@{ shape: … }` block names", () => {
+  it("draws every element of a browser, and the author's `style` reaches each of them", () => {
+    const container = document.createElement("div");
+    const result = render('flowchart TB\n  A@{ shape: browser, label: "Web" }\n  style A stroke:#f00', container);
+
+    expect(result.diagnostics).toEqual([]);
+    const group = result.svg!.querySelector('g.siren-node[data-siren-id="A"]')!;
+    const frames = Array.from(group.querySelectorAll(".siren-node-frame"));
+    expect(frames.map((frame) => frame.tagName)).toEqual(["rect", "line", "circle", "circle", "circle", "rect"]);
+    expect(frames.every((frame) => (frame.getAttribute("style") ?? "").includes("stroke:#f00"))).toBe(true);
+    expect(group.getAttribute("data-siren-shape")).toBe("browser");
+  });
+});

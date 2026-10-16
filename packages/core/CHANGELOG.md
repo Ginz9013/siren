@@ -163,6 +163,15 @@ each time; and for one with a method whose last parameter list is padded or foll
 - An `@{ … }` block on an edge id written below the edge (`e1@{ … }`) is read as that edge's data:
   a key other than `animate`, `animation` and `curve` is ignored with a warning, as Mermaid 12.2.0
   ignores it; those three are refused as not drawn yet. The block used to be refused whole.
+- A flowchart node's `@{ shape: … }` block draws six figures (nook `01M51XACRX8H03160HPE1WQFZ4`,
+  measured in headless Chrome): `bucket` (a body tapering under an open rim), `person` (a rounded
+  body under a round head), `console` (a window with a `>_` prompt), `browser` (a window with a bar
+  of three dots and an address bar), `cloud` and `bang`. Each is sized by Mermaid's formula for it,
+  with Mermaid's minimum widths, and puts its label where Mermaid does — on the person's body, below
+  the console's prompt and the browser's bar, on the corners a cloud's and a bang's arcs join. A
+  cloud's box is how far its arcs reach, which grows at the sides with a taller label as in
+  Mermaid. The console's prompt is drawn as two stroked glyphs in the line colour, where Mermaid
+  writes it as monospace text. Each used to be refused as a shape not drawn yet.
 - A flowchart node's `@{ shape: … }` block draws sixteen more of Mermaid 12.2.0's shapes (nook
   `01M51XAC4N7X7GE0CS5TK2PMTY`, measured in headless Chrome): `notch-rect` (`card`,
   `notched-rectangle`), `notch-pent` (`loop-limit`, `notched-pentagon`), `sl-rect`

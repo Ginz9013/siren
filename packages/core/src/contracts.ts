@@ -122,7 +122,14 @@ export type NodeShape =
   | "flag"
   | "brace-left"
   | "brace-right"
-  | "braces";
+  | "braces"
+  // The shapes drawn as a figure plus decorations, named by Mermaid's short name.
+  | "bucket"
+  | "person"
+  | "console"
+  | "browser"
+  | "cloud"
+  | "bang";
 
 /** Effect names accepted by `enter`/`exit` timeline actions. */
 export type EnterExitEffect =

@@ -87,6 +87,13 @@ const TABLE_SHAPE_NAMES: ReadonlyArray<readonly [NodeShape, readonly [string, ..
   ["brace-left", ["brace", "comment", "brace-l"]],
   ["brace-right", ["brace-r"]],
   ["braces", ["braces"]],
+  // The shapes drawn as a figure.
+  ["bucket", ["bucket"]],
+  ["person", ["person"]],
+  ["console", ["console"]],
+  ["browser", ["browser"]],
+  ["cloud", ["cloud"]],
+  ["bang", ["bang"]],
 ];
 
 const SHAPE_NAMES = [...BRACKET_SHAPE_NAMES, ...TABLE_SHAPE_NAMES];
@@ -104,8 +111,6 @@ export const NODE_DATA_SHAPES: ReadonlyMap<string, NodeShape> = new Map(
  * from a name that is no shape at all only so the message can say which.
  */
 const UNDRAWN_SHAPE_NAMES: ReadonlySet<string> = new Set([
-  // The shapes drawn as a figure
-  ...["bucket", "person", "console", "browser", "cloud", "bang"],
   // An icon
   ...["icon"],
 ]);
