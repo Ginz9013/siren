@@ -4,6 +4,10 @@ status: accepted
 
 # A generated id uses a colon, so it can never spell a connector id
 
+> Amended by decision `01M51Y5CT9`: a flowchart edge may carry an author's own id (`A e1@--> B`),
+> which replaces its derived `A-B`; uniqueness is then checked against the ids actually minted
+> rather than argued from the alphabet.
+
 Every diagram kind hands its elements ids that an author types into a `timeline:` block and that
 the renderer stamps as `data-siren-id`. Those ids come from two different places, and until they
 were told apart they could collide.
