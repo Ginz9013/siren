@@ -2265,24 +2265,26 @@ describe("the arrow token an edge is written with", () => {
     }
   });
 
-  it("keeps a declaration list out of the arrow cut, so a `--custom-property` is still a declaration", () => {
+  it("keeps a declaration list out of the arrow cut, so a `--custom-property` is refused as a declaration", () => {
     // Found by asking what else on a flowchart line can contain `--` now
     // that the separator is a pattern rather than the literal `-->`. A
     // styling statement's body is a declaration list, and `splitStatements`
     // already keeps `;` from meaning anything inside one; this is the same
     // rule for the same reason, one separator over.
     //
-    // Mermaid rejects `style A --my-token:4` outright (measured), so no
-    // document it draws turns on this. What turns on it is the diagnostic:
-    // without the guard the author of a `style` statement was told Siren
-    // could not draw the arrow `--`.
+    // Mermaid rejects `style A --my-token:4` outright (measured), and so
+    // does Siren — as a declaration holding `--`. What turns on the guard
+    // is the diagnostic: without it the author of a `style` statement was
+    // told Siren could not draw the arrow `--`.
     for (const statement of [
       "style A --my-token:4",
       "classDef hot --my-token:4",
       "linkStyle 0 stroke-dasharray:4--4",
     ]) {
       const { diagnostics } = parseSiren(`flowchart TB\n  A[X] --> B\n  ${statement}\n`);
-      expect([statement, diagnostics]).toEqual([statement, []]);
+      expect([statement, diagnostics.length]).toEqual([statement, 1]);
+      expect(diagnostics[0]!.message).toMatch(/^A style declaration cannot hold "--"/);
+      expect(diagnostics[0]!.message).not.toContain("does not draw the arrow");
     }
   });
 

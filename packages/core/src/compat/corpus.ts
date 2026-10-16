@@ -13169,7 +13169,7 @@ line2\`"]`,
       "included: Mermaid 12.2.0 records the title `a --> b` and the " +
       "description `c --> d`, and draws only A-B (measured). Siren refused " +
       "both lines as unrecognized, having cut them at the arrow first " +
-      "(01M51XADTQS79XD2S6TWN0YWRE).",
+      "(nook 01M51XADTQ).",
     assert: (result) => {
       const svg = svgOf(result);
       expectSame("the accessible title text", svg.querySelector("title")?.textContent, "a --> b");

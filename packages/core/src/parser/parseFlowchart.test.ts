@@ -3059,6 +3059,11 @@ describe("a bracket in an edge's `|label|` without quotes", () => {
     ["A -->|a[b| B", "[", 10, 'A -->|"a[b"| B'],
     ["A -->|a]b| B", "]", 10, 'A -->|"a]b"| B'],
     ["A --> B -.->| x(y) | C", "(", 18, 'A --> B -.->|"x(y)"| C'],
+    // Columns count UTF-16 code units, as every column here does.
+    ["A -->|😀😀{b| B", "{", 13, 'A -->|"😀😀{b"| B'],
+    // A quoted run opening the label is the label's own: the bracket after
+    // it is refused, and the fix quotes the label without its quotes.
+    ['A -->|"a" {b| B', "{", 13, 'A -->|"a {b"| B'],
   ])("refuses %j at the bracket, saying to quote the label", (written, bracket, column, fixed) => {
     const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
 
@@ -3067,6 +3072,25 @@ describe("a bracket in an edge's `|label|` without quotes", () => {
       {
         severity: "error",
         message: `An edge label without quotes cannot hold "${bracket}". Put the whole label in quotes: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it.each([
+    ['A -->|a"{"b| B', 10, 'A -->|"a{b"| B'],
+    ['A -->|a "b"| B', 11, 'A -->|"a b"| B'],
+  ])("refuses %j at a quote that does not open the label", (written, column, fixed) => {
+    // Measured on Mermaid 12.2.0: a quoted run after the label's first
+    // character is a parse error ("got 'STR'").
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `An edge label can be quoted only as a whole. Put the whole label in quotes: ${fixed}`,
         line: 2,
         column,
       },
@@ -3102,6 +3126,15 @@ describe("a styling value holding an `@`, a brace or an arrow", () => {
     ["linkStyle 0 fill:a@b", "@", 21, "fill:a@b"],
     ["style A fill:a-->b", "-->", 17, "fill:a-->b"],
     ["linkStyle 0 stroke:#f00,fill:a-->b%%x", "-->", 33, "stroke:#f00,fill:a-->b%%x"],
+    // An arrow's opening run is refused alone too (measured, "got
+    // 'START_LINK'" or a lexical error), each quoted as the run written.
+    ["style A stroke:a--b", "--", 19, "stroke:a--b"],
+    ["style A fill:a==b", "==", 17, "fill:a==b"],
+    ["style A fill:a~~~b", "~~~", 17, "fill:a~~~b"],
+    ["style A fill:a=b", "=", 17, "fill:a=b"],
+    ["style A stroke-dasharray:5--5", "--", 29, "stroke-dasharray:5--5"],
+    ["style A fill:a-.b", "-.", 17, "fill:a-.b"],
+    ["style A stroke:var(--x)", "--", 22, "stroke:var(--x)"],
   ])("refuses %j at it", (written, token, column, declarations) => {
     const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> B\n  ${written}`);
 
@@ -3121,6 +3154,7 @@ describe("a styling value holding an `@`, a brace or an arrow", () => {
     ["style A font-family: a b", "a b"],
     ["classDef c fill:#f00", "#f00"],
     ["style A fill:a-b", "a-b"],
+    ["style A fill:a.-b", "a.-b"],
     ["style A fill:#f00 %%x", "#f00 %%x"],
   ])("reads %j as written", (written, value) => {
     const { document, diagnostics } = parseOk(`flowchart TB\n  A --> B\n  ${written}`);
