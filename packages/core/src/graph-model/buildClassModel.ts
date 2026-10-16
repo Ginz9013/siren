@@ -334,8 +334,9 @@ function claimMembers(
  * +int age` written on two lines yields one line, not two. The first copy
  * is the one kept, along with its source position.
  *
- * The identity of a member is the text it is drawn as — `+int age`,
- * `+swim() bool` — because that is exactly what a reader sees repeated.
+ * The identity of a member is its authored line text — `+int age`,
+ * `+swim() bool` (`memberLineText`) — which tracks what a reader sees
+ * repeated.
  * Two members differing in visibility, type, parameters, return type or
  * classifier draw differently and are therefore different members, even
  * when they share a name; Mermaid lets a class carry both, and so does

@@ -1716,14 +1716,29 @@ export function parseClassDiagram(source: string): DiagramParseResult {
             .replace(/;\s*$/, "")
             .includes(";");
         const separated = holdsSeparator(maskReferences(text));
+        /**
+         * Whether a `;` in `text` — outside `(…)` and `~…~`, and not its
+         * last character — is followed by text `parseMember` reads.
+         */
+        const runsOnIntoMember = (text: string, line: number, column: number) => {
+          const blanked = text.replace(/\([^)]*\)|~[^~]*~/g, (inside) => " ".repeat(inside.length));
+          for (let at = blanked.indexOf(";"); at !== -1; at = blanked.indexOf(";", at + 1)) {
+            const after = text.slice(at + 1).trim();
+            if (after.length > 0 && parseMember(after, line, column) !== null) return true;
+          }
+          return false;
+        };
         const member = separated ? null : parseMember(text, memberLine, memberColumn);
         if (member === null) {
           // A member Siren cannot read whose `;` ends a reference or a code
-          // (`+x &zz; +foo()`, `+x #foo; +y`) is still most likely two run
-          // together — Mermaid 12.2.0 draws each as one member (measured) —
-          // so the error says how to write two, as for any other `;`.
+          // is still most likely two run together when what follows that
+          // `;` reads as a member of its own (`+x &zz; +foo()`, `+x #foo;
+          // +y`) — Mermaid 12.2.0 draws each as one member (measured) — so
+          // the error says how to write two, as for any other `;`. When
+          // nothing readable follows (`+x &lt; !!`), the `;` is not what is
+          // wrong, and the error does not blame it.
           const hint =
-            separated || holdsSeparator(text)
+            separated || runsOnIntoMember(text, memberLine, memberColumn)
               ? '. A ";" does not separate members: write each member on a line of its own.'
               : "";
           diagnostics.push({

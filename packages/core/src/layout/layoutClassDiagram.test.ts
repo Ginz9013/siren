@@ -484,6 +484,28 @@ describe("layoutClassDiagram", () => {
       expect(box.width).toBeGreaterThan(measuredWidth("-foo(a, b) : Map<K,V>"));
     });
 
+    it("draws a colon the author wrote before a return type as part of it, after the colon it adds", () => {
+      // Measured on Mermaid 12.2.0 (Chrome): in a class block `+foo() :
+      // bool` draws `+foo() : : bool` and `+bar(): int` `+bar() : : int` —
+      // the written colon is the start of the return type.
+      expect(
+        classById(
+          layoutClassDiagram(
+            classModel({
+              classes: [
+                cls("A", [
+                  method({ visibility: "+", name: "foo", parameters: "", returnType: ": bool" }),
+                  method({ visibility: "+", name: "bar", parameters: "", returnType: ": int" }),
+                ]),
+              ],
+            }),
+            { measureText: fakeMeasurer },
+          ),
+          "A",
+        ).methods!.members.map((m) => m.text),
+      ).toEqual(["+foo() : : bool", "+bar() : : int"]);
+    });
+
     it("sizes the box from the composed member text, not the bare member name", () => {
       const diagram = layoutClassDiagram(
         classModel({

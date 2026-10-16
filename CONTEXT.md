@@ -836,7 +836,9 @@ Drawn as the author spelled it, its entity codes and character references decode
 `+< x`, `+&lt x` too): a member is **not** a Label, because Mermaid escapes its `<` and `>` in both
 label modes, so no tag in it is read — the one change made first, as Mermaid makes it, is
 respelling `<br/>`, `<br />` and `<BR>` as `<br>`, which is then drawn as those four characters. A
-`#` opening an entity code is the code's, not the protected marker (`#lt; x` has no visibility). Attributes and methods draw in two separate
+method's return type is drawn after ` : ` (`+swim() bool` draws `+swim() : bool`), as Mermaid
+draws it. A `#` opening an entity code is the code's, not the protected marker (`#lt; x` has no
+visibility). Attributes and methods draw in two separate
 compartments, in declaration order within each, with a divider above every populated one.
 _Avoid_: field, property (that is a CSS declaration's property in an author style), attribute
 (alone — that is one of the two kinds of member, and it is also an SVG attribute; say "attribute

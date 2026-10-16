@@ -1957,6 +1957,24 @@ describe("parseClassDiagram — a class block closed on a member's line", () => 
     }
   });
 
+  it("gives that hint only when the text after the reference's `;` reads as a member", () => {
+    // `+x &lt; !!` is one member to Mermaid 12.2.0 (Chrome: `+x < !!`); what
+    // Siren cannot read is `!!`, not the `;` — no second member follows it.
+    const base = (text: string) => `Unrecognized class member: "${text}"`;
+    const hint = '. A ";" does not separate members: write each member on a line of its own.';
+    for (const [text, message] of [
+      ["+x &lt; !!", base("+x &lt; !!")],
+      ["+x &zz; ??", base("+x &zz; ??")],
+      ["+x &zz; +foo()", base("+x &zz; +foo()") + hint],
+      ["+x &lt; +foo()", base("+x &lt; +foo()") + hint],
+    ] as const) {
+      expect([text, parseClassDiagram(`classDiagram\n  class A {\n    ${text}\n  }`).diagnostics]).toEqual([
+        text,
+        [{ severity: "error", message, line: 3, column: 5 }],
+      ]);
+    }
+  });
+
   it("reads a `#…;` that is no entity code as a name of its own at the end of a block's member", () => {
     // Measured on Mermaid 12.2.0 (Chrome): in a class block `+x #a-b;`,
     // `+x #é;` and `+x #;` are drawn as written — none is an entity code
