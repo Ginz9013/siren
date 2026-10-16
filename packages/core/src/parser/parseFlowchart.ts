@@ -736,6 +736,35 @@ const ARROW_RE = new RegExp(ARROW_TOKEN, "y");
 const ARROW_PARTS_RE = new RegExp(`^${ARROW_TOKEN}$`, "d");
 
 /**
+ * Where in an arrow `token` its `|label|` holds a bracket outside quotes,
+ * the bracket, and the token with the whole label quoted — or `null` when
+ * it holds none. Mermaid 12.2.0 refuses `A -->|a{b| B`, and each of `}`,
+ * `(`, `)`, `[` and `]` there, while `A -->|"a{b"| B` and the other
+ * spelling, `A -- a{b --> B`, are labels as written (measured).
+ */
+function unquotedPipeLabelBracket(token: string): { at: number; bracket: string; fixed: string } | null {
+  const match = ARROW_PARTS_RE.exec(token);
+  const content = match?.[4];
+  if (content === undefined) {
+    return null;
+  }
+  const contentAt = match!.indices![4]![0];
+  let quoted = false;
+  for (const [index, character] of [...content].entries()) {
+    if (character === '"') {
+      quoted = !quoted;
+    } else if (!quoted && "{}()[]".includes(character)) {
+      return {
+        at: contentAt + index,
+        bracket: character,
+        fixed: `${token.slice(0, contentAt)}"${content.trim()}"${token.slice(contentAt + content.length)}`,
+      };
+    }
+  }
+  return null;
+}
+
+/**
  * The anchored form that splits an **inline-labelled** run back into the
  * three things it says: the marker its opener carried, the label, and the
  * arrow that closed it.
@@ -849,6 +878,15 @@ const STATEMENT_END = ";";
  * 11.17.2: `styles=["fill:#fddposition:fixed","stroke:#c00"]`).
  */
 const DECLARATION_LIST_KEYWORDS = ["style", "classDef", "linkStyle"] as const;
+
+/**
+ * What a `style`, `classDef` or `linkStyle` declaration list cannot hold: an
+ * `@{`, an `@`, a `{` or a `}`, or an arrow — each a parse error in Mermaid
+ * 12.2.0's grammar there (measured: `fill:@{x`, `fill:a@b`, `fill:a{b`,
+ * `fill:a}b`, `fill:a-->b`), where `fill:a-b` and `font-family: a b` are
+ * values. The longest first, so `@{` is named as written.
+ */
+const STYLE_VALUE_REFUSED_RE = new RegExp(String.raw`@\{|[@{}]|${ARROW_TOKEN}`);
 const DECLARATION_LIST_RE = new RegExp(`^(?:${DECLARATION_LIST_KEYWORDS.join("|")})\\s`);
 
 /** What an end marker draws, by the character that wrote it. */
@@ -2592,7 +2630,22 @@ export function parseFlowchart(source: string): DiagramParseResult {
     text: string,
     lineNumber: number,
     column: number,
-  ): StyleProperty[] => {
+    statement: Statement,
+  ): StyleProperty[] | null => {
+    // Read before the declarations are split, as Mermaid 12.2.0's grammar
+    // reads them: an `@`, a brace or an arrow anywhere in them is a parse
+    // error there (measured), so it refuses the statement. The declarations
+    // are the end of the statement, which places what refused them.
+    const refused = STYLE_VALUE_REFUSED_RE.exec(text);
+    if (refused !== null) {
+      diagnostics.push({
+        severity: "error",
+        message: `A style declaration cannot hold "${refused[0]}": ${text}. Leave it out`,
+        ...positionIn(statement, statement.text.length - text.length + refused.index),
+      });
+      sawError = true;
+      return null;
+    }
     const { properties, malformed } = parseStyleProperties(text);
     for (const segment of malformed) {
       diagnostics.push({
@@ -2621,15 +2674,21 @@ export function parseFlowchart(source: string): DiagramParseResult {
     declarations: string | undefined,
     lineNumber: number,
     column: number,
+    statement: Statement,
     interpolate?: string,
-  ): LinkStyleDecl => ({
-    targets: splitTargetIds(addresses),
-    ...(interpolate === undefined ? {} : { interpolate }),
-    properties:
-      declarations === undefined ? [] : readStyleProperties(declarations, lineNumber, column),
-    line: lineNumber,
-    column,
-  });
+  ): LinkStyleDecl | null => {
+    const properties =
+      declarations === undefined ? [] : readStyleProperties(declarations, lineNumber, column, statement);
+    return properties === null
+      ? null
+      : {
+          targets: splitTargetIds(addresses),
+          ...(interpolate === undefined ? {} : { interpolate }),
+          properties,
+          line: lineNumber,
+          column,
+        };
+  };
 
   /**
    * Records the `:::name` shorthand as what it is: the apply-directive,
@@ -3198,11 +3257,14 @@ export function parseFlowchart(source: string): DiagramParseResult {
       // Mermaid draws turns on this; what turns on it is which diagnostic
       // an author gets, and "not an arrow Siren draws" is the wrong one to
       // hand someone who wrote a `style` statement.
+      //
+      // Nor is an accessibility line: Mermaid 12.2.0 keeps all of
+      // `accTitle: a --> b` as the title and draws no edge (measured).
       const {
         parts: arrowParts,
         separators: arrowTokens,
         blocks: lineBlocks,
-      } = DECLARATION_LIST_RE.test(line)
+      } = DECLARATION_LIST_RE.test(line) || ACC_TITLE_RE.test(line) || ACC_DESCR_RE.test(line)
         ? { parts: [line], separators: [] as string[], blocks: [] }
         : cutOutsideLabel(line, ARROW_RE);
       if (arrowParts.length > 1) {
@@ -3257,6 +3319,22 @@ export function parseFlowchart(source: string): DiagramParseResult {
         // label's problem is reported at its own column: the pieces and the
         // separators that cut them lie end to end, and add up to the line.
         const partAt = offsetsOf(arrowParts, arrowTokens);
+        const bracketed = arrowTokens.map(unquotedPipeLabelBracket);
+        const bracketedAt = bracketed.findIndex((found) => found !== null);
+        if (bracketedAt !== -1) {
+          const { at, bracket, fixed } = bracketed[bracketedAt]!;
+          const tokenAt = partAt[bracketedAt]! + arrowParts[bracketedAt]!.length;
+          const fixedLine = line.slice(0, tokenAt) + fixed + line.slice(tokenAt + arrowTokens[bracketedAt]!.length);
+          diagnostics.push({
+            severity: "error",
+            message:
+              `An edge label without quotes cannot hold "${bracket}". ` +
+              `Put the whole label in quotes: ${withBlocksElided(fixedLine)}`,
+            ...positionIn(statement, tokenAt + at),
+          });
+          sawError = true;
+          continue;
+        }
         // An arrow's own id, `A e1@--> B`, taken off the piece before it
         // before any piece is read as nodes.
         const { parts: endpointParts, ids: linkIds } = takeEdgeIds(arrowParts, arrowTokens);
@@ -3490,7 +3568,10 @@ export function parseFlowchart(source: string): DiagramParseResult {
         // specific keyword, not because the order can matter.
         // `classDef c,d …` defines each name with the one declaration list,
         // as Mermaid 12.2.0 does (measured: both `c` and `d` are styled).
-        const properties = readStyleProperties(classDefMatch[2], lineNumber, column);
+        const properties = readStyleProperties(classDefMatch[2], lineNumber, column, statement);
+        if (properties === null) {
+          continue;
+        }
         for (const name of classDefMatch[1].split(",")) {
           styles.push({
             styleKind: "classDef",
@@ -3524,15 +3605,26 @@ export function parseFlowchart(source: string): DiagramParseResult {
 
       const interpolateMatch = LINK_STYLE_INTERPOLATE_RE.exec(line);
       if (interpolateMatch !== null) {
-        linkStyles.push(
-          readLinkStyle(interpolateMatch[1], interpolateMatch[3], lineNumber, column, interpolateMatch[2]),
+        const linkStyle = readLinkStyle(
+          interpolateMatch[1],
+          interpolateMatch[3],
+          lineNumber,
+          column,
+          statement,
+          interpolateMatch[2],
         );
+        if (linkStyle !== null) {
+          linkStyles.push(linkStyle);
+        }
         continue;
       }
 
       const linkStyleMatch = LINK_STYLE_RE.exec(line);
       if (linkStyleMatch !== null) {
-        linkStyles.push(readLinkStyle(linkStyleMatch[1], linkStyleMatch[2], lineNumber, column));
+        const linkStyle = readLinkStyle(linkStyleMatch[1], linkStyleMatch[2], lineNumber, column, statement);
+        if (linkStyle !== null) {
+          linkStyles.push(linkStyle);
+        }
         continue;
       }
 
@@ -3547,12 +3639,16 @@ export function parseFlowchart(source: string): DiagramParseResult {
         //
         // `targetIds` holds the one node this statement targets. It is a
         // list because the apply-directive targets many.
+        const properties = readStyleProperties(styleMatch[2], lineNumber, column, statement);
+        if (properties === null) {
+          continue;
+        }
         styles.push({
           styleKind: "style",
           authoredAs: "style",
           targetIds: [styleMatch[1]],
           name: null,
-          properties: readStyleProperties(styleMatch[2], lineNumber, column),
+          properties,
           line: lineNumber,
           column,
         });

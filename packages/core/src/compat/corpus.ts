@@ -12699,6 +12699,28 @@ line2\`"]`,
       "`stroke-width:9px` on its path). Siren does not apply a class to an " +
       "edge yet, and says so, pointing at `linkStyle`.",
   },
+  {
+    id: "fc-acc-title-with-arrow",
+    kind: "flowchart",
+    source: `flowchart TB
+      accTitle: a --> b
+      accDescr: c --> d
+      A --> B`,
+    status: "supported",
+    meaning:
+      "An accessibility line keeps everything after its `:`, an arrow " +
+      "included: Mermaid 12.2.0 records the title `a --> b` and the " +
+      "description `c --> d`, and draws only A-B (measured). Siren refused " +
+      "both lines as unrecognized, having cut them at the arrow first " +
+      "(01M51XADTQS79XD2S6TWN0YWRE).",
+    assert: (result) => {
+      const svg = svgOf(result);
+      expectSame("the accessible title text", svg.querySelector("title")?.textContent, "a --> b");
+      expectSame("the accessible description text", svg.querySelector("desc")?.textContent, "c --> d");
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+    },
+  },
 
   // -------------------------------------------------------------------------
   // labels — the HTML tag vocabulary (ADR-0015), kept in `labelCorpus.ts`

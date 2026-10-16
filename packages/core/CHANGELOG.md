@@ -8,6 +8,10 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+Breaking for a flowchart `style`, `classDef` or `linkStyle` whose declarations hold an `@`, a `{`
+or `}`, or an arrow (`fill:a@b`, `fill:@{x`, `fill:a-->b`), and for an edge `|label|` holding an
+unquoted bracket (`A -->|a{b| B`), which are now refused (see **Changed**).
+
 Breaking for a flowchart document whose `timeline:` names an id that a node and an edge are both
 stamped with (the node `A-B` beside the edge `A --> B`), which is now refused (see **Changed**).
 
@@ -359,6 +363,15 @@ each time; and for one with a method whose last parameter list is padded or foll
   no direction in Mermaid, are refused as `direction TD` is, saying to write `direction TB`;
   `class C direction XX;`, `class C~T~ direction XX` and the like are refused saying a direction
   stands on a line of its own, where both used to get an unrecognized-line error.
+- **A flowchart styling value holding an `@`, a brace or an arrow is refused** (nook
+  `01M51XADTQ`): `style A fill:a@b`, `classDef c fill:@{x`, `classDef c fill:a{b`,
+  `linkStyle 0 fill:a-->b` and the like are parse errors in Mermaid 12.2.0, and Siren used to read
+  them as values. Each is refused at the character, saying to leave it out; `stroke-dasharray: 5 5`,
+  `font-family: a b`, `#f00` and `a-b` are values as before.
+- **An unquoted bracket in a flowchart edge's `|label|` is refused** (nook `01M51XADTQ`):
+  `A -->|a{b| B`, and `}`, `(`, `)`, `[` or `]` there, are parse errors in Mermaid 12.2.0, and Siren
+  drew them as the label. Each is refused at the bracket, suggesting the label in quotes
+  (`A -->|"a{b"| B`); a quoted label and the other spelling, `A -- a{b --> B`, are drawn as before.
 - **A class member's classifier is drawn as a style, not as a character** (nook `01M51XAEEX`):
   Mermaid 12.2.0 draws `+x$` as `+x` underlined and `+y*` as `+y` in italics, the style on the
   whole line, visibility and return type included. Siren drew the `$` or `*` at the end of the
@@ -825,6 +838,9 @@ each time; and for one with a method whose last parameter list is padded or foll
 
 ### Fixed
 
+- A flowchart `accTitle:` or `accDescr:` holding an arrow (`accTitle: a --> b`) keeps the whole line
+  as the title or description, as Mermaid 12.2.0 does (nook `01M51XADTQ`). It used to be cut at the
+  arrow and refused as an unrecognized line.
 - Positions after a flowchart node's `@{ … }` block written across lines are where the author
   wrote them (nook `01M51S4P5S`): a statement after the block's `}` (`}; E --> F`), the nodes and
   edges it declares, and a mistake after the `}` (`} ~~> B`, `}:::c`, `} --> end-x`) are placed

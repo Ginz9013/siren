@@ -689,30 +689,18 @@ describe("an `@{` written where no node is", () => {
     ]);
   });
 
-  it("keeps a closed `@{ … }` inside a `|label|` as the label's text, and reads the next line on its own", () => {
-    // Mermaid 12.2.0 refuses this too ("got 'DIAMOND_START'"); see below.
-    const { document, diagnostics } = parseOk("flowchart TB\n  A -->|a@{b}| B\n  C");
-
-    expect(diagnostics).toEqual([]);
-    expect(document.edges.map((edge) => [edge.from, edge.to, edge.label?.text ?? null])).toEqual([["A", "B", "a@{b}"]]);
-    expect(document.nodes.map((node) => [node.id, node.line])).toEqual([
-      ["A", 2],
-      ["B", 2],
-      ["C", 3],
-    ]);
-  });
-
-  it("opens no block inside a `|label|`, so the line after it is read on its own", () => {
+  it.each([
+    ["A -->|a@{b}| B", 11],
+    ["A -->|mail@{x| B", 14],
+  ])("opens no block inside `%s`, refusing its brace and reading the line after it on its own", (written, column) => {
     // Mermaid 12.2.0 refuses a brace in a `|label|` ("got 'DIAMOND_START'"),
-    // which Siren draws as text, `@{` or not; what this pins is only that
-    // the next line is not swallowed.
-    const { document, diagnostics } = parseOk("flowchart TB\n  A -->|mail@{x| B\n  C");
+    // and so does Siren, at the brace; what this pins is that the next line
+    // is not swallowed into a block the label never opened.
+    const { diagnostics } = parseFlowchart(`flowchart TB\n  ${written}\n  C --`);
 
-    expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((node) => [node.id, node.line])).toEqual([
-      ["A", 2],
-      ["B", 2],
-      ["C", 3],
+    expect(diagnostics.map((d) => [d.line, d.column, d.message.split(".")[0]])).toEqual([
+      [2, column, 'An edge label without quotes cannot hold "{"'],
+      [3, 3, 'Unrecognized flowchart line: "C --"'],
     ]);
   });
 });
@@ -2999,5 +2987,115 @@ describe("a node written with a `@{ shape: … }` name from the shape table", ()
 
     expect(diagnostics).toEqual([]);
     expect(document.nodes).toEqual([{ id: "A", label: plainLabel("A"), shape, line: 2, column: 3 }]);
+  });
+});
+
+/**
+ * An accessibility line holding an arrow (01M51XADTQS79XD2S6TWN0YWRE).
+ * Measured on Mermaid 12.2.0: `accTitle: a --> b` is the title `a --> b`,
+ * and `accDescr: c --> d` the description `c --> d`; no edge is drawn.
+ */
+describe("an accessibility line holding an arrow", () => {
+  it("keeps the whole line as the title, drawing no edge", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  accTitle: a --> b\n  A --> B");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.accTitle).toBe("a --> b");
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([["A", "B"]]);
+  });
+
+  it("keeps the whole line as the description, drawing no edge", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  accDescr: c --> d\n  A --> B");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.accDescr).toBe("c --> d");
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B"]);
+  });
+});
+
+/**
+ * A bracket in an edge's `|label|` written without quotes
+ * (01M51XADTQS79XD2S6TWN0YWRE). Measured on Mermaid 12.2.0: `|a{b|`,
+ * `|a}b|`, `|a(b|`, `|a)b|`, `|a[b|` and `|a]b|` are parse errors, while
+ * `|"a{b"|`, `|a>b|` and the other spelling, `A -- a{b --> B`, are the
+ * labels as written.
+ */
+describe("a bracket in an edge's `|label|` without quotes", () => {
+  it.each([
+    ["A -->|a{b| B", "{", 10, 'A -->|"a{b"| B'],
+    ["A -->|a}b| B", "}", 10, 'A -->|"a}b"| B'],
+    ["A -->|a(b| B", "(", 10, 'A -->|"a(b"| B'],
+    ["A -->|a)b| B", ")", 10, 'A -->|"a)b"| B'],
+    ["A -->|a[b| B", "[", 10, 'A -->|"a[b"| B'],
+    ["A -->|a]b| B", "]", 10, 'A -->|"a]b"| B'],
+    ["A --> B -.->| x(y) | C", "(", 18, 'A --> B -.->|"x(y)"| C'],
+  ])("refuses %j at the bracket, saying to quote the label", (written, bracket, column, fixed) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `An edge label without quotes cannot hold "${bracket}". Put the whole label in quotes: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it.each([
+    ['A -->|"a{b"| B', "a{b"],
+    ["A -->|a>b| B", "a>b"],
+    ["A -- a{b --> B", "a{b"],
+  ])("draws %j with the label as written", (written, label) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => edge.label?.text)).toEqual([label]);
+  });
+});
+
+/**
+ * A `style`, `classDef` or `linkStyle` value holding what the statement's
+ * grammar reads as something else (01M51XADTQS79XD2S6TWN0YWRE). Measured on
+ * Mermaid 12.2.0: an `@{`, an `@`, a `{` or a `}` anywhere in the
+ * declarations, or an arrow (`-->`, `-->b%%x`), is a parse error, while
+ * `stroke-dasharray: 5 5`, `font-family: a b`, `#f00`, `a-b` and a trailing
+ * `%%x` after a space are values as written.
+ */
+describe("a styling value holding an `@`, a brace or an arrow", () => {
+  it.each([
+    ["style A fill:@{x", "@{", 16, "fill:@{x"],
+    ["style A fill:a@b", "@", 17, "fill:a@b"],
+    ["classDef c fill:a{b", "{", 20, "fill:a{b"],
+    ["classDef c fill:a}b", "}", 20, "fill:a}b"],
+    ["linkStyle 0 fill:a@b", "@", 21, "fill:a@b"],
+    ["style A fill:a-->b", "-->", 17, "fill:a-->b"],
+    ["linkStyle 0 stroke:#f00,fill:a-->b%%x", "-->", 33, "stroke:#f00,fill:a-->b%%x"],
+  ])("refuses %j at it", (written, token, column, declarations) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> B\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `A style declaration cannot hold "${token}": ${declarations}. Leave it out`,
+        line: 3,
+        column,
+      },
+    ]);
+  });
+
+  it.each([
+    ["style A stroke-dasharray: 5 5", "5 5"],
+    ["style A font-family: a b", "a b"],
+    ["classDef c fill:#f00", "#f00"],
+    ["style A fill:a-b", "a-b"],
+    ["style A fill:#f00 %%x", "#f00 %%x"],
+  ])("reads %j as written", (written, value) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A --> B\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles.map((style) => style.properties.map((property) => property.value))).toEqual([[value]]);
   });
 });
