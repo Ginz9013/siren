@@ -2611,8 +2611,10 @@ export function parseFlowchart(source: string): DiagramParseResult {
   const applyNodeData = (id: string, data: NonNullable<EdgeEndpoint["data"]>, statement: Statement) => {
     const node = nodesById.get(id)!;
     const read = readNodeData(data.content);
-    for (const { severity, message } of read.problems) {
-      diagnostics.push({ severity, message, ...positionIn(statement, data.at) });
+    for (const { severity, message, offset } of read.problems) {
+      // At the place in the block a problem names, past its `@{`; else at the `@`.
+      const at = offset === undefined ? data.at : data.at + NODE_DATA_OPENER.length + offset;
+      diagnostics.push({ severity, message, ...positionIn(statement, at) });
       if (severity === "error") {
         sawError = true;
       }
@@ -2714,7 +2716,19 @@ export function parseFlowchart(source: string): DiagramParseResult {
   // and they have to say which loop they mean.
   readLines: for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
-    const lineNumber = i + 1;
+    const rawLineNumber = i + 1;
+    // Where an offset in `rawLine` stands in the source. A raw line may hold
+    // line breaks — a Markdown fence (`joinMarkdownFences`) or an `@{ … }`
+    // block (`runOn`) carries the lines it joins — and each one moves what
+    // follows it a line down and restarts the column count.
+    const rawPosition = (offset: number): { line: number; column: number } => {
+      const before = rawLine.slice(0, offset);
+      const lastBreak = before.lastIndexOf("\n");
+      return {
+        line: rawLineNumber + before.split("\n").length - 1,
+        column: lastBreak === -1 ? offset + 1 : offset - lastBreak,
+      };
+    };
 
     // The braced accDescr, read across lines before the line is split into
     // statements. What follows its `}` goes back into `lines` at the `}`
@@ -2725,7 +2739,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
         diagnostics.push({
           severity: "error",
           message: "Unclosed `accDescr { ... }` block: no `}` ends the description it opens",
-          line: lineNumber,
+          line: rawLineNumber,
           column: rawLine.length - rawLine.trimStart().length + 1,
         });
         sawError = true;
@@ -2743,7 +2757,9 @@ export function parseFlowchart(source: string): DiagramParseResult {
 
     for (const [pieceIndex, piece] of splitStatements(rawLine).entries()) {
       const line = piece.text;
-      const column = piece.column;
+      // Where the statement begins in `rawLine`, and so in the source.
+      const rawAt = piece.column - 1;
+      const { line: lineNumber, column } = rawPosition(rawAt);
       const statement: Statement = { text: line, line: lineNumber, column };
       // Where a `%%` stands outside the statement's text, read once for every
       // branch below that asks; and the statement up to it.
@@ -2762,7 +2778,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
         if (taken === 0) {
           return false;
         }
-        lines[i] = " ".repeat(column - 1) + text;
+        lines[i] = rawLine.slice(0, rawAt).replace(/[^\n]/g, " ") + text;
         lines.fill("", i + 1, i + 1 + taken);
         ranOn.add(i);
         return true;
@@ -2780,8 +2796,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
             diagnostics.push({
               severity: "error",
               message: refusal.message,
-              line: lineNumber,
-              column: column + offset + lead,
+              ...positionIn(statement, offset + lead),
             });
             sawError = true;
             return true;
@@ -2808,8 +2823,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
               message:
                 `An "${GROUP_SEPARATOR}" joins two nodes, and this one has none ${before ? "before" : "after"} it. ` +
                 `Write a node there, or leave the "${GROUP_SEPARATOR}" out.`,
-              line: lineNumber,
-              column: column + ampersandAt,
+              ...positionIn(statement, ampersandAt),
             });
             sawError = true;
             return true;
@@ -2824,8 +2838,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
           message:
             `An "${GROUP_SEPARATOR}" joins nodes only with a space on each side. ` +
             `Write: ${spacedGroupSeparators(line, unspaced)}`,
-          line: lineNumber,
-          column: column + unspaced[0]!,
+          ...positionIn(statement, unspaced[0]!),
         });
         sawError = true;
         return true;
@@ -2842,7 +2855,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
       ): boolean => {
         // A `;` right after the statement, with no space: `A --> click;B` is
         // an id, `A --> click ;B` the keyword (measured).
-        const followedBySemicolon = rawLine[column - 1 + line.length] === STATEMENT_END;
+        const followedBySemicolon = rawLine[rawAt + line.length] === STATEMENT_END;
         const at = endpoints.findIndex(
           (endpoint, index) =>
             SPACED_KEYWORDS.has(endpoint.id) &&
@@ -2859,8 +2872,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
         diagnostics.push({
           severity: "error",
           message: keywordIdMessage(id, id),
-          line: lineNumber,
-          column: column + piece.at + piece.text.length - piece.text.trimStart().length,
+          ...positionIn(statement, piece.at + piece.text.length - piece.text.trimStart().length),
         });
         sawError = true;
         return true;
@@ -2874,8 +2886,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
         diagnostics.push({
           severity: "error",
           message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${line}"`,
-          line: lineNumber,
-          column: nodeRefusal === null ? column : column + piece.at + lead + nodeRefusal.offset,
+          ...positionIn(statement, nodeRefusal === null ? 0 : piece.at + lead + nodeRefusal.offset),
         });
         sawError = true;
       };
@@ -2886,8 +2897,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
           // %%c`): Mermaid 12.2.0 draws it as a node `%%B` (measured), which
           // an author writing a comment there did not mean.
           message: percentAt === 0 && pieceIndex > 0 ? PERCENT_AFTER_SEMICOLON_MESSAGE : MID_LINE_PERCENT_MESSAGE,
-          line: lineNumber,
-          column: column + percentAt!,
+          ...positionIn(statement, percentAt!),
         });
         sawError = true;
       };
@@ -2957,8 +2967,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
           diagnostics.push({
             severity: "error",
             message: refusal.message,
-            line: lineNumber,
-            column: column + subgraphOpenMatch.indices![1]![0] + refusal.offset,
+            ...positionIn(statement, subgraphOpenMatch.indices![1]![0] + refusal.offset),
           });
           sawError = true;
           title = titleWithoutHandle(subgraphOpenMatch[1]);
@@ -3036,8 +3045,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
             diagnostics.push({
               severity: "warning",
               message: `Text after "direction ${directionLine[2]}" is ignored: "${ignored}". Remove it.`,
-              line: lineNumber,
-              column: column + directionLine.indices![3]![0] + trailing.length - ignored.length,
+              ...positionIn(statement, directionLine.indices![3]![0] + trailing.length - ignored.length),
             });
           }
         } else {
@@ -3166,8 +3174,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
             diagnostics.push({
               severity: "error",
               message: edgeIdRefusal.message,
-              line: lineNumber,
-              column: column + piece.at + lead + edgeIdRefusal.offset,
+              ...positionIn(statement, piece.at + lead + edgeIdRefusal.offset),
             });
             sawError = true;
             continue;
@@ -3478,8 +3485,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
       diagnostics.push({
         severity: "error",
         message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${line}"`,
-        line: lineNumber,
-        column: column + (nodeRefusal?.offset ?? 0),
+        ...positionIn(statement, nodeRefusal?.offset ?? 0),
       });
       sawError = true;
       continue;
@@ -3552,6 +3558,14 @@ export function parseFlowchart(source: string): DiagramParseResult {
       column: block.column,
     });
     sawError = true;
+  }
+
+  // A statement an `@{ … }` block or a Markdown fence carried across lines
+  // holds their line breaks, and a message quoting it would too. Each is
+  // quoted on one line instead, its breaks and the indentation around them
+  // read as one space: `A@{ shape: circle } --> B C`.
+  for (const diagnostic of diagnostics) {
+    diagnostic.message = diagnostic.message.replace(/\s*\n\s*/g, " ");
   }
 
   if (mode === "before-header" || direction === null) {

@@ -512,14 +512,18 @@ describe("the other keys of a node's `@{ … }` block", () => {
   });
 
   it.each([
-    ["A@{ shape: circle label: x }", "missed comma between flow collection entries"],
-    ["A@{ shape: [circle }", "missed comma between flow collection entries"],
-  ])("refuses %s, which is not YAML, at the `@`", (written, reason) => {
+    // At the `:` the reader stopped at, and at the `}` where the block ended
+    // before its `[` was closed.
+    ["A@{ shape: circle label: x }", "missed comma between flow collection entries", 2, 26],
+    ["A@{ shape: [circle }", "missed comma between flow collection entries", 2, 22],
+    ["A@{\n    shape: circle\n    label: x: y\n  }", "bad indentation of a mapping entry", 4, 13],
+    ["A@{\n    shape: circle\n    label: [x\n  }", "unexpected end of the stream within a flow collection", 5, 3],
+  ])("refuses %j, which is not YAML, where the YAML stops", (written, reason, line, column) => {
     const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
 
     expect(document).toBeNull();
     expect(diagnostics).toEqual([
-      { severity: "error", message: `The "@{ … }" block is not valid YAML (${reason})`, line: 2, column: 4 },
+      { severity: "error", message: `The "@{ … }" block is not valid YAML (${reason})`, line, column },
     ]);
   });
 
@@ -2702,6 +2706,58 @@ describe("a `,` in a flowchart class name", () => {
         line: line + 1,
         column,
       },
+    ]);
+  });
+});
+
+/**
+ * Positions after an `@{ … }` block written across lines: every statement,
+ * node, edge and diagnostic is placed on the physical line and column the
+ * author wrote it at, not on the line the block opened on.
+ */
+describe("positions after a node's `@{ … }` block written across lines", () => {
+  it.each([
+    ["A@{\n    shape: circle\n  } ~~> B", 4, 5],
+    ["A@{\n    shape: circle\n  }:::c", 4, 4],
+    ["A@{\n    shape: circle\n  } --> end-x", 4, 9],
+    ["A@{\n    shape: circle\n  } & end-x", 4, 7],
+    ["A@{\n    shape: circle\n  }&B --> C", 4, 4],
+    ["A@{\n    shape: circle\n  } --> B e1@--> C", 4, 11],
+    ["A@{\n    shape: circle\n  } --> B %% x", 4, 11],
+  ])("reports a mistake after the block's `}` where it stands: %j", (written, line, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((d) => [d.line, d.column])).toEqual([[line, column]]);
+  });
+
+  it.each([
+    ["A@{\n    shape: circle\n  } --> B C", 'Unrecognized flowchart line: "A@{ shape: circle } --> B C"'],
+    ["A@{\n    shape: circle\n  } -->", 'Malformed edge: missing target after "-->" in "A@{ shape: circle } -->"'],
+    [
+      "A@{\n    shape: circle\n  }:::c",
+      'Write ":::c" before the "@{ … }" block: A:::c@{ shape: circle }',
+    ],
+  ])("quotes the statement on one line in its message: %j", (written, message) => {
+    const { diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics.map((d) => d.message)).toEqual([message]);
+  });
+
+  it("places a statement written after the block's `}` on the block's last line there", () => {
+    const { document, diagnostics } = parseOk(
+      "flowchart TB\n  A@{\n    shape: circle }; E -- x@{y --> F\n  G",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.line, node.column])).toEqual([
+      ["A", 2, 3],
+      ["E", 3, 22],
+      ["F", 3, 22],
+      ["G", 4, 3],
+    ]);
+    expect(document.edges.map((edge) => [edge.from, edge.to, edge.sourceLine, edge.sourceColumn])).toEqual([
+      ["E", "F", 3, 22],
     ]);
   });
 });

@@ -729,6 +729,12 @@ warning and is now refused (see **Changed**).
 
 ### Fixed
 
+- Positions after a flowchart node's `@{ … }` block written across lines are where the author
+  wrote them (nook `01M51S4P5S`): a statement after the block's `}` (`}; E --> F`), the nodes and
+  edges it declares, and a mistake after the `}` (`} ~~> B`, `}:::c`, `} --> end-x`) are placed
+  on their own line and column, where they were all counted from the line the block opened on. A
+  YAML error inside a block is reported where the YAML reader stopped rather than at the `@`, and
+  a message that quotes such a statement quotes it on one line (`A@{ shape: circle } --> B C`).
 - A flowchart timeline can name a node or an edge whose id begins with `%%` (nook `01M51TJRT0`):
   `A --> %%B` draws a node `%%B`, and `enter %%B fade` now reaches it, where the line was cut at its
   `%%` and refused as `Unrecognized timeline action: "enter"`. Only a `%%` glued to the start of the

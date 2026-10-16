@@ -75,6 +75,11 @@ const SHAPE_CHOICES = SHAPE_NAMES.map(([, [shortName]]) => shortName).join(", ")
 export interface NodeDataProblem {
   severity: "error" | "warning";
   message: string;
+  /**
+   * Where in the block's text, between its braces, the problem stands, when
+   * it is one place there (a YAML error); the block's `@` otherwise.
+   */
+  offset?: number;
 }
 
 /** What reading one `@{ … }` block found. */
@@ -120,9 +125,10 @@ export function readNodeData(written: string): NodeData {
   // `label: "a⏎   b"` is `a<br/>b`); a block holding a line break anywhere
   // else is block YAML, and one on one line a flow mapping.
   const content = written.replace(/"[^"]*"?/g, (string) => string.replace(/\n\s*/g, "<br/>"));
-  const yaml = content.includes("\n") ? `${content}\n` : `{\n${content}\n}`;
-  const refused = (message: string): NodeData => ({
-    problems: [{ severity: "error", message }],
+  const flowMapping = !content.includes("\n");
+  const yaml = flowMapping ? `{\n${content}\n}` : `${content}\n`;
+  const refused = (message: string, offset?: number): NodeData => ({
+    problems: [{ severity: "error", message, ...(offset === undefined ? {} : { offset }) }],
     shape: null,
     label: null,
   });
@@ -131,7 +137,15 @@ export function readNodeData(written: string): NodeData {
     loaded = load(yaml, { schema: JSON_SCHEMA });
   } catch (error) {
     if (error instanceof YAMLException) {
-      return refused(`The "@{ … }" block is not valid YAML (${error.reason})`);
+      // Where the reader stopped, in the author's own text: the YAML is that
+      // text, or it wrapped in `{\n` … `\n}`, so the offset moves back past the
+      // wrapping and stays within the text. A string whose line breaks were
+      // read as `<br/>` no longer lines up with what was written, so its
+      // error stays at the `@`.
+      const wrapping = flowMapping ? "{\n".length : 0;
+      const offset =
+        content === written ? Math.min(Math.max(error.mark.position - wrapping, 0), written.length) : undefined;
+      return refused(`The "@{ … }" block is not valid YAML (${error.reason})`, offset);
     }
     throw error;
   }
