@@ -1873,8 +1873,8 @@ export interface ClassNamespace {
   /**
    * The namespace's own name: the last segment of `id`, which titles its
    * frame when the block wrote no label — `M` for the `N.M` written inside
-   * `namespace N`, and for `namespace N.M`. Carried beside `id` so nothing downstream has to split a
-   * qualified name to find it.
+   * `namespace N`, and for `namespace N.M`. Carried beside `id` so nothing
+   * downstream has to split a qualified name to find it.
    */
   name: string;
   /**

@@ -375,7 +375,8 @@ describe("buildClassModel", () => {
     expect(diagnostics).toEqual([
       {
         severity: "error",
-        message: 'Class "A" is named by more than one namespace ("N" and "N.M"), and a class can sit in only one; keeping it in "N". ' +
+        message:
+          'Class "A" is named by more than one namespace ("N" and "N.M"), and a class can sit in only one; keeping it in "N". ' +
           'Name it in only one of the namespaces.',
         line: 4,
         column: 3,
@@ -498,8 +499,9 @@ describe("buildClassModel", () => {
       expect(diagnostics).toEqual([
         {
           severity: "error",
-          message: 'Class "X" is named by more than one namespace ("N" and "N.M"), and a class can sit in only one; keeping it in "N". ' +
-          'Name it in only one of the namespaces.',
+          message:
+            'Class "X" is named by more than one namespace ("N" and "N.M"), and a class can sit in only one; keeping it in "N". ' +
+            'Name it in only one of the namespaces.',
           line: 3,
           column: 1,
         },

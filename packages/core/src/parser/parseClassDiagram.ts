@@ -135,7 +135,10 @@ const STANDALONE_ANNOTATION_RE = /^<<(.+)>>\s+(\w+)$/;
  * error in Mermaid.
  *
  * The name may be dotted, `namespace N.M {`, each segment a `\w+` and a
- * space either side of a dot allowed, as Mermaid 12.2.0 reads it (measured).
+ * space either side of a dot allowed, as Mermaid 12.2.0 reads it (measured)
+ * — a space anywhere else ends the name, so `namespace N M {` is no
+ * namespace. A segment may also be empty (`.N`, `N.`, `N..M`): such a name
+ * still matches, for the caller to refuse at the name.
  *
  * What follows the `{` on its line is the body's first statement (the
  * third capture): Mermaid 12.2.0 reads `namespace N { class A }` as N
@@ -144,21 +147,9 @@ const STANDALONE_ANNOTATION_RE = /^<<(.+)>>\s+(\w+)$/;
  * so a line with one does not open a namespace here.
  */
 const NAMESPACE_OPEN_RE = new RegExp(
-  String.raw`^namespace\s+([\w.](?:[\w.\s]*[\w.])?)\s*${BRACKETED_LABEL}\s*\{(?!\s*%%)(.*)$`,
+  String.raw`^namespace\s+((?=[\w.])\w*(?:\s*\.(?:\s*\w+)?)*)\s*${BRACKETED_LABEL}\s*\{(?!\s*%%)(.*)$`,
   "d",
 );
-
-/**
- * `NAMESPACE_OPEN_RE`'s match on `line`, or `null` when there is none or the
- * name holds a space anywhere but beside a dot (`namespace N M {`, which is
- * no namespace this parser reads). A name with an empty part (`.N`, `N..M`)
- * still matches, for the caller to refuse at the name.
- */
-function matchNamespaceOpen(line: string): RegExpExecArray | null {
-  const match = NAMESPACE_OPEN_RE.exec(line);
-  if (match === null || /\s/.test(match[1].replace(/\s*\.\s*/g, "."))) return null;
-  return match;
-}
 
 /**
  * The index of the first `}` in `text` that closes no `{` opened before it
@@ -856,7 +847,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       return block.closeIndex - 1;
     }
 
-    const namespaceOpenMatch = matchNamespaceOpen(line);
+    const namespaceOpenMatch = NAMESPACE_OPEN_RE.exec(line);
     if (namespaceOpenMatch !== null) {
       const classIds: string[] = [];
       let closed = false;
@@ -1451,7 +1442,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       const isComment =
         matchClassDirection(before) !== null || (followsCommentable && startIndex === lastStatementIndex);
       const isRefused =
-        !isComment && (followsCommentable || CLASS_DECL_RE.test(before) || matchNamespaceOpen(before) !== null);
+        !isComment && (followsCommentable || CLASS_DECL_RE.test(before) || NAMESPACE_OPEN_RE.test(before));
       if (isComment || isRefused) {
         if (isRefused) {
           diagnostics.push(midLinePercentError(lineNumber, column + percent));
