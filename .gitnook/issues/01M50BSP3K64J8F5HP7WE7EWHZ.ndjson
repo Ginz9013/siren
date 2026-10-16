@@ -5,3 +5,4 @@
 {"id":"01M51DSY49MHWTS3MA58BJXX4Y","t":5,"a":"83a1","op":"comment","body":"由 board class-leniency（spec 01M51DSE9SRJ1EGP6VSNKG6XRA）接手：T1 01M51DSEGE6XJWDZN0ABXXZ4MJ、T2 01M51DSEQ3JCD4VMYQASQET80F、T3 01M51DSEXRZ9BH96J4CMNDXFNB、T4 01M51DSF5H8W93GFW9W8SWZVWX。"}
 {"id":"01M51FFD7S4EPN6807X0VT23CX","t":6,"a":"83a1","op":"comment","body":"由 board class-leniency（spec 01M51DSE9SRJ1EGP6VSNKG6XRA）完成，見 git log --grep 'Ticket: class-leniency'。剩下的 direction 與 entity code 落差另開 backlog 01M51FFCD9。"}
 {"id":"01M51FFDED6Q0QN7DBHNKWBK71","t":7,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M51FGAANTHZ7AAC1NGHZV6G5","t":8,"a":"83a1","op":"set","k":"archived","v":true}
