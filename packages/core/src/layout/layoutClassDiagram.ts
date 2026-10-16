@@ -74,7 +74,8 @@ const MULTIPLICITY_MARKER_CLEARANCE = 6;
  * through `textContent`, so no tag in it is read.
  */
 function memberText(member: ClassMember): string {
-  const visibility = member.visibility ?? "";
+  // `+ x` keeps one space after its marker, as Mermaid 12.2.0 draws it.
+  const visibility = `${member.visibility ?? ""}${member.spaceAfterVisibility === true ? " " : ""}`;
   if (member.memberKind === "method") {
     const returnType =
       member.returnType === null ? "" : ` : ${angleBrackets(member.returnType)}`;
@@ -261,7 +262,9 @@ function planClassBox(
     bottom += CLASS_PADDING_Y;
     const planned = members.map((member) => {
       const text = memberText(member);
-      const measured = measure(text);
+      // A line that draws no text (`$`, `*`) takes no room: Mermaid 12.2.0
+      // sizes its label 0 by 0, and the next line moves up (measured, Chrome).
+      const measured = text === "" ? { width: 0, height: 0 } : measure(text);
       widths.push(measured.width);
       const y = bottom + measured.height / 2;
       bottom += measured.height;

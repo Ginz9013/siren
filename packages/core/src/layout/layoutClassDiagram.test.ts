@@ -453,6 +453,56 @@ describe("layoutClassDiagram", () => {
       ]);
     });
 
+    it("gives a member line that draws no text no height, so the next line moves up", () => {
+      // Measured (Mermaid 12.2.0, Chrome): in `+x` ⏎ `$` ⏎ `+y` the `$`
+      // line's label is 0 high and `+y` sits right under `+x`; the same for
+      // `*`. Either is an attribute, wherever it is written.
+      const layout = (members: ClassMember[]) =>
+        classById(layoutClassDiagram(classModel({ classes: [cls("A", members)] }), { measureText: fakeMeasurer }), "A");
+      const x = attribute({ visibility: "+", name: "x" });
+      const y = attribute({ visibility: "+", name: "y" });
+      const f = method({ visibility: "+", name: "f" });
+      const g = method({ visibility: "+", name: "g" });
+      const without = layout([x, y, f, g]);
+      const withEmpty = layout([
+        x,
+        attribute({ name: "", classifier: "$" }),
+        y,
+        attribute({ name: "", classifier: "*" }),
+        f,
+        g,
+      ]);
+      expect(withEmpty.height).toBe(without.height);
+      const ys = (box: typeof without) =>
+        [...box.attributes!.members, ...box.methods!.members].filter((m) => m.text !== "").map((m) => [m.text, m.y]);
+      expect(ys(withEmpty)).toEqual(ys(without));
+    });
+
+    it("draws one space after the visibility marker when the member wrote one", () => {
+      // Measured (Mermaid 12.2.0, Chrome): `+ x` draws `+ x`, `- int x`
+      // `- int x` and `+ foo() bool` `+ foo() : bool`.
+      const box = classById(
+        layoutClassDiagram(
+          classModel({
+            classes: [
+              cls("A", [
+                attribute({ visibility: "+", name: "x", spaceAfterVisibility: true }),
+                attribute({ visibility: "-", type: "int", name: "x", spaceAfterVisibility: true }),
+                method({ visibility: "+", name: "foo", returnType: "bool", spaceAfterVisibility: true }),
+              ]),
+            ],
+          }),
+          { measureText: fakeMeasurer },
+        ),
+        "A",
+      );
+      expect([...box.attributes!.members, ...box.methods!.members].map((m) => m.text)).toEqual([
+        "+ x",
+        "- int x",
+        "+ foo() : bool",
+      ]);
+    });
+
     it("carries each member's classifier beside its text, and measures the line without it", () => {
       // Measured (Mermaid 12.2.0, Chrome): `+x$` draws `+x` underlined and
       // `+foo()* bool` draws `+foo() : bool` in italics — the classifier is

@@ -6676,6 +6676,86 @@ line2\`"]`,
       "write `direction TB`. Siren used to refuse each as an unrecognized " +
       "line (nook 01M51XAEND).",
   },
+  {
+    id: "cls-direction-value-case",
+    kind: "class",
+    source: `classDiagram
+      direction BT
+      direction lr
+      Order --> Item`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** `direction lr` " +
+      "sets nothing in a class diagram — its lexer reads a value only in " +
+      "capitals — so this diagram stays bottom to top (measured, Chrome), " +
+      "not left to right; so do `direction XX`, `direction lr x` and a bare " +
+      "`direction`. Siren refuses each (ADR-0001), naming the direction to " +
+      "write, `direction LR` here. Siren used to refuse each as an " +
+      "unrecognized line (nook 01M51Z1XFF).",
+  },
+  {
+    id: "cls-member-visibility-space",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        + x
+        -  int y
+        + foo() bool
+      }
+      A : # z`,
+    status: "supported",
+    meaning:
+      "A space after a member's visibility marker is drawn, one however " +
+      "many were written: Mermaid 12.2.0 draws `+ x`, `- int y`, " +
+      "`+ foo() : bool` and `# z` (measured, Chrome). Siren used to drop it " +
+      "(nook 01M51Z1XFF).",
+    assert: (result) => {
+      expectSame("members", members(result, "A"), ["+ x", "- int y", "# z", "+ foo() : bool"]);
+    },
+  },
+  {
+    id: "cls-method-nameless",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        +(a)
+        -( b ) int
+      }`,
+    status: "supported",
+    meaning:
+      "A method may have no name after its visibility marker: Mermaid " +
+      "12.2.0 draws `+(a)` and `-(b) : int` (measured, Chrome); `(a)` " +
+      "alone stops it rendering. Siren used to refuse both " +
+      "(nook 01M51Z1XFF).",
+    assert: (result) => {
+      expectSame("members", members(result, "A"), ["+(a)", "-(b) : int"]);
+    },
+  },
+  {
+    id: "cls-member-empty-line",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        +x
+        $
+        +y
+        +z
+      }`,
+    status: "supported",
+    meaning:
+      "A member line that draws no text takes no room: Mermaid 12.2.0 sizes " +
+      "the `$` line's label 0 high, so `+y` sits right under `+x`, a line " +
+      "apart as `+z` is under `+y` (measured, Chrome). Siren used to give it " +
+      "a line of its own (nook 01M51Z1XFF).",
+    assert: (result) => {
+      const ys = Array.from(
+        svgOf(result).querySelectorAll('g.siren-class[data-siren-id="A"] text.siren-member'),
+      )
+        .filter((t) => (t.textContent ?? "") !== "")
+        .map((t) => Number(t.getAttribute("y")));
+      expectSame("line gaps equal", ys[1]! - ys[0]! === ys[2]! - ys[1]!, true);
+    },
+  },
   // -------------------------------------------------------------------------
   // sequenceDiagram
   // -------------------------------------------------------------------------

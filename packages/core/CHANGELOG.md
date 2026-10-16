@@ -144,6 +144,12 @@ each time; and for one with a method whose last parameter list is padded or foll
 `+foo(a)(b)`; and for one with `direction td` or `direction TD x`, which sets no direction and is
 now refused saying to write `direction TB` (see **Changed**).
 
+Breaking for a class document with a space after a member's visibility marker (`+ x`), which used
+to be drawn `+x` and is now drawn `+ x`; for one with a member line that draws no text (`$`), which
+used to take a line's height and now takes none; and for one with a `direction` whose value sets
+nothing (`direction lr`, `direction XX`), whose error now names the direction to write (see
+**Changed**).
+
 ### Added
 
 - A flowchart node's `@{ shape: … }` block draws the shapes Mermaid 12.2.0 draws at a fixed size
@@ -384,6 +390,15 @@ now refused saying to write `direction TB` (see **Changed**).
 - A refused `@{ shape: … }` name now offers the fourteen bracket shapes as examples ("Use a shape
   such as: …") rather than as the only choices.
 - A flowchart `datastore` is wider by twice Mermaid's 15px node padding, as Mermaid sizes it.
+- **The rest of a class member's text is drawn as Mermaid 12.2.0 draws it** (nook `01M51Z1XFF`,
+  measured in Chrome): a space after the visibility marker is drawn, one however many were written
+  (`+ x`, `+  x` draw `+ x`); a method may have no name after its marker (`+(a)`, `-( b ) int`
+  draw `+(a)`, `-(b) : int`; `(a)` stays refused); a line that draws no text (`$`, `*`) takes no
+  height, the next line moving up; and `parseClassDiagram` reads a class block's line that begins
+  with `%%` as a comment on its own, as `render` already did. A class `direction` whose value sets
+  nothing — `direction lr`, `direction Td`, `direction XX`, a bare `direction` — is refused as
+  `direction TD` is, the error naming the direction to write (`direction LR` for `direction lr`)
+  or all four.
 - **More class members are read as Mermaid 12.2.0 reads them** (nook `01M51XAEND`, measured in
   Chrome): a member's name may hold `?`, `!`, `,`, `[`, `]`, `=`, `/`, `'`, `"`, `$`, `*` and `&`
   (`+???`, `+x a!b`, `+[a]`), a class block's member may end in `;` (`+int x;`), and a member may

@@ -1927,8 +1927,19 @@ const SILENTLY_WRONG = 0;
  * bare shape (measured, Chrome), refused under ADR-0001. Siren refused every
  * one of these shapes before, as not drawn yet. No `supported` row moved.
  * `silently-wrong` does not move.
+ *
+ * **71 → 72: case (2), a refusal written down for the first time.**
+ * `01M51Z1XFFERJ5P7G4WATQMJ74` refused a class diagram's `direction` whose
+ * value sets nothing — `direction lr`, `direction XX`, a bare `direction` —
+ * as `direction TD` is: Mermaid 12.2.0 keeps the direction before
+ * (measured, Chrome), refused under ADR-0001, naming the one to write.
+ * Siren refused each before as an unrecognized line, with no row to say so:
+ * `cls-direction-value-case` writes it down. No `supported` row moved:
+ * `cls-member-visibility-space`, `cls-method-nameless` and
+ * `cls-member-empty-line`, new beside it, are `supported`.
+ * `silently-wrong` does not move.
  */
-const REJECTED = 71;
+const REJECTED = 72;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

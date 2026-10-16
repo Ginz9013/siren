@@ -3468,3 +3468,105 @@ describe("parseClassDiagram — an annotation before its class", () => {
     }
   });
 });
+
+describe("parseClassDiagram — a `%%` comment line inside a class block", () => {
+  it("reads a line that begins with `%%` as a comment, not a member, while a later `%%` stays member text", () => {
+    // Measured (Mermaid 12.2.0, Chrome): `class A {` ⏎ `%% hi` ⏎ `+x` ⏎ `}`
+    // draws only `+x`, indented or not; `+x %% c` draws the member `+x %% c`.
+    for (const body of [
+      "  class A {\n    %% hi\n    +x\n  }",
+      "  class A {\n%% hi there\n    +x\n  }",
+      "  class A {\n    +x\n    %%hi\n  }",
+    ]) {
+      const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+      expect([body, diagnostics, document?.kind === "class" ? document.classes.flatMap((c) => c.members.map(reconstruct)) : null]).toEqual([
+        body,
+        [],
+        ["+x"],
+      ]);
+    }
+    const { document } = parseClassDiagram("classDiagram\n  class A {\n    +x %% c\n  }");
+    expect(document?.kind === "class" ? document.classes.flatMap((c) => c.members.map(reconstruct)) : null).toEqual(["+x %% c"]);
+  });
+});
+
+describe("parseClassDiagram — a space after a member's visibility", () => {
+  it("keeps that a space followed the visibility marker, however many were written", () => {
+    // Measured (Mermaid 12.2.0, Chrome), in a class block and after `A :`
+    // alike: `+ x` and `+  x` draw `+ x`, `- int x` `- int x`, `+ foo()`
+    // `+ foo()`; `+x` draws `+x`, and `+ $` draws `+` underlined — the
+    // space is drawn only before text.
+    for (const [text, spaced] of [
+      ["+ x", true],
+      ["+  x", true],
+      ["- int x", true],
+      ["+ foo()", true],
+      ["+x", false],
+      ["+ $", false],
+    ] as const) {
+      for (const body of [`  class A {\n    ${text}\n  }`, `  class A\n  A : ${text}`]) {
+        const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+        const members = document?.kind === "class" ? document.classes.flatMap((c) => c.members) : [];
+        expect([body, diagnostics, members.map((m) => m.spaceAfterVisibility === true)]).toEqual([body, [], [spaced]]);
+      }
+    }
+  });
+});
+
+describe("parseClassDiagram — a method with no name", () => {
+  it("reads `+(a)` as a nameless method after a visibility marker, and still refuses `(a)`", () => {
+    // Measured (Mermaid 12.2.0, Chrome), in a class block and after `A :`
+    // alike: `+(a)` draws `+(a)`, `-(a)` `-(a)`, `+(a) int` `+(a) : int`,
+    // `+( a )` `+(a)` and `#(a)$` `#(a)` underlined; `(a)` stops the
+    // diagram rendering.
+    for (const [text, drawn, classifier] of [
+      ["+(a)", "+(a)", null],
+      ["-(a)", "-(a)", null],
+      ["+(a) int", "+(a) int", null],
+      ["+( a )", "+(a)", null],
+      ["#(a)$", "#(a)", "$"],
+    ] as const) {
+      for (const body of [`  class A {\n    ${text}\n  }`, `  class A\n  A : ${text}`]) {
+        const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+        const members = document?.kind === "class" ? document.classes.flatMap((c) => c.members) : [];
+        expect([body, diagnostics, members.map((m) => [m.memberKind, m.name, reconstruct({ ...m, classifier: null }), m.classifier])]).toEqual([
+          body,
+          [],
+          [["method", "", drawn, classifier]],
+        ]);
+      }
+    }
+    expect(parseClassDiagram("classDiagram\n  class A {\n    (a)\n  }").diagnostics.map((d) => d.message)).toEqual([
+      'Unrecognized class member: "(a)"',
+    ]);
+  });
+});
+
+describe("parseClassDiagram — a `direction` with a value it does not set", () => {
+  it("refuses a value in the wrong case, or none it knows, saying which to write", () => {
+    // Measured (Mermaid 12.2.0, Chrome): after `direction BT`, each of these
+    // sets nothing — the diagram stays bottom to top, with no diagnostic.
+    const known = (written: string, value: string, meaning: string) =>
+      `\`${written}\` is not a class-diagram direction: write \`direction ${value}\` for ${meaning}.`;
+    const unknown = (written: string) =>
+      `\`${written}\` is not a class-diagram direction: write \`direction TB\`, \`direction BT\`, \`direction LR\` or \`direction RL\`.`;
+    for (const [statement, message] of [
+      ["direction lr", known("direction lr", "LR", "left to right")],
+      ["direction Lr", known("direction Lr", "LR", "left to right")],
+      ["direction lr x", known("direction lr x", "LR", "left to right")],
+      ["direction rl", known("direction rl", "RL", "right to left")],
+      ["direction tb", known("direction tb", "TB", "top to bottom")],
+      ["direction bt", known("direction bt", "BT", "bottom to top")],
+      ["direction XX", unknown("direction XX")],
+      ["direction l r", unknown("direction l r")],
+      ["direction", unknown("direction")],
+    ] as const) {
+      const { document, diagnostics } = parseClassDiagram(`classDiagram\n  direction BT\n  ${statement}\n  A --> B`);
+      expect([statement, document, diagnostics]).toEqual([
+        statement,
+        null,
+        [{ severity: "error", message, line: 3, column: 3 }],
+      ]);
+    }
+  });
+});

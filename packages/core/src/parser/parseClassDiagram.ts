@@ -22,7 +22,7 @@ import { entityCodeAt, replaceCharacterReferences, replaceEntityCodes } from "..
 import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
 import {
-  classDirectionTDSpelling,
+  classDirectionMisspelling,
   isClassDirectionTD,
   listAcceptedHeaders,
   matchClassDirection,
@@ -383,9 +383,24 @@ function readDirectionStatement(line: string): Direction | null {
   return matchClassDirection(semicolons === null ? line : semicolons[1]);
 }
 
-/** The error for a `direction` statement, quoted as `written`, that sets no class-diagram direction. */
-function notAClassDirection(written: string): string {
-  return `\`${written}\` is not a class-diagram direction: write \`direction TB\` for top to bottom.`;
+const DIRECTION_MEANING: Record<Direction, string> = {
+  TB: "top to bottom",
+  BT: "bottom to top",
+  LR: "left to right",
+  RL: "right to left",
+};
+
+/**
+ * The error for a `direction` statement, quoted as `written`, that sets no
+ * class-diagram direction: naming the one to write when its value names one
+ * in another spelling (`value`), else all four.
+ */
+function notAClassDirection(written: string, value: Direction | null): string {
+  const write =
+    value === null
+      ? "write `direction TB`, `direction BT`, `direction LR` or `direction RL`"
+      : `write \`direction ${value}\` for ${DIRECTION_MEANING[value]}`;
+  return `\`${written}\` is not a class-diagram direction: ${write}.`;
 }
 
 /**
@@ -743,13 +758,21 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
   let rest = text.trim().replace(MEMBER_BREAK_RE, "<br>");
 
   let visibility: ClassMemberVisibility | null = null;
+  // Whether whitespace followed the visibility marker: Mermaid 12.2.0 keeps
+  // one space there before text, however many were written (measured,
+  // Chrome: `+ x` and `+  x` draw `+ x`, `+ foo()` `+ foo()`).
+  let spacedMarker = false;
   const firstChar = rest.slice(0, 1);
   // A `#` opening an entity code is the code's: Mermaid 12.2.0 encodes
   // `#lt; x` before it looks for a marker, and draws `< x` (measured).
   if (VISIBILITY_MARKERS.has(firstChar) && !entityCodeAt(rest, 0)) {
     visibility = firstChar as ClassMemberVisibility;
+    spacedMarker = /^\s/.test(rest.slice(1));
     rest = rest.slice(1).trim();
   }
+  /** The `spaceAfterVisibility` flag, present only when set, so a member without one reads as before. */
+  const spacing = (drawsText: boolean): Pick<ClassMember, "spaceAfterVisibility"> =>
+    spacedMarker && drawsText ? { spaceAfterVisibility: true } : {};
 
   const openParen = rest.indexOf("(");
   if (openParen !== -1) {
@@ -758,7 +781,10 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
       return null;
     }
     const name = rest.slice(0, openParen).trim();
-    if (!isMemberName(name)) {
+    // A method may have no name after a visibility marker — Mermaid 12.2.0
+    // draws `+(a)` as written, reading the marker as its name — but not
+    // with none: `(a)` stops the diagram rendering (measured, Chrome).
+    if (name.length === 0 ? visibility === null : !isMemberName(name)) {
       return null;
     }
     // A method's classifier stands right after its `)` (`+foo()* bool`) or,
@@ -792,6 +818,7 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
       type: null,
       parameters,
       returnType: returnType.length > 0 ? returnType : null,
+      ...spacing(true),
       line,
       column,
     };
@@ -821,6 +848,8 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
     type: tokens.length > 1 ? tokens.slice(0, -1).join(" ") : null,
     parameters: null,
     returnType: null,
+    // `+ $` draws `+`: the space is drawn only before text.
+    ...spacing(tokens.length > 0),
     line,
     column,
   };
@@ -1264,7 +1293,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       if (namespaceMembers !== null) return { lastIndex: startIndex, read: "direction" };
       diagnostics.push({
         severity: "error",
-        message: notAClassDirection("direction TD"),
+        message: notAClassDirection("direction TD", "TB"),
         line: lineNumber,
         column,
       });
@@ -1278,17 +1307,18 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       return { lastIndex: startIndex, read: "direction" };
     }
 
-    // `direction td`, `direction TD x` and the like set no direction
-    // (`classDirectionTDSpelling`) — the diagram keeps the one before, a
-    // picture nobody wrote (ADR-0001) — so each is refused as `direction
-    // TD` is, naming what was written. One that holds a direction the
-    // lexer applies is left to the rule for that.
-    const tdSpelling = appliedDirection(line) === null ? classDirectionTDSpelling(line) : null;
-    if (tdSpelling !== null) {
+    // `direction td`, `direction lr`, `direction TD x`, `direction XX` and
+    // the like set no direction (`classDirectionMisspelling`) — the diagram
+    // keeps the one before, a picture nobody wrote (ADR-0001) — so each is
+    // refused as `direction TD` is, naming what was written and what to
+    // write. One that holds a direction the lexer applies is left to the
+    // rule for that.
+    const misspelled = appliedDirection(line) === null ? classDirectionMisspelling(line) : null;
+    if (misspelled !== null) {
       if (namespaceMembers !== null) return { lastIndex: startIndex, read: "direction" };
       diagnostics.push({
         severity: "error",
-        message: notAClassDirection(tdSpelling),
+        message: notAClassDirection(misspelled.written, misspelled.value),
         line: lineNumber,
         column,
       });
@@ -1932,6 +1962,15 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         const bodyRawLine = lines[bodyIndex];
         const bodyLine = bodyRawLine.trim();
         if (bodyLine.length === 0) {
+          continue;
+        }
+        // A line that begins with `%%` is a comment, which Mermaid 12.2.0
+        // removes whole before it parses, a `}` on it included (measured:
+        // `%% hi` in a block draws nothing, and `%% hi }` leaves the block
+        // open). `parseSiren` removes it on the way here; a caller of this
+        // parser alone gets the same reading. A `%%` later in a member, or
+        // after the block's `{` on its line, is member text (`+x %% c`).
+        if (bodyLine.startsWith("%%")) {
           continue;
         }
         const bodyColumn = bodyRawLine.length - bodyRawLine.trimStart().length + 1;

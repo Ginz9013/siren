@@ -228,23 +228,28 @@ export function isClassDirectionTD(line: string): boolean {
   return CLASS_DIRECTION_TD_RE.test(line);
 }
 
-const CLASS_DIRECTION_TD_SPELLING_RE = /^direction\s+td\b[^;]*$/i;
+const CLASS_DIRECTION_MISSPELLING_RE = /^direction(?:\s+(\w+)(?:\s+\w+)*)?$/;
 
 /**
- * The `direction TD` statement as written, when a class diagram's line
- * spells it some other way — `direction td`, `direction Td`, `direction TD
- * x` — with any `%%` comment left off, or `null`. Measured on Mermaid
- * 12.2.0, none sets a direction: each keeps the one before it, with no
- * diagnostic, and `direction td %% x` is a parse error. One with a `;`
- * (`direction TD;`, a lexical error) is left to the caller's
- * unrecognized-line error. A line that also holds a direction the class lexer
- * applies (`direction TD x direction LR`) is not one; the caller asks
- * about that first.
+ * A class diagram's `direction` statement that sets no direction — a value
+ * in the wrong case (`direction lr`, `direction Td`), one with words after
+ * it (`direction TD x`), one no rule names (`direction XX`), or none at all
+ * — as written, with any `%%` comment left off, and the direction its first
+ * word names in capitals (`TD` naming `TB`), or `null` for none. `null`
+ * altogether for any other line. Measured on Mermaid 12.2.0, none sets a
+ * direction: each keeps the one before it, with no diagnostic (`direction
+ * td %% x` is a parse error). One with a `;` (`direction TD;`, a lexical
+ * error) or other punctuation is no such statement. A line that also holds a
+ * direction the class lexer applies (`direction lr direction LR`) is not
+ * one either; the caller asks about that first, and reads `direction LR`
+ * and `direction TD` themselves before asking.
  */
-export function classDirectionTDSpelling(line: string): string | null {
-  if (!CLASS_DIRECTION_TD_SPELLING_RE.test(line)) return null;
+export function classDirectionMisspelling(line: string): { written: string; value: Direction | null } | null {
   const comment = line.indexOf("%%");
-  return (comment === -1 ? line : line.slice(0, comment)).trimEnd();
+  const written = (comment === -1 ? line : line.slice(0, comment)).trimEnd();
+  const match = CLASS_DIRECTION_MISSPELLING_RE.exec(written);
+  if (match === null) return null;
+  return { written, value: match[1] === undefined ? null : (CANONICAL_DIRECTION.get(match[1].toUpperCase()) ?? null) };
 }
 
 /**

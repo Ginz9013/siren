@@ -1845,6 +1845,11 @@ export interface ClassMember {
   parameters: string | null;
   /** A method's return type (`bool` in `+swim() bool`), or `null` when it declares none. */
   returnType: string | null;
+  /**
+   * `true` when whitespace followed the visibility marker before text
+   * (`+ x`): the line is drawn with one space there, `+ x`. Absent otherwise.
+   */
+  spaceAfterVisibility?: boolean;
   line?: number;
   column?: number;
 }

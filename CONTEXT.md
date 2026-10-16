@@ -888,7 +888,9 @@ method's return type is drawn after ` : ` (`+swim() bool` draws `+swim() : bool`
 draws it. A `#` opening an entity code is the code's, not the protected marker (`#lt; x` has no
 visibility). Attributes and methods draw in two separate
 compartments, in declaration order within each, with a divider above every populated one; a
-member written twice, in one declaration or across several, is drawn twice.
+member written twice, in one declaration or across several, is drawn twice. A space written
+after the visibility marker is drawn as one (`+ x`), and a line that draws no text (`$`) takes no
+height.
 _Avoid_: field, property (that is a CSS declaration's property in an author style), attribute
 (alone — that is one of the two kinds of member, and it is also an SVG attribute; say "attribute
 member" when the kind matters)
