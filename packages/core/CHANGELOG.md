@@ -322,7 +322,8 @@ warning and is now refused (see **Changed**).
   `default-x`, `v-x`, `direction-x`, `click end-x`, `click end` and `subgraph end-x`, which Mermaid
   reads as ids. An endpoint that is nothing but `click`, `call` or `href`, which Mermaid reads as
   that keyword before a space or a line break (`A --> click`, `click --> A`), is refused the same
-  way; `click-x`, `click[x]` and `A --> click;B` are ids.
+  way, as is one before a space and a `;` (`A --> click ;B`); `click-x`, `click[x]` and
+  `A --> click;B` are ids.
 - **An entity code in a class member is drawn decoded** (nook `01M51K83X2`): Mermaid 12.2.0
   encodes each `#\w+;` before it parses and decodes it when it draws, so `+#lt; x` draws `+< x`,
   `+int #59;` `+int ;` and `+foo(#9829;)` `+foo(♥)`, in a block and inline alike, in the type, the

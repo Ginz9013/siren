@@ -204,6 +204,9 @@ const ID_KEYWORDS = [
 const CLASS_WORD = String.raw`-?[A-Za-z_\u0080-\uFFFF\\](?:[\w\u0080-\uFFFF\\]|-(?=[^>\-.]|$))*`;
 const CLASS_NAME = String.raw`${CLASS_WORD}(?:[.#+]${CLASS_WORD})*`;
 
+/** A `class` statement's target list (`CLASS_APPLY_RE`), without a group. */
+const CLASS_APPLY_TARGETS = String.raw`[${ID_ALPHABET_SET}\s,]*[${ID_ALPHABET_SET},]`;
+
 /** One of `ID_KEYWORDS`, read as the keyword: not followed by `[A-Za-z0-9_]`. */
 const ID_KEYWORD = `(?:${ID_KEYWORDS.join("|")})(?![A-Za-z0-9_])`;
 
@@ -837,7 +840,8 @@ const STATEMENT_END = ";";
  * `fill:#fddposition:fixed`, which is what Mermaid records too (measured,
  * 11.17.2: `styles=["fill:#fddposition:fixed","stroke:#c00"]`).
  */
-const DECLARATION_LIST_RE = /^(?:style|classDef|linkStyle)\s/;
+const DECLARATION_LIST_KEYWORDS = ["style", "classDef", "linkStyle"] as const;
+const DECLARATION_LIST_RE = new RegExp(`^(?:${DECLARATION_LIST_KEYWORDS.join("|")})\\s`);
 
 /** What an end marker draws, by the character that wrote it. */
 const END_FOR_MARKER: Record<string, EdgeEnd> = {
@@ -1251,12 +1255,26 @@ const CLASS_NAME_RE = new RegExp(`^${CLASS_NAME}$`);
  * Where a class name stands in a text, read loosely — any run without a
  * space — so a name `CLASS_NAME` refuses can be named: in a `classDef`, in
  * a `class` statement's last word, or after a `:::` that ends the text.
+ * `applies` says whether the name is applied to a node (`class`, `:::`)
+ * rather than defined (`classDef`), which decides what a `,` in it means.
  */
-const LOOSE_CLASS_NAME_RES = [
-  /^classDef\s+(\S+)\s+\S/d,
-  new RegExp(String.raw`^class\s+[${ID_ALPHABET_SET}\s,]*[${ID_ALPHABET_SET},]\s+(\S+)\s*$`, "d"),
-  /:::(\S+)\s*$/d,
+const LOOSE_CLASS_NAMES: ReadonlyArray<{ re: RegExp; applies: boolean }> = [
+  { re: /^classDef\s+(\S+)\s+\S/d, applies: false },
+  { re: new RegExp(String.raw`^class\s+${CLASS_APPLY_TARGETS}\s+(\S+)\s*$`, "d"), applies: true },
+  { re: /:::(\S+)\s*$/d, applies: true },
 ];
+
+/**
+ * What, inside a loosely read class name, says the run is something else
+ * going on — an arrow (`--`, `==`, `~~`, `-.`), a bracket or another
+ * `:::` — so it is no class name to blame: `A:::c~~~B`, `A:::c[x]`.
+ */
+const NOT_A_CLASS_NAME_RE = /--|==|~~|-\.|:::|[[\](){}]/;
+
+/** What a class name may hold, said to an author whose name holds something else. */
+const CLASS_NAME_RULE =
+  'Use letters (of any script), digits, "_", "-" and "\\", with no digit first, ' +
+  'and ".", "#" or "+" only between such words.';
 
 /**
  * Why a statement or a node written as `text` was refused, when the reason
@@ -1266,29 +1284,24 @@ const LOOSE_CLASS_NAME_RES = [
  * and the diagram is not drawn.
  */
 function refuseClassName(text: string): { message: string; offset: number } | null {
-  for (const [index, re] of LOOSE_CLASS_NAME_RES.entries()) {
+  for (const { re, applies } of LOOSE_CLASS_NAMES) {
     const match = re.exec(text);
-    if (match === null || CLASS_NAME_RE.test(match[1]!)) {
+    const name = match?.[1];
+    if (match === null || name === undefined || CLASS_NAME_RE.test(name) || NOT_A_CLASS_NAME_RE.test(name)) {
       continue;
     }
     // `class A c,d`, `A:::c,d`: the one class `c,d`, which no `classDef`
     // defines (`classDef c,d` defines `c` and `d`), so Mermaid 12.2.0 draws
     // the node unstyled with no diagnostic (measured).
-    const appliesOne = index > 0 && match[1]!.split(",").every((name) => CLASS_NAME_RE.test(name));
-    if (appliesOne) {
+    if (applies && name.split(",").every((part) => CLASS_NAME_RE.test(part))) {
       return {
         message:
-          `"${match[1]}" is read as one class name, which no classDef defines, so no style reaches the node. ` +
+          `"${name}" is read as one class name, which no classDef defines, so no style reaches the node. ` +
           "Apply one class at a time.",
         offset: match.indices![1]![0],
       };
     }
-    return {
-      message:
-        `"${match[1]}" cannot be a class name. Use letters, digits, "_" and "-", with no digit first, ` +
-        'and ".", "#" or "+" only between such words.',
-      offset: match.indices![1]![0],
-    };
+    return { message: `"${name}" cannot be a class name. ${CLASS_NAME_RULE}`, offset: match.indices![1]![0] };
   }
   return null;
 }
@@ -1330,7 +1343,7 @@ function keywordIdMessage(id: string, keyword: string): string {
   const [first, ...rest] = id.split(/[^A-Za-z0-9_]+/).filter((part) => part !== "");
   const fix =
     rest.length === 0 ? `${first}Node` : first + rest.map((part) => part[0]!.toUpperCase() + part.slice(1)).join("");
-  return `"${id}" begins with the keyword "${keyword}", and is read as that keyword. Rename it, such as ${fix}`;
+  return `"${id}" begins with the keyword "${keyword}", and is read as that keyword. Rename it, such as ${fix}.`;
 }
 
 /**
@@ -1696,7 +1709,16 @@ function midLinePercentAt(text: string): number | null {
  * id, whatever stands before it (`class A c --> %%x` and
  * `click A "u" "t" --> %%x` are parse errors in Mermaid 12.2.0, measured).
  */
-const NO_NODE_STATEMENT_RE = /^(?:class|click|style|classDef|linkStyle|accTitle|accDescr|subgraph|direction)\s/;
+const NO_NODE_STATEMENT_KEYWORDS = [
+  ...DECLARATION_LIST_KEYWORDS,
+  "class",
+  "click",
+  "accTitle",
+  "accDescr",
+  "subgraph",
+  "direction",
+] as const;
+const NO_NODE_STATEMENT_RE = new RegExp(`^(?:${NO_NODE_STATEMENT_KEYWORDS.join("|")})\\s`);
 
 /**
  * Whether an endpoint begins right after `before`: it ends with an arrow
@@ -2278,10 +2300,7 @@ const LINK_STYLE_INTERPOLATE_RE = /^linkStyle\s+([\w,\s]*?[\w,])\s+interpolate\s
  * and a `-` are too: `class A%B,C%%D hot`, `class a-b,c hot` (measured,
  * 01M4ZWT8PR).
  */
-const CLASS_APPLY_RE = new RegExp(
-  String.raw`^class\s+([${ID_ALPHABET_SET}\s,]*[${ID_ALPHABET_SET},])\s+(${CLASS_NAME})\s*$`,
-  "d",
-);
+const CLASS_APPLY_RE = new RegExp(String.raw`^class\s+(${CLASS_APPLY_TARGETS})\s+(${CLASS_NAME})\s*$`, "d");
 
 /**
  * Splits the comma-separated target list an apply-directive (`class A,B
@@ -2774,7 +2793,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
       // An `&` with no node on one side, or without a space on each side,
       // in `parts` (standing at `partAt`), refused — true when one was,
       // which ends the statement.
-      const refuseUnspacedGroups = (parts: readonly string[], partAt: readonly number[]): boolean => {
+      const refuseMalformedGroups = (parts: readonly string[], partAt: readonly number[]): boolean => {
         // An `&` with no node on one side (`& A`, `A &`, `A & --> B`): a
         // parse error in Mermaid 12.2.0 (measured), and no spacing fixes it.
         for (const [index, part] of parts.entries()) {
@@ -2821,7 +2840,9 @@ export function parseFlowchart(source: string): DiagramParseResult {
         pieces: readonly { text: string; at: number }[],
         endpoints: readonly EdgeEndpoint[],
       ): boolean => {
-        const followedBySemicolon = rawLine.slice(column - 1 + line.length).trimStart().startsWith(STATEMENT_END);
+        // A `;` right after the statement, with no space: `A --> click;B` is
+        // an id, `A --> click ;B` the keyword (measured).
+        const followedBySemicolon = rawLine[column - 1 + line.length] === STATEMENT_END;
         const at = endpoints.findIndex(
           (endpoint, index) =>
             SPACED_KEYWORDS.has(endpoint.id) &&
@@ -3116,7 +3137,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
         // label's problem is reported at its own column: the pieces and the
         // separators that cut them lie end to end, and add up to the line.
         const partAt = offsetsOf(arrowParts, arrowTokens);
-        if (refuseUnspacedGroups(arrowParts, partAt)) {
+        if (refuseMalformedGroups(arrowParts, partAt)) {
           continue;
         }
         // Each piece kept beside what it read as, so an unreadable one can be
@@ -3379,7 +3400,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
       // keyword (`end&x`) is that keyword's mistake, not a group's.
       const { parts: groupParts, separators: groupSeparators } = cutOutsideLabel(line, GROUP_SEPARATOR);
       if (groupParts.length > 1 && refuseKeywordId(line, false) === null) {
-        if (refuseUnspacedGroups([line], [0])) {
+        if (refuseMalformedGroups([line], [0])) {
           continue;
         }
         const groupAt = offsetsOf(groupParts, groupSeparators);

@@ -765,7 +765,7 @@ describe("an `@{` in a statement that writes no node", () => {
 
 /** The refusal of an id that begins with a keyword, as the tests below expect it. */
 function keywordIdMessage(id: string, keyword: string, fix: string): string {
-  return `"${id}" begins with the keyword "${keyword}", and is read as that keyword. Rename it, such as ${fix}`;
+  return `"${id}" begins with the keyword "${keyword}", and is read as that keyword. Rename it, such as ${fix}.`;
 }
 
 /**
@@ -954,6 +954,26 @@ describe("an id that begins with a keyword", () => {
     // as keywords before whitespace (a line break included): each of these
     // is a parse error ("got 'CLICK'"), or, for `click & A` and
     // `click --> A`, an empty diagram.
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: keywordIdMessage(keyword, keyword, `${keyword}Node`),
+        line: 2,
+        column: written.indexOf(keyword) + 3,
+      },
+    ]);
+  });
+
+  it.each([
+    ["A --> click ;B", "click"],
+    ["A --> call ;B", "call"],
+    ["A --> href ;B", "href"],
+    ["A & click ;", "click"],
+  ])("refuses `%s`, where a space before the `;` makes the word a keyword", (written, keyword) => {
+    // Measured: each is a parse error in Mermaid 12.2.0 ("got 'CLICK'").
     const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
 
     expect(document).toBeNull();
@@ -2614,8 +2634,8 @@ describe("a flowchart class name beyond letters, digits and `_`", () => {
  */
 describe("a flowchart class name Mermaid cannot style", () => {
   const message = (name: string) =>
-    `"${name}" cannot be a class name. Use letters, digits, "_" and "-", with no digit first, ` +
-    'and ".", "#" or "+" only between such words.';
+    `"${name}" cannot be a class name. Use letters (of any script), digits, "_", "-" and "\\", ` +
+    'with no digit first, and ".", "#" or "+" only between such words.';
 
   it.each(["c%", "1c", "-1c", "c.", "c..d", "c.1", "c#", "c#1", "#c", ".c", "c+", "+c", "c:d", "c!", "c$", "c*", "c?", "c/d", "c'd", "c`d", "%c"])(
     "refuses `%s` in `classDef`, `:::` and `class`, at the name",
@@ -2630,6 +2650,18 @@ describe("a flowchart class name Mermaid cannot style", () => {
         { severity: "error", message: message(name), line: 3, column: 7 },
         { severity: "error", message: message(name), line: 4, column: 11 },
       ]);
+    },
+  );
+});
+
+describe("a run after `:::` that is no class name", () => {
+  it.each(["A:::c~~~B", "A --> B:::c==C", "B:::c--C", "A:::c:::c", "A:::c[x]"])(
+    "does not blame the class name in `%s`, where the run goes on into other syntax",
+    (written) => {
+      const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+      expect(document).toBeNull();
+      expect(diagnostics.map((d) => d.message).filter((message) => message.includes("cannot be a class name"))).toEqual([]);
     },
   );
 });

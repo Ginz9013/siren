@@ -3714,6 +3714,28 @@ line2\`"]`,
     },
   },
   {
+    id: "fc-class-name-plus-letter-backslash",
+    kind: "flowchart",
+    source: `flowchart TB
+      classDef c+d fill:#f00
+      classDef cé fill:#0f0
+      classDef c\\d fill:#00f
+      A:::c+d --> B:::cé
+      C
+      class C c\\d`,
+    status: "supported",
+    meaning:
+      "A class name may hold a `+` between words, a non-ASCII letter and a " +
+      "`\\`. Measured in headless Chrome on Mermaid 12.2.0: A is filled red, " +
+      "B green and C blue. Siren applies each class by its name and paints " +
+      "the same fills.",
+    assert: (result) => {
+      expectSame("A's frame", nodeStyle(result, "A"), "fill:#f00");
+      expectSame("B's frame", nodeStyle(result, "B"), "fill:#0f0");
+      expectSame("C's frame", nodeStyle(result, "C"), "fill:#00f");
+    },
+  },
+  {
     id: "fc-class-name-comma",
     kind: "flowchart",
     source: `flowchart TB
