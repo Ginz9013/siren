@@ -4,6 +4,7 @@ import type {
   ClassMember,
   ClassModel,
   ClassModelResult,
+  ClassNamespace,
   Diagnostic,
   ResolvedClass,
   ResolvedClassNamespace,
@@ -273,37 +274,54 @@ function resolveNamespaces(
       namespace.label = block.label;
     }
 
-    for (const classId of block.classIds) {
-      const claimant = claimedBy.get(classId);
-      if (claimant === block.id) continue;
-      if (claimant !== undefined) {
-        diagnostics.push({
-          severity: "error",
-          message:
-            `Class "${classId}" is named by more than one namespace ` +
-            `("${claimant}" and "${block.id}"); keeping the first.`,
-          line: block.line,
-          column: block.column,
-        });
-        continue;
-      }
-
-      // A namespace naming a class nothing else declares creates it, the
-      // same way a relationship endpoint does: naming a class is a way of
-      // introducing one, and a frame with a hole where a member should be
-      // helps nobody.
-      let member = classesById.get(classId);
-      if (member === undefined) {
-        member = emptyClass(classId);
-        classesById.set(classId, member);
-      }
-      member.resolved.namespaceId = namespace.id;
-      claimedBy.set(classId, block.id);
-      namespace.classIds.push(classId);
-    }
+    claimMembers(block, namespace, claimedBy, classesById, diagnostics);
   }
 
   return [...byQualifiedName.values()];
+}
+
+/**
+ * Makes the classes one `namespace` block names members of the namespace it
+ * opens, `namespace`. `claimedBy` records which namespace, by qualified
+ * name, holds each class so far: a class it already holds is skipped, and
+ * one a different namespace holds stays there, with an error.
+ */
+function claimMembers(
+  block: ClassNamespace,
+  namespace: ResolvedClassNamespace,
+  claimedBy: Map<string, string>,
+  classesById: Map<string, ClassAccumulator>,
+  diagnostics: Diagnostic[],
+): void {
+  for (const classId of block.classIds) {
+    const claimant = claimedBy.get(classId);
+    if (claimant === block.id) continue;
+    if (claimant !== undefined) {
+      diagnostics.push({
+        severity: "error",
+        message:
+          `Class "${classId}" is named by more than one namespace ` +
+          `("${claimant}" and "${block.id}"), and a class can sit in only one; ` +
+          `keeping it in "${claimant}". Name it in only one of the namespaces.`,
+        line: block.line,
+        column: block.column,
+      });
+      continue;
+    }
+
+    // A namespace naming a class nothing else declares creates it, the
+    // same way a relationship endpoint does: naming a class is a way of
+    // introducing one, and a frame with a hole where a member should be
+    // helps nobody.
+    let member = classesById.get(classId);
+    if (member === undefined) {
+      member = emptyClass(classId);
+      classesById.set(classId, member);
+    }
+    member.resolved.namespaceId = namespace.id;
+    claimedBy.set(classId, block.id);
+    namespace.classIds.push(classId);
+  }
 }
 
 /**

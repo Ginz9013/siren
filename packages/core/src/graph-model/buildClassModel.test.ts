@@ -291,7 +291,8 @@ describe("buildClassModel", () => {
       {
         severity: "error",
         message:
-          'Class "Triangle" is named by more than one namespace ("BaseShapes" and "Widgets"); keeping the first.',
+          'Class "Triangle" is named by more than one namespace ("BaseShapes" and "Widgets"), and a class can sit in only one; keeping it in "BaseShapes". ' +
+          'Name it in only one of the namespaces.',
         line: 7,
         column: 1,
       },
@@ -373,7 +374,8 @@ describe("buildClassModel", () => {
     expect(diagnostics).toEqual([
       {
         severity: "error",
-        message: 'Class "A" is named by more than one namespace ("N" and "N.M"); keeping the first.',
+        message: 'Class "A" is named by more than one namespace ("N" and "N.M"), and a class can sit in only one; keeping it in "N". ' +
+          'Name it in only one of the namespaces.',
         line: 4,
         column: 3,
       },
@@ -494,7 +496,8 @@ describe("buildClassModel", () => {
       expect(diagnostics).toEqual([
         {
           severity: "error",
-          message: 'Class "X" is named by more than one namespace ("N" and "N.M"); keeping the first.',
+          message: 'Class "X" is named by more than one namespace ("N" and "N.M"), and a class can sit in only one; keeping it in "N". ' +
+          'Name it in only one of the namespaces.',
           line: 3,
           column: 1,
         },

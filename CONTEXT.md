@@ -618,8 +618,9 @@ label geometry and wrap width; other diagram kinds keep their existing padding. 
 and the second spatial one in a graph-shaped diagram after a class diagram's **namespace** — a
 sequence diagram's **box grouping** bands participant lanes and its **control-flow block** wraps
 statements in time. Both nest — `ResolvedSubgraph` and `ResolvedClassNamespace` each carry a
-`parentId`, handed to the engine as nested clusters, and both number their generated ids in the
-order the blocks open, outer first. Four things separate it from the namespace it most resembles,
+`parentId`, handed to the engine as nested clusters — and both number their generated ids outer
+first: a subgraph where its block opens, a namespace where it first opens, since the blocks of a
+namespace opened again under the same qualified name merge into one. Four things separate it from the namespace it most resembles,
 and none of them is cosmetic:
 
 - **Membership lives on the node**, as `GraphNode.parentId`, in one place — so a node and the
