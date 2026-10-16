@@ -143,6 +143,26 @@ after its `)` (`+foo()* bool`), which used to be drawn `+foo() : * bool` (see **
 - An `@{ … }` block on an edge id written below the edge (`e1@{ … }`) is read as that edge's data:
   a key other than `animate`, `animation` and `curve` is ignored with a warning, as Mermaid 12.2.0
   ignores it; those three are refused as not drawn yet. The block used to be refused whole.
+- A flowchart node's `@{ shape: … }` block draws sixteen more of Mermaid 12.2.0's shapes (nook
+  `01M51XAC4N7X7GE0CS5TK2PMTY`, measured in headless Chrome): `notch-rect` (`card`,
+  `notched-rectangle`), `notch-pent` (`loop-limit`, `notched-pentagon`), `sl-rect`
+  (`manual-input`, `sloped-rectangle`), `tri` (`extract`, `triangle`), `flip-tri` (`manual-file`,
+  `flipped-triangle`), `folder` (`directory`), `lin-rect` (`lined-rectangle`, `lined-process`,
+  `lin-proc`, `shaded-process`), `div-rect` (`div-proc`, `divided-rectangle`, `divided-process`),
+  `win-pane` (`internal-storage`, `window-pane`), `st-rect` (`procs`, `processes`,
+  `stacked-rectangle`), `tag-rect` (`tagged-rectangle`, `tag-proc`, `tagged-process`), `text`,
+  `datastore` (`data-store`), and the undocumented `note`, `composite` and `state`. Each is sized
+  by Mermaid's formula for it and puts its label where Mermaid does — on a folder's body, under a
+  sloped rectangle's slope, on a triangle's wide side — which `PositionedNode.labelOffset` now
+  carries from layout to the renderer. `state` draws the 5px-cornered rectangle Mermaid's handler
+  asks for; Mermaid itself draws it sized `NaN`, so only the label shows. Each used to be refused
+  as a shape not drawn yet.
+- Node shapes are drawn and sized from one table (`layout/shapes/`): each shape is a record of its
+  box, where its label goes and the elements its outline is drawn with, read by `layoutGraph` and
+  `renderToSVG`. The fourteen bracket shapes draw exactly as before. A frame can wear a paint of
+  its own beside `siren-node-frame` — `siren-node-hollow` (unfilled), `siren-node-ink` (filled with
+  the node's stroke colour), `siren-node-bare` (neither filled nor stroked) and `siren-node-note` —
+  each with a rule in the default theme.
 - A flowchart class name may hold what Mermaid 12.2.0 styles (nook `01M51Q7FSS`, measured in
   headless Chrome): a `-` (`c-d`, `-c`, `c-`), a `.`, `#` or `+` between words (`c.d`, `c#d`,
   `c+d`), a non-ASCII letter (`cé`) or a `\`, in `classDef`, `class` and `:::` alike, each applied

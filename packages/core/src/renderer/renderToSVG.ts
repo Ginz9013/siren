@@ -10,7 +10,8 @@ import type {
 import { FLOWCHART_DEFAULT_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel, type DrawnLabel } from "../label/drawLabel";
 import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
-import { SHAPE_LEAN } from "../layout/layoutGraph";
+import { SHAPES } from "../layout/shapes/shapeTable";
+import type { ShapeFrame } from "../layout/shapes/shape";
 import { drawConnectorRoute } from "./connectorCurve";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
@@ -338,8 +339,8 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // an author's `style A stroke:#00f` that reached the box and not the
     // bars would leave the bars looking detached from the shape they mark.
     // Nothing here has to know which shape drew how many.
-    for (const { element, geometry } of frames) {
-      element.setAttribute("class", "siren-node-frame");
+    for (const { element, classes, geometry } of frames) {
+      element.setAttribute("class", ["siren-node-frame", ...classes].join(" "));
       // Two writers, one attribute — and the order is the authority. The
       // shape's own geometry goes first and the author's declarations
       // after, so `style A rx:0` overrides a stadium's ends exactly as an
@@ -350,12 +351,13 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     }
 
     // Centred on the node, which is where layout centred the box the shape
-    // was sized around. What the label paints behind its text goes in
+    // was sized around — or moved off it by the offset layout reported for
+    // a shape that puts its label elsewhere (`labelOffset`). What the label paints behind its text goes in
     // first, over the frame and under the text, since document order is
     // paint order.
     const drawn = drawLabel(node.label, node.labelBox, {
-      x: node.x + node.width / 2,
-      y: node.y + node.height / 2,
+      x: node.x + node.width / 2 + (node.labelOffset?.x ?? 0),
+      y: node.y + node.height / 2 + (node.labelOffset?.y ?? 0),
     });
     // The other half of the author's declaration. A node draws two things —
     // the frame and this label — and `resolveStyles` already decided which
@@ -478,343 +480,45 @@ function buildSubgraph(subgraph: PositionedSubgraph): SVGGElement {
 }
 
 /**
- * One element a node's outline is drawn with, and the declarations the
- * *shape* needs on it — never the author's, which the caller appends.
+ * The elements that draw a node's outline, read off the shape table:
+ * whichever shape the node has, its record says which elements to draw and
+ * where, and this only turns that data into elements (`drawFrame`). Usually
+ * one element; a subroutine is three and a double circle two, and the
+ * caller writes the class and the style on each the same way, so nothing
+ * here learns which shape draws how much.
+ *
+ * Every shape is drawn **inscribed in the node's bounding box**, the box
+ * `layoutGraph` sized from the same record, so the label fits the figure
+ * that is drawn.
  */
-interface NodeFrame {
+function buildNodeFrames(node: PositionedNode): DrawnFrame[] {
+  return SHAPES[node.shape].frames(node).map((frame) => ({
+    element: drawFrame(frame),
+    classes: frame.classes ?? [],
+    geometry: frame.style ?? [],
+  }));
+}
+
+/** One frame element, with what the shape itself declares on it. */
+interface DrawnFrame {
   element: SVGElement;
+  /** Classes the shape adds beside `siren-node-frame`. */
+  classes: readonly string[];
   /**
    * What the shape itself has to declare in CSS rather than in an
-   * attribute, which today is only a corner radius. Empty for every shape
-   * whose whole outline is geometry the element already carries.
+   * attribute, such as a corner radius the shape owns — written inline
+   * ahead of the author's declarations, so the author's win.
    */
-  geometry: StyleProperty[];
+  geometry: readonly StyleProperty[];
 }
 
-/**
- * The elements that draw a node's outline, in whichever shape the node has
- * — positioned and sized, but not yet classed or styled: those are the same
- * two lines for every shape, so the caller writes them once.
- *
- * Usually one element. A subroutine is three — its box and an inner bar
- * down each end — and a double circle is two, and returning a list rather
- * than special-casing either is what keeps the caller from learning which
- * shapes draw how much. Nothing above this has had to change for one.
- *
- * Every shape is drawn **inscribed in the node's bounding box**, which is
- * the contract that pairs with `layoutGraph`'s `boxForLabel`: layout
- * enlarges the box so the label fits inside the inscribed outline, and this
- * draws the outline that box was sized for. Split the two and the label
- * fits a figure nobody drew.
- */
-function buildNodeFrames(node: PositionedNode): NodeFrame[] {
-  const rings = ringsOf(node);
-  if (rings.length > 0) {
-    return rings;
+/** The SVG element one shape-table frame describes, with its geometry attributes. */
+function drawFrame(frame: ShapeFrame): SVGElement {
+  const element = document.createElementNS(SVG_NS, frame.element);
+  for (const [name, value] of frame.attributes) {
+    element.setAttribute(name, String(value));
   }
-
-  const outline = outlineFor(node);
-  if (outline !== null) {
-    const path = document.createElementNS(SVG_NS, "path");
-    path.setAttribute("d", outline);
-    return [{ element: path, geometry: [] }];
-  }
-
-  // A rectangle, the three shapes that are a rectangle with a corner
-  // radius or a marking of their own, and every shape whose ticket has not
-  // landed — which the parser still refuses, so none of them can reach
-  // here.
-  const rect = document.createElementNS(SVG_NS, "rect");
-  rect.setAttribute("x", String(node.x));
-  rect.setAttribute("y", String(node.y));
-  rect.setAttribute("width", String(node.width));
-  rect.setAttribute("height", String(node.height));
-  return [{ element: rect, geometry: cornerRadiusOf(node) }, ...innerBarsOf(node)];
-}
-
-/**
- * The concentric rings a node is drawn with, or nothing for every shape
- * whose outline is not a circle.
- *
- * A `<circle>` rather than a `<path>` of two arcs, because the element
- * names the figure and `r` is the whole of its geometry — and rather than
- * an `<ellipse>`, which is the same figure written in a way the theme can
- * deform: `rx` and `ry` are CSS geometry properties on an ellipse, and the
- * theme sets `rx: var(--siren-node-border-radius)` on `.siren-node-frame`.
- * So ticket 03's question — who owns the radius, the shape or the token —
- * simply does not arise here, and that is a property of the element chosen
- * rather than an oversight.
- *
- * Inscribed in the node's bounding box, taking the **smaller** of the two
- * axes as the diameter. `layoutGraph` gives both circles a square box, so
- * the two axes agree; taking the minimum is what keeps the figure a circle
- * rather than an ellipse were a box ever to arrive that was not square, and
- * a circle that stopped being round would stop being the shape the spelling
- * names.
- *
- * Two of them for a double circle, and both are returned as frames rather
- * than one frame and one decoration. Every element a node draws wears
- * `siren-node-frame` (the caller writes it), which is what makes an
- * author's `style A fill:#fdd` paint the whole shape instead of leaving a
- * white disc inside a coloured circle — the same answer a subroutine's
- * inner bars were given, arriving at the shape that would have broken most
- * visibly without it.
- */
-function ringsOf(node: PositionedNode): NodeFrame[] {
-  if (node.shape !== "circle" && node.shape !== "double-circle") {
-    return [];
-  }
-  const radius = Math.min(node.width, node.height) / 2;
-  const radii =
-    node.shape === "circle"
-      ? [radius]
-      : // Outer first, so the inner ring is stroked over the outer's fill
-        // rather than under it. The gap is `SHAPE_LEAN x height`, the same
-        // number `layoutGraph` enlarged the box by so that the label fits
-        // inside the *inner* ring — two copies of it would drift into a
-        // ring drawn through the text.
-        [radius, radius - SHAPE_LEAN["double-circle"] * node.height];
-  return radii.map((r) => {
-    const circle = document.createElementNS(SVG_NS, "circle");
-    circle.setAttribute("cx", String(node.x + node.width / 2));
-    circle.setAttribute("cy", String(node.y + node.height / 2));
-    circle.setAttribute("r", String(r));
-    return { element: circle, geometry: [] };
-  });
-}
-
-/**
- * The corner radius a shape names itself for, as an inline CSS declaration
- * — or nothing at all for a shape whose corners are the theme's business.
- *
- * **The one decision this pairing forces.** The theme sets `rx:
- * var(--siren-node-border-radius)` on `.siren-node-frame`, so for a
- * `<rect>` frame a shape and a documented token both want to set one
- * property. The rule: *a shape named for its corners owns them; the token
- * rounds the shapes whose corners are only decoration.*
- *
- * - `rect` and `subroutine` declare nothing here, so the token is the whole
- *   story for them, exactly as it has been since before shapes existed. A
- *   consumer who retunes it to `0` gets square boxes, and to `12px` gets
- *   rounder ones.
- * - `stadium` and `round` take `SHAPE_LEAN x height`. A stadium's ends are
- *   semicircles or it is not a stadium, so its radius is half its height by
- *   definition and no token may move it; a round node's is half of that,
- *   which is Siren's own proportion (the board's decision 1) chosen to sit
- *   visibly between a decorated corner and a semicircular end. Retuning the
- *   token does nothing to either — including at `0`, where a rectangle goes
- *   square and `A(Round)` stays round, which is the point: a shape's *kind*
- *   is the compatibility contract and must survive the theme.
- *
- * Written as an inline **declaration** and not as an `rx` attribute, and
- * that is the whole mechanism. A presentation attribute loses to *any*
- * stylesheet rule, so `rx="30"` here would be silently overruled by the
- * theme's own `.siren-node-frame` rule and the stadium would come back as a
- * 6px-cornered box with nothing in the picture to say why — ADR-0008's
- * cascade argument, arriving one property over from the `fill` it was
- * written about.
- *
- * The number is `SHAPE_LEAN`'s, the same one `layoutGraph` widened the box
- * by, for the reason that constant is exported at all: a radius and the
- * room reserved for it are one decision, and two copies would drift into a
- * label crossing its own corner.
- */
-function cornerRadiusOf(node: PositionedNode): StyleProperty[] {
-  if (node.shape !== "round" && node.shape !== "stadium") {
-    return [];
-  }
-  return [{ property: "rx", value: `${SHAPE_LEAN[node.shape] * node.height}px` }];
-}
-
-/**
- * The inner bars a subroutine draws down each end of its box, or nothing
- * for every other shape.
- *
- * A `<line>` apiece rather than a second `<rect>`: a bar is a stroke, and
- * an element with a width would take the frame's `fill` as an area of paint
- * across the middle of the node.
- *
- * They carry no class of their own — the caller names every frame element
- * `siren-node-frame` — and that is deliberate rather than incidental. A
- * `siren-node-bar` would be a class the default theme has to learn about
- * separately, and `theme/default.test.ts`'s coverage net renders only
- * rectangles, so it would ship unthemed without failing anything. Wearing
- * the frame's name instead means the theme strokes a bar because it strokes
- * a frame, and an author's `style A stroke:#00f` reaches the bars for the
- * same reason.
- *
- * Inset by `SHAPE_LEAN.subroutine x height` from each end — the number
- * `layoutGraph` widened the box by, so the label sits between the bars
- * rather than across one.
- */
-function innerBarsOf(node: PositionedNode): NodeFrame[] {
-  if (node.shape !== "subroutine") {
-    return [];
-  }
-  const inset = SHAPE_LEAN.subroutine * node.height;
-  return [node.x + inset, node.x + node.width - inset].map((x) => {
-    const line = document.createElementNS(SVG_NS, "line");
-    line.setAttribute("x1", String(x));
-    line.setAttribute("y1", String(node.y));
-    line.setAttribute("x2", String(x));
-    line.setAttribute("y2", String(node.y + node.height));
-    return { element: line, geometry: [] };
-  });
-}
-
-/**
- * The outline one node draws as a `<path>`, inscribed in its bounding box —
- * or `null` for a shape drawn by some other element: the rectangle, and the
- * two shapes `ringsOf` draws with a `<circle>`.
- *
- * Every outline here but the cylinder's is straight segments between
- * corners of, or points on, the node's own box, so each is expressible as
- * the box's four edges plus
- * `SHAPE_LEAN` — the same number `layoutGraph` used to decide how big that
- * box had to be. Importing it rather than restating it is deliberate: two
- * copies that agreed today could drift, and the symptom would be a label
- * crossing its own frame in the picture with every number in every unit
- * test still correct.
- *
- * `rx` no longer reaches any of these frames, and that is correct rather
- * than unfortunate — the theme sets `rx: var(--siren-node-border-radius)`
- * on `.siren-node-frame` and a `<path>` reads no such property. None of
- * these shapes has rounded corners to give it, so a documented token
- * quietly ceasing to apply is the right behavior (the board's decision 4).
- * For the cylinder it is more than right, it is load-bearing: its lid's
- * radii are the figure rather than a decoration of it, and drawing it with
- * an element the token *could* reach would let a theme flatten the shape
- * out of existence. The shapes that *are* drawn with a `<rect>` have the
- * same question with a real answer to give; it is `cornerRadiusOf`'s.
- */
-function outlineFor(node: PositionedNode): string | null {
-  const left = node.x;
-  const right = node.x + node.width;
-  const top = node.y;
-  const bottom = node.y + node.height;
-  const midX = node.x + node.width / 2;
-  const midY = node.y + node.height / 2;
-  const closed = (points: ReadonlyArray<readonly [number, number]>) =>
-    `${points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x},${y}`).join(" ")} Z`;
-
-  switch (node.shape) {
-    case "cylinder": {
-      // The one outline here that is not straight segments. `r` is the
-      // vertical semi-axis of the ellipse the top and the bottom are both
-      // halves of, and the horizontal one is the box's own half-width, so
-      // the lid spans the tube exactly.
-      //
-      // Two closed subpaths in one `d`: the tube, then the whole lid drawn
-      // over it. Wound the same way — left to right across the top in both
-      // — so the default nonzero fill rule adds them and paints a solid
-      // drum; opposite windings would cut the lid out as a hole. The lid's
-      // upper half retraces the tube's top arc, which is what makes the
-      // silhouette one curve and the lid's *lower* half the only new line
-      // in the picture: that line is the cylinder.
-      //
-      // Not an `<ellipse>` element for the lid, which would be the obvious
-      // way to draw one: `rx` and `ry` are CSS geometry properties on an
-      // ellipse, and the theme sets `rx: var(--siren-node-border-radius)`
-      // on `.siren-node-frame`, so a documented token about a rectangle's
-      // corners would silently flatten the lid to 6px. A `<path>` reads
-      // neither property. Ticket 03 gave a stadium its radius inline to win
-      // that same cascade; here the radius *is* the figure rather than a
-      // proportion of it, so the answer is an element the token cannot
-      // reach at all.
-      const r = SHAPE_LEAN.cylinder * node.height;
-      const rx = node.width / 2;
-      const lid = top + r;
-      const base = bottom - r;
-      const arc = (x: number, y: number) => `A${rx},${r} 0 0 1 ${x},${y}`;
-      return (
-        `M${left},${lid} ${arc(right, lid)} L${right},${base} ${arc(left, base)} Z ` +
-        `M${left},${lid} ${arc(right, lid)} ${arc(left, lid)} Z`
-      );
-    }
-    case "rhombus":
-      // The midpoint of each of the four sides.
-      return closed([
-        [midX, top],
-        [right, midY],
-        [midX, bottom],
-        [left, midY],
-      ]);
-    case "hexagon": {
-      // Flat top and bottom inset by `m` at each end, with a point at
-      // mid-height on each side.
-      const m = SHAPE_LEAN.hexagon * node.height;
-      return closed([
-        [left + m, top],
-        [right - m, top],
-        [right, midY],
-        [right - m, bottom],
-        [left + m, bottom],
-        [left, midY],
-      ]);
-    }
-    case "parallelogram": {
-      // Leaning right: the top edge sits `s` to the right of the bottom
-      // one. Mermaid 11.17.2 calls this `lean_right` and draws it the same
-      // way round, measured off its rendered polygon.
-      const s = SHAPE_LEAN.parallelogram * node.height;
-      return closed([
-        [left + s, top],
-        [right, top],
-        [right - s, bottom],
-        [left, bottom],
-      ]);
-    }
-    case "parallelogram-alt": {
-      // Leaning left — the mirror of `parallelogram`, which is the whole
-      // point of there being two spellings.
-      const s = SHAPE_LEAN["parallelogram-alt"] * node.height;
-      return closed([
-        [left, top],
-        [right - s, top],
-        [right, bottom],
-        [left + s, bottom],
-      ]);
-    }
-    case "trapezoid": {
-      // Narrow top, wide bottom: `A[/Trap\]`, whose two leaning characters
-      // lean the way its two sloping sides do.
-      const s = SHAPE_LEAN.trapezoid * node.height;
-      return closed([
-        [left + s, top],
-        [right - s, top],
-        [right, bottom],
-        [left, bottom],
-      ]);
-    }
-    case "trapezoid-alt": {
-      // Wide top, narrow bottom — `trapezoid` flipped, for `A[\Trap/]`.
-      const s = SHAPE_LEAN["trapezoid-alt"] * node.height;
-      return closed([
-        [left, top],
-        [right, top],
-        [right - s, bottom],
-        [left + s, bottom],
-      ]);
-    }
-    case "asymmetric": {
-      // A rectangle with a chevron cut into its **left** edge, apex
-      // pointing right at mid-height; the right edge stays flat. Which way
-      // that points was measured, not recalled: mermaid 11.17.2 reads
-      // `A>Flag]` as `type="odd"` and draws it with `rect_left_inv_arrow`,
-      // whose vertices put both left corners further left than the
-      // mid-height vertex between them — the `>` of the spelling, drawn.
-      const d = SHAPE_LEAN.asymmetric * node.height;
-      return closed([
-        [left, top],
-        [right, top],
-        [right, bottom],
-        [left, bottom],
-        [left + d, midY],
-      ]);
-    }
-    default:
-      return null;
-  }
+  return element;
 }
 
 /**
@@ -830,7 +534,7 @@ function outlineFor(node: PositionedNode): string | null {
  *
  * Almost always the author's declarations and nothing else. A frame whose
  * shape names its own corners hands over that radius first and the author's
- * list after (see `cornerRadiusOf`), which is why this takes a list rather
+ * list after (a corner radius, from the shape table), which is why this takes a list rather
  * than a `ResolvedStyle`: the last writer of a property wins, and the
  * author has to be able to be that writer.
  *
@@ -856,7 +560,7 @@ function outlineFor(node: PositionedNode): string | null {
  * a shape's own are numbers this file computed. This attribute is a CSS
  * sink, never an HTML one: nothing is parsed as markup.
  */
-function applyInlineStyle(element: SVGElement, style: StyleProperty[]): void {
+function applyInlineStyle(element: SVGElement, style: readonly StyleProperty[]): void {
   if (style.length === 0) {
     return;
   }

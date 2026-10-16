@@ -79,7 +79,26 @@ export type NodeShape =
   | "parallelogram"
   | "parallelogram-alt"
   | "trapezoid"
-  | "trapezoid-alt";
+  | "trapezoid-alt"
+  // The shapes Mermaid names only in a node's `@{ shape: … }` block, each
+  // one record in the shape table (`layout/shapes/`; nook
+  // `01M51XAC4N7X7GE0CS5TK2PMTY`), named by the alias Mermaid spells out.
+  | "notched-rectangle"
+  | "folder"
+  | "notched-pentagon"
+  | "sloped-rectangle"
+  | "triangle"
+  | "flipped-triangle"
+  | "lined-rectangle"
+  | "divided-rectangle"
+  | "window-pane"
+  | "stacked-rectangle"
+  | "tagged-rectangle"
+  | "text"
+  | "composite"
+  | "note"
+  | "data-store"
+  | "state";
 
 /** Effect names accepted by `enter`/`exit` timeline actions. */
 export type EnterExitEffect =
@@ -1614,6 +1633,16 @@ export interface PositionedNode extends GraphNode {
    * no measurer: the rows are drawn where the space for them was reserved.
    */
   labelBox: LabelBox;
+  /**
+   * How far the label's centre sits from the node's centre, when the shape
+   * puts it anywhere else — a folder centres it on its body, below the tab;
+   * a triangle stands it on its base. Absent, the label is centred on the
+   * node, which is where most shapes put it.
+   *
+   * Reported by layout, which read it off the shape table together with the
+   * box, so the renderer draws the label where the room for it was made.
+   */
+  labelOffset?: { x: number; y: number };
 }
 
 /** An edge with a layout-assigned point path. */

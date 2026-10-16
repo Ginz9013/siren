@@ -433,14 +433,13 @@ const SHAPE_CHOICES = "rect, rounded, stadium, fr-rect, cyl, circle, diam, hex, 
 
 /**
  * A `shape:` Siren does not draw. Measured on Mermaid 12.2.0: it draws
- * `cloud`, `datastore` and the rest of its 39 documented shapes Siren has
- * no geometry for, and the undocumented `state`, `choice`, `note`,
- * `composite`, `icon` and `anchor`; it refuses `foo` ("No such shape"),
+ * `cloud`, `doc` and the rest of its documented shapes Siren has no
+ * geometry for yet, and the undocumented `choice`, `icon` and `anchor`; it refuses `foo` ("No such shape"),
  * and any name with an upper-case letter or a `_` ("Shape names should be
  * lowercase"); `shape: 1` throws.
  */
 describe("a `shape:` Siren does not draw", () => {
-  it.each(["cloud", "datastore", "data-store", "doc", "lin-cyl", "state", "choice", "note", "composite", "icon", "anchor"])(
+  it.each(["cloud", "doc", "lin-cyl", "choice", "icon", "anchor"])(
     "refuses `shape: %s` at the `@`, as a shape not drawn yet",
     (name) => {
       const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> Bc@{ shape: ${name} }`);
@@ -2962,5 +2961,43 @@ describe("an edge id that begins with a keyword", () => {
 
     expect(diagnostics).toEqual([]);
     expect(document.edges.map((edge) => edge.id)).toEqual([id]);
+  });
+});
+
+/**
+ * The `shape:` names Mermaid 12.2.0 reads only in a node's `@{ … }` block
+ * and Siren draws through its shape table (nook
+ * `01M51XAC4N7X7GE0CS5TK2PMTY`): each shape's short name, every alias
+ * `shapesDefs` lists for its handler, and the undocumented lowercase names
+ * its shape map also accepts. Measured in Chrome: every alias draws the
+ * same box and outline as its short name.
+ */
+const TABLE_SHAPE_NAMES: ReadonlyArray<[string, NodeShape]> = [
+  ...(["notch-rect", "card", "notched-rectangle"] as const).map(
+    (name) => [name, "notched-rectangle"] as [string, NodeShape],
+  ),
+  ...(["folder", "directory"] as const).map((name) => [name, "folder"] as [string, NodeShape]),
+  ...(["notch-pent", "loop-limit", "notched-pentagon"] as const).map((name) => [name, "notched-pentagon"] as [string, NodeShape]),
+  ...(["sl-rect", "manual-input", "sloped-rectangle"] as const).map((name) => [name, "sloped-rectangle"] as [string, NodeShape]),
+  ...(["tri", "extract", "triangle"] as const).map((name) => [name, "triangle"] as [string, NodeShape]),
+  ...(["flip-tri", "manual-file", "flipped-triangle"] as const).map((name) => [name, "flipped-triangle"] as [string, NodeShape]),
+  ...(["lin-rect", "lined-rectangle", "lined-process", "lin-proc", "shaded-process"] as const).map((name) => [name, "lined-rectangle"] as [string, NodeShape]),
+  ...(["div-rect", "div-proc", "divided-rectangle", "divided-process"] as const).map((name) => [name, "divided-rectangle"] as [string, NodeShape]),
+  ...(["win-pane", "internal-storage", "window-pane"] as const).map((name) => [name, "window-pane"] as [string, NodeShape]),
+  ...(["st-rect", "procs", "processes", "stacked-rectangle"] as const).map((name) => [name, "stacked-rectangle"] as [string, NodeShape]),
+  ...(["tag-rect", "tagged-rectangle", "tag-proc", "tagged-process"] as const).map((name) => [name, "tagged-rectangle"] as [string, NodeShape]),
+  ...(["text"] as const).map((name) => [name, "text"] as [string, NodeShape]),
+  ...(["composite"] as const).map((name) => [name, "composite"] as [string, NodeShape]),
+  ...(["note"] as const).map((name) => [name, "note"] as [string, NodeShape]),
+  ...(["datastore", "data-store"] as const).map((name) => [name, "data-store"] as [string, NodeShape]),
+  ...(["state"] as const).map((name) => [name, "state"] as [string, NodeShape]),
+];
+
+describe("a node written with a `@{ shape: … }` name from the shape table", () => {
+  it.each(TABLE_SHAPE_NAMES)("draws `shape: %s` as the %s shape", (name, shape) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A@{ shape: ${name} }`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes).toEqual([{ id: "A", label: plainLabel("A"), shape, line: 2, column: 3 }]);
   });
 });

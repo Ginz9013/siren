@@ -703,6 +703,34 @@ function nodeOutline(result: SirenRenderResult, id: string): string {
 }
 
 /**
+ * Every element one flowchart node draws its outline with, each described
+ * by its geometry: a `<path>` as the canonical cycle of positions its
+ * vertices take inside that path's own extent (`outlineCycle`), a `<rect>`
+ * as `rect` with the classes it wears beside `siren-node-frame` and the
+ * declarations it carries inline.
+ *
+ * For the shapes a `@{ shape: … }` block names (nook
+ * `01M51XAC4N7X7GE0CS5TK2PMTY`), which `nodeOutline` has no names for:
+ * a row states the cycle it expects through `canonicalCycle`, from the
+ * vertices of Mermaid's own handler.
+ */
+function frameOutlines(result: SirenRenderResult, id: string): string[] {
+  const group = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"]`);
+  if (group === null) throw new Error(`no node "${id}" was drawn`);
+  return Array.from(group.querySelectorAll(".siren-node-frame")).map((frame) => {
+    if (frame.tagName === "path") return `path ${outlineCycle(frame).join(" ")}`;
+    const classes = (frame.getAttribute("class") ?? "").split(/\s+/).filter((c) => c !== "siren-node-frame");
+    const style = frame.getAttribute("style");
+    return [frame.tagName, ...classes, ...(style === null ? [] : [`{${style}}`])].join(" ");
+  });
+}
+
+/** `cycle` as `frameOutlines` reports a `<path>` drawn through it. */
+function pathThrough(cycle: readonly string[]): string {
+  return `path ${canonicalCycle(cycle).join(" ")}`;
+}
+
+/**
  * The figure a set of `<circle>` frames draws, named by how many rings it
  * is and whether they are concentric.
  *
@@ -3309,6 +3337,132 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       expectSame("outline", nodeOutline(result, "A"), "tube with an elliptical top");
       expectSame("outline", nodeOutline(result, "B"), "diamond");
       expectSame("outline", nodeOutline(result, "C"), "parallelogram leaning right");
+    },
+  },
+  {
+    id: "fc-node-shape-data-polygons",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ shape: notch-rect, label: "Card" } --> B@{ shape: notch-pent, label: "Loop" }
+      B --> C@{ shape: sl-rect, label: "Input" } --> D@{ shape: tri, label: "Extract" }
+      D --> E@{ shape: flip-tri, label: "File" }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws five outlines its `@{ … }` block names (measured " +
+      "in Chrome, classic look): `notch-rect` a rectangle with its top left " +
+      "corner cut, `notch-pent` one with both top corners cut, `sl-rect` a " +
+      "rectangle under a slope rising to the right, `tri` a triangle " +
+      "standing on its base with the label at the bottom, `flip-tri` one " +
+      "pointing down with the label at the top. Siren draws the same five " +
+      "from its shape table (nook 01M51XAC4N7X7GE0CS5TK2PMTY).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Card]", "B[Loop]", "C[Input]", "D[Extract]", "E[File]"]);
+      expectSame("edges", edges(result), ["A-B", "B-C", "C-D", "D-E"]);
+      expectSame("outline", frameOutlines(result, "A"), [
+        pathThrough(["in-left,top", "right,top", "right,bottom", "left,bottom", "left,in-top"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "B"), [
+        pathThrough(["in-left,top", "in-right,top", "right,in-top", "right,bottom", "left,bottom", "left,in-top"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "C"), [
+        pathThrough(["left,in-top", "left,bottom", "right,bottom", "right,top"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "D"), [pathThrough(["left,bottom", "right,bottom", "mid,top"])]);
+      expectSame("outline", frameOutlines(result, "E"), [pathThrough(["left,top", "right,top", "mid,bottom"])]);
+    },
+  },
+  {
+    id: "fc-node-shape-data-marked-rectangles",
+    kind: "flowchart",
+    source: `flowchart LR
+      A@{ shape: folder, label: "Docs" } --> B@{ shape: lin-rect, label: "Shaded" }
+      B --> C@{ shape: div-rect, label: "Divided" } --> D@{ shape: win-pane, label: "Storage" }
+      D --> E@{ shape: st-rect, label: "Batch" } --> F@{ shape: tag-rect, label: "Tagged" }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws six rectangles its `@{ … }` block names, each " +
+      "marked its own way (measured in Chrome, classic look): `folder` with " +
+      "a tab along its top left, `lin-rect` with a line down its left side, " +
+      "`div-rect` with a band across its top, `win-pane` with a pane along " +
+      "its top and one down its left, `st-rect` as three stacked sheets, " +
+      "`tag-rect` with a tag in its bottom right corner. Each puts its label " +
+      "clear of the marking. Siren draws the same six from its shape table " +
+      "(nook 01M51XAC4N7X7GE0CS5TK2PMTY).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Docs]", "B[Shaded]", "C[Divided]", "D[Storage]", "E[Batch]", "F[Tagged]"]);
+      expectSame("edges", edges(result), ["A-B", "B-C", "C-D", "D-E", "E-F"]);
+      expectSame("outline", frameOutlines(result, "A"), [
+        pathThrough(["left,top", "in-left,top", "in-left,in-top", "right,in-top", "right,bottom", "left,bottom"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "B"), [
+        pathThrough(["left,top", "right,top", "right,bottom", "left,bottom", "in-left,top", "in-left,bottom"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "C"), [
+        pathThrough(["left,top", "right,top", "right,bottom", "left,bottom", "left,in-top", "right,in-top"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "D"), [
+        pathThrough([
+          "left,top",
+          "right,top",
+          "right,bottom",
+          "left,bottom",
+          "left,in-top",
+          "right,in-top",
+          "in-left,top",
+          "in-left,bottom",
+        ]),
+      ]);
+      expectSame("outline", frameOutlines(result, "E"), [
+        pathThrough([
+          "left,in-top",
+          "left,bottom",
+          "in-right,bottom",
+          "in-right,in-bottom",
+          "in-right,in-bottom",
+          "in-right,in-bottom",
+          "right,in-bottom",
+          "right,top",
+          "in-left,top",
+          "in-left,in-top",
+          "in-left,in-top",
+          "in-left,in-top",
+        ]),
+        pathThrough(["left,in-top", "in-right,in-top", "in-right,bottom", "right,bottom", "right,top", "left,top"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "F"), [
+        pathThrough(["left,top", "right,top", "right,bottom", "left,bottom"]),
+        pathThrough(["left,bottom", "right,bottom", "right,top"]),
+      ]);
+    },
+  },
+  {
+    id: "fc-node-shape-data-plain-rectangles",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ shape: text, label: "Words" } --> B@{ shape: datastore, label: "Store" }
+      B --> C@{ shape: note, label: "Remember" } --> D@{ shape: composite, label: "Group" }
+      D --> E@{ shape: state, label: "Idle" }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws five rectangles its `@{ … }` block names, painted " +
+      "differently (measured in Chrome, classic look): `text` neither filled " +
+      "nor stroked, `datastore` stroked along its top and bottom only (a " +
+      "dash its own width and height long), and the undocumented `note` and " +
+      "`composite` as a note and as a group's frame. Siren draws the same " +
+      "from its shape table (nook 01M51XAC4N7X7GE0CS5TK2PMTY). ⚠️ " +
+      "**`state` diverges.** Mermaid's handler asks for a rectangle with 5px " +
+      "corners and draws one sized `NaN`, so only the label shows; Siren " +
+      "draws the rectangle with 5px corners that the handler asks for.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Words]", "B[Store]", "C[Remember]", "D[Group]", "E[Idle]"]);
+      expectSame("edges", edges(result), ["A-B", "B-C", "C-D", "D-E"]);
+      expectSame("outline", frameOutlines(result, "A"), ["rect siren-node-bare"]);
+      const store = svgOf(result).querySelector('g.siren-node[data-siren-id="B"] .siren-node-frame')!;
+      const [width, height] = ["width", "height"].map((name) => store.getAttribute(name));
+      expectSame("outline", frameOutlines(result, "B"), [`rect {rx:0px;stroke-dasharray:${width} ${height}}`]);
+      expectSame("outline", frameOutlines(result, "C"), ["rect siren-node-note"]);
+      expectSame("outline", frameOutlines(result, "D"), ["rect siren-node-hollow"]);
+      expectSame("outline", frameOutlines(result, "E"), ["rect {rx:5px}"]);
     },
   },
   {

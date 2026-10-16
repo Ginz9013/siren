@@ -376,8 +376,22 @@ the exception, and it is stated under **Design token**.
 Mermaid's `A@{ shape: cyl }` **node data** names the same fourteen shapes by 45 names (each shape's
 short name and its aliases, `NODE_DATA_SHAPES` in `flowchartNodeData.ts`): the brackets and the
 block are two spellings of one shape, and a block on a node written before changes its shape and
-keeps its text. Its other names — about forty shapes Siren has no geometry for — are refused as not
-drawn yet, never drawn as one of the fourteen.
+keeps its text. Its other names are refused as not drawn yet, never drawn as one of the fourteen —
+except the shapes the **shape table** draws.
+
+The **shape table** (`layout/shapes/`, nook `01M51XAC4N7X7GE0CS5TK2PMTY`) is where every shape
+lives: one record per member of `NodeShape`, saying how much box a padded label needs (`box`),
+where the label goes in it (`labelRect`) and which elements draw the outline (`frames`). `layoutGraph`
+sizes a node and reports its label's offset (`PositionedNode.labelOffset`) from it, and
+`renderToSVG` draws the frames from it; neither names a shape. The fourteen bracket shapes are its
+first records. The rest are the shapes Mermaid names only in a `@{ … }` block — `notch-rect`,
+`notch-pent`, `sl-rect`, `tri`, `flip-tri`, `folder`, `lin-rect`, `div-rect`, `win-pane`,
+`st-rect`, `tag-rect`, `text`, `datastore`, and the undocumented `note`, `composite` and `state` —
+each sized by Mermaid's formula for it (ADR-0004: its kind is the contract, not its exact path). A
+shape is added by a record in its group's file and its names in `flowchartNodeData.ts`. A frame
+may wear a **paint** beside `siren-node-frame` — hollow, ink (the stroke colour), bare (no paint)
+or note — a class rather than an inline declaration, so a highlight still outlines it and an
+author's `style` still wins.
 
 **A node's label is a Label** (below), like every flowchart label: an edge's and a subgraph
 title's too. `SirenNode`/`GraphNode`/`PositionedNode` carry it as `label`, and `PositionedNode` adds

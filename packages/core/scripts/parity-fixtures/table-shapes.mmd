@@ -1,0 +1,16 @@
+flowchart TB
+  A@{ shape: notch-rect, label: "Card" } --> B@{ shape: notch-pent, label: "Loop limit" }
+  B --> C@{ shape: sl-rect, label: "Manual input" }
+  C --> D@{ shape: tri, label: "Extract" }
+  D --> E@{ shape: flip-tri, label: "Manual file" }
+  A --> F@{ shape: folder, label: "Documents folder" }
+  F --> G@{ shape: lin-rect, label: "Shaded process" }
+  G --> H@{ shape: div-rect, label: "Divided process" }
+  H --> I@{ shape: win-pane, label: "Internal storage" }
+  I --> J@{ shape: st-rect, label: "Batch of processes" }
+  J --> K@{ shape: tag-rect, label: "Tagged process" }
+  E --> L@{ shape: text, label: "Plain words" }
+  K --> M@{ shape: datastore, label: "Data store" }
+  L --> N@{ shape: note, label: "A note" }
+  M --> O@{ shape: composite, label: "Composite" }
+  N --> P@{ shape: state, label: "Idle state" }

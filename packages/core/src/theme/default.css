@@ -142,6 +142,44 @@
 }
 
 /*
+ * The paints a flowchart node's frame can wear beside `.siren-node-frame`,
+ * which its shape names in the shape table (`layout/shapes/`): two classes
+ * each, so they beat the frame's own rule and lose to the highlight rules
+ * (three) and to an author's inline `style`. Written here, ahead of the
+ * highlight rules, so that the order agrees with the specificity.
+ *
+ * `siren-node-bare` is a text block's frame: drawn, but neither filled nor
+ * stroked, so the label alone shows.
+ */
+.siren-node-frame.siren-node-bare {
+  fill: none;
+  stroke: none;
+}
+
+/* `siren-node-hollow` is a frame drawn unfilled: a composite node, which is
+   a group's frame standing alone and so takes `.siren-subgraph-frame`'s
+   paint. */
+.siren-node-frame.siren-node-hollow {
+  fill: none;
+}
+
+/* `siren-node-ink` is a frame filled with the colour the node's lines are
+   drawn in: a figure a shape draws solid, such as a bar or a dot. */
+.siren-node-frame.siren-node-ink {
+  fill: var(--siren-node-stroke);
+}
+
+/* `siren-node-note` is a note node's frame. It takes the surface every
+   other note in Siren takes (`.siren-note-frame`): Mermaid 12.2.0 asks for
+   its note colours here and then paints the node's (measured), and a note
+   token of its own would stay light under a theme that redeclares the
+   palette on a container. A theme repaints notes through this class. */
+.siren-node-frame.siren-node-note {
+  fill: var(--siren-node-fill);
+  stroke: var(--siren-node-stroke);
+}
+
+/*
  * The label keeps its element selector, deliberately. The ADR argument above
  * is about *inheritance*, and it does not reach here: this rule already
  * applies directly to the `<text>` it names, exactly as the frame rule above

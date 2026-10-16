@@ -8,19 +8,19 @@ import type { NodeShape } from "../contracts";
  * that it reads as a flow mapping (`FlowDB.addVertex`, measured with
  * `pnpm --filter siren-core probe`).
  *
- * Only what Siren can draw is read here: the shape names that are one of
- * Siren's fourteen node shapes, and a label.
+ * Only what Siren can draw is read here: the shape names of the shapes
+ * Siren draws, and a label.
  */
 
 /**
- * Every `shape:` name that draws one of Siren's fourteen node shapes: each
- * shape's short name and every alias Mermaid 12.2.0's `shapesDefs` lists for
+ * Every `shape:` name that draws one of the fourteen shapes Mermaid also
+ * spells with brackets: each shape's short name and every alias Mermaid 12.2.0's `shapesDefs` lists for
  * the handler its bracket spelling draws, plus the one lowercase internal
  * alias it also accepts (`doublecircle`). Case matters: Mermaid refuses any
  * name with an upper-case letter or a `_` (measured). Each shape's first name
  * is its short name.
  */
-const SHAPE_NAMES: ReadonlyArray<readonly [NodeShape, readonly [string, ...string[]]]> = [
+const BRACKET_SHAPE_NAMES: ReadonlyArray<readonly [NodeShape, readonly [string, ...string[]]]> = [
   ["rect", ["rect", "proc", "process", "rectangle"]],
   ["round", ["rounded", "event"]],
   ["stadium", ["stadium", "terminal", "pill"]],
@@ -37,6 +37,35 @@ const SHAPE_NAMES: ReadonlyArray<readonly [NodeShape, readonly [string, ...strin
   ["asymmetric", ["odd"]],
 ];
 
+/**
+ * Every `shape:` name of the shapes Mermaid 12.2.0 names only in a `@{ … }`
+ * block and Siren draws from its shape table (nook
+ * `01M51XAC4N7X7GE0CS5TK2PMTY`): the short name, every alias `shapesDefs`
+ * lists for the shape's handler, and the undocumented lowercase names its
+ * shape map also accepts. Measured: every alias draws what its short name
+ * draws. A shape added to the table adds its row here.
+ */
+const TABLE_SHAPE_NAMES: ReadonlyArray<readonly [NodeShape, readonly [string, ...string[]]]> = [
+  ["notched-rectangle", ["notch-rect", "card", "notched-rectangle"]],
+  ["folder", ["folder", "directory"]],
+  ["notched-pentagon", ["notch-pent", "loop-limit", "notched-pentagon"]],
+  ["sloped-rectangle", ["sl-rect", "manual-input", "sloped-rectangle"]],
+  ["triangle", ["tri", "extract", "triangle"]],
+  ["flipped-triangle", ["flip-tri", "manual-file", "flipped-triangle"]],
+  ["lined-rectangle", ["lin-rect", "lined-rectangle", "lined-process", "lin-proc", "shaded-process"]],
+  ["divided-rectangle", ["div-rect", "div-proc", "divided-rectangle", "divided-process"]],
+  ["window-pane", ["win-pane", "internal-storage", "window-pane"]],
+  ["stacked-rectangle", ["st-rect", "procs", "processes", "stacked-rectangle"]],
+  ["tagged-rectangle", ["tag-rect", "tagged-rectangle", "tag-proc", "tagged-process"]],
+  ["text", ["text"]],
+  ["composite", ["composite"]],
+  ["note", ["note"]],
+  ["data-store", ["datastore", "data-store"]],
+  ["state", ["state"]],
+];
+
+const SHAPE_NAMES = [...BRACKET_SHAPE_NAMES, ...TABLE_SHAPE_NAMES];
+
 /** Each name in `SHAPE_NAMES`, and the shape it draws. */
 export const NODE_DATA_SHAPES: ReadonlyMap<string, NodeShape> = new Map(
   SHAPE_NAMES.flatMap(([shape, names]) => names.map((name) => [name, shape] as const)),
@@ -44,32 +73,35 @@ export const NODE_DATA_SHAPES: ReadonlyMap<string, NodeShape> = new Map(
 
 /**
  * The shape names Mermaid 12.2.0 draws and Siren does not yet: every name of
- * the 39 shapes `shapesDefs` documents beyond the fourteen above, and the
- * six undocumented lowercase names its shape map also accepts (`state`,
- * `choice`, `note`, `composite`, `icon`, `anchor`; measured). Told apart
+ * the shapes `shapesDefs` documents that neither list above holds, and the
+ * undocumented lowercase names its shape map also accepts (`choice`,
+ * `icon`, `anchor`; measured) that Siren does not draw yet. Told apart
  * from a name that is no shape at all only so the message can say which.
  */
 const UNDRAWN_SHAPE_NAMES: ReadonlySet<string> = new Set([
-  ...["datastore", "data-store", "folder", "directory", "bucket", "console", "browser", "person", "bang"],
-  ...["cloud", "text", "notch-rect", "card", "notched-rectangle", "lin-rect", "lined-rectangle"],
-  ...["lined-process", "lin-proc", "shaded-process", "sm-circ", "start", "small-circle", "fr-circ"],
-  ...["stop", "framed-circle", "fork", "join", "hourglass", "collate", "brace", "comment", "brace-l"],
-  ...["brace-r", "braces", "bolt", "com-link", "lightning-bolt", "doc", "document", "delay"],
-  ...["half-rounded-rectangle", "h-cyl", "das", "horizontal-cylinder", "lin-cyl", "disk"],
-  ...["lined-cylinder", "curv-trap", "curved-trapezoid", "display", "div-rect", "div-proc"],
-  ...["divided-rectangle", "divided-process", "tri", "extract", "triangle", "win-pane"],
-  ...["internal-storage", "window-pane", "f-circ", "junction", "filled-circle", "notch-pent"],
-  ...["loop-limit", "notched-pentagon", "flip-tri", "manual-file", "flipped-triangle", "sl-rect"],
-  ...["manual-input", "sloped-rectangle", "docs", "documents", "st-doc", "stacked-document"],
-  ...["st-rect", "procs", "processes", "stacked-rectangle", "bow-rect", "stored-data"],
-  ...["bow-tie-rectangle", "cross-circ", "summary", "crossed-circle", "tag-doc", "tagged-document"],
-  ...["tag-rect", "tagged-rectangle", "tag-proc", "tagged-process", "flag", "paper-tape", "lin-doc"],
+  // The shapes drawn at a fixed size, with no text
+  ...["fork", "join", "hourglass", "collate", "bolt", "com-link", "lightning-bolt", "sm-circ", "start"],
+  ...["small-circle", "fr-circ", "stop", "framed-circle", "f-circ", "junction", "filled-circle", "cross-circ"],
+  ...["summary", "crossed-circle", "choice", "anchor"],
+  // The shapes with a curved outline
+  ...["delay", "half-rounded-rectangle", "curv-trap", "curved-trapezoid", "display", "h-cyl", "das"],
+  ...["horizontal-cylinder", "lin-cyl", "disk", "lined-cylinder", "bow-rect", "stored-data"],
+  ...["bow-tie-rectangle", "doc", "document", "docs", "documents", "st-doc", "stacked-document", "tag-doc"],
+  ...["tagged-document", "flag", "paper-tape", "brace", "comment", "brace-l", "brace-r", "braces", "lin-doc"],
   ...["lined-document"],
-  ...["state", "choice", "note", "composite", "icon", "anchor"],
+  // The shapes drawn as a figure
+  ...["bucket", "person", "console", "browser", "cloud", "bang"],
+  // An icon
+  ...["icon"],
 ]);
 
-/** One short name per shape Siren draws: what a refused name is told to choose from. */
-const SHAPE_CHOICES = SHAPE_NAMES.map(([, [shortName]]) => shortName).join(", ");
+/**
+ * What a refused name is told to choose from: one short name for each of
+ * the fourteen shapes Mermaid also spells with brackets. Not every shape
+ * Siren draws — a list of every one would bury the answer — and a list that
+ * stays the same as the shape table grows.
+ */
+const SHAPE_CHOICES = BRACKET_SHAPE_NAMES.map(([, [shortName]]) => shortName).join(", ");
 
 /** Something an `@{ … }` block says that is not drawn as written, worded for the author. */
 export interface DataBlockProblem {

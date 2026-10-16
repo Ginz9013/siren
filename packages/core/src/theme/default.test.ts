@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render } from "../index";
 import { BASE_FONT_SIZE_PX } from "../label/label";
+import { FRAME_PAINT } from "../layout/shapes/shape";
 
 /**
  * `default.css`'s own text — the artifact these tests are about.
@@ -1783,5 +1784,65 @@ describe("default theme's paint for a connector label's background", () => {
     expect(shadowOf(group)).toBe("");
     expect(shadowOf(group.querySelector("rect.siren-connector-label-background")!)).toBe("");
     expect(shadowOf(group.querySelector(textSelector)!)).not.toBe("");
+  });
+});
+
+/**
+ * The paints a shape-table frame can wear beside `siren-node-frame` (nook
+ * `01M51XAC4N7X7GE0CS5TK2PMTY`). Each is a class rather than an inline
+ * declaration, so the highlight rules — which select more classes — still
+ * outline the frame, and an author's inline `style` still wins.
+ */
+describe("default theme's paint for a node's shape-table frames", () => {
+  /** The first frame `id` draws in `source`, themed. */
+  const frameOf = (source: string, id: string) => {
+    const svg = renderThemedSVG(source);
+    const group = svg.querySelector(`g.siren-node[data-siren-id="${id}"]`)!;
+    return { group, frame: group.querySelector(".siren-node-frame")! };
+  };
+
+  it("leaves a text block's frame without fill or stroke, but outlines it when highlighted", () => {
+    const { group, frame } = frameOf('flowchart TB\n  A@{ shape: text, label: "Words" }', "A");
+    expect(getComputedStyle(frame).fill).toBe("none");
+    expect(getComputedStyle(frame).stroke).toBe("none");
+
+    group.classList.add("siren-highlight-outline");
+    expect(getComputedStyle(frame).stroke).toContain("--siren-highlight-color");
+    group.classList.remove("siren-highlight-outline");
+
+    frame.setAttribute("style", "stroke: rgb(204, 0, 0)");
+    expect(getComputedStyle(frame).stroke).toBe("rgb(204, 0, 0)");
+  });
+
+  it("paints a composite's frame as a subgraph's frame is painted: stroked like a node, never filled", () => {
+    const { frame } = frameOf('flowchart TB\n  A@{ shape: composite, label: "Group" }', "A");
+    expect(getComputedStyle(frame).fill).toBe("none");
+    expect(getComputedStyle(frame).stroke).toBe("var(--siren-node-stroke)");
+    expect(themeRules).toMatch(/\.siren-subgraph-frame\s*\{[^}]*fill:\s*none/);
+  });
+
+  it("paints a note node as the class and state diagrams paint a note", () => {
+    // Mermaid 12.2.0 asks for its note colours on a flowchart `note` and
+    // then paints it with the node's (measured in Chrome: its stylesheet's
+    // node rule outranks the colours it set); Siren's notes already take
+    // the node surface, so a flowchart note takes the same paint as a
+    // class diagram's — through a class of its own a theme can repaint.
+    const { frame } = frameOf('flowchart TB\n  A@{ shape: note, label: "Remember" }', "A");
+    expect(getComputedStyle(frame).fill).toBe("var(--siren-node-fill)");
+    expect(getComputedStyle(frame).stroke).toBe("var(--siren-node-stroke)");
+    expect(themeRules).toMatch(/\.siren-node-frame\.siren-node-note\s*\{/);
+  });
+
+  it("gives each paint a frame can name a rule: none unfilled, line filled with the line colour", () => {
+    // No shape in the table wears the line paint yet; it is the filled
+    // figure of a shape drawn in its line colour alone (a fork bar, a filled
+    // dot), and a frame wearing it must not be left to the node fill.
+    const { frame } = frameOf("flowchart TB\n  A[x]", "A");
+    frame.setAttribute("class", ["siren-node-frame", ...FRAME_PAINT.line].join(" "));
+    expect(getComputedStyle(frame).fill).toBe("var(--siren-node-stroke)");
+    frame.setAttribute("class", ["siren-node-frame", ...FRAME_PAINT.none].join(" "));
+    expect(getComputedStyle(frame).fill).toBe("none");
+    frame.setAttribute("class", ["siren-node-frame", ...FRAME_PAINT.node].join(" "));
+    expect(getComputedStyle(frame).fill).toBe("var(--siren-node-fill)");
   });
 });
