@@ -1822,8 +1822,18 @@ const SILENTLY_WRONG = 0;
  * `fc-node-shape-data-icon`, a key Siren does not draw (`icon`) (+2). No
  * `supported` row moved to `rejected`. `fc-node-shape-data-names`, new
  * beside them, is `supported`. `silently-wrong` does not move.
+ *
+ * **50 → 51: case (2), a refusal written down for the first time.**
+ * `01M51Q7G6R5TY4NGMMNCMJ9JVJ` read a `~generic~` on a class relationship's
+ * ends and refused one on a lollipop `()` end, which names an interface:
+ * Mermaid 12.2.0 draws that interface with its tildes as written (`Duck~T~`,
+ * measured), neither a generic nor the name alone, refused under ADR-0001.
+ * Siren used to refuse the whole line as unrecognized, with no row to say
+ * so: `cls-lollipop-generic` writes it down. No `supported` row moved:
+ * `cls-relationship-generic`, new beside it, is `supported`.
+ * `silently-wrong` does not move.
  */
-const REJECTED = 50;
+const REJECTED = 51;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

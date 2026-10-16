@@ -418,6 +418,21 @@ function maskEntityCodes(text: string): string {
  */
 function nestedGenericError(generic: string, line: number, column: number): Diagnostic | null {
   if (!generic.includes("~")) return null;
+  // `class A~T~~U~` is two generics written back to back, not one inside
+  // the other — a parse error in Mermaid 12.2.0 just the same (measured),
+  // while one generic listing both, `class A~T,U~`, draws `A<T,U>`.
+  const backToBack = generic.indexOf("~~");
+  if (backToBack > 0 && !generic.slice(0, backToBack).includes("~")) {
+    return {
+      severity: "error",
+      message:
+        `The generics "~${generic.slice(0, backToBack)}~" and "~${generic.slice(backToBack + 2)}~" stand back to back, ` +
+        "and a class name takes one. " +
+        `Write them as one generic instead, such as "~${generic.split("~~").join(",")}~".`,
+      line,
+      column,
+    };
+  }
   return {
     severity: "error",
     message:
@@ -770,6 +785,12 @@ export function parseClassDiagram(source: string): DiagramParseResult {
   /** Every class id seen so far, however it was introduced. */
   const declaredIds = new Set<string>();
   /**
+   * The generic each class id was first given by any declaration — the one
+   * `buildClassModel` keeps — for `declareImplicitly` to compare a later
+   * relationship's generic against.
+   */
+  const firstGenerics = new Map<string, string>();
+  /**
    * Whether any error-severity problem was found. Like the flowchart and
    * sequence parsers, a document with one is returned as `null`: the
    * diagnostics say what is wrong, and no half-parsed document reaches the
@@ -823,6 +844,9 @@ export function parseClassDiagram(source: string): DiagramParseResult {
    */
   const declareClass = (declaration: ClassDecl, namespaceMembers: string[] | null) => {
     declaredIds.add(declaration.id);
+    if (declaration.generic !== null && !firstGenerics.has(declaration.id)) {
+      firstGenerics.set(declaration.id, declaration.generic);
+    }
     classes.push(declaration);
     if (namespaceMembers !== null && !namespaceMembers.includes(declaration.id)) {
       namespaceMembers.push(declaration.id);
@@ -887,7 +911,11 @@ export function parseClassDiagram(source: string): DiagramParseResult {
    * class's only on that first mention, as in Mermaid 12.2.0, whose class
    * keeps whatever its first mention gave it (measured, Chrome: `A --> C`
    * then `A~T~ --> B` draws `A`, `class A~T~` then `A~U~ --> B` draws
-   * `A<T>`, `A~T~ --> B` then `A~U~ --> C` draws `A<T>`).
+   * `A<T>`, `A~T~ --> B` then `A~U~ --> C` draws `A<T>`). One that differs
+   * from the generic the class was already given is a warning, the one
+   * `buildClassModel` gives two declarations with different generics, so
+   * the order they are written in does not decide whether the author hears
+   * of it; the first is still the one drawn.
    */
   const declareImplicitly = (
     id: string,
@@ -897,6 +925,17 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     namespaceMembers: string[] | null,
   ) => {
     if (declaredIds.has(id)) {
+      const kept = firstGenerics.get(id);
+      if (generic !== undefined && kept !== undefined && kept !== generic) {
+        diagnostics.push({
+          severity: "warning",
+          message:
+            `Class "${id}" is declared with conflicting generics ("${kept}" vs. "${generic}"); ` +
+            "keeping the first-seen generic.",
+          line,
+          column,
+        });
+      }
       return;
     }
     declareClass(

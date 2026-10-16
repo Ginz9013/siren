@@ -5694,6 +5694,21 @@ line2\`"]`,
       expectSame("relationships", relationships(result).length, 1);
     },
   },
+  {
+    id: "cls-lollipop-generic",
+    kind: "class",
+    source: `classDiagram
+      Duck~T~ ()-- Pond`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A `()` end " +
+      "names a lollipop interface, not a class, and Mermaid 12.2.0 reads no " +
+      "generic there: it draws the interface named `Duck~T~`, tildes and " +
+      "all (measured, Chrome) — neither `Duck<T>` nor the name alone, with " +
+      "no diagnostic. Siren refuses it (ADR-0001), with an error saying to " +
+      "write the interface's name alone. A generic on a class end " +
+      "(`Duck~T~ --> Pond`) renders in both.",
+  },
   // -------------------------------------------------------------------------
   // sequenceDiagram
   // -------------------------------------------------------------------------

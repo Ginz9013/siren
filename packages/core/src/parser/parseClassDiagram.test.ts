@@ -391,14 +391,23 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     // Measured on Mermaid 12.2.0 (Chrome): `class A~T~` then `A~U~ --> B`
     // draws `A<T>`; `A~T~ --> B` then `A~U~ --> C` draws `A<T>`; `A --> C`
     // then `A~T~ --> B` draws `A`. A class keeps what its first mention gave
-    // it, so a later relationship's generic declares nothing.
-    for (const [source, generic] of [
-      ["classDiagram\n  class A~T~\n  A~U~ --> B", "T"],
-      ["classDiagram\n  A~T~ --> B\n  A~U~ --> C", "T"],
-      ["classDiagram\n  A --> C\n  A~T~ --> B", null],
+    // it, so a later relationship's generic declares nothing — and one that
+    // differs from the generic already given is warned about, as a second
+    // declaration's is (`ResolvedClass.generic`), in either order.
+    const conflict = (line: number) => ({
+      severity: "warning",
+      message: 'Class "A" is declared with conflicting generics ("T" vs. "U"); keeping the first-seen generic.',
+      line,
+      column: 3,
+    });
+    for (const [source, generic, warnings] of [
+      ["classDiagram\n  class A~T~\n  A~U~ --> B", "T", [conflict(3)]],
+      ["classDiagram\n  A~T~ --> B\n  A~U~ --> C", "T", [conflict(3)]],
+      ["classDiagram\n  A~T~ --> B\n  A~T~ --> C\n  A --> D", "T", []],
+      ["classDiagram\n  A --> C\n  A~T~ --> B", null, []],
     ] as const) {
       const { document, diagnostics } = parseOk(source);
-      expect(diagnostics).toEqual([]);
+      expect(diagnostics).toEqual(warnings);
       expect(document.classes.filter((c) => c.id === "A").map((c) => c.generic)).toEqual([generic]);
     }
   });
@@ -417,6 +426,23 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
       const { document, diagnostics } = parseClassDiagram(source);
       expect(document).toBeNull();
       expect(diagnostics).toEqual([{ severity: "error", message: message(generic), line: 2, column }]);
+    }
+  });
+
+  it("refuses two generics back to back on a class name, saying so rather than calling one nested", () => {
+    // Measured on Mermaid 12.2.0: `class A~T~~U~` and `A~T~~U~ --> B` are
+    // parse errors (ADR-0017); one generic listing both, `class A~T,U~`,
+    // draws `A<T,U>`.
+    const message =
+      'The generics "~T~" and "~U~" stand back to back, and a class name takes one. ' +
+      'Write them as one generic instead, such as "~T,U~".';
+    for (const [source, column] of [
+      ["classDiagram\n  class A~T~~U~", 10],
+      ["classDiagram\n  A~T~~U~ --> B", 4],
+    ] as const) {
+      const { document, diagnostics } = parseClassDiagram(source);
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([{ severity: "error", message, line: 2, column }]);
     }
   });
 
