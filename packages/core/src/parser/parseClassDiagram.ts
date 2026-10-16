@@ -135,10 +135,10 @@ const STANDALONE_ANNOTATION_RE = /^<<(.+)>>\s+(\w+)$/;
  * error in Mermaid.
  *
  * The name may be dotted, `namespace N.M {`, each segment a `\w+` and a
- * space either side of a dot allowed, as Mermaid 12.2.0 reads it (measured)
- * — a space anywhere else ends the name, so `namespace N M {` is no
- * namespace. A segment may also be empty (`.N`, `N.`, `N..M`): such a name
- * still matches, for the caller to refuse at the name.
+ * space either side of a dot allowed, as Mermaid 12.2.0 reads it (measured).
+ * A space between two words (`namespace N M {`) matches too, for the caller
+ * to refuse at the name (`NAME_SPACE_RE`), as does an empty segment (`.N`,
+ * `N.`, `N..M`).
  *
  * What follows the `{` on its line is the body's first statement (the
  * third capture): Mermaid 12.2.0 reads `namespace N { class A }` as N
@@ -147,9 +147,18 @@ const STANDALONE_ANNOTATION_RE = /^<<(.+)>>\s+(\w+)$/;
  * so a line with one does not open a namespace here.
  */
 const NAMESPACE_OPEN_RE = new RegExp(
-  String.raw`^namespace\s+((?=[\w.])\w*(?:\s*\.(?:\s*\w+)?)*)\s*${BRACKETED_LABEL}\s*\{(?!\s*%%)(.*)$`,
+  String.raw`^namespace\s+((?=[\w.])\w*(?:\s*\.(?:\s*\w+)?|\s+\w+)*)\s*${BRACKETED_LABEL}\s*\{(?!\s*%%)(.*)$`,
   "d",
 );
+
+/**
+ * A space between two words of a namespace name. Mermaid 12.2.0 drops it,
+ * reading `namespace N M {` as the one namespace `NM` (measured: a frame
+ * titled `NM`) — a name nobody wrote, with no diagnostic — so it is refused
+ * (ADR-0001). A space beside a dot is none (`N . M` is `N.M`), so it is not
+ * matched here.
+ */
+const NAME_SPACE_RE = /(?<=\w)\s+(?=\w)/;
 
 /**
  * The index of the first `}` in `text` that closes no `{` opened before it
@@ -254,6 +263,29 @@ function percentOutsideQuotes(line: string): number {
 }
 
 /**
+ * `text` as a Markdown code span: fenced by one backtick more than the
+ * longest run of them inside it, and padded with a space when it starts or
+ * ends with one — so a quoted statement holding quotes or backticks reads
+ * whole.
+ */
+function codeSpan(text: string): string {
+  const longestRun = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = "`".repeat(longestRun + 1);
+  const padding = text.startsWith("`") || text.endsWith("`") ? " " : "";
+  return `${fence}${padding}${text}${padding}${fence}`;
+}
+
+/**
+ * `text` with each entity code (`#lt;`, `#59;`) written over by `#`s of its
+ * length, so a search for `;` finds only the `;`s Mermaid 12.2.0's lexer
+ * sees: it encodes every `/#\w+;/` before lexing (measured: `A : +x #59; y`
+ * and `class A { +x #59; y }` each draw one member). Positions are kept.
+ */
+function maskEntityCodes(text: string): string {
+  return text.replace(/#\w+;/g, (code) => "#".repeat(code.length));
+}
+
+/**
  * The statements after which Mermaid 12.2.0's class lexer reads a `%%` as a
  * comment: its rules `%%(?!\{)*[^\n]*(\r?\n?)+` and `%%[^\n]*(\r?\n)*` match
  * where such a statement's last token ends. Both swallow the line break
@@ -276,8 +308,33 @@ const STATEMENTS_A_COMMENT_MAY_FOLLOW = [
   STANDALONE_ANNOTATION_RE,
 ];
 
+/** The kind of statement the class-diagram statement parser read a line as. */
+type StatementKind =
+  | "direction"
+  | "accessibility"
+  | "namespace"
+  | "note"
+  | "interaction"
+  | "style"
+  | "annotation"
+  | "relationship"
+  | "class"
+  | "member";
+
+/**
+ * The statements a `namespace` body may hold: a class declaration in any
+ * form, a note, a nested namespace — and a comment, which never reaches
+ * here as a statement. Mermaid 12.2.0's grammar takes nothing else there
+ * (measured: a relationship, `<<annotation>> A`, `direction`, `style`,
+ * `classDef`, `cssClass`, `click`, `link`, `callback`, an inline member and
+ * `accTitle` / `accDescr` are each "Expecting 'NAMESPACE', 'CLASS',
+ * 'NOTE_FOR', 'NOTE', got …"). The one place that rule lives: every other
+ * statement is refused where it stands in a namespace (ADR-0017).
+ */
+const NAMESPACE_BODY_KINDS: ReadonlySet<StatementKind> = new Set(["namespace", "class", "note"]);
+
 /** The inline member form, `Bird : +fly()`. */
-const INLINE_MEMBER_RE = /^(\w+)\s*:\s*(.+)$/;
+const INLINE_MEMBER_RE = /^(\w+)\s*:\s*(.+)$/d;
 /**
  * What a member's own name may look like, once markers and type are off: an
  * identifier, which a `<br>` (already respelled by `MEMBER_BREAK_RE`) may
@@ -786,18 +843,27 @@ export function parseClassDiagram(source: string): DiagramParseResult {
 
   /**
    * Parses the statement starting at `startIndex` and returns the index of
-   * the last line it consumed: the same line for a one-line statement, the
-   * closing `}` for a block form. The caller advances past that.
+   * the last line it consumed — the same line for a one-line statement, the
+   * closing `}` for a block form; the caller advances past that — and the
+   * kind of statement it read the line as, `null` when it read none. A
+   * statement refused for a problem of its own still reports its kind — the
+   * inline member `A : +x; y` is a `"member"` refused for its `;` — so a
+   * namespace around it refuses its placement too, both being true; only a
+   * line no statement reads (an unrecognized line, a member after a block's
+   * `}`) is `null`.
    *
    * `namespaceMembers` is the class-id list of the `namespace` block this
    * statement sits inside, or `null` at the top level. A class declared
    * here joins that list.
    */
-  const parseStatement = (startIndex: number, namespaceMembers: string[] | null): number => {
+  const parseStatement = (
+    startIndex: number,
+    namespaceMembers: string[] | null,
+  ): { lastIndex: number; read: StatementKind | null } => {
     const rawLine = lines[startIndex];
     const line = rawLine.trim();
     if (line.length === 0) {
-      return startIndex;
+      return { lastIndex: startIndex, read: null };
     }
 
     const lineNumber = startIndex + 1;
@@ -806,7 +872,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     const directionStatement = matchClassDirection(line);
     if (directionStatement !== null) {
       direction = directionStatement;
-      return startIndex;
+      return { lastIndex: startIndex, read: "direction" };
     }
 
     // The two accessibility statements (01M4WVVN9), read before the member
@@ -817,12 +883,12 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     const accTitleMatch = ACC_TITLE_RE.exec(line);
     if (accTitleMatch !== null) {
       accTitle = accTitleMatch[1].trim();
-      return startIndex;
+      return { lastIndex: startIndex, read: "accessibility" };
     }
     const accDescrMatch = ACC_DESCR_RE.exec(line);
     if (accDescrMatch !== null) {
       accDescr = accDescrMatch[1].trim();
-      return startIndex;
+      return { lastIndex: startIndex, read: "accessibility" };
     }
     if (ACC_DESCR_BLOCK_RE.test(line)) {
       // Read as in every kind (`readAccDescrBlock`), except that a class
@@ -839,12 +905,12 @@ export function parseClassDiagram(source: string): DiagramParseResult {
           column,
         });
         sawError = true;
-        return block.closed ? block.closeIndex : lines.length;
+        return { lastIndex: block.closed ? block.closeIndex : lines.length, read: "accessibility" };
       }
       accDescr = block.description;
-      if (block.rest === null) return block.closeIndex;
+      if (block.rest === null) return { lastIndex: block.closeIndex, read: "accessibility" };
       lines[block.closeIndex] = block.rest;
-      return block.closeIndex - 1;
+      return { lastIndex: block.closeIndex - 1, read: "accessibility" };
     }
 
     const namespaceOpenMatch = NAMESPACE_OPEN_RE.exec(line);
@@ -867,7 +933,27 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       // of its own, which `buildClassModel` merges with any block of that
       // name.
       const outerNamespace = enclosingNamespace;
-      const writtenSegments = namespaceOpenMatch[1].split(".").map((segment) => segment.trim());
+      const writtenName = namespaceOpenMatch[1];
+      // The name's words, a space beside a dot read as none and any between
+      // two words split on: one word for any name but `N M`.
+      const words = writtenName.replace(/\s*\.\s*/g, ".").split(NAME_SPACE_RE);
+      const nameSpace = NAME_SPACE_RE.exec(writtenName);
+      if (nameSpace !== null) {
+        // Refused once, at the word after the space, and the block read on
+        // as the namespace Mermaid draws (the words run together), so its
+        // `}` closes it rather than being refused as well. The name is
+        // shown with each run of whitespace as one space.
+        diagnostics.push({
+          severity: "error",
+          message:
+            `Namespace name "${writtenName.replace(/\s+/g, " ")}" is split by whitespace: a namespace name is one word. ` +
+            `Write "${words.join("")}" or "${words.join("_")}" instead.`,
+          line: lineNumber,
+          column: column + namespaceOpenMatch.indices![1]![0] + nameSpace.index + nameSpace[0].length,
+        });
+        sawError = true;
+      }
+      const writtenSegments = words.join("").split(".");
       let segments = writtenSegments.filter((segment) => segment.length > 0);
       if (segments.length < writtenSegments.length) {
         // Measured: Mermaid 12.2.0 refuses `namespace .N`, `namespace N.`
@@ -924,7 +1010,29 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         // mistaken for the namespace's.
         const holdsStatement = lines[index].trim().length > 0;
         heldStatement ||= holdsStatement;
-        const lastIndex = holdsStatement ? parseStatement(index, classIds) : index;
+        // A statement no namespace may hold is still parsed — so a block
+        // form consumes its own lines, its `}` never mistaken for the
+        // namespace's — and then refused. A line read as no statement is
+        // refused as that alone: moving it out would not make it one.
+        const { lastIndex, read } = holdsStatement
+          ? parseStatement(index, classIds)
+          : { lastIndex: index, read: null };
+        if (read !== null && !NAMESPACE_BODY_KINDS.has(read)) {
+          // Pushed after the statement is parsed, so the statement's own
+          // errors (`A : ???`, a `%%` after it) come first, then where it
+          // stands — in that order for every statement, by design. Quoted
+          // as the statement parser read the line, a `%%` after it cut.
+          const statementLine = lines[index];
+          diagnostics.push({
+            severity: "error",
+            message:
+              `${codeSpan(statementLine.trim())} cannot be written inside "namespace ${namespaceOpenMatch[1]}": ` +
+              "only classes, notes and namespaces go there. Move it outside the namespace.",
+            line: index + 1,
+            column: statementLine.length - statementLine.trimStart().length + 1,
+          });
+          sawError = true;
+        }
         if (pendingNamespaceCloses !== null) {
           const pending = pendingNamespaceCloses;
           pending.count--;
@@ -998,7 +1106,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
           : readLabelIn(namespaceOpenMatch, 2, lineNumber, column);
       enclosingNamespace = outerNamespace;
       namespaceDepth--;
-      return bodyIndex;
+      return { lastIndex: bodyIndex, read: "namespace" };
     }
 
     // A note written in a namespace is that namespace's, drawn inside its
@@ -1013,7 +1121,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "note" };
     }
 
     const noteMatch = NOTE_RE.exec(line);
@@ -1025,7 +1133,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "note" };
     }
 
     const clickHrefMatch = CLICK_HREF_RE.exec(line);
@@ -1043,7 +1151,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "interaction" };
     }
 
     const clickCallMatch = CLICK_CALL_RE.exec(line);
@@ -1057,7 +1165,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "interaction" };
     }
 
     const callbackMatch = CALLBACK_RE.exec(line);
@@ -1071,7 +1179,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "interaction" };
     }
 
     const linkMatch = LINK_RE.exec(line);
@@ -1085,7 +1193,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "interaction" };
     }
 
     const classDefMatch = CLASS_DEF_RE.exec(line);
@@ -1099,7 +1207,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "style" };
     }
 
     const cssClassMatch = CSS_CLASS_RE.exec(line);
@@ -1119,7 +1227,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "style" };
     }
 
     const styleMatch = STYLE_RE.exec(line);
@@ -1135,7 +1243,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "style" };
     }
 
     const standaloneAnnotationMatch = STANDALONE_ANNOTATION_RE.exec(line);
@@ -1156,7 +1264,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         },
         namespaceMembers,
       );
-      return startIndex;
+      return { lastIndex: startIndex, read: "annotation" };
     }
 
     // Mermaid's lexer reads `:::` as the style separator wherever it stands
@@ -1207,7 +1315,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       // resolves the lollipop side into its own synthetic node instead.
       if (fromEnd !== "circle") declareImplicitly(from, lineNumber, column, namespaceMembers);
       if (toEnd !== "circle") declareImplicitly(to, lineNumber, column, namespaceMembers);
-      return startIndex;
+      return { lastIndex: startIndex, read: "relationship" };
     }
 
     const blockOpenMatch = CLASS_BLOCK_OPEN_RE.exec(line);
@@ -1272,7 +1380,8 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         // it is what was written: `+foo(a; b)` keeps the parameters `a; b`.
         // A `;` ending the member separates nothing: `+int x;` is one
         // attribute to Mermaid as written, refused only as unrecognized.
-        const separated = text
+        // An entity code's own `;` is no `;` at all (`maskEntityCodes`).
+        const separated = maskEntityCodes(text)
           .replace(/\([^)]*\)|~[^~]*~/g, "")
           .replace(/;\s*$/, "")
           .includes(";")
@@ -1370,7 +1479,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       );
       // The `}` this stopped on, or the end of input when the block was
       // never closed.
-      return bodyIndex;
+      return { lastIndex: bodyIndex, read: "class" };
     }
 
     const classDeclMatch = CLASS_DECL_RE.exec(line);
@@ -1391,12 +1500,31 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         },
         namespaceMembers,
       );
-      return startIndex;
+      return { lastIndex: startIndex, read: "class" };
     }
 
     const inlineMemberMatch = holdsShorthand ? null : INLINE_MEMBER_RE.exec(line);
     if (inlineMemberMatch !== null) {
       const [, id, memberText] = inlineMemberMatch;
+      // Measured: Mermaid 12.2.0's lexer refuses a `;` anywhere in an inline
+      // member — between two members, ending one, inside `(…)`, `~…~` or
+      // quotes alike ("Lexical error … Unrecognized text" at the `;`) — so
+      // Siren refuses every one there (ADR-0017), unlike a class block,
+      // which keeps a `;` inside a method's parentheses. The `;` ending an
+      // entity code is the code's (`maskEntityCodes`).
+      const semicolon = maskEntityCodes(line).indexOf(";", inlineMemberMatch.indices![2]![0]);
+      if (semicolon !== -1) {
+        diagnostics.push({
+          severity: "error",
+          message:
+            `A ";" cannot be written in the member "${memberText}": it does not separate members. ` +
+            'Write each member on a line of its own, with no ";".',
+          line: lineNumber,
+          column: column + semicolon,
+        });
+        sawError = true;
+        return { lastIndex: startIndex, read: "member" };
+      }
       const member = parseMember(memberText, lineNumber, column);
       if (member === null) {
         diagnostics.push({
@@ -1406,7 +1534,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
           column,
         });
         sawError = true;
-        return startIndex;
+        return { lastIndex: startIndex, read: "member" };
       }
       // One declaration per line, carrying that line's single member.
       // Folding repeats of the same id together is `buildClassModel`'s job.
@@ -1422,7 +1550,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         },
         namespaceMembers,
       );
-      return startIndex;
+      return { lastIndex: startIndex, read: "member" };
     }
 
     // A `%%` no statement above holds as text. After a statement in
@@ -1473,7 +1601,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         column,
       });
       sawError = true;
-      return startIndex;
+      return { lastIndex: startIndex, read: null };
     }
 
     diagnostics.push({
@@ -1483,7 +1611,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       column,
     });
     sawError = true;
-    return startIndex;
+    return { lastIndex: startIndex, read: null };
   };
 
   for (; index < lines.length; index++) {
@@ -1508,7 +1636,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       break;
     }
 
-    index = parseStatement(index, null);
+    index = parseStatement(index, null).lastIndex;
   }
 
   if (sawError) {

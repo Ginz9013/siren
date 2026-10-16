@@ -57,12 +57,7 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
 
   const notes = resolveNotes(document, classesById, diagnostics);
 
-  const namespaces = resolveNamespaces(
-    document,
-    classesById,
-    new Set(notes.map((note) => note.id)),
-    diagnostics,
-  );
+  const namespaces = resolveNamespaces(document, classesById, diagnostics);
 
   const classes = [...classesById.values()].map((accumulator) => accumulator.resolved);
 
@@ -249,7 +244,6 @@ function resolveClasses(
 function resolveNamespaces(
   document: ClassDocument,
   classesById: Map<string, ClassAccumulator>,
-  noteIds: ReadonlySet<string>,
   diagnostics: Diagnostic[],
 ): ResolvedClassNamespace[] {
   /** The namespace that claimed each class first, by its qualified name. */
@@ -283,12 +277,8 @@ function resolveNamespaces(
 
     claimMembers(block, namespace, claimedBy, classesById, diagnostics);
     // A note's id is its place among the document's notes, the id
-    // `resolveNotes` gave it; one it dropped, for naming no class, is in no
-    // namespace either.
-    for (const index of block.noteIndexes) {
-      const noteId = generatedId("note", index + 1);
-      if (noteIds.has(noteId)) namespace.noteIds.push(noteId);
-    }
+    // `resolveNotes` gives it — every note, one naming no class included.
+    for (const index of block.noteIndexes) namespace.noteIds.push(generatedId("note", index + 1));
   }
 
   return [...byQualifiedName.values()];
@@ -397,14 +387,13 @@ function memberLineText(member: ClassMember): string {
  *
  * Naming a class in a `note for X` does not declare it — unlike a
  * relationship endpoint or a namespace member, where the name *is* the way
- * the class enters the diagram. A note is about something that already
- * exists, so an unknown target is a typo: the note is dropped with an error
- * and the rest of the model still resolves.
+ * the class enters the diagram. When X is no class of the diagram, Mermaid
+ * 12.2.0 still draws the note, with no connector and no class X (measured),
+ * so the note is kept as a free one — in the namespace it was written in,
+ * if any — with a warning, since the name is most likely a typo.
  *
- * The id comes from the note's position in the source rather than from its
- * position among the survivors, so dropping one note never renumbers the
- * ones written after it — a timeline referring to `note:3` keeps referring
- * to the same note whether or not the second one resolved.
+ * The id comes from the note's position in the source, so `note:3` names
+ * the third note written whatever became of the ones before it.
  */
 function resolveNotes(
   document: ClassDocument,
@@ -414,20 +403,23 @@ function resolveNotes(
   const notes: ResolvedClassNote[] = [];
 
   document.notes.forEach((note, index) => {
-    if (note.targetId !== null && !classesById.has(note.targetId)) {
+    let targetId = note.targetId;
+    if (targetId !== null && !classesById.has(targetId)) {
       diagnostics.push({
-        severity: "error",
-        message: `note for "${note.targetId}" references a class that does not exist; dropping the note.`,
+        severity: "warning",
+        message:
+          `note for "${targetId}" names no class in this diagram, so the note is not attached to anything. ` +
+          `Check the name, or declare the class with "class ${targetId}".`,
         line: note.line,
         column: note.column,
       });
-      return;
+      targetId = null;
     }
 
     notes.push({
       id: generatedId("note", index + 1),
       label: note.label,
-      targetId: note.targetId,
+      targetId,
     });
   });
 

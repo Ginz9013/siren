@@ -4379,6 +4379,25 @@ line2\`"]`,
       "kept as written. One member per line renders in both.",
   },
   {
+    id: "cls-inline-member-semicolon",
+    kind: "class",
+    source: `classDiagram
+      class Animal
+      Animal : +int age; int legs
+      Animal : +run(a; b)`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** An inline member " +
+      "(`Animal : …`) takes no `;`: Mermaid 12.2.0's lexer refuses one " +
+      "anywhere in it — between two members, ending one, inside a method's " +
+      "parentheses or a `~generic~` (\"Lexical error … Unrecognized text\" " +
+      "at the `;`, measured). Siren refuses it too (ADR-0017), with an error " +
+      "at the `;` saying to write each member on a line of its own. The `;` " +
+      "ending an entity code (`#59;`) is the code's, in both. Siren used to " +
+      "draw each line as one member, `+int age; int legs` and `+run(a; b)`, " +
+      "with no diagnostic.",
+  },
+  {
     id: "cls-inline-member",
     kind: "class",
     source: `classDiagram
@@ -4767,6 +4786,48 @@ line2\`"]`,
       "line, with a second error at its `}`.",
   },
   {
+    id: "cls-namespace-name-with-space",
+    kind: "class",
+    source: `classDiagram
+      namespace Big Zoo {
+        class Lion
+      }`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A namespace name " +
+      "takes no space: Mermaid 12.2.0 drops it, drawing one frame titled " +
+      "`BigZoo` (measured; `N M K` is `NMK`, and a tab is read the same) — a " +
+      "name nobody wrote, with no diagnostic. Siren refuses it (ADR-0001), " +
+      "with one error at the word after the space saying to write `BigZoo` " +
+      "or `Big_Zoo`; the block is still read, so its `}` is not refused as " +
+      "well. A space beside a dot (`Zoo . Cats`) is none, in both. Siren used " +
+      "to refuse the line and its `}` each as an unrecognized line.",
+  },
+  {
+    id: "cls-namespace-body-statement",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo {
+        class Lion
+        class Tiger
+        Lion --> Tiger
+        style Lion fill:#f00
+        Lion : +roar()
+      }`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A namespace holds " +
+      "classes, notes, namespaces and comments, and nothing else: Mermaid " +
+      "12.2.0 refuses a relationship, a standalone `<<annotation>>`, " +
+      "`direction`, `style`, `classDef`, `cssClass`, `click`, `link`, " +
+      "`callback`, an inline member and `accTitle` / `accDescr` there " +
+      "(\"Expecting 'NAMESPACE', 'CLASS', 'NOTE_FOR', 'NOTE', got …\", " +
+      "measured). Siren refuses them too (ADR-0017), with an error at each " +
+      "such statement saying to move it outside the namespace. Siren used " +
+      "to draw them as if written outside, and a namespace holding only " +
+      "`direction LR` as no frame, with no diagnostic.",
+  },
+  {
     id: "cls-namespace-note",
     kind: "class",
     source: `classDiagram
@@ -4808,6 +4869,42 @@ line2\`"]`,
       expectSame("works here is linked to Keeper", drew(result, 'path.siren-note-link[data-siren-id="note:3"]'), true);
       expectSame("birds is inside Aviary", noteInsideNamespaceId(result, "note:4", "namespace:2"), true);
       expectSame("open daily is inside Info", noteInsideNamespaceId(result, "note:5", "namespace:3"), true);
+    },
+  },
+  {
+    id: "cls-note-for-undeclared-class",
+    kind: "class",
+    source: `classDiagram
+      class Lion
+      note for Lino "the only social cat"
+      namespace Zoo {
+        note for Keeper "works here"
+        namespace Aviary {
+          class Parrot
+          note for Parot "talks"
+        }
+      }`,
+    status: "supported",
+    meaning:
+      "`note for X` naming no class of the diagram: Mermaid 12.2.0 draws the " +
+      "note with no connector and no class X, and one written in a namespace " +
+      "inside that namespace's frame, a namespace holding only it framed " +
+      "(measured). Siren draws the same and warns that the name matches no " +
+      "class. Siren used to refuse the note and drop it.",
+    warnings: [
+      'note for "Lino" names no class in this diagram, so the note is not attached to anything. Check the name, or declare the class with "class Lino".',
+      'note for "Keeper" names no class in this diagram, so the note is not attached to anything. Check the name, or declare the class with "class Keeper".',
+      'note for "Parot" names no class in this diagram, so the note is not attached to anything. Check the name, or declare the class with "class Parot".',
+    ],
+    assert: (result) => {
+      expectSame("note texts", texts(result, "text.siren-note-text"), ["the only social cat", "works here", "talks"]);
+      expectSame("no connector was drawn", drew(result, "path.siren-note-link"), false);
+      expectSame("classes", classes(result), ["Lion", "Parrot"]);
+      expectSame("namespace labels", texts(result, "text.siren-namespace-label"), ["Zoo", "Aviary"]);
+      expectSame("works here is inside Zoo", noteInsideNamespaceId(result, "note:2", "namespace:1"), true);
+      expectSame("works here is outside Aviary", noteInsideNamespaceId(result, "note:2", "namespace:2"), false);
+      expectSame("talks is inside Aviary", noteInsideNamespaceId(result, "note:3", "namespace:2"), true);
+      expectSame("the top-level note is outside Zoo", noteInsideNamespaceId(result, "note:1", "namespace:1"), false);
     },
   },
   {

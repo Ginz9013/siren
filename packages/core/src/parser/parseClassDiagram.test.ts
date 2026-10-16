@@ -1622,6 +1622,26 @@ describe("parseClassDiagram — a class block closed on a member's line", () => 
     }
   });
 
+  it("reads the `;` ending an entity code as the code's, in a one-line and a multi-line block", () => {
+    // Measured: Mermaid 12.2.0 encodes every `#\w+;` before its lexer runs,
+    // so `+x #59; y` and `+x #lt; y` are one member each.
+    for (const member of ["+x #59; y", "+x #lt; y"]) {
+      for (const body of [`  class A { ${member} }`, `  class A {\n    ${member}\n  }`]) {
+        const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+        expect([body, document?.kind, diagnostics]).toEqual([body, "class", []]);
+      }
+    }
+    // A `;` beside one is still a separator.
+    const separated = (text: string) =>
+      `Unrecognized class member: "${text}". A ";" does not separate members: write each member on a line of its own.`;
+    for (const text of ["+x #lt;; y", "+int x #lt; y; z"]) {
+      expect([text, parseClassDiagram(`classDiagram\n  class A {\n    ${text}\n  }`).diagnostics]).toEqual([
+        text,
+        [{ severity: "error", message: separated(text), line: 3, column: 5 }],
+      ]);
+    }
+  });
+
   it("still reads a `;` inside a method's parentheses or a `~generic~`", () => {
     // Measured: Mermaid reads `+foo(a; b)` as the method foo with the
     // parameters `a; b`, and `List~int; x~ y` as the attribute
@@ -2027,5 +2047,295 @@ describe("parseClassDiagram — a note inside a namespace", () => {
     const document = classOk('  note "first"\n  namespace N {\n    class A\n    note "second"\n  }\n  note "third"');
     expect(document.notes.map((n) => n.label.text)).toEqual(["first", "second", "third"]);
     expect(document.namespaces.map((n) => n.noteIndexes)).toEqual([[1]]);
+  });
+});
+
+/**
+ * What a namespace body may hold (spec `class-leniency`, measured on Mermaid
+ * 12.2.0): class declarations, notes, nested namespaces and comments. Any
+ * other statement there is a parse error to Mermaid ("Expecting 'NAMESPACE',
+ * 'CLASS', 'NOTE_FOR', 'NOTE', got …"), so Siren refuses it at the statement,
+ * saying to move it outside the namespace (ADR-0017).
+ */
+describe("parseClassDiagram — the statements a namespace body refuses", () => {
+  /** The diagnostics of a refused document, beside its body for a readable failure. */
+  const refused = (body: string) => {
+    const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+    expect([body, document]).toEqual([body, null]);
+    return diagnostics.map((d) => [d.severity, d.message, d.line, d.column]);
+  };
+  const outside = (statement: string, namespace = "N") =>
+    `\`${statement}\` cannot be written inside "namespace ${namespace}": only classes, notes and namespaces go there. ` +
+    "Move it outside the namespace.";
+
+  it("refuses a relationship or a standalone annotation in a namespace, at the statement", () => {
+    for (const statement of ["A --> B", "A <|-- B", 'A "1" --> "2" B : owns', "A ()-- B", "<<interface>> A"]) {
+      expect(refused(`  namespace N {\n    class A\n    ${statement}\n  }`)).toEqual([
+        ["error", outside(statement), 4, 5],
+      ]);
+    }
+  });
+
+  it("quotes the statement in backticks, so a statement holding quotes reads whole", () => {
+    const [[, message]] = refused('  namespace N {\n    class A\n    click A href "x"\n  }');
+    expect(message).toBe(
+      '`click A href "x"` cannot be written inside "namespace N": only classes, notes and namespaces go there. ' +
+        "Move it outside the namespace.",
+    );
+  });
+
+  it("fences a statement holding a backtick with a longer run of backticks, as Markdown does", () => {
+    const tail = ' cannot be written inside "namespace N": only classes, notes and namespaces go there. ' +
+      "Move it outside the namespace.";
+    const messageOf = (statement: string) =>
+      refused(`  namespace N {\n    class A\n    class B\n    ${statement}\n  }`)[0]![1];
+    expect(messageOf('click A href "a`b"')).toBe('``click A href "a`b"``' + tail);
+    // One that ends in a backtick is padded, so the fence stays apart from it.
+    expect(messageOf("A --> B : a`")).toBe("`` A --> B : a` ``" + tail);
+    expect(messageOf('click A href "a``b"')).toBe('```click A href "a``b"```' + tail);
+  });
+
+  it("reports a refused statement's own errors first, then that it stands in a namespace", () => {
+    // Both are true of `A : +x; y` and `A : ???`: the statement is read as
+    // what it is, its own problems reported as they are found, and then
+    // refused for where it stands.
+    expect(refused("  namespace N {\n    class A\n    A : +x; y\n  }").map(([, message]) => message)).toEqual([
+      expect.stringContaining('A ";" cannot be written in the member "+x; y"'),
+      expect.stringContaining("`A : +x; y` cannot be written inside"),
+    ]);
+    expect(refused("  namespace N {\n    class A\n    A : ???\n  }").map(([, message]) => message)).toEqual([
+      'Unrecognized class member: "???"',
+      expect.stringContaining("`A : ???` cannot be written inside"),
+    ]);
+  });
+
+  it("refuses a direction, style or interaction statement in a namespace, at the statement", () => {
+    for (const statement of [
+      "direction LR",
+      "style A fill:#f00",
+      "classDef c fill:#f00",
+      'cssClass "A" c',
+      'click A href "x"',
+      "click A call f()",
+      'link A "x"',
+      'callback A "f"',
+    ]) {
+      expect(refused(`  namespace N {\n    class A\n    ${statement}\n  }`)).toEqual([
+        ["error", outside(statement), 4, 5],
+      ]);
+    }
+  });
+
+  it("refuses an inline member or an accessibility statement in a namespace, at the statement", () => {
+    for (const statement of ["A : +int x", "accTitle: t", "accDescr: d"]) {
+      expect(refused(`  namespace N {\n    class A\n    ${statement}\n  }`)).toEqual([
+        ["error", outside(statement), 4, 5],
+      ]);
+    }
+    // The block form is refused once, at its first line, and its own `}`
+    // does not close the namespace.
+    expect(refused("  namespace N {\n    class A\n    accDescr {\n      d\n    }\n  }")).toEqual([
+      ["error", outside("accDescr {"), 4, 5],
+    ]);
+  });
+
+  it("refuses such a statement on a one-line, nested or dotted namespace too, naming the block it stands in", () => {
+    expect(refused("namespace N { A --> B }")).toEqual([["error", outside("A --> B"), 2, 15]]);
+    expect(refused("  namespace N {\n    namespace M {\n      class A\n      A --> B\n    }\n  }")).toEqual([
+      ["error", outside("A --> B", "M"), 5, 7],
+    ]);
+    expect(refused("  namespace N.M {\n    style A fill:#f00\n    class A\n  }")).toEqual([
+      ["error", outside("style A fill:#f00", "N.M"), 3, 5],
+    ]);
+    // With a `%%` after it, the statement is what is quoted, and the `%%`
+    // is refused on its own terms as well, as the statement is read.
+    expect(refused("  namespace N {\n    class A\n    A --> B %% x\n  }").map(([, message, line, column]) => [
+      message === outside("A --> B") ? "outside" : message,
+      line,
+      column,
+    ])).toEqual([
+      [expect.stringContaining('"%%" in the middle of a line'), 4, 13],
+      ["outside", 4, 5],
+    ]);
+  });
+
+  it("refuses a namespace holding only a direction, rather than drawing no frame", () => {
+    // Measured: `namespace N {` ⏎ `direction LR` ⏎ `}` is a parse error; the
+    // one-line form is read by Mermaid's lexer as one `direction` statement
+    // (`.*direction\s+LR[^\n]*`), drawing no frame for N — silently wrong
+    // (ADR-0001).
+    expect(refused("  namespace N {\n    direction LR\n  }")).toEqual([["error", outside("direction LR"), 3, 5]]);
+    expect(refused("namespace N { direction LR }")).toEqual([["error", outside("direction LR"), 2, 15]]);
+  });
+});
+
+describe("parseClassDiagram — a line no statement reads, inside a namespace", () => {
+  it("is refused as unrecognized alone, not as misplaced: no statement would read it outside either", () => {
+    // Measured: `A:::c` and `A --> B:::c` are parse errors at the top level
+    // too, so moving them out of the namespace would fix nothing.
+    for (const statement of ["A:::c", "A --> B:::c", "foo bar baz"]) {
+      const { document, diagnostics } = parseClassDiagram(`classDiagram\n  namespace N {\n    class A\n    ${statement}\n  }`);
+      expect([statement, document]).toEqual([statement, null]);
+      expect([statement, diagnostics]).toEqual([
+        statement,
+        [{ severity: "error", message: `Unrecognized classDiagram line: "${statement}"`, line: 4, column: 5 }],
+      ]);
+    }
+  });
+});
+
+describe("parseClassDiagram — the statements a namespace body holds", () => {
+  it("reads every class declaration form, a note, a nested namespace and a comment in a namespace without a diagnostic", () => {
+    // Measured: Mermaid 12.2.0 draws each of these inside the frame N. Read
+    // through `parseSiren`, which blanks a whole-line comment first.
+    for (const statement of [
+      "class A",
+      "class A~T~",
+      'class A["L"]',
+      "class A:::c",
+      "class A { +x }",
+      "class A {\n      +x\n    }",
+      'note "x"',
+      'class A\n    note for A "n"',
+      "%% c\n    class A",
+      "namespace M {\n      class A\n    }",
+      "namespace M { class A }",
+    ]) {
+      const { document, diagnostics } = parseSiren(`classDiagram\n  namespace N {\n    ${statement}\n  }`);
+      expect([statement, document?.kind, diagnostics]).toEqual([statement, "class", []]);
+    }
+  });
+
+  it("refuses a `%%` after a class declaration in a namespace on its own terms alone", () => {
+    // Measured: `class A %% x` is a parse error wherever it stands; it is a
+    // class declaration all the same, so it is not refused as misplaced too.
+    const { diagnostics } = parseClassDiagram("classDiagram\n  namespace N {\n    class A %% x\n  }");
+    expect(diagnostics.map((d) => [d.message, d.line, d.column])).toEqual([
+      [expect.stringContaining('"%%" in the middle of a line'), 3, 13],
+    ]);
+  });
+});
+
+/**
+ * A `;` in an inline member (spec `class-leniency`, measured on Mermaid
+ * 12.2.0): `A : +int x; y`, `A : +foo(a; b)` and `A : +int x;` are each a
+ * lexical error at the `;`, wherever in the member it stands — so Siren
+ * refuses every one there (ADR-0017), in the words of the class block's
+ * `;` rule.
+ */
+describe("parseClassDiagram — a `;` in an inline member", () => {
+  const semicolon = (member: string) =>
+    `A ";" cannot be written in the member "${member}": it does not separate members. ` +
+    'Write each member on a line of its own, with no ";".';
+
+  it.each([
+    ["between two members", "+int x; y"],
+    ["between two members, unspaced", "+int x;y"],
+    ["inside a method's parentheses", "+foo(a; b)"],
+    ["ending the member", "+int x;"],
+    ["after a space, ending the member", "+x ;"],
+    ["inside the type", "in;t x"],
+    ["inside the return type", "+foo() in;t"],
+    ["ending the return type", "+foo() int;"],
+    ["inside a generic", "+List~in;t~ x"],
+    ["inside a method's generic", "+foo~T;U~()"],
+    ["inside quotes", '"a;b"'],
+    ["alone", ";"],
+  ])("refuses a `;` %s, once, at the `;`", (_, member) => {
+    const { document, diagnostics } = parseClassDiagram(`classDiagram\n  class A\n  A : ${member}`);
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      { severity: "error", message: semicolon(member), line: 3, column: 7 + member.indexOf(";") },
+    ]);
+  });
+});
+
+describe("parseClassDiagram — an entity code's `;` in an inline member", () => {
+  it("reads the `;` ending an entity code as the code's, not as a `;`", () => {
+    // Measured: Mermaid 12.2.0 encodes `#lt;` and `#59;` before its lexer
+    // runs, so `A : +x #lt; y`, `A : +foo(#59;)` and `A : +x #59; y` draw
+    // one member each.
+    for (const member of ["+x #lt; y", "+foo(#59;)", "+x #59; y"]) {
+      const { document, diagnostics } = parseClassDiagram(`classDiagram\n  class A\n  A : ${member}`);
+      expect([member, document?.kind, diagnostics]).toEqual([member, "class", []]);
+    }
+  });
+
+  it("still refuses a `;` beside an entity code, at that `;`", () => {
+    // Measured: `#lt;; y`, `#lt; y; z`, `#;` and `# lt;` are lexical errors.
+    for (const [member, at] of [
+      ["+x #lt;; y", 7],
+      ["+int x #lt; y; z", 13],
+      ["+x #;", 4],
+      ["+x # lt;", 7],
+    ] as const) {
+      const { diagnostics } = parseClassDiagram(`classDiagram\n  class A\n  A : ${member}`);
+      expect([member, diagnostics.map((d) => [d.line, d.column])]).toEqual([member, [[3, 7 + at]]]);
+    }
+  });
+});
+
+/**
+ * A space inside a namespace name (spec `class-leniency`, measured on
+ * Mermaid 12.2.0): `namespace N M {` draws one frame titled `NM`, the space
+ * dropped — a picture of a name nobody wrote, with no diagnostic — so Siren
+ * refuses it at the word after the space (ADR-0001), saying how to write
+ * the name, and reads the block on as that one namespace.
+ */
+describe("parseClassDiagram — a namespace name with a space in it", () => {
+  const spaced = (written: string, joined: string, underscored: string) =>
+    `Namespace name "${written}" is split by whitespace: a namespace name is one word. ` +
+    `Write "${joined}" or "${underscored}" instead.`;
+  const diagnosticsOf = (body: string) => {
+    const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+    expect([body, document]).toEqual([body, null]);
+    return diagnostics.map((d) => [d.severity, d.message, d.line, d.column]);
+  };
+
+  it("refuses `namespace N M {` once, at the M, its `}` closing the block", () => {
+    expect(diagnosticsOf("  namespace N M {\n    class A\n  }")).toEqual([["error", spaced("N M", "NM", "N_M"), 2, 15]]);
+  });
+
+  it("refuses a name of three words once, at the second", () => {
+    expect(diagnosticsOf("  namespace N M K {\n    class A\n  }")).toEqual([
+      ["error", spaced("N M K", "NMK", "N_M_K"), 2, 15],
+    ]);
+  });
+
+  it("refuses it on a one-line namespace too", () => {
+    expect(diagnosticsOf("namespace N M { class A }")).toEqual([["error", spaced("N M", "NM", "N_M"), 2, 13]]);
+  });
+
+  it("refuses a space in a dotted name's part, leaving the dot alone", () => {
+    expect(diagnosticsOf("  namespace N.M K {\n    class A\n  }")).toEqual([
+      ["error", spaced("N.M K", "N.MK", "N.M_K"), 2, 17],
+    ]);
+  });
+
+  it("refuses it before a bracketed label", () => {
+    expect(diagnosticsOf('  namespace N M["L"] {\n    class A\n  }')).toEqual([["error", spaced("N M", "NM", "N_M"), 2, 15]]);
+  });
+
+  it("refuses a tab as it refuses a space, showing any whitespace as one space", () => {
+    expect(diagnosticsOf("  namespace N\tM {\n    class A\n  }")).toEqual([["error", spaced("N M", "NM", "N_M"), 2, 15]]);
+    expect(diagnosticsOf("  namespace N \t M {\n    class A\n  }")).toEqual([["error", spaced("N M", "NM", "N_M"), 2, 17]]);
+  });
+
+  it("refuses it in a namespace written inside another, at its own line", () => {
+    expect(diagnosticsOf("  namespace N {\n    namespace M K {\n      class A\n    }\n  }")).toEqual([
+      ["error", spaced("M K", "MK", "M_K"), 3, 17],
+    ]);
+  });
+
+  it("still reports the errors inside such a block", () => {
+    const messages = diagnosticsOf("  namespace N M {\n    class A\n    A --> B\n  }").map(([, message]) => message);
+    expect(messages).toEqual([spaced("N M", "NM", "N_M"), expect.stringContaining("`A --> B` cannot be written inside")]);
+  });
+
+  it("still reads a space beside a dot as none", () => {
+    // Measured: `namespace N . M {` is the `M` inside N.
+    const { document, diagnostics } = parseClassDiagram("classDiagram\n  namespace N . M {\n    class A\n  }");
+    expect(diagnostics).toEqual([]);
+    expect(document?.kind === "class" ? document.namespaces.map((n) => n.id) : null).toEqual(["N", "N.M"]);
   });
 });

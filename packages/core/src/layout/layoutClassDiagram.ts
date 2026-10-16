@@ -359,8 +359,9 @@ export function layoutClassDiagram(
   }
 
   // A note counts as attached only when the class it names is one this model
-  // has. `buildClassModel` diagnoses a note pointing at an unknown class, so
-  // this is the layout declining to invent a connector to nothing.
+  // has. `buildClassModel` already leaves a note naming no class unattached
+  // (`targetId: null`); the class check is a guard, so a model built some
+  // other way still never gets a connector to nothing.
   const attachedNotes = model.notes.filter(
     (note) => note.targetId !== null && knownClassIds.has(note.targetId),
   );

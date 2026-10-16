@@ -694,10 +694,11 @@ describe("buildClassModel", () => {
     ]);
   });
 
-  it("drops a note whose target class does not exist with an error diagnostic, keeping the rest of the model", () => {
-    // Naming a class in a `note for` does not declare it — only a class
-    // statement or a relationship does — so an unknown target is a mistake,
-    // not an implicit declaration. The note goes; nothing else does.
+  it("keeps a note whose target class does not exist as a free note, with a warning on it and no class made up", () => {
+    // Mermaid 12.2.0 draws `note for Ghost "x"` with no connector and no
+    // class Ghost (measured). Naming a class in a `note for` does not declare
+    // it, so the note stays and is attached to nothing; the warning is there
+    // because the name is most likely a typo.
     const { model, diagnostics } = buildClassModel(
       classDocument({
         classes: [classDecl({ id: "Duck" })],
@@ -711,16 +712,18 @@ describe("buildClassModel", () => {
 
     expect(diagnostics).toEqual([
       {
-        severity: "error",
-        message: 'note for "Ghost" references a class that does not exist; dropping the note.',
+        severity: "warning",
+        message:
+          'note for "Ghost" names no class in this diagram, so the note is not attached to anything. ' +
+          'Check the name, or declare the class with "class Ghost".',
         line: 6,
         column: 1,
       },
     ]);
-    // The surviving notes keep the ids their own position gives them: a
-    // broken note does not renumber the ones after it.
+    // Every note keeps the id its own position gives it.
     expect(model.notes).toEqual([
       { id: "note:1", label: plainLabel("first"), targetId: "Duck" },
+      { id: "note:2", label: plainLabel("orphan"), targetId: null },
       { id: "note:3", label: plainLabel("third"), targetId: null },
     ]);
     expect(model.classes.map((c) => c.id)).toEqual(["Duck"]);
@@ -868,9 +871,9 @@ describe("buildClassModel", () => {
     expect(diagnostics).toEqual([]);
   });
 
-  it("drops a timeline entry naming a note that was dropped for an unknown target", () => {
-    // The note's id never enters the model, so the timeline entry naming it
-    // is unresolvable — reported on its own terms rather than silently.
+  it("resolves a timeline entry naming a note whose target class does not exist", () => {
+    // The note is kept, attached to nothing, so its id is in the model and a
+    // timeline animates it like any other note; only the warning remains.
     const { model, diagnostics } = buildClassModel(
       classDocument({
         classes: [classDecl({ id: "Duck" })],
@@ -881,8 +884,8 @@ describe("buildClassModel", () => {
       }),
     );
 
-    expect(diagnostics.map((d) => d.line)).toEqual([4, 8]);
-    expect(model.timeline.entries).toEqual([]);
+    expect(diagnostics.map((d) => [d.severity, d.line])).toEqual([["warning", 4]]);
+    expect(model.timeline.entries.map((e) => e.targetId)).toEqual(["note:1"]);
   });
 
   it("resolves an interaction on a declared class, passing its action, argument and tooltip through", () => {
@@ -1881,17 +1884,40 @@ describe("buildClassModel — notes inside namespaces", () => {
     expect(model.namespaces.map((n) => [n.id, n.classIds, n.noteIds])).toEqual([["namespace:1", ["X"], ["note:1", "note:2"]]]);
   });
 
-  it("leaves a dropped note off its namespace", () => {
-    // `note for Ghost` names no class, so the note is dropped with an error.
-    const { model } = buildClassModel(
+  it("keeps a note whose target class does not exist on the namespace it was written in", () => {
+    // Measured: Mermaid 12.2.0 frames N around `note for Ghost "x"`, the
+    // note's only content, and draws no class Ghost.
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        namespaces: [block("N", [], [0])],
+        notes: [{ label: plainLabel("lost"), targetId: "Ghost" }],
+      }),
+    );
+
+    expect(diagnostics.map((d) => d.severity)).toEqual(["warning"]);
+    expect(model.notes.map((n) => [n.id, n.targetId])).toEqual([["note:1", null]]);
+    expect(model.namespaces.map((n) => [n.id, n.classIds, n.noteIds])).toEqual([["namespace:1", [], ["note:1"]]]);
+    expect(model.classes).toEqual([]);
+  });
+
+  it("keeps a note whose target class does not exist on the nested namespace it was written in", () => {
+    const { model, diagnostics } = buildClassModel(
       classDocument({
         classes: [classDecl({ id: "A" })],
-        namespaces: [block("N", ["A"], [0, 1])],
+        namespaces: [block("N", ["A"], [1]), block("N.M", [], [0], "N")],
         notes: [{ label: plainLabel("lost"), targetId: "Ghost" }, free("kept")],
       }),
     );
 
-    expect(model.notes.map((n) => n.id)).toEqual(["note:2"]);
-    expect(model.namespaces.map((n) => n.noteIds)).toEqual([["note:2"]]);
+    expect(diagnostics.map((d) => d.severity)).toEqual(["warning"]);
+    expect(model.notes.map((n) => [n.id, n.targetId])).toEqual([
+      ["note:1", null],
+      ["note:2", null],
+    ]);
+    expect(model.namespaces.map((n) => [n.id, n.classIds, n.noteIds])).toEqual([
+      ["namespace:1", ["A"], ["note:2"]],
+      ["namespace:2", [], ["note:1"]],
+    ]);
+    expect(model.classes.map((c) => c.id)).toEqual(["A"]);
   });
 });

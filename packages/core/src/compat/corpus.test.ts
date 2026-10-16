@@ -1753,8 +1753,36 @@ const SILENTLY_WRONG = 0;
  * one error at the name saying what to write. No `supported` row moved.
  * `cls-namespace-dotted`, new beside it, is `supported`. `silently-wrong`
  * does not move.
+ *
+ * **42 → 43: case (2), a refusal written down for the first time.**
+ * `01M51DSEGE` refused every statement but a class declaration, a note and
+ * a nested namespace inside a namespace body, as Mermaid 12.2.0 does
+ * ("Expecting 'NAMESPACE', 'CLASS', 'NOTE_FOR', 'NOTE', got …", measured).
+ * Siren used to draw a relationship, a `style`, an inline member and the
+ * rest there as if written outside, with no row to say so:
+ * `cls-namespace-body-statement` writes it down. No `supported` row moved:
+ * none wrote such a statement in a namespace. `silently-wrong` does not
+ * move.
+ *
+ * **43 → 44: case (2), a refusal written down for the first time.**
+ * `01M51DSEQ3` refused every `;` in an inline member (`A : +int x; y`,
+ * `A : +foo(a; b)`, `A : +int x;`), as Mermaid 12.2.0's lexer does
+ * ("Lexical error … Unrecognized text" at the `;`, measured), an entity
+ * code's own `;` aside. Siren used to draw the first two, with no row to
+ * say so: `cls-inline-member-semicolon` writes it down. No `supported` row
+ * moved: none wrote a `;` in an inline member. `silently-wrong` does not
+ * move.
+ *
+ * **44 → 45: case (2), a refusal written down for the first time.**
+ * `01M51DSEXR` refused a space between two words of a namespace name
+ * (`namespace Big Zoo {`) with one error saying how to write it. Mermaid
+ * 12.2.0 draws the frame `BigZoo` (measured), a name nobody wrote, refused
+ * under ADR-0001. Siren already refused the line, as an unrecognized one
+ * with a second error at its `}`, with no row to say so:
+ * `cls-namespace-name-with-space` writes it down. No `supported` row
+ * moved. `silently-wrong` does not move.
  */
-const REJECTED = 42;
+const REJECTED = 45;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

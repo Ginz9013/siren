@@ -72,6 +72,14 @@ Breaking for a class document that opens one namespace more than once (`namespac
 and later `namespace N { class Y }`): its blocks are now one frame under one `namespace:N` id,
 where each used to be a frame and an id of its own, so the ids after it shift (see **Changed**).
 
+Breaking for a class document with a statement other than a class declaration, a note or a nested
+namespace inside a namespace (a relationship, `<<annotation>> A`, `direction`, `style`,
+`classDef`, `cssClass`, `click`, `link`, `callback`, an inline member, `accTitle` or `accDescr`),
+which is now refused (see **Changed**).
+
+Breaking for a class document with a `;` in an inline member (`A : +int x; y`, `A : +foo(a; b)`),
+which is now refused (see **Changed**).
+
 ### Added
 
 - A dotted class namespace name (`namespace N.M { class A }`) is read as Mermaid 12.2.0 reads it
@@ -201,6 +209,32 @@ where each used to be a frame and an id of its own, so the ids after it shift (s
 
 ### Changed
 
+- **A space in a class namespace name is refused once, saying how to write it** (nook
+  `01M51DSEXR`): Mermaid 12.2.0 drops the space, drawing `namespace N M {` as the one frame `NM`.
+  The error stands at the word after the space and offers `NM` or `N_M`; the block is still read,
+  so its `}` is no longer refused as well, and errors inside it are reported as usual. On a
+  one-line, nested or dotted name (`N.M K`) too; a space beside a dot (`N . M`) still reads as
+  none. Such a line used to be refused as unrecognized, with a second error at its `}`.
+- **A `;` in an inline class member is refused** (nook `01M51DSEQ3`), as Mermaid 12.2.0's lexer
+  refuses it: `A : +int x; y`, `A : +foo(a; b)`, `A : +int x;` and a `;` in a type, a return type,
+  a `~generic~` or quotes each get one error at the `;`, saying to write each member on a line of
+  its own. The `;` ending an entity code (`#59;`, `#lt;`) is the code's and still reads. Most
+  used to be drawn as one member with no diagnostic — a `;` between members, in parentheses, a
+  type, a return type or a `~generic~` (`+List~a;b~ x`, `+f() a;b`), or after a `%%`
+  (`+x %% a; b`); only a member Siren could not read otherwise (`+int x;`, `"a;b"`) was refused,
+  as an unrecognized member.
+- **A class namespace holds only classes, notes and namespaces** (nook `01M51DSEGE`), as Mermaid
+  12.2.0 reads it: any other statement in a namespace body — a relationship, `<<annotation>> A`,
+  `direction`, `style`, `classDef`, `cssClass`, `click`, `link`, `callback`, an inline member
+  (`A : +x`), `accTitle` or `accDescr` — is refused at that statement, with an error saying to
+  move it outside the namespace. On a one-line, nested or dotted namespace too. Such statements
+  used to be drawn as if written outside, and a namespace holding only `direction LR` drew no frame
+  and gave no diagnostic. A line no statement reads is still refused as unrecognized, once.
+- **A class `note for X` naming no class is drawn, unattached, with a warning** (nook
+  `01M51DSF5H`), as Mermaid 12.2.0 draws it: `note for Ghost "x"` with no class Ghost is a note
+  with no connector, and no class Ghost is made up. One written in a namespace is drawn inside its
+  frame, and a namespace holding only it is framed. Such a note used to be an error and dropped. Its
+  `note:N` id is unchanged, and the model gives it `targetId: null`, as for a free note.
 - **A note written in a class namespace is drawn inside its frame** (nook `01M51B440V`, decision
   `01M51B4M3C`), as Mermaid 12.2.0 draws it: `note "x"` and `note for X "x"` alike, the latter
   even when X stands outside the namespace, its connector running out across the frame. In a
@@ -461,7 +495,8 @@ where each used to be a frame and an id of its own, so the ids after it shift (s
   Mermaid 12.2.0 draws such text as one member (nook `01M4ZWT8XF`). Where Siren could read the text
   as one member — `+int x; y`, `+int x; int y`, `+foo(); +bar()` — it used to draw that one member,
   as Mermaid does, and now refuses it. A `;` inside a method's parentheses (`+foo(a; b)`) or a
-  `~generic~` is kept as written.
+  `~generic~` is kept as written, and so is the `;` ending an entity code (`+x #59; y`), which
+  Mermaid encodes before reading the member.
 - **An empty namespace is refused** (`namespace N {` and `}` with nothing between), saying to add a
   class to it or remove it, as Mermaid 12.2.0 refuses it (nook `01M4ZY2DA1`). It used to be accepted
   and drawn as no frame at all.

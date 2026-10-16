@@ -1484,10 +1484,11 @@ Animal <|-- Fish
     expect(leftToRight.get("Duck")!.y).not.toBe(leftToRight.get("Fish")!.y);
   });
 
-  it("surfaces the model's error diagnostic — without throwing, and still rendering the rest — for a classDiagram whose `note for` names a class that does not exist", () => {
+  it("draws a classDiagram's `note for` naming a class that does not exist as a note with no connector, warning about the name", () => {
     const container = document.createElement("div");
-    // `Dcuk` is a typo for `Duck`: naming a class in a `note for` does not
-    // declare it, so the note is dropped rather than conjuring a sixth box.
+    // `Dcuk` is a typo for `Duck`. Mermaid 12.2.0 draws the note anyway,
+    // attached to nothing, and makes up no class (measured); Siren does the
+    // same and warns, since naming a class in a `note for` does not declare it.
     const source = `classDiagram
 Animal <|-- Duck
 note for Dcuk "can fly, can swim"
@@ -1499,19 +1500,17 @@ note "the rest of the document still renders"
       result = render(source, container);
     }).not.toThrow();
 
-    expect(
-      result!.diagnostics.some(
-        (d) => d.severity === "error" && d.message.includes("Dcuk"),
-      ),
-    ).toBe(true);
+    expect(result!.diagnostics.map((d) => [d.severity, d.line])).toEqual([["warning", 3]]);
+    expect(result!.diagnostics[0].message).toContain("Dcuk");
 
     expect(result!.svg).not.toBeNull();
     expect(result!.svg!.querySelectorAll("g.siren-class")).toHaveLength(2);
     expect(result!.svg!.querySelectorAll("g.siren-relationship")).toHaveLength(1);
-    // Only the surviving note is drawn, and it keeps the id its source
-    // position gave it — dropping the first note does not renumber it.
+    // Both notes are drawn, with the ids their source positions give them,
+    // and neither has a connector.
     const notes = Array.from(result!.svg!.querySelectorAll("g.siren-note"));
-    expect(notes.map((g) => g.getAttribute("data-siren-id"))).toEqual(["note:2"]);
+    expect(notes.map((g) => g.getAttribute("data-siren-id"))).toEqual(["note:1", "note:2"]);
+    expect(result!.svg!.querySelectorAll("path.siren-note-link")).toHaveLength(0);
   });
 
   it("produces an error diagnostic (and drops the action, without throwing) for a highlight action referencing an element before it becomes visible, while the rest of the diagram still renders", () => {
