@@ -887,12 +887,13 @@ then its own — so the `M` written inside `N` is `N.M`, a different namespace f
 (nook decision `01M51B4M3C`); its frame is still titled `M`. A namespace opened again under the same
 qualified name is the same namespace: its blocks merge into one frame holding all their classes. A
 dotted name is the same nesting on one line: `namespace N.M {` is the `M` inside `N`, creating an
-`N` titled `N` if no block opens one and merging with one that does. It may carry a bracketed
-`["label"]` after its name (`namespace Zoo["Big Zoo"] {`), drawn as the frame's title in place of
-the name — a **Label** in the `html` dialect; of a reopened namespace's labels, the last one written
-wins, and a dotted name's label titles its last part only. Addressable in a `timeline:` block under
-a generated id (`namespace:1`, `namespace:2`, … in the order the namespaces first open, outer before
-inner).
+`N` titled `N` if no block opens one and merging with one that does. A note written in a namespace
+is that namespace's (`ResolvedClassNamespace.noteIds`) and drawn inside its frame, so a namespace
+holding only a note is framed too. It may carry a bracketed `["label"]` after its name (`namespace
+Zoo["Big Zoo"] {`), drawn as the frame's title in place of the name — a **Label** in the `html`
+dialect; of a reopened namespace's labels, the last one written wins, and a dotted name's label
+titles its last part only. Addressable in a `timeline:` block under a generated id (`namespace:1`,
+`namespace:2`, … in the order the namespaces first open, outer before inner).
 _Avoid_: package, module, cluster (that is the word the layout core uses for the mechanism, not
 the authored construct), group, box
 
@@ -909,10 +910,12 @@ classes — deliberately reused rather than duplicated, since it is the same ide
 annotation) in both kinds. The two differ in layout: a class diagram's note is laid out as an
 ordinary graph node, so the layout engine itself guarantees it never overlaps a class box, at the
 cost of occupying a rank — joined from the note to its class, as Mermaid 12 joins it, so an attached
-note sits a layer before the class it is about; a sequence diagram's note occupies its own rank on the timeline the same
-way a message does (measured against real Mermaid: it never overlaps the message before or after
-it) and draws no connector at all, unlike the class diagram's attached form. Addressable in a
-`timeline:` block under a generated id in both kinds (`note:1`, `note:2`, … in source order, which
+note sits a layer before the class it is about, and one written inside a **namespace** is laid out
+inside that namespace's frame, the innermost one around it, a `note for` a class outside the frame
+included; a sequence diagram's note occupies its own rank on the timeline the same way a message
+does (measured against real Mermaid: it never overlaps the message before or after it) and draws no
+connector at all, unlike the class diagram's attached form. Addressable in a `timeline:` block under
+a generated id in both kinds (`note:1`, `note:2`, … in source order, which
 a dropped note does not renumber). A state diagram's note (`note right of S : ...`) is laid out the
 class diagram's way, a box joined to its state by a connector, after its state along the diagram's
 direction for `right of` and before it for `left of` — at its state's own level, so inside the

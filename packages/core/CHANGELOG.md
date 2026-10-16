@@ -201,6 +201,14 @@ where each used to be a frame and an id of its own, so the ids after it shift (s
 
 ### Changed
 
+- **A note written in a class namespace is drawn inside its frame** (nook `01M51B440V`, decision
+  `01M51B4M3C`), as Mermaid 12.2.0 draws it: `note "x"` and `note for X "x"` alike, the latter
+  even when X stands outside the namespace, its connector running out across the frame. In a
+  nested namespace the note goes in the innermost frame around it, and in a dotted one
+  (`namespace N.M`) in `N.M`'s. A namespace holding only a note (`namespace N { note "x" }`) is
+  framed, where it used to draw no frame and give no diagnostic. Such notes used to be drawn
+  outside every frame. A note's `note:N` id is unchanged. `ClassNamespace` gains `noteIndexes`
+  and `ResolvedClassNamespace` gains `noteIds`.
 - **A class namespace opened more than once is one namespace** (nook `01M51B43KA`, decision
   `01M51B4M3C`), as Mermaid 12.2.0 draws it: `namespace N { class X }` and `namespace N { class Y }`
   are one frame N around X and Y, and `N { M { A } }` with `N { M { B } }` one N around one `N.M`.

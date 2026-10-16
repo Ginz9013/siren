@@ -103,8 +103,9 @@ function namespace(
   classIds: string[],
   label: string = id,
   parentId: string | null = null,
+  noteIds: string[] = [],
 ): ResolvedClassNamespace {
-  return { id, parentId, label: plainLabel(label), classIds };
+  return { id, parentId, label: plainLabel(label), classIds, noteIds };
 }
 
 function note(
@@ -1709,7 +1710,7 @@ describe("layoutClassDiagram", () => {
         classModel({
           classes: [cls("Lion", [], { namespaceId: "namespace:1" })],
           namespaces: [
-            { id: "namespace:1", parentId: null, label: rowsLabel("Big", "Zoo"), classIds: ["Lion"] },
+            { id: "namespace:1", parentId: null, label: rowsLabel("Big", "Zoo"), classIds: ["Lion"], noteIds: [] },
           ],
         }),
         { measureText: fakeMeasurer },
@@ -1840,5 +1841,73 @@ describe("layoutClassDiagram — nested namespaces", () => {
       expect([direction, overlaps(outer, classById(diagram, "B"))]).toEqual([direction, false]);
       expect([direction, diagram.relationships.map((r) => r.points.length >= 2)]).toEqual([direction, [true, true]]);
     }
+  });
+});
+
+/**
+ * Notes written inside a namespace (measured on Mermaid 12.2.0, spec
+ * `class-nested-namespaces`): each is drawn inside its namespace's frame,
+ * `note for X` too when X stands outside it, its connector still drawn.
+ */
+describe("layoutClassDiagram — notes inside namespaces", () => {
+  const encloses = (outer: Rect, inner: Rect): boolean =>
+    outer.x < inner.x &&
+    outer.y < inner.y &&
+    inner.x + inner.width < outer.x + outer.width &&
+    inner.y + inner.height < outer.y + outer.height;
+  const frameById = (diagram: PositionedClassDiagram, id: string) => {
+    const frame = diagram.namespaces.find((n) => n.id === id);
+    if (frame === undefined) throw new Error(`no frame ${id} was laid out`);
+    return frame;
+  };
+  const noteOf = (diagram: PositionedClassDiagram, id: string) => {
+    const placed = diagram.notes.find((n) => n.id === id);
+    if (placed === undefined) throw new Error(`no note ${id} was laid out`);
+    return placed;
+  };
+  const layOut = (partial: Partial<ClassModel>) =>
+    layoutClassDiagram(classModel(partial), { measureText: fakeMeasurer });
+
+  it("frames a namespace's free note and its note for a class outside it, the connector still drawn", () => {
+    const diagram = layOut({
+      classes: [cls("A", [], { namespaceId: "namespace:1" }), cls("B")],
+      namespaces: [namespace("namespace:1", ["A"], "N", null, ["note:1", "note:2"])],
+      notes: [note("note:1", "free"), note("note:2", "for B", "B")],
+    });
+
+    const frame = frameById(diagram, "namespace:1");
+    expect(encloses(frame, noteOf(diagram, "note:1"))).toBe(true);
+    expect(encloses(frame, noteOf(diagram, "note:2"))).toBe(true);
+    expect(overlaps(frame, classById(diagram, "B"))).toBe(false);
+    expect(noteOf(diagram, "note:2").linkPoints!.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("frames a namespace holding only a note", () => {
+    const diagram = layOut({
+      classes: [cls("B")],
+      namespaces: [namespace("namespace:1", [], "N", null, ["note:1"])],
+      notes: [note("note:1", "only")],
+    });
+
+    expect(diagram.namespaces.map((n) => n.id)).toEqual(["namespace:1"]);
+    expect(encloses(frameById(diagram, "namespace:1"), noteOf(diagram, "note:1"))).toBe(true);
+    expect(overlaps(frameById(diagram, "namespace:1"), classById(diagram, "B"))).toBe(false);
+  });
+
+  it("frames each note in the namespace it was written in, an outer one outside the inner frame", () => {
+    const diagram = layOut({
+      classes: [cls("X", [], { namespaceId: "namespace:1" }), cls("A", [], { namespaceId: "namespace:2" })],
+      namespaces: [
+        namespace("namespace:1", ["X"], "N", null, ["note:1"]),
+        namespace("namespace:2", ["A"], "M", "namespace:1", ["note:2"]),
+      ],
+      notes: [note("note:1", "outer"), note("note:2", "inner")],
+    });
+
+    const outer = frameById(diagram, "namespace:1");
+    const inner = frameById(diagram, "namespace:2");
+    expect(encloses(outer, noteOf(diagram, "note:1"))).toBe(true);
+    expect(overlaps(inner, noteOf(diagram, "note:1"))).toBe(false);
+    expect(encloses(inner, noteOf(diagram, "note:2"))).toBe(true);
   });
 });

@@ -578,10 +578,11 @@ export function parseClassDiagram(source: string): DiagramParseResult {
   /** How many `namespace` blocks enclose the statement being parsed. */
   let namespaceDepth = 0;
   /**
-   * The qualified name of the `namespace` block enclosing the statement
-   * being parsed, or `null` at the top level.
+   * The innermost `namespace` block enclosing the statement being parsed, or
+   * `null` at the top level: what a qualified name is built from, and where
+   * a note written there is recorded.
    */
-  let enclosingNamespace: string | null = null;
+  let enclosingNamespace: ClassNamespace | null = null;
   /**
    * The `}`s written after a block's own `}` on its line, each closing one
    * of the namespaces around it in turn — `class A {` ⏎ `+x }}` closes A,
@@ -895,10 +896,10 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         sawError = true;
         if (segments.length === 0) segments = [namespaceOpenMatch[1]];
       }
-      let parentId = outerNamespace;
+      let parentId = outerNamespace?.id ?? null;
       for (const segment of segments.slice(0, -1)) {
         const id: string = parentId === null ? segment : `${parentId}.${segment}`;
-        namespaces.push({ id, name: segment, parentId, label: null, classIds: [], line: lineNumber, column });
+        namespaces.push({ id, name: segment, parentId, label: null, classIds: [], noteIndexes: [], line: lineNumber, column });
         parentId = id;
       }
       const name = segments[segments.length - 1]!;
@@ -908,11 +909,12 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         parentId,
         label: null,
         classIds,
+        noteIndexes: [],
         line: lineNumber,
         column,
       };
       namespaces.push(namespace);
-      enclosingNamespace = namespace.id;
+      enclosingNamespace = namespace;
 
       /**
        * Reads `text`, standing at `offset` on line `index`, as one of the
@@ -1007,8 +1009,12 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       return bodyIndex;
     }
 
+    // A note written in a namespace is that namespace's, drawn inside its
+    // frame — `note for X` too, wherever X stands (measured, Mermaid
+    // 12.2.0) — so it is recorded on the innermost block around it.
     const noteForMatch = NOTE_FOR_RE.exec(line);
     if (noteForMatch !== null) {
+      enclosingNamespace?.noteIndexes.push(notes.length);
       notes.push({
         label: readLabelIn(noteForMatch, 2, lineNumber, column),
         targetId: noteForMatch[1],
@@ -1020,6 +1026,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
 
     const noteMatch = NOTE_RE.exec(line);
     if (noteMatch !== null) {
+      enclosingNamespace?.noteIndexes.push(notes.length);
       notes.push({
         label: readLabelIn(noteMatch, 1, lineNumber, column),
         targetId: null,

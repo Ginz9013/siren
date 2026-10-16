@@ -979,6 +979,15 @@ function insideNamespaceId(result: SirenRenderResult, id: string, namespaceId: s
   return classInsideFrame(result, id, namespaceFrame(result, namespaceId));
 }
 
+/** Whether the note `id`'s box is drawn wholly inside the frame of the namespace `namespaceId`, by id. */
+function noteInsideNamespaceId(result: SirenRenderResult, id: string, namespaceId: string): boolean {
+  const rect = svgOf(result).querySelector(`g.siren-note[data-siren-id="${id}"] rect.siren-note-frame`);
+  if (rect === null) throw new Error(`no note "${id}" was drawn`);
+  const a = frameRect(rect);
+  const b = namespaceFrame(result, namespaceId);
+  return a.x > b.x && a.y > b.y && a.x + a.width < b.x + b.width && a.y + a.height < b.y + b.height;
+}
+
 /** Whether the namespace `inner`'s frame is drawn wholly inside the namespace `outer`'s, by id. */
 function namespaceInsideNamespace(result: SirenRenderResult, inner: string, outer: string): boolean {
   const a = namespaceFrame(result, inner);
@@ -4742,6 +4751,50 @@ line2\`"]`,
       "too (ADR-0017), with one error at the name saying what to write " +
       "instead (`Zoo.Cats`). Siren used to refuse each as an unrecognized " +
       "line, with a second error at its `}`.",
+  },
+  {
+    id: "cls-namespace-note",
+    kind: "class",
+    source: `classDiagram
+      note "the whole park"
+      namespace Zoo {
+        class Lion
+        note "big cats"
+        note for Keeper "works here"
+        namespace Aviary {
+          class Parrot
+          note "birds"
+        }
+      }
+      namespace Info { note "open daily" }
+      class Keeper`,
+    status: "supported",
+    meaning:
+      "A note written in a namespace is that namespace's: Mermaid 12.2.0 " +
+      "draws it inside the frame, the innermost one around it, and a " +
+      "`note for` written there too, its connector running out to a class " +
+      "outside the frame (measured). A namespace holding only a note is " +
+      "framed. Notes keep their `note:N` ids in the order written, inside a " +
+      "namespace or not. Siren used to draw such notes outside every frame, " +
+      "and no frame for a namespace holding only a note.",
+    assert: (result) => {
+      expectSame("note texts", texts(result, "text.siren-note-text"), [
+        "the whole park",
+        "big cats",
+        "works here",
+        "birds",
+        "open daily",
+      ]);
+      expectSame("namespace labels", texts(result, "text.siren-namespace-label"), ["Zoo", "Aviary", "Info"]);
+      expectSame("the free note outside is outside Zoo", noteInsideNamespaceId(result, "note:1", "namespace:1"), false);
+      expectSame("big cats is inside Zoo", noteInsideNamespaceId(result, "note:2", "namespace:1"), true);
+      expectSame("big cats is outside Aviary", noteInsideNamespaceId(result, "note:2", "namespace:2"), false);
+      expectSame("works here is inside Zoo", noteInsideNamespaceId(result, "note:3", "namespace:1"), true);
+      expectSame("Keeper is outside Zoo", insideNamespaceId(result, "Keeper", "namespace:1"), false);
+      expectSame("works here is linked to Keeper", drew(result, 'path.siren-note-link[data-siren-id="note:3"]'), true);
+      expectSame("birds is inside Aviary", noteInsideNamespaceId(result, "note:4", "namespace:2"), true);
+      expectSame("open daily is inside Info", noteInsideNamespaceId(result, "note:5", "namespace:3"), true);
+    },
   },
   {
     id: "cls-note",

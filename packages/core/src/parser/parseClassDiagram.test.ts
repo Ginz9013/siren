@@ -467,7 +467,16 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
 
     expect(diagnostics).toEqual([]);
     expect(document.namespaces).toEqual([
-      { id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle", "Square"], line: 2, column: 3 },
+      {
+        id: "BaseShapes",
+        name: "BaseShapes",
+        parentId: null,
+        label: null,
+        classIds: ["Triangle", "Square"],
+        noteIndexes: [],
+        line: 2,
+        column: 3,
+      },
     ]);
     expect(document.classes.map((c) => c.id)).toEqual(["Triangle", "Square"]);
     expect(document.classes[1].members.map((m) => m.name)).toEqual(["id", "getArea"]);
@@ -1963,5 +1972,60 @@ describe("parseClassDiagram — a dotted namespace name", () => {
       ["N", null],
       ["N.M", "Leaf"],
     ]);
+  });
+});
+
+/**
+ * A note written inside a `namespace` block (measured on Mermaid 12.2.0, spec
+ * `class-nested-namespaces`): it belongs to the innermost namespace around
+ * it, and is drawn inside that frame — `note for X` too, wherever X is.
+ */
+describe("parseClassDiagram — a note inside a namespace", () => {
+  const classOk = (body: string) => parseOk(`classDiagram\n${body}`).document;
+  /** Each namespace's notes, by their text, beside its qualified name. */
+  const notesOf = (document: ClassDocument) =>
+    document.namespaces.map((n) => [n.id, n.noteIndexes.map((i) => document.notes[i]!.label.text)]);
+
+  it("records a free note and a `note for` written in a namespace as that namespace's", () => {
+    expect(notesOf(classOk('  namespace N {\n    class A\n    note "free"\n    note for A "for A"\n  }\n  class B'))).toEqual([
+      ["N", ["free", "for A"]],
+    ]);
+    // Even when the class it is for stands outside the namespace.
+    expect(notesOf(classOk('  namespace N {\n    class A\n    note for B "for B"\n  }\n  class B'))).toEqual([
+      ["N", ["for B"]],
+    ]);
+  });
+
+  it("records a note in the innermost namespace around it", () => {
+    expect(
+      notesOf(classOk('  namespace N {\n    note "outer"\n    namespace M {\n      class A\n      note "inner"\n    }\n  }')),
+    ).toEqual([
+      ["N", ["outer"]],
+      ["N.M", ["inner"]],
+    ]);
+  });
+
+  it("records a dotted name's note on its last segment, and each reopened block's on that block", () => {
+    expect(notesOf(classOk('  namespace N.M {\n    class A\n    note "x"\n  }'))).toEqual([
+      ["N", []],
+      ["N.M", ["x"]],
+    ]);
+    expect(notesOf(classOk('  namespace N {\n    class X\n  }\n  namespace N {\n    note "x"\n  }'))).toEqual([
+      ["N", []],
+      ["N", ["x"]],
+    ]);
+  });
+
+  it("reads a namespace holding only a note as a namespace, on lines of its own or on one line", () => {
+    // Measured: `namespace N { note "x" }` draws the frame N around the note.
+    for (const body of ['  namespace N {\n    note "x"\n  }\n  class B', '  namespace N { note "x" }\n  class B']) {
+      expect([body, notesOf(classOk(body))]).toEqual([body, [["N", ["x"]]]]);
+    }
+  });
+
+  it("leaves a note outside every namespace in none, its place in the document's notes unchanged", () => {
+    const document = classOk('  note "first"\n  namespace N {\n    class A\n    note "second"\n  }\n  note "third"');
+    expect(document.notes.map((n) => n.label.text)).toEqual(["first", "second", "third"]);
+    expect(document.namespaces.map((n) => n.noteIndexes)).toEqual([[1]]);
   });
 });

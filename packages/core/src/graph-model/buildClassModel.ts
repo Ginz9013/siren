@@ -58,6 +58,11 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
   const namespaces = resolveNamespaces(document, classesById, diagnostics);
 
   const notes = resolveNotes(document, classesById, diagnostics);
+  // A note dropped for naming no class is in no namespace either.
+  const noteIds = new Set(notes.map((note) => note.id));
+  for (const namespace of namespaces) {
+    namespace.noteIds = namespace.noteIds.filter((id) => noteIds.has(id));
+  }
 
   const classes = [...classesById.values()].map((accumulator) => accumulator.resolved);
 
@@ -266,6 +271,7 @@ function resolveNamespaces(
         // one plain run — `M` inside N, not the qualified `N.M`.
         label: block.label ?? plainLabel(block.name),
         classIds: [],
+        noteIds: [],
       };
       byQualifiedName.set(block.id, namespace);
     } else if (block.label !== null) {
@@ -275,6 +281,9 @@ function resolveNamespaces(
     }
 
     claimMembers(block, namespace, claimedBy, classesById, diagnostics);
+    // A note's id is its place among the document's notes, the id
+    // `resolveNotes` gives it; one it drops is taken off again there.
+    namespace.noteIds.push(...block.noteIndexes.map((index) => generatedId("note", index + 1)));
   }
 
   return [...byQualifiedName.values()];

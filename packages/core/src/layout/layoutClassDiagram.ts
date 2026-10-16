@@ -315,20 +315,27 @@ export function layoutClassDiagram(
   // Membership is read from each namespace's own class list, filtered to the
   // classes this model actually has. That one list drives both the cluster
   // parentage and the frame, so the two cannot disagree. A namespace is
-  // framed when it encloses something — a member class, or a namespace
-  // inside it that is framed itself: Mermaid 12.2.0 draws the frame N around
-  // `N.M` for `namespace N { namespace M { class A } }` (measured). One with
+  // framed when it encloses something — a member class, a note written in
+  // it, or a namespace inside it that is framed itself: Mermaid 12.2.0 draws
+  // the frame N around `N.M` for `namespace N { namespace M { class A } }`,
+  // and around the note of `namespace N { note "x" }` (measured). One with
   // nothing to enclose is dropped entirely: the shared core lays a childless
   // cluster out as an ordinary box, which would put a stray frame in the
   // middle of the diagram.
   const memberIdsByNamespace = new Map(
     model.namespaces.map((ns) => [ns.id, ns.classIds.filter((id) => knownClassIds.has(id))] as const),
   );
+  const knownNoteIds = new Set(model.notes.map((note) => note.id));
+  const noteIdsByNamespace = new Map(
+    model.namespaces.map((ns) => [ns.id, ns.noteIds.filter((id) => knownNoteIds.has(id))] as const),
+  );
   const framedNamespaceIds = new Set<string>();
   // A child is listed after its parent, so walking the list backwards sees
   // every child before the namespace around it.
   for (const ns of [...model.namespaces].reverse()) {
-    if (!framedNamespaceIds.has(ns.id) && memberIdsByNamespace.get(ns.id)!.length === 0) continue;
+    const enclosesNothing =
+      memberIdsByNamespace.get(ns.id)!.length === 0 && noteIdsByNamespace.get(ns.id)!.length === 0;
+    if (!framedNamespaceIds.has(ns.id) && enclosesNothing) continue;
     framedNamespaceIds.add(ns.id);
     if (ns.parentId !== null) framedNamespaceIds.add(ns.parentId);
   }
@@ -340,6 +347,15 @@ export function layoutClassDiagram(
   for (const group of groups) {
     for (const id of group.memberIds) {
       namespaceIdByClassId.set(id, group.ns.id);
+    }
+  }
+  // A note written in a namespace is drawn inside its frame, a `note for` a
+  // class outside it too, its connector running out across the frame
+  // (measured, Mermaid 12.2.0).
+  const namespaceIdByNoteId = new Map<string, string>();
+  for (const group of groups) {
+    for (const id of noteIdsByNamespace.get(group.ns.id)!) {
+      namespaceIdByNoteId.set(id, group.ns.id);
     }
   }
 
@@ -422,10 +438,14 @@ export function layoutClassDiagram(
       }),
       // A note is a box the layout places like any other, which is what keeps
       // it from landing on top of a class.
-      ...model.notes.map((note) => ({
-        id: noteNodeId(note.id),
-        ...noteBoxSize(noteLabelBoxById.get(note.id)!),
-      })),
+      ...model.notes.map((note) => {
+        const namespaceId = namespaceIdByNoteId.get(note.id);
+        return {
+          id: noteNodeId(note.id),
+          ...noteBoxSize(noteLabelBoxById.get(note.id)!),
+          ...(namespaceId === undefined ? {} : { parentId: namespaceNodeId(namespaceId) }),
+        };
+      }),
       // A lollipop's interface label (`buildClassModel` already minted its
       // id onto `rel.from`/`rel.to`) is placed the same way a note is: its
       // own node in the layout graph, sized from its measured text, so two

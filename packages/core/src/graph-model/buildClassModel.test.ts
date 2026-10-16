@@ -256,16 +256,16 @@ describe("buildClassModel", () => {
           classDecl({ id: "Button" }),
         ],
         namespaces: [
-          { id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle", "Square"] },
-          { id: "Widgets", name: "Widgets", parentId: null, label: null, classIds: ["Button"] },
+          { id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle", "Square"], noteIndexes: [] },
+          { id: "Widgets", name: "Widgets", parentId: null, label: null, classIds: ["Button"], noteIndexes: [] },
         ],
       }),
     );
 
     expect(diagnostics).toEqual([]);
     expect(model.namespaces).toEqual([
-      { id: "namespace:1", parentId: null, label: plainLabel("BaseShapes"), classIds: ["Triangle", "Square"] },
-      { id: "namespace:2", parentId: null, label: plainLabel("Widgets"), classIds: ["Button"] },
+      { id: "namespace:1", parentId: null, label: plainLabel("BaseShapes"), classIds: ["Triangle", "Square"], noteIds: [] },
+      { id: "namespace:2", parentId: null, label: plainLabel("Widgets"), classIds: ["Button"], noteIds: [] },
     ]);
     expect(model.classes.map((c) => [c.id, c.namespaceId])).toEqual([
       ["Triangle", "namespace:1"],
@@ -282,8 +282,8 @@ describe("buildClassModel", () => {
       classDocument({
         classes: [classDecl({ id: "Triangle" }), classDecl({ id: "Square" })],
         namespaces: [
-          { id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle", "Square"], line: 2, column: 1 },
-          { id: "Widgets", name: "Widgets", parentId: null, label: null, classIds: ["Triangle"], line: 7, column: 1 },
+          { id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle", "Square"], noteIndexes: [], line: 2, column: 1 },
+          { id: "Widgets", name: "Widgets", parentId: null, label: null, classIds: ["Triangle"], noteIndexes: [], line: 7, column: 1 },
         ],
       }),
     );
@@ -299,8 +299,8 @@ describe("buildClassModel", () => {
       },
     ]);
     expect(model.namespaces).toEqual([
-      { id: "namespace:1", parentId: null, label: plainLabel("BaseShapes"), classIds: ["Triangle", "Square"] },
-      { id: "namespace:2", parentId: null, label: plainLabel("Widgets"), classIds: [] },
+      { id: "namespace:1", parentId: null, label: plainLabel("BaseShapes"), classIds: ["Triangle", "Square"], noteIds: [] },
+      { id: "namespace:2", parentId: null, label: plainLabel("Widgets"), classIds: [], noteIds: [] },
     ]);
     expect(model.classes.map((c) => c.namespaceId)).toEqual(["namespace:1", "namespace:1"]);
   });
@@ -320,9 +320,9 @@ describe("buildClassModel", () => {
       classDocument({
         classes: [classDecl({ id: "X" }), classDecl({ id: "A" }), classDecl({ id: "B" })],
         namespaces: [
-          { id: "N", name: "N", parentId: null, label: null, classIds: ["X"] },
-          { id: "N.M", name: "M", parentId: "N", label: null, classIds: ["A"] },
-          { id: "M", name: "M", parentId: null, label: null, classIds: ["B"] },
+          { id: "N", name: "N", parentId: null, label: null, classIds: ["X"], noteIndexes: [] },
+          { id: "N.M", name: "M", parentId: "N", label: null, classIds: ["A"], noteIndexes: [] },
+          { id: "M", name: "M", parentId: null, label: null, classIds: ["B"], noteIndexes: [] },
         ],
       }),
     );
@@ -343,18 +343,18 @@ describe("buildClassModel", () => {
       classDocument({
         classes: [classDecl({ id: "A" })],
         namespaces: [
-          { id: "N", name: "N", parentId: null, label: null, classIds: [] },
-          { id: "N.M", name: "M", parentId: "N", label: null, classIds: [] },
-          { id: "N.M.L", name: "L", parentId: "N.M", label: null, classIds: ["A"] },
+          { id: "N", name: "N", parentId: null, label: null, classIds: [], noteIndexes: [] },
+          { id: "N.M", name: "M", parentId: "N", label: null, classIds: [], noteIndexes: [] },
+          { id: "N.M.L", name: "L", parentId: "N.M", label: null, classIds: ["A"], noteIndexes: [] },
         ],
       }),
     );
 
     expect(diagnostics).toEqual([]);
     expect(model.namespaces).toEqual([
-      { id: "namespace:1", parentId: null, label: plainLabel("N"), classIds: [] },
-      { id: "namespace:2", parentId: "namespace:1", label: plainLabel("M"), classIds: [] },
-      { id: "namespace:3", parentId: "namespace:2", label: plainLabel("L"), classIds: ["A"] },
+      { id: "namespace:1", parentId: null, label: plainLabel("N"), classIds: [], noteIds: [] },
+      { id: "namespace:2", parentId: "namespace:1", label: plainLabel("M"), classIds: [], noteIds: [] },
+      { id: "namespace:3", parentId: "namespace:2", label: plainLabel("L"), classIds: ["A"], noteIds: [] },
     ]);
     expect(model.classes.map((c) => [c.id, c.namespaceId])).toEqual([["A", "namespace:3"]]);
   });
@@ -366,8 +366,8 @@ describe("buildClassModel", () => {
       classDocument({
         classes: [classDecl({ id: "A" })],
         namespaces: [
-          { id: "N", name: "N", parentId: null, label: null, classIds: ["A"], line: 2, column: 1 },
-          { id: "N.M", name: "M", parentId: "N", label: null, classIds: ["A"], line: 4, column: 3 },
+          { id: "N", name: "N", parentId: null, label: null, classIds: ["A"], noteIndexes: [], line: 2, column: 1 },
+          { id: "N.M", name: "M", parentId: "N", label: null, classIds: ["A"], noteIndexes: [], line: 4, column: 3 },
         ],
       }),
     );
@@ -400,6 +400,7 @@ describe("buildClassModel", () => {
       parentId: extra.parentId ?? null,
       label: extra.label ?? null,
       classIds,
+      noteIndexes: [],
       ...(extra.line === undefined ? {} : { line: extra.line, column: 1 }),
     });
 
@@ -415,7 +416,7 @@ describe("buildClassModel", () => {
 
       expect(diagnostics).toEqual([]);
       expect(model.namespaces).toEqual([
-        { id: "namespace:1", parentId: null, label: plainLabel("N"), classIds: ["X", "Y"] },
+        { id: "namespace:1", parentId: null, label: plainLabel("N"), classIds: ["X", "Y"], noteIds: [] },
       ]);
       expect(model.classes.map((c) => [c.id, c.namespaceId])).toEqual([
         ["X", "namespace:1"],
@@ -435,8 +436,8 @@ describe("buildClassModel", () => {
 
       expect(diagnostics).toEqual([]);
       expect(model.namespaces).toEqual([
-        { id: "namespace:1", parentId: null, label: plainLabel("N"), classIds: [] },
-        { id: "namespace:2", parentId: "namespace:1", label: plainLabel("M"), classIds: ["A", "B"] },
+        { id: "namespace:1", parentId: null, label: plainLabel("N"), classIds: [], noteIds: [] },
+        { id: "namespace:2", parentId: "namespace:1", label: plainLabel("M"), classIds: ["A", "B"], noteIds: [] },
       ]);
     });
 
@@ -510,7 +511,7 @@ describe("buildClassModel", () => {
     const { model } = buildClassModel(
       classDocument({
         classes: [classDecl({ id: "Triangle" }), classDecl({ id: "Loose" })],
-        namespaces: [{ id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle"] }],
+        namespaces: [{ id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle"], noteIndexes: [] }],
       }),
     );
 
@@ -521,7 +522,7 @@ describe("buildClassModel", () => {
     const { model, diagnostics } = buildClassModel(
       classDocument({
         classes: [classDecl({ id: "Triangle" })],
-        namespaces: [{ id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle", "Square"] }],
+        namespaces: [{ id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle", "Square"], noteIndexes: [] }],
       }),
     );
 
@@ -753,7 +754,7 @@ describe("buildClassModel", () => {
     const { model, diagnostics } = buildClassModel(
       classDocument({
         classes: [classDecl({ id: "Triangle" })],
-        namespaces: [{ id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle"] }],
+        namespaces: [{ id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle"], noteIndexes: [] }],
         notes: [{ label: plainLabel("shapes live here"), targetId: "Triangle" }],
         timeline: {
           entries: [
@@ -1622,7 +1623,7 @@ describe("buildClassModel", () => {
       classDocument({
         classes: [classDecl({ id: "namespace" }), classDecl({ id: "1" })],
         relationships: [relationship({ from: "namespace", to: "1" })],
-        namespaces: [{ id: "Shapes", name: "Shapes", parentId: null, label: null, classIds: ["namespace"] }],
+        namespaces: [{ id: "Shapes", name: "Shapes", parentId: null, label: null, classIds: ["namespace"], noteIndexes: [] }],
         notes: [{ label: plainLabel("about shapes"), targetId: "namespace" }],
         timeline: {
           entries: [
@@ -1720,16 +1721,16 @@ describe("buildClassModel — labels", () => {
       classDocument({
         classes: [classDecl({ id: "Lion" }), classDecl({ id: "Cow" })],
         namespaces: [
-          { id: "Zoo", name: "Zoo", parentId: null, label: rowsLabel("Big", "Zoo"), classIds: ["Lion"] },
-          { id: "Farm", name: "Farm", parentId: null, label: null, classIds: ["Cow"] },
+          { id: "Zoo", name: "Zoo", parentId: null, label: rowsLabel("Big", "Zoo"), classIds: ["Lion"], noteIndexes: [] },
+          { id: "Farm", name: "Farm", parentId: null, label: null, classIds: ["Cow"], noteIndexes: [] },
         ],
       }),
     );
 
     expect(diagnostics).toEqual([]);
     expect(model.namespaces).toEqual([
-      { id: "namespace:1", parentId: null, label: rowsLabel("Big", "Zoo"), classIds: ["Lion"] },
-      { id: "namespace:2", parentId: null, label: plainLabel("Farm"), classIds: ["Cow"] },
+      { id: "namespace:1", parentId: null, label: rowsLabel("Big", "Zoo"), classIds: ["Lion"], noteIds: [] },
+      { id: "namespace:2", parentId: null, label: plainLabel("Farm"), classIds: ["Cow"], noteIds: [] },
     ]);
   });
 
@@ -1815,5 +1816,80 @@ describe("buildClassModel — dotted namespace names", () => {
       ["namespace:3", "namespace:2", "M", ["A"]],
       ["namespace:4", "namespace:2", "L", ["B"]],
     ]);
+  });
+});
+
+/**
+ * Notes written inside a namespace (measured on Mermaid 12.2.0, spec
+ * `class-nested-namespaces`): each is listed on the namespace the parser
+ * recorded it on, by the `note:N` id it already had.
+ */
+describe("buildClassModel — notes inside namespaces", () => {
+  const block = (id: string, classIds: string[], noteIndexes: number[], parentId: string | null = null) => ({
+    id,
+    name: id.slice(id.lastIndexOf(".") + 1),
+    parentId,
+    label: null,
+    classIds,
+    noteIndexes,
+  });
+  const free = (text: string) => ({ label: plainLabel(text), targetId: null });
+
+  it("lists a namespace's notes by their note:N ids, which a note outside every namespace keeps too", () => {
+    // `note "first"`, `namespace N { class A; note "second"; note for B "third" }`, `class B`.
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "A" }), classDecl({ id: "B" })],
+        namespaces: [block("N", ["A"], [1, 2])],
+        notes: [free("first"), free("second"), { label: plainLabel("third"), targetId: "B" }],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model.notes.map((n) => n.id)).toEqual(["note:1", "note:2", "note:3"]);
+    expect(model.namespaces.map((n) => [n.id, n.noteIds])).toEqual([["namespace:1", ["note:2", "note:3"]]]);
+  });
+
+  it("lists each note on the namespace it was written in, nested or dotted", () => {
+    // `namespace N { note "outer"; namespace M { class A; note "inner" } }`,
+    // or the leaf of `namespace N.M { class A; note "inner" }`.
+    const { model } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "A" })],
+        namespaces: [block("N", [], [0]), block("N.M", ["A"], [1], "N")],
+        notes: [free("outer"), free("inner")],
+      }),
+    );
+
+    expect(model.namespaces.map((n) => [n.id, n.noteIds])).toEqual([
+      ["namespace:1", ["note:1"]],
+      ["namespace:2", ["note:2"]],
+    ]);
+  });
+
+  it("gathers the notes of every block of a reopened namespace on the one namespace", () => {
+    const { model } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "X" })],
+        namespaces: [block("N", ["X"], [0]), block("N", [], [1])],
+        notes: [free("a"), free("b")],
+      }),
+    );
+
+    expect(model.namespaces.map((n) => [n.id, n.classIds, n.noteIds])).toEqual([["namespace:1", ["X"], ["note:1", "note:2"]]]);
+  });
+
+  it("leaves a dropped note off its namespace", () => {
+    // `note for Ghost` names no class, so the note is dropped with an error.
+    const { model } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "A" })],
+        namespaces: [block("N", ["A"], [0, 1])],
+        notes: [{ label: plainLabel("lost"), targetId: "Ghost" }, free("kept")],
+      }),
+    );
+
+    expect(model.notes.map((n) => n.id)).toEqual(["note:2"]);
+    expect(model.namespaces.map((n) => n.noteIds)).toEqual([["note:2"]]);
   });
 });

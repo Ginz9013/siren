@@ -1858,8 +1858,8 @@ export interface ClassRelationship {
  * grouping. A namespace opened more than once is one entry per block, all
  * with the same `id`; `buildClassModel` merges them into one namespace. A
  * dotted name, `namespace N.M {`, is one entry per segment: N, holding
- * nothing and labelled by nothing, then `N.M` with the block's label and
- * classes.
+ * nothing and labelled by nothing, then `N.M` with the block's label,
+ * classes and notes.
  */
 export interface ClassNamespace {
   /**
@@ -1893,6 +1893,12 @@ export interface ClassNamespace {
    */
   label: Label | null;
   classIds: string[];
+  /**
+   * The notes written directly in this block — `note "x"` and `note for X
+   * "x"` alike, wherever X stands — as indexes into `ClassDocument.notes`,
+   * whose order (and so each note's `note:N` id) they leave unchanged.
+   */
+  noteIndexes: number[];
   line?: number;
   column?: number;
 }
@@ -2155,6 +2161,11 @@ export interface ResolvedClassNamespace {
    */
   label: Label;
   classIds: string[];
+  /**
+   * The ids of the notes written in this namespace's blocks, drawn inside
+   * its frame. A note it lists is in `ClassModel.notes`.
+   */
+  noteIds: string[];
 }
 
 /** A note after model resolution: assigned id, attachment resolved. */
