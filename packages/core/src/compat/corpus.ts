@@ -4786,6 +4786,24 @@ line2\`"]`,
       "line, with a second error at its `}`.",
   },
   {
+    id: "cls-namespace-name-with-space",
+    kind: "class",
+    source: `classDiagram
+      namespace Big Zoo {
+        class Lion
+      }`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A namespace name " +
+      "takes no space: Mermaid 12.2.0 drops it, drawing one frame titled " +
+      "`BigZoo` (measured; `N M K` is `NMK`, and a tab is read the same) — a " +
+      "name nobody wrote, with no diagnostic. Siren refuses it (ADR-0001), " +
+      "with one error at the word after the space saying to write `BigZoo` " +
+      "or `Big_Zoo`; the block is still read, so its `}` is not refused as " +
+      "well. A space beside a dot (`Zoo . Cats`) is none, in both. Siren used " +
+      "to refuse the line and its `}` each as an unrecognized line.",
+  },
+  {
     id: "cls-namespace-body-statement",
     kind: "class",
     source: `classDiagram

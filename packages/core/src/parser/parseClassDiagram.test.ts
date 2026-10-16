@@ -2249,3 +2249,67 @@ describe("parseClassDiagram — an entity code's `;` in an inline member", () =>
     }
   });
 });
+
+/**
+ * A space inside a namespace name (spec `class-leniency`, measured on
+ * Mermaid 12.2.0): `namespace N M {` draws one frame titled `NM`, the space
+ * dropped — a picture of a name nobody wrote, with no diagnostic — so Siren
+ * refuses it at the word after the space (ADR-0001), saying how to write
+ * the name, and reads the block on as that one namespace.
+ */
+describe("parseClassDiagram — a namespace name with a space in it", () => {
+  const spaced = (written: string, joined: string, underscored: string) =>
+    `Namespace name "${written}" has a space in it: a namespace name cannot. ` +
+    `Write "${joined}" or "${underscored}" instead.`;
+  const diagnosticsOf = (body: string) => {
+    const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+    expect([body, document]).toEqual([body, null]);
+    return diagnostics.map((d) => [d.severity, d.message, d.line, d.column]);
+  };
+
+  it("refuses `namespace N M {` once, at the M, its `}` closing the block", () => {
+    expect(diagnosticsOf("  namespace N M {\n    class A\n  }")).toEqual([["error", spaced("N M", "NM", "N_M"), 2, 15]]);
+  });
+
+  it("refuses a name of three words once, at the second", () => {
+    expect(diagnosticsOf("  namespace N M K {\n    class A\n  }")).toEqual([
+      ["error", spaced("N M K", "NMK", "N_M_K"), 2, 15],
+    ]);
+  });
+
+  it("refuses it on a one-line namespace too", () => {
+    expect(diagnosticsOf("namespace N M { class A }")).toEqual([["error", spaced("N M", "NM", "N_M"), 2, 13]]);
+  });
+
+  it("refuses a space in a dotted name's part, leaving the dot alone", () => {
+    expect(diagnosticsOf("  namespace N.M K {\n    class A\n  }")).toEqual([
+      ["error", spaced("N.M K", "N.MK", "N.M_K"), 2, 17],
+    ]);
+  });
+
+  it("refuses it before a bracketed label", () => {
+    expect(diagnosticsOf('  namespace N M["L"] {\n    class A\n  }')).toEqual([["error", spaced("N M", "NM", "N_M"), 2, 15]]);
+  });
+
+  it("refuses a tab as it refuses a space", () => {
+    expect(diagnosticsOf("  namespace N\tM {\n    class A\n  }")).toEqual([["error", spaced("N\tM", "NM", "N_M"), 2, 15]]);
+  });
+
+  it("refuses it in a namespace written inside another, at its own line", () => {
+    expect(diagnosticsOf("  namespace N {\n    namespace M K {\n      class A\n    }\n  }")).toEqual([
+      ["error", spaced("M K", "MK", "M_K"), 3, 17],
+    ]);
+  });
+
+  it("still reports the errors inside such a block", () => {
+    const messages = diagnosticsOf("  namespace N M {\n    class A\n    A --> B\n  }").map(([, message]) => message);
+    expect(messages).toEqual([spaced("N M", "NM", "N_M"), expect.stringContaining("`A --> B` cannot be written inside")]);
+  });
+
+  it("still reads a space beside a dot as none", () => {
+    // Measured: `namespace N . M {` is the `M` inside N.
+    const { document, diagnostics } = parseClassDiagram("classDiagram\n  namespace N . M {\n    class A\n  }");
+    expect(diagnostics).toEqual([]);
+    expect(document?.kind === "class" ? document.namespaces.map((n) => n.id) : null).toEqual(["N", "N.M"]);
+  });
+});

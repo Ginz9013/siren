@@ -1772,8 +1772,17 @@ const SILENTLY_WRONG = 0;
  * say so: `cls-inline-member-semicolon` writes it down. No `supported` row
  * moved: none wrote a `;` in an inline member. `silently-wrong` does not
  * move.
+ *
+ * **44 → 45: case (2), a refusal written down for the first time.**
+ * `01M51DSEXR` refused a space between two words of a namespace name
+ * (`namespace Big Zoo {`) with one error saying how to write it. Mermaid
+ * 12.2.0 draws the frame `BigZoo` (measured), a name nobody wrote, refused
+ * under ADR-0001. Siren already refused the line, as an unrecognized one
+ * with a second error at its `}`, with no row to say so:
+ * `cls-namespace-name-with-space` writes it down. No `supported` row
+ * moved. `silently-wrong` does not move.
  */
-const REJECTED = 44;
+const REJECTED = 45;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

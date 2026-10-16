@@ -135,10 +135,10 @@ const STANDALONE_ANNOTATION_RE = /^<<(.+)>>\s+(\w+)$/;
  * error in Mermaid.
  *
  * The name may be dotted, `namespace N.M {`, each segment a `\w+` and a
- * space either side of a dot allowed, as Mermaid 12.2.0 reads it (measured)
- * — a space anywhere else ends the name, so `namespace N M {` is no
- * namespace. A segment may also be empty (`.N`, `N.`, `N..M`): such a name
- * still matches, for the caller to refuse at the name.
+ * space either side of a dot allowed, as Mermaid 12.2.0 reads it (measured).
+ * A space between two words (`namespace N M {`) matches too, for the caller
+ * to refuse at the name (`NAME_SPACE_RE`), as does an empty segment (`.N`,
+ * `N.`, `N..M`).
  *
  * What follows the `{` on its line is the body's first statement (the
  * third capture): Mermaid 12.2.0 reads `namespace N { class A }` as N
@@ -147,9 +147,18 @@ const STANDALONE_ANNOTATION_RE = /^<<(.+)>>\s+(\w+)$/;
  * so a line with one does not open a namespace here.
  */
 const NAMESPACE_OPEN_RE = new RegExp(
-  String.raw`^namespace\s+((?=[\w.])\w*(?:\s*\.(?:\s*\w+)?)*)\s*${BRACKETED_LABEL}\s*\{(?!\s*%%)(.*)$`,
+  String.raw`^namespace\s+((?=[\w.])\w*(?:\s*\.(?:\s*\w+)?|\s+\w+)*)\s*${BRACKETED_LABEL}\s*\{(?!\s*%%)(.*)$`,
   "d",
 );
+
+/**
+ * A space between two words of a namespace name. Mermaid 12.2.0 drops it,
+ * reading `namespace N M {` as the one namespace `NM` (measured: a frame
+ * titled `NM`) — a name nobody wrote, with no diagnostic — so it is refused
+ * (ADR-0001). A space beside a dot is none (`N . M` is `N.M`), so it is not
+ * matched here.
+ */
+const NAME_SPACE_RE = /(?<=\w)\s+(?=\w)/g;
 
 /**
  * The index of the first `}` in `text` that closes no `{` opened before it
@@ -906,7 +915,27 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       // of its own, which `buildClassModel` merges with any block of that
       // name.
       const outerNamespace = enclosingNamespace;
-      const writtenSegments = namespaceOpenMatch[1].split(".").map((segment) => segment.trim());
+      const writtenName = namespaceOpenMatch[1];
+      const nameSpace = new RegExp(NAME_SPACE_RE).exec(writtenName);
+      if (nameSpace !== null) {
+        // Refused once, at the word after the space, and the block read on
+        // as the namespace Mermaid draws, so its `}` closes it rather than
+        // being refused as well.
+        const undotted = writtenName.replace(/\s*\.\s*/g, ".");
+        diagnostics.push({
+          severity: "error",
+          message:
+            `Namespace name "${writtenName}" has a space in it: a namespace name cannot. ` +
+            `Write "${undotted.replace(NAME_SPACE_RE, "")}" or "${undotted.replace(NAME_SPACE_RE, "_")}" instead.`,
+          line: lineNumber,
+          column: column + namespaceOpenMatch.indices![1]![0] + nameSpace.index + nameSpace[0].length,
+        });
+        sawError = true;
+      }
+      const writtenSegments = writtenName
+        .replace(NAME_SPACE_RE, "")
+        .split(".")
+        .map((segment) => segment.trim());
       let segments = writtenSegments.filter((segment) => segment.length > 0);
       if (segments.length < writtenSegments.length) {
         // Measured: Mermaid 12.2.0 refuses `namespace .N`, `namespace N.`

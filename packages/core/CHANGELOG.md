@@ -209,6 +209,12 @@ which is now refused (see **Changed**).
 
 ### Changed
 
+- **A space in a class namespace name is refused once, saying how to write it** (nook
+  `01M51DSEXR`): Mermaid 12.2.0 drops the space, drawing `namespace N M {` as the one frame `NM`.
+  The error stands at the word after the space and offers `NM` or `N_M`; the block is still read,
+  so its `}` is no longer refused as well, and errors inside it are reported as usual. On a
+  one-line, nested or dotted name (`N.M K`) too; a space beside a dot (`N . M`) still reads as
+  none. Such a line used to be refused as unrecognized, with a second error at its `}`.
 - **A `;` in an inline class member is refused** (nook `01M51DSEQ3`), as Mermaid 12.2.0's lexer
   refuses it: `A : +int x; y`, `A : +foo(a; b)`, `A : +int x;` and a `;` in a type, a return type,
   a `~generic~` or quotes each get one error at the `;`, saying to write each member on a line of
