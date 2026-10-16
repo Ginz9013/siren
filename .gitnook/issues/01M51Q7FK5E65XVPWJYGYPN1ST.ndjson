@@ -4,3 +4,4 @@
 {"id":"01M51SZ50RQWDV68CP77EMH0AC","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M51TJYN2ME67YFPPKZKZEZPQ","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
 {"id":"01M51TJYVQHN7C2WFXA07ZG64Q","t":6,"a":"83a1","op":"comment","body":"時間軸指到 `%%` 開頭 id 的驗收條件未達成（寫入範圍漏列 parseSiren.ts），移到 T12 01M51TJRT0Z22Z6DE4G5MQVEY5。"}
+{"id":"01M51WMXAMBVE3SY8F7Y7VDA08","t":7,"a":"83a1","op":"set","k":"archived","v":true}

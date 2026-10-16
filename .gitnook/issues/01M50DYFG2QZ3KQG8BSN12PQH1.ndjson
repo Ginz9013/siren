@@ -3,3 +3,4 @@
 {"id":"01M51Q8D79489CHVET2GKJZ884","t":3,"a":"83a1","op":"comment","body":"由 board backlog-batch-1016（spec 01M51Q7EZQQ3YVVTEAHYN898KX）接手，落地時關閉。"}
 {"id":"01M51WH0YRZVGCCCZJBWF49Y1S","t":4,"a":"83a1","op":"comment","body":"由 board backlog-batch-1016 完成：T2 01M51Q7FCNVAMK9FKX5BPC8BNZ、T3 01M51Q7FK5E65XVPWJYGYPN1ST、T4 01M51Q7FSSKCM7EH7K2SB1NKR8、T12 01M51TJRT0Z22Z6DE4G5MQVEY5。TIMELINE_COMMENT_RE 一項已由 a693dd0 解決。其餘落差移到 01M51WGKGACF9HSXPH8BRCEK9A。"}
 {"id":"01M51WH1KSDZZNYN3NZZXBB4G7","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M51WMZSJQ044NDZP77G4G0NR","t":6,"a":"83a1","op":"set","k":"archived","v":true}

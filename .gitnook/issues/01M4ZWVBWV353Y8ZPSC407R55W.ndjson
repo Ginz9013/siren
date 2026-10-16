@@ -3,3 +3,4 @@
 {"id":"01M51Q8D0S0V3TWYC48BT2GSB9","t":3,"a":"83a1","op":"comment","body":"由 board backlog-batch-1016（spec 01M51Q7EZQQ3YVVTEAHYN898KX）接手，落地時關閉。"}
 {"id":"01M51WH0R20DZ9X775S5XVF4G8","t":4,"a":"83a1","op":"comment","body":"board backlog-batch-1016 做了第一刀（shape 對應現有 14 種形狀的 45 個名稱＋label：T1 01M51Q7F65QMNVZN545S28D4CN、T9 01M51RE5K58MHGPQS8BBQZV436、T11 01M51S4P5S48Z43G6QH8KK54H2）。其餘形狀、鍵與邊 id 移到 01M51WGK2FCKFSBYJNA41B7PF1。"}
 {"id":"01M51WH1C7RNMT9F1KXFX1ZGBQ","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M51WMZK22G1WJTG3VZDQ7YME","t":6,"a":"83a1","op":"set","k":"archived","v":true}
