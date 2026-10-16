@@ -3158,6 +3158,17 @@ describe("parseClassDiagram — an entity code in a member", () => {
     }
   });
 
+  it("takes a generic return type's last `$` as the classifier, and leaves one inside the parens alone", () => {
+    // Measured (Mermaid 12.2.0, Chrome): `+foo() List~T~$` draws
+    // `+foo() : List<T>` underlined; `+foo(a$)` draws `+foo(a$)` plain.
+    expect(
+      membersIn("  class A {\n    +foo() List~T~$\n    +foo(a$)\n  }").map((m) => [m.parameters, m.returnType, m.classifier]),
+    ).toEqual([
+      ["", "List~T~", "$"],
+      ["a$", null, null],
+    ]);
+  });
+
   it("reads an entity code opening a member as text, not as the `#` visibility marker", () => {
     // Measured: `#lt; x` draws `< x` and `#lt;int x` `<int x` — Mermaid
     // encodes the code before it looks for a marker, so none is found.

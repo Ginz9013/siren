@@ -6134,6 +6134,8 @@ line2\`"]`,
         +foo()$
         +foo()* bool
         +foo() bool$
+        +foo() List~T~$
+        +foo(a$)
       }
       A : +bar()$ int`,
     status: "supported",
@@ -6143,10 +6145,12 @@ line2\`"]`,
       "`+y*` as `+y` in italics (abstract), visibility and return type " +
       "included (measured, Chrome). An attribute's classifier is its last " +
       "character only — `+x$ int` is drawn as written — and a method's " +
-      "stands right after its `)` or at the end of its return type, in a " +
+      "stands right after its `)` or at the end of its return type " +
+      "(`+foo() List~T~$` is `+foo() : List<T>` underlined; `+foo(a$)` is " +
+      "drawn as written), in a " +
       "class block and after `A :` alike. Siren used to draw the `$` or `*` " +
       "at the end of the line, and `+foo()* bool` as `+foo() : * bool` " +
-      "(01M51XAEEXFFAB5Y0H6YN4K2BM).",
+      "(nook 01M51XAEEX).",
     assert: (result) => {
       const lines = Array.from(
         svgOf(result).querySelectorAll('g.siren-class[data-siren-id="A"] text.siren-member'),
@@ -6158,6 +6162,8 @@ line2\`"]`,
         "+foo() {text-decoration:underline}",
         "+foo() : bool {font-style:italic}",
         "+foo() : bool {text-decoration:underline}",
+        "+foo() : List<T> {text-decoration:underline}",
+        "+foo(a$) {}",
         "+bar() : int {text-decoration:underline}",
       ]);
     },

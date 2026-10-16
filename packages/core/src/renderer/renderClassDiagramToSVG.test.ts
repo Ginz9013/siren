@@ -359,11 +359,11 @@ describe("renderClassDiagramToSVG", () => {
     expect(members[2].getAttribute("y")).toBe("104");
   });
 
-  it("draws a static member's whole line underlined and an abstract one's in italics, after the class's own text style", () => {
+  it("draws a static member's whole line underlined and an abstract one's in italics, beside the class's own text style", () => {
     // Measured (Mermaid 12.2.0, Chrome): the member's label carries
     // `text-decoration:underline` for `$` and `font-style:italic` for `*`,
-    // on the whole line, visibility and return type included; the
-    // classifier sits nearer the text than the class's style, so it wins.
+    // on the whole line, visibility and return type included. A class's
+    // text style holds only `fill`, so the two sit side by side.
     const members = (style: { property: string; value: string }[]) =>
       Array.from(
         renderClassDiagramToSVG(

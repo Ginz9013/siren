@@ -506,11 +506,12 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
    * that translation, and this renderer neither repeats nor second-guesses
    * it.
    *
-   * `own` is what the label adds of its own after the class's declarations —
-   * a member's classifier style (`classifierStyle`).
+   * `classifierDeclarations` is a member line's classifier style
+   * (`classifierStyle`), written after the class's declarations; the two
+   * never name the same property (see `classifierStyle`).
    */
-  const appendClassText = (label: SVGTextElement, own: StyleProperty[] = []): void => {
-    applyAuthorStyle(label, [...positionedClass.style.text, ...own]);
+  const appendClassText = (label: SVGTextElement, classifierDeclarations: StyleProperty[] = []): void => {
+    applyAuthorStyle(label, [...positionedClass.style.text, ...classifierDeclarations]);
     g.appendChild(label);
   };
 
@@ -725,8 +726,12 @@ function applyAuthorStyle(element: SVGElement, style: StyleProperty[]): void {
 /**
  * The declaration a member's classifier draws its whole line with — `$`
  * underlined, `*` in italics, as Mermaid 12.2.0 draws them (measured,
- * Chrome) — written after the class's own text declarations so that, as in
- * Mermaid, where it sits nearer the text, the classifier wins.
+ * Chrome) — written after the class's own text declarations. The two never
+ * conflict: a class's text style carries only `fill` (`resolveStyles` keeps
+ * `color` alone), never `font-style` or `text-decoration`. Were that to
+ * change, note that Mermaid would let the author win — its author styles
+ * land on the inner spans with `!important` — so the order here would have
+ * to flip.
  */
 function classifierStyle(classifier: ClassMemberClassifier | null): StyleProperty[] {
   switch (classifier) {
