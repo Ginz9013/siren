@@ -1918,8 +1918,17 @@ const SILENTLY_WRONG = 0;
  * row moved: `cls-member-punctuation`, `cls-member-markers-only`,
  * `cls-member-repeated` and `cls-method-last-paren`, new beside it, are
  * `supported`. `silently-wrong` does not move.
+ *
+ * **70 → 71: case (2), a refusal written down for the first time.**
+ * `01M51XACB6WMSE98954326VAZ7` drew the shapes Mermaid 12.2.0 draws with no
+ * text (`fc-node-shape-data-labelless`, `fc-node-shape-data-labelless-lr`,
+ * `supported`) and refused a label written for one
+ * (`fc-node-shape-data-labelless-label`): Mermaid empties it and draws the
+ * bare shape (measured, Chrome), refused under ADR-0001. Siren refused every
+ * one of these shapes before, as not drawn yet. No `supported` row moved.
+ * `silently-wrong` does not move.
  */
-const REJECTED = 70;
+const REJECTED = 71;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

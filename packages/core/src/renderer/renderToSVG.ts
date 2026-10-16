@@ -350,26 +350,30 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
       g.appendChild(element);
     }
 
-    // Centred on the node, which is where layout centred the box the shape
-    // was sized around — or moved off it by the offset layout reported for
-    // a shape that puts its label elsewhere (`labelOffset`). What the label paints behind its text goes in
-    // first, over the frame and under the text, since document order is
-    // paint order.
-    const drawn = drawLabel(node.label, node.labelBox, {
-      x: node.x + node.width / 2 + (node.labelOffset?.x ?? 0),
-      y: node.y + node.height / 2 + (node.labelOffset?.y ?? 0),
-    });
-    // The other half of the author's declaration. A node draws two things —
-    // the frame and this label — and `resolveStyles` already decided which
-    // of them each declaration is about, so there is nothing to sort here.
-    //
-    // No class is added for the sake of it. The theme reaches this element
-    // by `.siren-node text`, and an inline declaration outranks an element
-    // selector exactly as it outranks a class selector, so a
-    // `siren-node-label` mirroring `.siren-class-name` would change nothing
-    // about where this lands.
-    applyInlineStyle(drawn.text, node.style.text);
-    appendLabel(g, drawn);
+    // A shape that draws no text (a fork, a small circle) says so in the
+    // shape table, and its node draws no label at all — not an empty one.
+    if (SHAPES[node.shape].drawsLabel !== false) {
+      // Centred on the node, which is where layout centred the box the shape
+      // was sized around — or moved off it by the offset layout reported for
+      // a shape that puts its label elsewhere (`labelOffset`). What the
+      // label paints behind its text goes in first, over the frame and
+      // under the text, since document order is paint order.
+      const drawn = drawLabel(node.label, node.labelBox, {
+        x: node.x + node.width / 2 + (node.labelOffset?.x ?? 0),
+        y: node.y + node.height / 2 + (node.labelOffset?.y ?? 0),
+      });
+      // The other half of the author's declaration. A node draws two things —
+      // the frame and this label — and `resolveStyles` already decided which
+      // of them each declaration is about, so there is nothing to sort here.
+      //
+      // No class is added for the sake of it. The theme reaches this element
+      // by `.siren-node text`, and an inline declaration outranks an element
+      // selector exactly as it outranks a class selector, so a
+      // `siren-node-label` mirroring `.siren-class-name` would change nothing
+      // about where this lands.
+      applyInlineStyle(drawn.text, node.style.text);
+      appendLabel(g, drawn);
+    }
 
     // The same wrapper the class diagram renderer calls, on the terms
     // ADR-0008 already established for a node's frame: `null` draws nothing

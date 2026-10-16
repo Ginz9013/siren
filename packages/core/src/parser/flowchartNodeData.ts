@@ -1,5 +1,6 @@
 import { JSON_SCHEMA, load, YAMLException } from "js-yaml";
 import type { NodeShape } from "../contracts";
+import { SHAPES } from "../layout/shapes/shapeTable";
 
 /**
  * A flowchart node's `@{ … }` data block — `A@{ shape: circle, label: "x" }`
@@ -62,6 +63,16 @@ const TABLE_SHAPE_NAMES: ReadonlyArray<readonly [NodeShape, readonly [string, ..
   ["note", ["note"]],
   ["data-store", ["datastore", "data-store"]],
   ["state", ["state"]],
+  // The shapes drawn at a fixed size, with no text.
+  ["fork", ["fork", "join"]],
+  ["hourglass", ["hourglass", "collate"]],
+  ["bolt", ["bolt", "com-link", "lightning-bolt"]],
+  ["small-circle", ["sm-circ", "start", "small-circle"]],
+  ["framed-circle", ["fr-circ", "stop", "framed-circle"]],
+  ["filled-circle", ["f-circ", "junction", "filled-circle"]],
+  ["anchor", ["anchor"]],
+  ["crossed-circle", ["cross-circ", "summary", "crossed-circle"]],
+  ["choice", ["choice"]],
 ];
 
 const SHAPE_NAMES = [...BRACKET_SHAPE_NAMES, ...TABLE_SHAPE_NAMES];
@@ -74,15 +85,11 @@ export const NODE_DATA_SHAPES: ReadonlyMap<string, NodeShape> = new Map(
 /**
  * The shape names Mermaid 12.2.0 draws and Siren does not yet: every name of
  * the shapes `shapesDefs` documents that neither list above holds, and the
- * undocumented lowercase names its shape map also accepts (`choice`,
- * `icon`, `anchor`; measured) that Siren does not draw yet. Told apart
+ * undocumented lowercase name its shape map also accepts (`icon`; measured)
+ * that Siren does not draw yet. Told apart
  * from a name that is no shape at all only so the message can say which.
  */
 const UNDRAWN_SHAPE_NAMES: ReadonlySet<string> = new Set([
-  // The shapes drawn at a fixed size, with no text
-  ...["fork", "join", "hourglass", "collate", "bolt", "com-link", "lightning-bolt", "sm-circ", "start"],
-  ...["small-circle", "fr-circ", "stop", "framed-circle", "f-circ", "junction", "filled-circle", "cross-circ"],
-  ...["summary", "crossed-circle", "choice", "anchor"],
   // The shapes with a curved outline
   ...["delay", "half-rounded-rectangle", "curv-trap", "curved-trapezoid", "display", "h-cyl", "das"],
   ...["horizontal-cylinder", "lin-cyl", "disk", "lined-cylinder", "bow-rect", "stored-data"],
@@ -271,6 +278,23 @@ function readShape(value: unknown, problems: DataBlockProblem[]): NodeShape | nu
     problems.push({ severity: "error", message: `There is no shape "${value}". Use a shape such as: ${SHAPE_CHOICES}` });
   }
   return null;
+}
+
+/**
+ * Why a label written for a node of `shape` is refused, or `null` when the
+ * shape draws text. A shape whose shape-table record draws no label (a
+ * fork, a small circle) would drop it: Mermaid 12.2.0 empties the label of
+ * each such shape before drawing it, so the author's text vanishes with no
+ * word said (measured).
+ */
+export function unshownLabelMessage(shape: NodeShape, label: string): string | null {
+  if (SHAPES[shape].drawsLabel !== false) {
+    return null;
+  }
+  return (
+    `The shape "${shape}" draws no text, so the label "${label}" would not be shown. ` +
+    "Remove the label, or use a shape that draws text"
+  );
 }
 
 /** Where one `@{ … }` block stands: its `@`, and past its `}` (`null` when nothing closes it). */

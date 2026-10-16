@@ -1844,4 +1844,15 @@ describe("default theme's paint for a node's shape-table frames", () => {
     frame.setAttribute("class", ["siren-node-frame", ...FRAME_PAINT.node].join(" "));
     expect(getComputedStyle(frame).fill).toBe("var(--siren-node-fill)");
   });
+
+  it("fills a filled circle with the line colour, and lets an author's fill repaint it as Mermaid does", () => {
+    // Mermaid 12.2.0 draws `f-circ` in its line colour and, under
+    // `style A fill:#f00`, red (measured in Chrome): the author's fill wins
+    // over the shape's own paint, as it does on every other frame.
+    const plain = frameOf("flowchart TB\n  A@{ shape: f-circ }", "A").frame;
+    expect(getComputedStyle(plain).fill).toBe("var(--siren-node-stroke)");
+    const styled = frameOf("flowchart TB\n  A@{ shape: f-circ }\n  style A fill:#f00", "A").frame;
+    expect(getComputedStyle(styled).fill).toBe("#f00");
+  });
 });
+

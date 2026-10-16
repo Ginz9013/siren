@@ -435,12 +435,12 @@ const SHAPE_CHOICES = "rect, rounded, stadium, fr-rect, cyl, circle, diam, hex, 
 /**
  * A `shape:` Siren does not draw. Measured on Mermaid 12.2.0: it draws
  * `cloud`, `doc` and the rest of its documented shapes Siren has no
- * geometry for yet, and the undocumented `choice`, `icon` and `anchor`; it refuses `foo` ("No such shape"),
+ * geometry for yet, and the undocumented `icon`; it refuses `foo` ("No such shape"),
  * and any name with an upper-case letter or a `_` ("Shape names should be
  * lowercase"); `shape: 1` throws.
  */
 describe("a `shape:` Siren does not draw", () => {
-  it.each(["cloud", "doc", "lin-cyl", "choice", "icon", "anchor"])(
+  it.each(["cloud", "doc", "lin-cyl", "icon"])(
     "refuses `shape: %s` at the `@`, as a shape not drawn yet",
     (name) => {
       const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> Bc@{ shape: ${name} }`);
@@ -3109,5 +3109,75 @@ describe("the three lists of `shape:` names", () => {
     expect(bracket.length).toBeGreaterThan(0);
     expect(table.length).toBeGreaterThan(0);
     expect(undrawn.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The `shape:` names of the shapes Mermaid 12.2.0 draws at a fixed size and
+ * with no text (`fork`, `sm-circ`, … and the undocumented `choice` and
+ * `anchor`). Measured in Chrome: every alias draws what its short name
+ * draws, and none of them draws a label.
+ */
+const LABELLESS_SHAPE_NAMES: ReadonlyArray<[string, NodeShape]> = [
+  ...(["fork", "join"] as const).map((name) => [name, "fork"] as [string, NodeShape]),
+  ...(["hourglass", "collate"] as const).map((name) => [name, "hourglass"] as [string, NodeShape]),
+  ...(["bolt", "com-link", "lightning-bolt"] as const).map((name) => [name, "bolt"] as [string, NodeShape]),
+  ...(["sm-circ", "start", "small-circle"] as const).map((name) => [name, "small-circle"] as [string, NodeShape]),
+  ...(["fr-circ", "stop", "framed-circle"] as const).map((name) => [name, "framed-circle"] as [string, NodeShape]),
+  ...(["f-circ", "junction", "filled-circle"] as const).map((name) => [name, "filled-circle"] as [string, NodeShape]),
+  ...(["anchor"] as const).map((name) => [name, "anchor"] as [string, NodeShape]),
+  ...(["cross-circ", "summary", "crossed-circle"] as const).map((name) => [name, "crossed-circle"] as [string, NodeShape]),
+  ...(["choice"] as const).map((name) => [name, "choice"] as [string, NodeShape]),
+];
+
+describe("a node written with the `@{ shape: … }` name of a shape that draws no text", () => {
+  it.each(LABELLESS_SHAPE_NAMES)("draws `shape: %s` as the %s shape", (name, shape) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A@{ shape: ${name} }`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes).toEqual([{ id: "A", label: plainLabel("A"), shape, line: 2, column: 3 }]);
+  });
+});
+
+/**
+ * A label written for a shape that draws no text. Mermaid 12.2.0 empties
+ * the label of every such shape before drawing it (`node.label = ""` in
+ * each handler; measured in Chrome: `A[Hello]@{ shape: fork }` and
+ * `A@{ shape: fork, label: "Hello" }` both draw a bare bar), so the text
+ * the author wrote silently vanishes. Siren refuses it instead, at the
+ * label, saying what to change.
+ */
+describe("a label written for a shape that draws no text", () => {
+  const refusal = (shape: string, label: string) =>
+    `The shape "${shape}" draws no text, so the label "${label}" would not be shown. ` +
+    "Remove the label, or use a shape that draws text";
+
+  it("refuses a `label:` in the same block, at the block's `@`", () => {
+    const { document, diagnostics } = parseFlowchart('flowchart TB\n  A@{ shape: fork, label: "Hello" }');
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: refusal("fork", "Hello"), line: 2, column: 4 }]);
+  });
+
+  it("refuses a bracket label on the node the block gives the shape to, at the label", () => {
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  A[Hello]@{ shape: sm-circ }");
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: refusal("small-circle", "Hello"), line: 2, column: 5 }]);
+  });
+
+  it("refuses a label written on an earlier line, where it was written", () => {
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  A[Hello]\n  A@{ shape: choice }");
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: refusal("choice", "Hello"), line: 2, column: 5 }]);
+  });
+
+  it("leaves a node whose later bracket gives it a shape that draws text, as Mermaid does", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  A@{ shape: fork }\n  A[Hello]");
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label.text, node.shape])).toEqual([["A", "Hello", "rect"]]);
+  });
+
+  it("draws a shape with no text written for it, labelled with nothing but its id", () => {
+    const { diagnostics } = parseOk("flowchart TB\n  A@{ shape: fork } --> B@{ shape: f-circ }");
+    expect(diagnostics).toEqual([]);
   });
 });

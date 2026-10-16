@@ -34,6 +34,7 @@ import {
   NODE_DATA_OPENER,
   nodeDataEnd,
   readNodeData,
+  unshownLabelMessage,
 } from "./flowchartNodeData";
 
 /**
@@ -2614,6 +2615,13 @@ export function parseFlowchart(source: string): DiagramParseResult {
    * being free to be declared below it.
    */
   const nodeDataAt = new Map<string, { line: number; column: number }>();
+  /**
+   * Every node id the author wrote a label for — in brackets or as a
+   * block's `label:` — with where the last one stands, so that a label
+   * written for a shape that draws no text can be refused there once the
+   * node's final shape is known.
+   */
+  const labelWrittenAt = new Map<string, { line: number; column: number }>();
 
   let mode: "before-header" | "flowchart" = "before-header";
   let sawError = false;
@@ -2805,6 +2813,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
         data.at,
       );
       node.label = label;
+      labelWrittenAt.set(id, positionIn(statement, data.at));
     }
   };
 
@@ -2860,6 +2869,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
       const read = parseNodeLabel(label);
       reportLabelProblems(read.problems, statement, labelAt);
       addNode(id, read.label, shape, line, column);
+      labelWrittenAt.set(id, positionIn(statement, labelAt));
     } else if (undeclared) {
       nodesById.set(id, { id, label: plainLabel(id), shape, line, column });
     }
@@ -3791,6 +3801,17 @@ export function parseFlowchart(source: string): DiagramParseResult {
         message: `"${id}" is a subgraph, and a subgraph takes no "${NODE_DATA_OPENER} … }" block. Leave the block out`,
         ...position,
       });
+      sawError = true;
+    }
+  }
+
+  // A label written for a shape that draws no text, refused where it was
+  // written: Mermaid 12.2.0 empties it and draws the bare shape (measured).
+  for (const [id, position] of labelWrittenAt) {
+    const node = nodesById.get(id);
+    const message = node === undefined ? null : unshownLabelMessage(node.shape, node.label.text);
+    if (message !== null) {
+      diagnostics.push({ severity: "error", message, ...position });
       sawError = true;
     }
   }

@@ -98,7 +98,17 @@ export type NodeShape =
   | "composite"
   | "note"
   | "data-store"
-  | "state";
+  | "state"
+  // The shapes Mermaid draws at a fixed size and with no text.
+  | "fork"
+  | "hourglass"
+  | "bolt"
+  | "small-circle"
+  | "framed-circle"
+  | "filled-circle"
+  | "anchor"
+  | "crossed-circle"
+  | "choice";
 
 /** Effect names accepted by `enter`/`exit` timeline actions. */
 export type EnterExitEffect =

@@ -1,0 +1,6 @@
+flowchart TB
+  S@{ shape: sm-circ } --> F@{ shape: fork } --> H@{ shape: hourglass }
+  F --> B@{ shape: bolt } --> J@{ shape: f-circ }
+  H --> J --> X@{ shape: cross-circ } --> C@{ shape: choice }
+  C --> N@{ shape: anchor } --> E@{ shape: fr-circ }
+  E --> R[Rectangle] --> K@{ shape: datastore, label: "Data store" }

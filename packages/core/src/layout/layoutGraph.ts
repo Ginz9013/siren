@@ -1,4 +1,5 @@
 import type {
+  Direction,
   GraphModel,
   LayoutOptions,
   NodeShape,
@@ -71,6 +72,24 @@ export function layoutGraph(
     height: Math.max(0, empty.height - BASE_FONT_SIZE_PX * LINE_HEIGHT_RATIO),
   };
 
+  // The direction a shape is drawn for: its nearest enclosing subgraph's
+  // own `direction`, or the graph's — Mermaid's `resolveNodeDir`, which
+  // hands a fork the direction as written, whether or not layout keeps it.
+  const subgraphById = new Map(graph.subgraphs.map((subgraph) => [subgraph.id, subgraph]));
+  const directionOf = (parentId: string | null): Direction => {
+    for (let id = parentId; id !== null; ) {
+      const subgraph = subgraphById.get(id);
+      if (subgraph === undefined) {
+        break;
+      }
+      if (subgraph.direction !== null) {
+        return subgraph.direction;
+      }
+      id = subgraph.parentId;
+    }
+    return graph.direction;
+  };
+
   // The box a rectangle would draw around each label: what every shape's
   // record sizes its own box from.
   const paddedLabelOf = (id: string) => ({
@@ -130,7 +149,7 @@ export function layoutGraph(
         // The shape decides how much box the measured label needs; the
         // shared layout core is handed sizes and never learns a shape
         // exists.
-        ...SHAPES[node.shape].box(paddedLabelOf(node.id), graph.direction),
+        ...SHAPES[node.shape].box(paddedLabelOf(node.id), directionOf(node.parentId)),
         // Membership, and the only thing about a subgraph a member tells the
         // core. `undefined` rather than `null` when the node is in no
         // subgraph, matching the core's optional field.

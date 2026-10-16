@@ -68,6 +68,11 @@ export interface ShapeSpec {
   labelRect?(box: Rect, label: Size): Rect;
   /** The elements the outline is drawn with, inscribed in `box`. */
   frames(box: Rect): ShapeFrame[];
+  /**
+   * `false` for a shape that draws no text at all (a fork, a small circle):
+   * the renderer leaves the label out. Absent, the label is drawn.
+   */
+  drawsLabel?: false;
 }
 
 /**

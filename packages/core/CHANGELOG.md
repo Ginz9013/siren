@@ -145,6 +145,14 @@ each time; and for one with a method whose last parameter list is padded or foll
 
 ### Added
 
+- A flowchart node's `@{ shape: … }` block draws the shapes Mermaid 12.2.0 draws at a fixed size
+  and with no text (nook `01M51XACB6`, measured in headless Chrome): `fork` (`join`; a 70x10 bar,
+  upright in a left-to-right or right-to-left flow or subgraph), `hourglass` (`collate`), `bolt`
+  (`com-link`, `lightning-bolt`), `sm-circ` (`start`, `small-circle`), `fr-circ` (`stop`,
+  `framed-circle`), `f-circ` (`junction`, `filled-circle`; filled in the line colour, which an
+  author's `fill` repaints), `cross-circ` (`summary`, `crossed-circle`), and the undocumented
+  `choice` (a 28px diamond) and `anchor` (a 2px dot). None of them draws a label. Each used to be
+  refused as a shape not drawn yet.
 - A flowchart edge may be written with an id of its own (nook `01M51XADJK`): `A e1@--> B`, before
   any arrow spelling, before a label in either spelling (`A e1@-->|x| B`, `A e1@-- x --> B`) and on
   each link of a chain (`A e1@--> B e2@--> C`). The edge is drawn and stamped `data-siren-id="e1"`
@@ -347,6 +355,12 @@ each time; and for one with a method whose last parameter list is padded or foll
 
 ### Changed
 
+- A label written for a flowchart shape that draws no text — in brackets (`A[Ready]@{ shape: fork
+  }`), as the block's `label:`, or on another line for the same node — is refused where it was
+  written (nook `01M51XACB6`): Mermaid 12.2.0 drops it and draws the bare shape.
+- A refused `@{ shape: … }` name now offers the fourteen bracket shapes as examples ("Use a shape
+  such as: …") rather than as the only choices.
+- A flowchart `datastore` is wider by twice Mermaid's 15px node padding, as Mermaid sizes it.
 - **More class members are read as Mermaid 12.2.0 reads them** (nook `01M51XAEND`, measured in
   Chrome): a member's name may hold `?`, `!`, `,`, `[`, `]`, `=`, `/`, `'`, `"`, `$`, `*` and `&`
   (`+???`, `+x a!b`, `+[a]`), a class block's member may end in `;` (`+int x;`), and a member may

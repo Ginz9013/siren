@@ -3469,6 +3469,82 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "fc-node-shape-data-labelless",
+    kind: "flowchart",
+    source: `flowchart TB
+      S@{ shape: sm-circ } --> F@{ shape: fork } --> H@{ shape: hourglass }
+      F --> B@{ shape: bolt } --> J@{ shape: f-circ }
+      H --> J --> X@{ shape: cross-circ } --> C@{ shape: choice }
+      C --> N@{ shape: anchor } --> E@{ shape: fr-circ }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws nine shapes its `@{ … }` block names at a fixed " +
+      "size and with no text (measured in Chrome, classic look): a 70x10 " +
+      "fork bar, a 30x30 hourglass, a 35x70 lightning bolt, 14px small, " +
+      "filled and framed circles, a 60px crossed circle, a 28px choice " +
+      "diamond and a 2px anchor dot. Siren draws the same nine from its " +
+      "shape table (nook 01M51XACB6), with no text, and joins every edge to " +
+      "them however small they are.",
+    assert: (result) => {
+      const drawn = svgOf(result);
+      const ids = ["S", "F", "H", "B", "J", "X", "C", "N", "E"];
+      expectSame(
+        "nodes",
+        elements(result, "g.siren-node").map(idOf),
+        ids,
+      );
+      expectSame(
+        "texts",
+        ids.map((id) => drawn.querySelectorAll(`g.siren-node[data-siren-id="${id}"] text`).length),
+        ids.map(() => 0),
+      );
+      expectSame("edges", edges(result), ["S-F", "F-H", "F-B", "B-J", "H-J", "J-X", "X-C", "C-N", "N-E"]);
+      expectSame("outline", frameOutlines(result, "F"), [
+        pathThrough(["left,top", "right,top", "right,bottom", "left,bottom"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "C"), [
+        pathThrough(["mid,bottom", "right,mid", "mid,top", "left,mid"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "J"), ["circle siren-node-ink"]);
+      expectSame("outline", frameOutlines(result, "E"), ["circle", "circle"]);
+      const fork = drawn.querySelector('g.siren-node[data-siren-id="F"] .siren-node-frame')!;
+      const corners = fork.getAttribute("d")!.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+      expectSame("fork size", [corners[2]! - corners[0]!, corners[5]! - corners[3]!], [70, 10]);
+    },
+  },
+  {
+    id: "fc-node-shape-data-labelless-lr",
+    kind: "flowchart",
+    source: `flowchart LR
+      A --> F@{ shape: fork } --> B`,
+    status: "supported",
+    meaning:
+      "In a flowchart running left to right Mermaid 12.2.0 stands a fork " +
+      "upright, 10 wide and 70 tall (measured in Chrome; its handler swaps " +
+      "the bar for `LR` and `RL`). Siren does the same (nook 01M51XACB6).",
+    assert: (result) => {
+      expectSame("edges", edges(result), ["A-F", "F-B"]);
+      const fork = svgOf(result).querySelector('g.siren-node[data-siren-id="F"] .siren-node-frame')!;
+      const corners = fork.getAttribute("d")!.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+      expectSame("fork size", [corners[2]! - corners[0]!, corners[5]! - corners[3]!], [10, 70]);
+    },
+  },
+  {
+    id: "fc-node-shape-data-labelless-label",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[Ready]@{ shape: fork } --> B`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid 12.2.0 draws this silently wrong.** Its fork handler " +
+      "empties the node's label before drawing, so `Ready` vanishes and a " +
+      "bare bar is drawn with no word said (measured in Chrome; the same for " +
+      "every shape that draws no text, and for a `label:` in the block). " +
+      "Siren refuses it at the label, saying the shape draws no text and to " +
+      "remove the label or choose a shape that draws one (ADR-0001; nook " +
+      "01M51XACB6).",
+  },
+  {
     id: "fc-node-shape-data-undrawn",
     kind: "flowchart",
     source: `flowchart TB

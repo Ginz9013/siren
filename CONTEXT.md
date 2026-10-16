@@ -388,7 +388,12 @@ first records. The rest are the shapes Mermaid names only in a `@{ … }` block 
 `notch-pent`, `sl-rect`, `tri`, `flip-tri`, `folder`, `lin-rect`, `div-rect`, `win-pane`,
 `st-rect`, `tag-rect`, `text`, `datastore`, and the undocumented `note`, `composite` and `state` —
 each sized by Mermaid's formula for it (ADR-0004: its kind is the contract, not its exact path). A
-shape is added by a record in its group's file and its names in `flowchartNodeData.ts`. A frame
+shape is added by a record in its group's file and its names in `flowchartNodeData.ts`. A record may say it
+**draws no label** (`drawsLabel: false`, the fork, the small circles, `choice`, `anchor`): its box
+is a constant, the renderer leaves the text out, and a label the author writes for it is refused
+where it was written, since Mermaid drops it without a word. Its box is sized for the direction of
+the nearest enclosing subgraph that names one, or the graph's — a fork stands upright in a
+left-to-right flow. A frame
 may wear a **paint** beside `siren-node-frame` — hollow, ink (the stroke colour), bare (no paint)
 or note — a class rather than an inline declaration, so a highlight still outlines it and an
 author's `style` still wins.
