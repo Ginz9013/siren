@@ -2284,7 +2284,7 @@ describe("parseClassDiagram — an entity code's `;` in an inline member", () =>
  */
 describe("parseClassDiagram — a namespace name with a space in it", () => {
   const spaced = (written: string, joined: string, underscored: string) =>
-    `Namespace name "${written}" has a space in it: a namespace name cannot. ` +
+    `Namespace name "${written}" is split by whitespace: a namespace name is one word. ` +
     `Write "${joined}" or "${underscored}" instead.`;
   const diagnosticsOf = (body: string) => {
     const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
@@ -2316,8 +2316,9 @@ describe("parseClassDiagram — a namespace name with a space in it", () => {
     expect(diagnosticsOf('  namespace N M["L"] {\n    class A\n  }')).toEqual([["error", spaced("N M", "NM", "N_M"), 2, 15]]);
   });
 
-  it("refuses a tab as it refuses a space", () => {
-    expect(diagnosticsOf("  namespace N\tM {\n    class A\n  }")).toEqual([["error", spaced("N\tM", "NM", "N_M"), 2, 15]]);
+  it("refuses a tab as it refuses a space, showing any whitespace as one space", () => {
+    expect(diagnosticsOf("  namespace N\tM {\n    class A\n  }")).toEqual([["error", spaced("N M", "NM", "N_M"), 2, 15]]);
+    expect(diagnosticsOf("  namespace N \t M {\n    class A\n  }")).toEqual([["error", spaced("N M", "NM", "N_M"), 2, 17]]);
   });
 
   it("refuses it in a namespace written inside another, at its own line", () => {

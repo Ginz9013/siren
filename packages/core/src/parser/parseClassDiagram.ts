@@ -158,7 +158,7 @@ const NAMESPACE_OPEN_RE = new RegExp(
  * (ADR-0001). A space beside a dot is none (`N . M` is `N.M`), so it is not
  * matched here.
  */
-const NAME_SPACE_RE = /(?<=\w)\s+(?=\w)/g;
+const NAME_SPACE_RE = /(?<=\w)\s+(?=\w)/;
 
 /**
  * The index of the first `}` in `text` that closes no `{` opened before it
@@ -934,26 +934,26 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       // name.
       const outerNamespace = enclosingNamespace;
       const writtenName = namespaceOpenMatch[1];
-      const nameSpace = new RegExp(NAME_SPACE_RE).exec(writtenName);
+      // The name's words, a space beside a dot read as none and any between
+      // two words split on: one word for any name but `N M`.
+      const words = writtenName.replace(/\s*\.\s*/g, ".").split(NAME_SPACE_RE);
+      const nameSpace = NAME_SPACE_RE.exec(writtenName);
       if (nameSpace !== null) {
         // Refused once, at the word after the space, and the block read on
-        // as the namespace Mermaid draws, so its `}` closes it rather than
-        // being refused as well.
-        const undotted = writtenName.replace(/\s*\.\s*/g, ".");
+        // as the namespace Mermaid draws (the words run together), so its
+        // `}` closes it rather than being refused as well. The name is
+        // shown with each run of whitespace as one space.
         diagnostics.push({
           severity: "error",
           message:
-            `Namespace name "${writtenName}" has a space in it: a namespace name cannot. ` +
-            `Write "${undotted.replace(NAME_SPACE_RE, "")}" or "${undotted.replace(NAME_SPACE_RE, "_")}" instead.`,
+            `Namespace name "${writtenName.replace(/\s+/g, " ")}" is split by whitespace: a namespace name is one word. ` +
+            `Write "${words.join("")}" or "${words.join("_")}" instead.`,
           line: lineNumber,
           column: column + namespaceOpenMatch.indices![1]![0] + nameSpace.index + nameSpace[0].length,
         });
         sawError = true;
       }
-      const writtenSegments = writtenName
-        .replace(NAME_SPACE_RE, "")
-        .split(".")
-        .map((segment) => segment.trim());
+      const writtenSegments = words.join("").split(".");
       let segments = writtenSegments.filter((segment) => segment.length > 0);
       if (segments.length < writtenSegments.length) {
         // Measured: Mermaid 12.2.0 refuses `namespace .N`, `namespace N.`
