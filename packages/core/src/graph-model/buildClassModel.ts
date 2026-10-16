@@ -57,12 +57,7 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
 
   const notes = resolveNotes(document, classesById, diagnostics);
 
-  const namespaces = resolveNamespaces(
-    document,
-    classesById,
-    new Set(notes.map((note) => note.id)),
-    diagnostics,
-  );
+  const namespaces = resolveNamespaces(document, classesById, diagnostics);
 
   const classes = [...classesById.values()].map((accumulator) => accumulator.resolved);
 
@@ -249,7 +244,6 @@ function resolveClasses(
 function resolveNamespaces(
   document: ClassDocument,
   classesById: Map<string, ClassAccumulator>,
-  noteIds: ReadonlySet<string>,
   diagnostics: Diagnostic[],
 ): ResolvedClassNamespace[] {
   /** The namespace that claimed each class first, by its qualified name. */
@@ -283,13 +277,8 @@ function resolveNamespaces(
 
     claimMembers(block, namespace, claimedBy, classesById, diagnostics);
     // A note's id is its place among the document's notes, the id
-    // `resolveNotes` gave it. It keeps every note now, one naming no class
-    // included, but membership still follows the notes it returned, so a
-    // namespace never lists a note the layout has no box for.
-    for (const index of block.noteIndexes) {
-      const noteId = generatedId("note", index + 1);
-      if (noteIds.has(noteId)) namespace.noteIds.push(noteId);
-    }
+    // `resolveNotes` gives it — every note, one naming no class included.
+    for (const index of block.noteIndexes) namespace.noteIds.push(generatedId("note", index + 1));
   }
 
   return [...byQualifiedName.values()];
