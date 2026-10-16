@@ -51,9 +51,15 @@ const MULTIPLICITY_MARKER_CLEARANCE = 6;
 
 /**
  * The text a member is drawn as, rebuilt from the parts the parser kept:
- * `+int age` for an attribute, `+swim() bool` for a method. The classifier
+ * `+int age` for an attribute, `+swim() : bool` for a method. The classifier
  * goes last, as Mermaid writes it (`-id$`, `#quack(int times)*`), so one
  * rule covers both member kinds whether or not a return type follows.
+ *
+ * A method's return type follows ` : ` — one space either side, however
+ * many the author wrote before it: measured on Mermaid 12.2.0 (Chrome), in a
+ * class block and after `A :` alike, `+foo() bool`, `+foo()bool` and
+ * `+foo()  bool` all draw `+foo() : bool`, and `+foo(int a) List~T~` draws
+ * `+foo(int a) : List<T>`.
  *
  * Its entity codes and character references are decoded last, once the
  * line is composed: Mermaid 12.2.0 escapes a member's `<` and `>` but not
@@ -69,7 +75,7 @@ function memberText(member: ClassMember): string {
   const classifier = member.classifier ?? "";
   if (member.memberKind === "method") {
     const returnType =
-      member.returnType === null ? "" : ` ${angleBrackets(member.returnType)}`;
+      member.returnType === null ? "" : ` : ${angleBrackets(member.returnType)}`;
     const parameters = angleBrackets(member.parameters ?? "");
     return htmlText(`${visibility}${member.name}(${parameters})${returnType}${classifier}`, "text");
   }

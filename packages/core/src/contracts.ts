@@ -2246,7 +2246,7 @@ export interface ClassModelResult {
 
 /** One member line with the position its text is drawn at. */
 export interface PositionedClassMember {
-  /** The member's rendered text, e.g. `+int size` or `+swim() bool`. */
+  /** The member's rendered text, e.g. `+int size` or `+swim() : bool`. */
   text: string;
   x: number;
   y: number;

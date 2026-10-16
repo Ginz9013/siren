@@ -1294,8 +1294,8 @@ exit note:1 fade
       "+String gender",
       "#bool warmBlooded",
       "~String tag",
-      "+isMammal() bool",
-      "+mate(Animal partner) Animal",
+      "+isMammal() : bool",
+      "+mate(Animal partner) : Animal",
     ]);
     expect(animal.querySelectorAll("line.siren-class-divider")).toHaveLength(2);
 
@@ -1304,7 +1304,7 @@ exit note:1 fade
         .svg!.querySelector('g.siren-class[data-siren-id="Registry"]')!
         .querySelectorAll("text.siren-member"),
     ).map((t) => t.textContent);
-    expect(registryMembers).toEqual(["-int cachedCount$", "+lookup(String name) Animal$"]);
+    expect(registryMembers).toEqual(["-int cachedCount$", "+lookup(String name) : Animal$"]);
 
     // All eight Mermaid relationship kinds, over ten statements.
     const relationships = Array.from(
@@ -1424,7 +1424,7 @@ exit note:1 fade
     ).toEqual([
       "-Map<String, List<T>> entries",
       "+register(String name, T item)",
-      "+lookup(String name) T",
+      "+lookup(String name) : T",
     ]);
 
     // Both notes, numbered by source order. The free one is a box on its own;
@@ -2155,12 +2155,12 @@ click Sneaky call inspect() "<b>tooltip</b>"
       "-bool licensed",
       "~String catalogKey",
       "+play()*",
-      "+describe() String",
+      "+describe() : String",
     ]);
     expect(classGroup("Media").querySelectorAll("line.siren-class-divider")).toHaveLength(2);
     expect(membersOf("Listener")).toEqual([
       "+String name",
-      "+rate(Media item, int stars) bool",
+      "+rate(Media item, int stars) : bool",
     ]);
     // A bare `class Player` has no members, so no compartment and no divider.
     expect(membersOf("Player")).toEqual([]);
@@ -2174,7 +2174,7 @@ click Sneaky call inspect() "<b>tooltip</b>"
       "-Map<String, List<T>> byGenre",
       "-int loadedCount$",
       "+add(String genre, T item)",
-      "+find(String genre) List<T>",
+      "+find(String genre) : List<T>",
       "+clear()$",
     ]);
 

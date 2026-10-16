@@ -103,6 +103,9 @@ used to be drawn `A<List<int>>` and is now refused, and for one with an entity c
 reference in a class name's generic (`class A~#lt;~`), which used to be drawn as written and is now
 drawn decoded, `A<<>` (see **Changed**).
 
+Breaking for a class document with a method that declares a return type, which used to be drawn
+`+foo() bool` and is now drawn `+foo() : bool`, its box sized from that text (see **Changed**).
+
 ### Added
 
 - A flowchart node's `@{ … }` data block is read as Mermaid 12.2.0 reads it, for what Siren can
@@ -625,6 +628,10 @@ drawn decoded, `A<<>` (see **Changed**).
   name (`+x #a-b;`, `+x #é;`, `+x #;`), is drawn as written. A `;` that ends neither still
   separates nothing and is refused (`+x a;b`, `# lt; x`), and after `A :` every `;` is refused as
   before.
+- **A class method's return type is drawn after ` : `** (nook `01M51Q7GKMPTCB6MX643KS1YSE`), as
+  Mermaid 12.2.0 draws it, in a class block and after `A :` alike: `+foo() bool`, `+foo()bool` and
+  `+foo()  bool` draw `+foo() : bool`, and `+foo(int a) List~T~` draws `+foo(int a) : List<T>`. The
+  box is measured from the new text. A method with no return type is unchanged.
 
 ### Fixed
 

@@ -4343,7 +4343,7 @@ line2\`"]`,
     meaning: "A block body declares the class's attributes and methods.",
     assert: (result) => {
       expectSame("classes", classes(result), ["Animal"]);
-      expectSame("Animal's members", members(result, "Animal"), ["+int age", "+bark() bool"]);
+      expectSame("Animal's members", members(result, "Animal"), ["+int age", "+bark() : bool"]);
     },
   },
   {
@@ -4381,7 +4381,7 @@ line2\`"]`,
       "members `+int age` and `+bark() : bool`).",
     assert: (result) => {
       expectSame("classes", classes(result), ["Animal"]);
-      expectSame("Animal's members", members(result, "Animal"), ["+int age", "+bark() bool"]);
+      expectSame("Animal's members", members(result, "Animal"), ["+int age", "+bark() : bool"]);
     },
   },
   {
@@ -4587,7 +4587,7 @@ line2\`"]`,
     meaning: "`<<interface>>` annotates the class it is written in, drawn in guillemets.",
     assert: (result) => {
       expectSame("annotations", texts(result, "text.siren-class-annotation"), ["«interface»"]);
-      expectSame("Shape's members", members(result, "Shape"), ["+area() float"]);
+      expectSame("Shape's members", members(result, "Shape"), ["+area() : float"]);
     },
   },
   {
