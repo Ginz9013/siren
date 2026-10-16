@@ -12,7 +12,7 @@ import { type DiagramKind, listAcceptedHeaders, matchDiagramHeader } from "./par
 import { parseFlowchart } from "./parseFlowchart";
 import { parseSequenceDiagram } from "./parseSequenceDiagram";
 import { parseStateDiagram } from "./parseStateDiagram";
-import { isTimelineHeader, unrecognizedActionMessage } from "./parseTimelineBlock";
+import { isTimelineHeader, isTimelineVerb, unrecognizedActionMessage } from "./parseTimelineBlock";
 import { styleLines } from "./styleLines";
 import { tagQuotesRewritten } from "./tagQuotes";
 
@@ -173,14 +173,17 @@ interface CommentedTarget {
  * The action left with no target when `line` is cut at its first `%%`, or
  * `null` when that `%%` does not begin a target: none on the line, one on
  * a header, one with a space or the line's end after it (a comment's own
- * form), one anywhere but the target slot.
+ * form), one anywhere but the target slot — or one after a word that is
+ * no timeline verb, which is what is wrong with that action.
  */
 function commentedTarget(line: string): string | null {
   const at = line.indexOf("%%");
   if (at === -1) return null;
   const before = line.slice(0, at);
   if (isTimelineHeader(before.trim())) return null;
-  return beginsTargetSlot(before) && BEGINS_TARGET_RE.test(line.slice(at)) ? lastAction(before).trim() : null;
+  if (!beginsTarget(line, at)) return null;
+  const verb = lastAction(before).trim();
+  return isTimelineVerb(verb) ? verb : null;
 }
 
 /**
@@ -227,7 +230,7 @@ function cutAtDoublePercent(line: string): string {
  * `%` is an id character. That is a `%%` glued to the end of a target:
  * `A%%x` is one node id (measured on Mermaid 12.2.0), so `unhighlight A%%x`
  * names that node, where the cut aimed it at `A`, silently. And it is a
- * `%%` that begins a target (`BEGINS_TARGET_RE`): `A --> %%B` draws a node
+ * `%%` that begins a target (`beginsTarget`): `A --> %%B` draws a node
  * `%%B`, so `enter %%B fade` names it, where the cut left the verb with no
  * target. Either way the target runs on to the next space.
  *
@@ -245,7 +248,7 @@ function cutTimelineComment(line: string, gluedTargets: boolean): string {
     const at = line.indexOf("%%", from);
     if (at === -1) return line;
     const before = line.slice(0, at);
-    const inTarget = endsInTargetSlot(before) || (beginsTargetSlot(before) && BEGINS_TARGET_RE.test(line.slice(at)));
+    const inTarget = endsInTargetSlot(before) || beginsTarget(line, at);
     if (!inTarget) return before;
     from = at + line.slice(at).search(/\s|$/);
   }
@@ -256,6 +259,16 @@ function cutTimelineComment(line: string, gluedTargets: boolean): string {
  * it. `%% note` and a `%%` at the line's end are a comment's own form.
  */
 const BEGINS_TARGET_RE = /^%%\S/;
+
+/**
+ * Whether the `%%` at `at` in a timeline line begins its last action's
+ * target: it stands where that target begins (`beginsTargetSlot`) and
+ * text follows it straight away (`BEGINS_TARGET_RE`). A flowchart reads it
+ * as the target's; every other kind as a comment that took the target.
+ */
+function beginsTarget(line: string, at: number): boolean {
+  return beginsTargetSlot(line.slice(0, at)) && BEGINS_TARGET_RE.test(line.slice(at));
+}
 
 /** The last comma-separated action of a timeline line read up to some point. */
 function lastAction(before: string): string {

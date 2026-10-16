@@ -3665,6 +3665,17 @@ describe("a `%%` in the middle of a flowchart line", () => {
     expect(diagnostics).toEqual([{ severity: "error", message: commentAteTheTarget("enter"), line: 4, column: 3 }]);
   });
 
+  it("still calls a word that is no timeline verb unrecognized when a `%%` follows it", () => {
+    // The explanation is for a verb whose target the comment took; `foo` is
+    // not a verb, so what is wrong with the action is `foo` itself.
+    for (const word of ["foo", "toString", "Enter"]) {
+      expect([word, parseSiren(`classDiagram\n  class B\ntimeline:\n  ${word} %%B fade\n`).diagnostics]).toEqual([
+        word,
+        [{ severity: "error", message: `Unrecognized timeline action: "${word}"`, line: 4, column: 3 }],
+      ]);
+    }
+  });
+
   it("still calls a verb with no target unrecognized where no `%%` took the target", () => {
     for (const commented of ["  enter %% note", "  enter %%", "  enter%%B fade"]) {
       expect([commented, parseSiren(`classDiagram\n  class B\ntimeline:\n${commented}\n`).diagnostics]).toEqual([

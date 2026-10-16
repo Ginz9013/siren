@@ -61,6 +61,11 @@ const EFFECTS_BY_KIND: Readonly<
   unhighlight: null,
 };
 
+/** Whether `word` is one of the timeline verbs (`enter`, `exit`, `highlight`, `unhighlight`). */
+export function isTimelineVerb(word: string): boolean {
+  return Object.hasOwn(EFFECTS_BY_KIND, word);
+}
+
 /** Whether `line` (already trimmed) opens a timeline block, named or not. */
 export function isTimelineHeader(line: string): boolean {
   return TIMELINE_HEADER_RE.test(line);
