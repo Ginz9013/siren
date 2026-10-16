@@ -213,6 +213,11 @@ which is now refused (see **Changed**).
   move it outside the namespace. On a one-line, nested or dotted namespace too. Such statements
   used to be drawn as if written outside, and a namespace holding only `direction LR` drew no frame
   and gave no diagnostic. A line no statement reads is still refused as unrecognized, once.
+- **A class `note for X` naming no class is drawn, unattached, with a warning** (nook
+  `01M51DSF5H`), as Mermaid 12.2.0 draws it: `note for Ghost "x"` with no class Ghost is a note
+  with no connector, and no class Ghost is made up. One written in a namespace is drawn inside its
+  frame, and a namespace holding only it is framed. Such a note used to be an error and dropped. Its
+  `note:N` id is unchanged, and the model gives it `targetId: null`, as for a free note.
 - **A note written in a class namespace is drawn inside its frame** (nook `01M51B440V`, decision
   `01M51B4M3C`), as Mermaid 12.2.0 draws it: `note "x"` and `note for X "x"` alike, the latter
   even when X stands outside the namespace, its connector running out across the frame. In a

@@ -903,7 +903,9 @@ the authored construct), group, box
 **Note**:
 A free-standing annotation box, in either of the two diagram kinds that have one — a class
 diagram's, either attached to one class (`note for Shelf "..."`, drawn with a connector to that
-class's box) or standing alone (`note "..."`), its quoted text a **Label** in the `html` dialect; a
+class's box) or standing alone (`note "..."`) — a `note for` naming no class of the diagram stands
+alone too, with a warning, since naming a class there does not declare it — its quoted text a
+**Label** in the `html` dialect; a
 sequence diagram's `note over A,B`/`note right of
 A`/`note left of A`, its text a **Label** in the `sequence` dialect and the note as tall as all its
 rows, modeled as one statement with a `left`/`right`/`over` placement axis (the

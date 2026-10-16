@@ -4835,6 +4835,42 @@ line2\`"]`,
     },
   },
   {
+    id: "cls-note-for-undeclared-class",
+    kind: "class",
+    source: `classDiagram
+      class Lion
+      note for Lino "the only social cat"
+      namespace Zoo {
+        note for Keeper "works here"
+        namespace Aviary {
+          class Parrot
+          note for Parot "talks"
+        }
+      }`,
+    status: "supported",
+    meaning:
+      "`note for X` naming no class of the diagram: Mermaid 12.2.0 draws the " +
+      "note with no connector and no class X, and one written in a namespace " +
+      "inside that namespace's frame, a namespace holding only it framed " +
+      "(measured). Siren draws the same and warns that the name matches no " +
+      "class. Siren used to refuse the note and drop it.",
+    warnings: [
+      'note for "Lino" names no class in this diagram, so the note is not attached to anything. Check the name, or declare the class with "class Lino".',
+      'note for "Keeper" names no class in this diagram, so the note is not attached to anything. Check the name, or declare the class with "class Keeper".',
+      'note for "Parot" names no class in this diagram, so the note is not attached to anything. Check the name, or declare the class with "class Parot".',
+    ],
+    assert: (result) => {
+      expectSame("note texts", texts(result, "text.siren-note-text"), ["the only social cat", "works here", "talks"]);
+      expectSame("no connector was drawn", drew(result, "path.siren-note-link"), false);
+      expectSame("classes", classes(result), ["Lion", "Parrot"]);
+      expectSame("namespace labels", texts(result, "text.siren-namespace-label"), ["Zoo", "Aviary"]);
+      expectSame("works here is inside Zoo", noteInsideNamespaceId(result, "note:2", "namespace:1"), true);
+      expectSame("works here is outside Aviary", noteInsideNamespaceId(result, "note:2", "namespace:2"), false);
+      expectSame("talks is inside Aviary", noteInsideNamespaceId(result, "note:3", "namespace:2"), true);
+      expectSame("the top-level note is outside Zoo", noteInsideNamespaceId(result, "note:1", "namespace:1"), false);
+    },
+  },
+  {
     id: "cls-note",
     kind: "class",
     source: `classDiagram
