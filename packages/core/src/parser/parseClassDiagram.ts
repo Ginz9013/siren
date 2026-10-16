@@ -651,6 +651,21 @@ function endpointFor(marker: string | undefined): ClassRelationshipEnd {
 }
 
 /**
+ * Whether a `;` in a class block's member `text` — outside `(…)` and
+ * `~…~`, and not its last character — is followed by text `parseMember`
+ * reads as a member of its own: the sign of two members run together. The
+ * member read is only tested and dropped, so its position is no matter.
+ */
+function runsOnIntoMember(text: string): boolean {
+  const blanked = text.replace(/\([^)]*\)|~[^~]*~/g, (inside) => " ".repeat(inside.length));
+  for (let at = blanked.indexOf(";"); at !== -1; at = blanked.indexOf(";", at + 1)) {
+    const after = text.slice(at + 1).trim();
+    if (after.length > 0 && parseMember(after, 0, 0) !== null) return true;
+  }
+  return false;
+}
+
+/**
  * Parses one member line of a class — `+int size`, `-String name`,
  * `+swim() bool`, `draw()*` — into its parts, or returns `null` when the
  * line is not a member at all (the caller turns that into a diagnostic).
@@ -973,17 +988,20 @@ export function parseClassDiagram(source: string): DiagramParseResult {
   };
 
   /**
-   * Refuses the generic a class declaration's match captured, if it cannot
-   * be drawn as written (`genericError`) — its second capture, at the column of the
-   * `~` before it.
+   * Refuses the generic a statement's match captured as its second capture
+   * — a class declaration's, a block's, an inline member's class's or a
+   * note target's — if it cannot be drawn as written (`genericError`: a
+   * nested generic, two back to back, or a `<` opening a tag), at the
+   * column of the `~` before it. Says whether it did.
    */
-  const refuseNestedGeneric = (match: RegExpExecArray, lineNumber: number, column: number) => {
+  const refuseUndrawableGeneric = (match: RegExpExecArray, lineNumber: number, column: number): boolean => {
     const generic = match[2];
-    if (generic === undefined) return;
+    if (generic === undefined) return false;
     const error = genericError(generic, lineNumber, column + match.indices![2]![0] - 1);
-    if (error === null) return;
+    if (error === null) return false;
     diagnostics.push(error);
     sawError = true;
+    return true;
   };
 
   /**
@@ -993,7 +1011,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
    * relationships is still one declaration — and an id that already has a
    * declaration of its own is left alone.
    *
-   * Unless that end writes a `~generic~` (`undefined` for none): then it is
+   * Unless that end writes a `~generic~` (`null` for none): then it is
    * declared again, carrying it, for `buildClassModel` to weigh against the
    * generic the class's first naming gave it — the first is kept, a
    * different later one warned about, and one given after a generic-less
@@ -1002,16 +1020,16 @@ export function parseClassDiagram(source: string): DiagramParseResult {
    */
   const declareImplicitly = (
     id: string,
-    generic: string | undefined,
+    generic: string | null,
     line: number,
     column: number,
     namespaceMembers: string[] | null,
   ) => {
-    if (declaredIds.has(id) && generic === undefined) {
+    if (declaredIds.has(id) && generic === null) {
       return;
     }
     declareClass(
-      { id, generic: generic ?? null, annotation: null, label: null, members: [], line, column },
+      { id, generic, annotation: null, label: null, members: [], line, column },
       namespaceMembers,
     );
   };
@@ -1445,9 +1463,9 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     // 12.2.0) — so it is recorded on the innermost block around it.
     const noteForMatch = NOTE_FOR_RE.exec(line);
     if (noteForMatch !== null) {
-      refuseNestedGeneric(noteForMatch, lineNumber, column);
+      const refused = refuseUndrawableGeneric(noteForMatch, lineNumber, column);
       const generic = genericOf(noteForMatch[2]);
-      if (generic !== null) {
+      if (generic !== null && !refused) {
         noteGenerics.push({ id: noteForMatch[1], generic, line: lineNumber, column });
       }
       enclosingNamespace?.noteIndexes.push(notes.length);
@@ -1680,8 +1698,8 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       // never adds that side to the class list (measured: `Duck ()--
       // Quacks` produces a class for "Quacks" only). `buildClassModel`
       // resolves the lollipop side into its own synthetic node instead.
-      if (fromEnd !== "circle") declareImplicitly(from, genericOf(fromGeneric) ?? undefined, lineNumber, column, namespaceMembers);
-      if (toEnd !== "circle") declareImplicitly(to, genericOf(toGeneric) ?? undefined, lineNumber, column, namespaceMembers);
+      if (fromEnd !== "circle") declareImplicitly(from, genericOf(fromGeneric), lineNumber, column, namespaceMembers);
+      if (toEnd !== "circle") declareImplicitly(to, genericOf(toGeneric), lineNumber, column, namespaceMembers);
       return { lastIndex: startIndex, read: "relationship" };
     }
 
@@ -1689,7 +1707,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     if (blockOpenMatch !== null) {
       // A nested generic is refused, and the block still read, so its body
       // is not misread as statements of its own.
-      refuseNestedGeneric(blockOpenMatch, lineNumber, column);
+      refuseUndrawableGeneric(blockOpenMatch, lineNumber, column);
       attachShorthand(blockOpenMatch[1], blockOpenMatch[4], lineNumber, column);
       const members: ClassMember[] = [];
       // Annotations inside the block are emitted as their own declarations
@@ -1758,18 +1776,6 @@ export function parseClassDiagram(source: string): DiagramParseResult {
             .replace(/;\s*$/, "")
             .includes(";");
         const separated = holdsSeparator(maskReferences(text));
-        /**
-         * Whether a `;` in `text` — outside `(…)` and `~…~`, and not its
-         * last character — is followed by text `parseMember` reads.
-         */
-        const runsOnIntoMember = (text: string, line: number, column: number) => {
-          const blanked = text.replace(/\([^)]*\)|~[^~]*~/g, (inside) => " ".repeat(inside.length));
-          for (let at = blanked.indexOf(";"); at !== -1; at = blanked.indexOf(";", at + 1)) {
-            const after = text.slice(at + 1).trim();
-            if (after.length > 0 && parseMember(after, line, column) !== null) return true;
-          }
-          return false;
-        };
         const member = separated ? null : parseMember(text, memberLine, memberColumn);
         if (member === null) {
           // A member Siren cannot read whose `;` ends a reference or a code
@@ -1780,7 +1786,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
           // nothing readable follows (`+x &lt; !!`), the `;` is not what is
           // wrong, and the error does not blame it.
           const hint =
-            separated || runsOnIntoMember(text, memberLine, memberColumn)
+            separated || runsOnIntoMember(text)
               ? '. A ";" does not separate members: write each member on a line of its own.'
               : "";
           diagnostics.push({
@@ -1878,7 +1884,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
 
     const classDeclMatch = CLASS_DECL_RE.exec(line);
     if (classDeclMatch !== null) {
-      refuseNestedGeneric(classDeclMatch, lineNumber, column);
+      refuseUndrawableGeneric(classDeclMatch, lineNumber, column);
       attachShorthand(classDeclMatch[1], classDeclMatch[4], lineNumber, column);
       declareClass(
         {
@@ -1901,7 +1907,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     const inlineMemberMatch = holdsShorthand ? null : INLINE_MEMBER_RE.exec(line);
     if (inlineMemberMatch !== null) {
       const [, id, , memberText] = inlineMemberMatch;
-      refuseNestedGeneric(inlineMemberMatch, lineNumber, column);
+      refuseUndrawableGeneric(inlineMemberMatch, lineNumber, column);
       // Measured: Mermaid 12.2.0's lexer refuses a `;` anywhere in an inline
       // member — between two members, ending one, inside `(…)`, `~…~` or
       // quotes alike ("Lexical error … Unrecognized text" at the `;`) — so

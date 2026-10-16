@@ -548,6 +548,21 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     }
   });
 
+  it("gives a note's target one error for a generic it cannot draw, not a second for naming no class", () => {
+    // `note for A~List~int~~ "n"` is a parse error in Mermaid 12.2.0
+    // (measured); its nested generic is the one thing to fix.
+    expect(parseClassDiagram('classDiagram\n  note for A~List~int~~ "n"').diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'The generic "~List~int~~" holds another generic, which a class name cannot. ' +
+          'Write the inner angle brackets as entity codes instead, such as "~List#lt;int#gt;~".',
+        line: 2,
+        column: 13,
+      },
+    ]);
+  });
+
   it("refuses a nested generic on a relationship's end, as on a class declaration", () => {
     // Measured on Mermaid 12.2.0: `A~List~int~~ --> B` and `A -->
     // B~List~int~~` are parse errors (ADR-0017).
