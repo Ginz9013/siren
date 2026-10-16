@@ -217,7 +217,7 @@ function drawSiren(source, host) {
 }
 
 const diagrams = JSON.parse(document.getElementById("diagrams").textContent);
-mermaid.initialize({ startOnLoad: false });
+mermaid.initialize({ startOnLoad: false, ...(MERMAID_LOOK === null ? {} : { look: MERMAID_LOOK }) });
 const results = [];
 for (const [index, { file, source }] of diagrams.entries()) {
   const mermaidHost = document.createElement("div");
@@ -236,14 +236,16 @@ out.textContent = JSON.stringify(results);
  * Build the page.
  *
  * @param {{ mermaidUrl: string, sirenUrl: string, idsUrl: string, metricsUrl: string,
- *           diagrams: { file: string, source: string }[] }} input
+ *           diagrams: { file: string, source: string }[], look?: string }} input
  *   `mermaidUrl` is Mermaid's IIFE bundle (`dist/mermaid.min.js`, which sets
  *   the global `mermaid`); `sirenUrl` is siren-core's standalone ESM build
  *   (`dist/siren-core.js`, exporting `render`); `idsUrl` is `ids.mjs`;
- *   `metricsUrl` is `metrics.mjs`, for `straightenArcs`.
+ *   `metricsUrl` is `metrics.mjs`, for `straightenArcs`; `look`, when given,
+ *   is the look Mermaid is asked to draw in (`classic` or `neo`), and absent
+ *   it draws in its own default.
  * @returns {string}
  */
-export function buildPage({ mermaidUrl, sirenUrl, idsUrl, metricsUrl, diagrams }) {
+export function buildPage({ mermaidUrl, sirenUrl, idsUrl, metricsUrl, diagrams, look }) {
   // `</` inside a <script> element would end it early; `<\/` is the same
   // string to JSON.parse and invisible to the HTML parser.
   // The pictures' container is far wider than any fixture so neither picture
@@ -263,6 +265,7 @@ export function buildPage({ mermaidUrl, sirenUrl, idsUrl, metricsUrl, diagrams }
 import { render as sirenRender } from ${JSON.stringify(sirenUrl)};
 import { mermaidNodeId } from ${JSON.stringify(idsUrl)};
 import { straightenArcs } from ${JSON.stringify(metricsUrl)};
+const MERMAID_LOOK = ${JSON.stringify(look ?? null)};
 ${PAGE_SCRIPT}
 </script>
 </body>

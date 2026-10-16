@@ -379,7 +379,7 @@ block are two spellings of one shape, and a block on a node written before chang
 keeps its text. Its other names are refused as not drawn yet, never drawn as one of the fourteen —
 except the shapes the **shape table** draws.
 
-The **shape table** (`layout/shapes/`, nook `01M51XAC4N7X7GE0CS5TK2PMTY`) is where every shape
+The **shape table** (`layout/shapes/`, nook `01M51XAC4N`) is where every shape
 lives: one record per member of `NodeShape`, saying how much box a padded label needs (`box`),
 where the label goes in it (`labelRect`) and which elements draw the outline (`frames`). `layoutGraph`
 sizes a node and reports its label's offset (`PositionedNode.labelOffset`) from it, and
@@ -391,24 +391,34 @@ each sized by Mermaid's formula for it (ADR-0004: its kind is the contract, not 
 shape is added by a record in its group's file and its names in `flowchartNodeData.ts`. A record may say it
 **draws no label** (`drawsLabel: false`, the fork, the small circles, `choice`, `anchor`): its box
 is a constant, the renderer leaves the text out, and a label the author writes for it is refused
-where it was written, since Mermaid drops it without a word. Its box is sized for the direction of
+where it was written, since Mermaid drops it without a word. Which shapes draw no label, and which
+take no style by name (`sm-circ`, `anchor`: Mermaid draws them in their own paint whatever `style`,
+`class` or `:::` says, so the parser refuses one), is kept in `nodeShapeTraits.ts`, which the parser
+and the shape table both read, so that neither reads the other; tests keep the two sets and the
+records in step. Its box is sized for the direction of
 the nearest enclosing subgraph that names one, or the graph's — a fork stands upright in a
 left-to-right flow. A frame
 may wear a **paint** beside `siren-node-frame` — hollow, ink (the stroke colour), bare (no paint)
 or note — a class rather than an inline declaration, so a highlight still outlines it and an
 author's `style` still wins.
-The shapes with a **curved outline** (`curvedShapes.ts`, nook `01M51XACHPG8EB9R9JNH0C71HV`) are
+The shapes with a **curved outline** (`curvedShapes.ts`, nook `01M51XACHP`) are
 records too — `delay`, `curv-trap`, `h-cyl`, `lin-cyl`, `bow-rect`, `doc`, `lin-doc`, `tag-doc`,
 `docs`, `flag`, `brace`, `brace-r` and `braces`. A round end, a cylinder's end and a brace's curl
 are SVG arcs; a **wavy edge** is Mermaid's sine wave, sampled at its 51 points. A brace is an open
-path painted hollow. Where Mermaid sizes a clearance from the unpadded text, which a record never
-sees, the padded label stands in for it.
+path painted hollow. Each handler pads its text by its own multiple of the node padding (a cylinder
+on its side by half of it, a flag and a brace once, a document stack three times in height), so a
+record recovers the text — the padded label less the node padding `layoutGraph` measured, Siren's
+own — and pads it by that rule: the shape then stands to a rectangle as Mermaid's does in the
+**classic look**, the one the table follows (the parity report compares with it under
+`--look classic`; Mermaid's default `neo` look pads every shape differently).
 
-The **figures** (`compositeShapes.ts`, nook `01M51XACRX8H03160HPE1WQFZ4`) — `bucket`, `person`,
+The **figures** (`compositeShapes.ts`, nook `01M51XACRX`) — `bucket`, `person`,
 `console`, `browser`, `cloud`, `bang` — are drawn in more than one element: a body plus its
-decorations (a rim, a head, a prompt, a bar's dots and address bar), each a frame, so an author's
-`style` and a highlight reach all of them. A decoration Mermaid paints in the border colour wears a
-paint (hollow or ink) rather than a colour of its own. A cloud's and a bang's box is the extent of
+decorations (a rim, a head, a prompt, a bar's dots and address bar), each a frame, so a highlight
+reaches all of them. An author's `style` reaches those Mermaid paints with it (a body, a head, a
+rim) and not those it keeps in the border colour (a browser's bar line, dots and address bar, a
+console's prompt), which say `authorStyle: false` and wear a paint (hollow or ink) rather than a
+colour of their own. A cloud and a bang pad their text with the node padding as their handlers do. A cloud's and a bang's box is the extent of
 Mermaid's arcs rather than the `w x h` they join, and their label is centred on that `w x h`.
 
 **A node's label is a Label** (below), like every flowchart label: an edge's and a subgraph

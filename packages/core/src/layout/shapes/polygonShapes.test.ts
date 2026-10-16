@@ -5,6 +5,7 @@ import { layoutLabel } from "../../label/layoutLabel";
 import { readLabel } from "../../label/readLabel";
 import { renderToSVG } from "../../renderer/renderToSVG";
 import { layoutGraph } from "../layoutGraph";
+import { SHAPES } from "./shapeTable";
 
 /**
  * The shapes a node's `@{ shape: … }` block names whose outline is straight
@@ -356,9 +357,9 @@ describe("a data store (`datastore`)", () => {
   it("is wider than a rectangle by twice Mermaid's 15px node padding, and centres its label", () => {
     // `datastore` hands `drawRect` `labelPaddingX: padding x 2`: each side
     // gets the node padding (15px) once more than the padded label has.
-    const node = laidOut("data-store", LONG);
-    expect([node.width, node.height]).toEqual([152 + 30, 27]);
-    expect(node.labelOffset).toBeUndefined();
+    const size = SHAPES["data-store"].box({ width: 152, height: 27 }, "TB");
+    expect([size.width, size.height]).toEqual([152 + 30, 27]);
+    expect(SHAPES["data-store"].labelRect).toBeUndefined();
   });
 
   it("strokes only its top and bottom edges, dashing its square rectangle by its own width and height", () => {
@@ -387,5 +388,28 @@ describe("a state (`state`, undocumented)", () => {
     expect(node.tags).toEqual(["rect"]);
     expect(node.classes).toEqual(["siren-node-frame"]);
     expect(node.styles).toEqual(["rx:5px"]);
+  });
+});
+
+describe("a data store padded with Siren's own node padding", () => {
+  it("is wider than a rectangle by twice the node padding across, as Mermaid's `labelPaddingX: 2p` makes it", () => {
+    const paddedMeasurer = { measure: (text: string) => ({ width: text.length * 8 + 24, height: 32 }) };
+    const sizeOf = (shape: NodeShape) => {
+      const node = layoutGraph(
+        {
+          direction: "TB",
+          nodes: [{ id: "A", label: plainLabel("Label text"), shape, style: { frame: [], text: [] }, parentId: null, interaction: null }],
+          edges: [],
+          subgraphs: [],
+          accTitle: null,
+          accDescr: null,
+          timeline: { totalSteps: 0, entries: [] },
+        },
+        { measureText: paddedMeasurer },
+      ).nodes[0]!;
+      return [node.width, node.height];
+    };
+    expect(sizeOf("rect")).toEqual([80 + 2 * 24, 21 + 2 * 11]);
+    expect(sizeOf("data-store")).toEqual([80 + 4 * 24, 21 + 2 * 11]);
   });
 });

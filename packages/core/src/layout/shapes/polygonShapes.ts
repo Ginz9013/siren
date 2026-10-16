@@ -11,7 +11,7 @@ import { closedPath, edgesOf, FRAME_PAINT, pathFrame, type Rect, rectFrame, type
  * (ADR-0004: a shape's kind is the contract, not its exact outline).
  */
 
-/** Mermaid's flowchart node padding (`flowchart.padding`, 15px). */
+/** Mermaid's flowchart node padding (`flowchart.padding`, 15px): the padding a record is told when none is given. */
 const NODE_PADDING = 15;
 
 /** Mermaid's `NOTCH_SIZE`: the side of a notched rectangle's cut corner. */
@@ -348,13 +348,18 @@ export const POLYGON_SHAPES = {
     frames: (box) => [rectFrame(box, { classes: FRAME_PAINT.note })],
   },
   // `datastore` (Mermaid's `datastore`): a rectangle wider than a plain one
-  // by `2 x NODE_PADDING` — Mermaid hands `drawRect` `labelPaddingX:
-  // padding x 2`, the node padding once more on each side — whose stroke is dashed by its own width and height, so that only the
+  // by twice the node padding across — Mermaid hands `drawRect`
+  // `labelPaddingX: padding x 2`, the node padding once more on each side,
+  // Siren's own when laid out and Mermaid's 15px when none is given — whose
+  // stroke is dashed by its own width and height, so that only the
   // top and the bottom are drawn. Its corners are square — a rounded corner
   // would lengthen the path and slide the dashes off the edges — and both
   // declarations are the shape's, ahead of any the author writes.
   "data-store": {
-    box: (label) => ({ width: label.width + 2 * NODE_PADDING, height: label.height }),
+    box: (label, _direction, padding = { width: NODE_PADDING, height: NODE_PADDING }) => ({
+      width: label.width + 2 * padding.width,
+      height: label.height,
+    }),
     frames: (box) => [
       rectFrame(box, {
         style: [

@@ -253,9 +253,9 @@ describe("a bang (`bang`)", () => {
     // halfPadding`, and the outline reaches `0.1 x w` left of and
     // `0.15 x w` right of that, `0.1 x h` above and `0.15 x h` below —
     // `1.25 x w` by `1.25 x h` (measured: 243.75 x 101.25 around a 120 x 21
-    // label, 195 x 81 at 7.5px half padding). The fake label has no height
-    // beyond its padding, so its `bbox.height` is 0.
-    const long = laidOut("bang", LONG);
+    // label, 195 x 81 at 7.5px half padding). With Mermaid's 15px padding a
+    // 152 x 27 padded label is a 122 x 0 text.
+    const long = SHAPES.bang.box({ width: 152, height: 27 }, "TB");
     expect([long.width, long.height]).toEqual([1.25 * (122 + 75), 1.25 * 60]);
   });
 
@@ -263,9 +263,11 @@ describe("a bang (`bang`)", () => {
     // Mermaid centres the label on the `w x h` the outline's corners span,
     // which sits `0.025 x w` left of and `0.025 x h` above the centre of
     // the box (measured: the box's centre is 4.875, 2.025 from the label's).
-    const offset = laidOut("bang", LONG).labelOffset;
-    expect(offset?.x).toBeCloseTo(-0.025 * 197, 9);
-    expect(offset?.y).toBeCloseTo(-0.025 * 60, 9);
+    const padded = { width: 152, height: 27 };
+    const size = SHAPES.bang.box(padded, "TB");
+    const placed = SHAPES.bang.labelRect!({ x: 0, y: 0, ...size }, padded);
+    expect(placed.x + placed.width / 2 - size.width / 2).toBeCloseTo(-0.025 * 197, 9);
+    expect(placed.y + placed.height / 2 - size.height / 2).toBeCloseTo(-0.025 * 60, 9);
   });
 
   it("draws Mermaid's scalloped outline, inscribed in the box", () => {
@@ -443,5 +445,44 @@ describe("a cloud around a label far taller than it is wide", () => {
     const [cornerX, cornerY] = numbersOf(node.d[0]!);
     expect(placed.x + placed.width / 2 - cornerX!).toBeCloseTo((width - 15) / 2, 2);
     expect(placed.y + placed.height / 2 - cornerY!).toBeCloseTo((height - 15) / 2, 2);
+  });
+});
+
+/**
+ * Laid out by `layoutGraph`, a bang and a cloud pad the text with Siren's
+ * own node padding where their handlers pad with Mermaid's, as the curved
+ * shapes do.
+ */
+describe("a bang and a cloud padded with Siren's own node padding", () => {
+  /** 8px a character plus 24px of padding, 32px a line: "Label text" is 80 x 21, padded 24 a side across and 11 up and down. */
+  const paddedMeasurer = { measure: (text: string) => ({ width: text.length * 8 + 24, height: 32 }) };
+  const sizeOf = (shape: NodeShape) => {
+    const node = layoutGraph(
+      {
+        direction: "TB",
+        nodes: [{ id: "A", label: plainLabel("Label text"), shape, style: { frame: [], text: [] }, parentId: null, interaction: null }],
+        edges: [],
+        subgraphs: [],
+        accTitle: null,
+        accDescr: null,
+        timeline: { totalSteps: 0, entries: [] },
+      },
+      { measureText: paddedMeasurer },
+    ).nodes[0]!;
+    return { width: node.width, height: node.height };
+  };
+
+  it("spreads a bang's corners `text + 5p` by `text + 4p`, and its outline a quarter past them", () => {
+    const size = sizeOf("bang");
+    expect(size.width).toBeCloseTo(1.25 * (80 + 5 * 24), 9);
+    expect(size.height).toBeCloseTo(1.25 * (21 + 4 * 11), 9);
+  });
+
+  it("joins a cloud's arcs round `text + p`: the cloud a 104 x 32 label's corners make", () => {
+    // With Mermaid's 15px, a 119 x 47 padded label is that same 104 x 32.
+    const size = sizeOf("cloud");
+    const same = SHAPES.cloud.box({ width: 119, height: 47 }, "TB");
+    expect(size.width).toBeCloseTo(same.width, 9);
+    expect(size.height).toBeCloseTo(same.height, 9);
   });
 });

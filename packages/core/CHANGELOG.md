@@ -442,6 +442,10 @@ divider and now takes none (see **Changed**).
 
 ### Changed
 
+- A flowchart `bang`, `cloud` and `datastore` pad their text with Siren's own node padding where
+  Mermaid 12.2.0's handlers pad with its 15px (nook `01M521T9NX`), as the curved shapes already do,
+  so each stands to a rectangle as Mermaid's does in its classic look. `pnpm parity --look classic`
+  compares with Mermaid in that look; without `--look` it compares with Mermaid's default (`neo`).
 - The curved flowchart shapes are sized by each one's own Mermaid 12.2.0 padding rule (nook
   `01M521T9NX`, measured in headless Chrome at one and three rows), with Siren's node padding in
   place of Mermaid's: `h-cyl` is padded by half the node padding, `bow-rect`, `flag` and the three

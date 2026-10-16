@@ -92,16 +92,23 @@ export interface FigureElement {
 /**
  * One node shape.
  *
- * `label` is always the **padded** label box — the measured label plus the
- * node's padding, which is exactly the box a rectangle draws — so every
- * shape's arithmetic starts from the box a plain `A[text]` would have.
+ * `label` is always the **padded** label box — the measured text plus the
+ * node's padding on each side, which is exactly the box a rectangle draws.
+ * A shape whose Mermaid handler pads the text as a rectangle's does starts
+ * from it as it is; one whose handler pads by its own multiple of the node
+ * padding (a cylinder on its side, a document stack, a brace, a cloud)
+ * recovers the text as `label` less `padding` on each side and pads that
+ * by its own rule, with `padding` standing for Mermaid's `p` — so the shape
+ * stands to a rectangle as Mermaid's does.
  */
 export interface ShapeSpec {
   /**
    * The bounding box this shape needs to hold `label`. `padding` is what
-   * the padded label adds to the text on each side — the node padding — for
-   * a shape whose handler pads the text its own way rather than as a
-   * rectangle does. Absent, it is Mermaid's 15px each way. `node` is the
+   * the padded label adds to the text on each side, across and up — the
+   * node padding `layoutGraph` measured — for a shape whose handler pads
+   * the text its own way rather than as a rectangle does. Absent, it is
+   * Mermaid's 15px each way, so a record called with a label Mermaid padded
+   * reproduces Mermaid's box. `node` is the
    * node being sized, for a shape drawn from more than its label (an icon).
    */
   box(label: Size, direction: Direction, padding?: Size, node?: GraphNode): Size;

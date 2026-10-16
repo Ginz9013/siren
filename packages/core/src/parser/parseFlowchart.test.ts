@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseFlowchart } from "./parseFlowchart";
 import { NODE_DATA_SHAPES as SHAPE_OF_NAME, SHAPE_NAME_LISTS } from "./flowchartNodeData";
-import { SHAPES_DRAWN_WITHOUT_TEXT } from "../nodeShapeTraits";
+import { SHAPES_DRAWN_WITHOUT_TEXT, SHAPES_TAKING_NO_STYLE } from "../nodeShapeTraits";
 import { SHAPES } from "../layout/shapes/shapeTable";
 import { parseSiren } from "./parseSiren";
 import type { Diagnostic, DiagramParseResult, FlowchartDocument, NodeShape, SirenNode } from "../contracts";
@@ -3437,6 +3437,25 @@ describe("the shape table and the shape names", () => {
   it("names every shape the table draws, in brackets or in a `@{ shape: … }` block", () => {
     const named = new Set(SHAPE_OF_NAME.values());
     expect(Object.keys(SHAPES).filter((shape) => !named.has(shape as NodeShape))).toEqual([]);
+  });
+
+  it("refuses a style by name for the shapes the table keeps out of every author's paint, and only shapes it draws", () => {
+    // A shape whose every frame takes none of an author's declarations
+    // would silently ignore a `style` naming it, so the parser must refuse
+    // one; and every shape the parser refuses one for is a shape the table
+    // draws. A small circle is in the set while its frame takes an author's
+    // paint: `classDef default` reaches it (measured), a style by name does not.
+    const box = { x: 0, y: 0, width: 20, height: 20 };
+    const unstyled = Object.entries(SHAPES)
+      .filter(([, spec]) => spec.frames(box).every((frame) => frame.authorStyle === false))
+      .map(([shape]) => shape);
+    for (const shape of unstyled) {
+      expect([shape, SHAPES_TAKING_NO_STYLE.has(shape as NodeShape)]).toEqual([shape, true]);
+    }
+    expect(unstyled).toContain("anchor");
+    for (const shape of SHAPES_TAKING_NO_STYLE) {
+      expect(Object.keys(SHAPES)).toContain(shape);
+    }
   });
 
   it("draws no text for exactly the shapes the parser refuses a label for", () => {

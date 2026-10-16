@@ -347,6 +347,13 @@ describe("curly braces (`braces`)", () => {
  * three rows (63px) tall, with its 15px node padding — so the padded label
  * Siren hands a shape is that text plus 15px a side: 150 x 51 and 150 x 93.
  * `offset` is how far the text's centre stands from the box's.
+ *
+ * Classic, the look the shape table follows: the parity report's own run
+ * with `--look classic` reads the same boxes back. The three curly braces
+ * are all 46px tall at one row because in the classic look all three pad
+ * the text by `p` and curl by `max(5, h/10)`; Mermaid's default `neo` look
+ * pads `brace-r` and `braces` twice as much (55px) and `brace` with its own
+ * 12px (43px).
  */
 const MEASURED: Record<string, ReadonlyArray<{ rows: number; box: [number, number]; offset: [number, number] }>> = {
   delay: [
@@ -359,37 +366,48 @@ const MEASURED: Record<string, ReadonlyArray<{ rows: number; box: [number, numbe
   ],
   "h-cyl": [
     { rows: 1, box: [141.43, 28.5], offset: [-4.65, 0] },
-    { rows: 3, box: [154.54, 70.5], offset: [-9.02, 0] },  ],
+    { rows: 3, box: [154.54, 70.5], offset: [-9.02, 0] },
+  ],
   "bow-rect": [
     { rows: 1, box: [155.57, 36], offset: [0, 0] },
-    { rows: 3, box: [159.57, 78], offset: [-0.02, 0] },  ],
+    { rows: 3, box: [159.57, 78], offset: [-0.02, 0] },
+  ],
   "lin-cyl": [
     { rows: 1, box: [150, 91.91], offset: [0, 13.64] },
-    { rows: 3, box: [150, 133.91], offset: [0, 13.64] },  ],
-  "doc": [
+    { rows: 3, box: [150, 133.91], offset: [0, 13.64] },
+  ],
+  doc: [
     { rows: 1, box: [150, 63.75], offset: [0, -6.38] },
-    { rows: 3, box: [150, 116.24], offset: [0, -11.62] },  ],
+    { rows: 3, box: [150, 116.24], offset: [0, -11.62] },
+  ],
   "lin-doc": [
     { rows: 1, box: [165, 63.75], offset: [3.75, -6.38] },
-    { rows: 3, box: [165, 116.24], offset: [3.75, -11.62] },  ],
+    { rows: 3, box: [165, 116.24], offset: [3.75, -11.62] },
+  ],
   "tag-doc": [
     { rows: 1, box: [165, 63.75], offset: [0, -3.19] },
-    { rows: 3, box: [165, 116.24], offset: [0, -5.81] },  ],
-  "docs": [
-    { rows: 1, box: [170, 98.37], offset: [-10.0, 1.75] },
-    { rows: 3, box: [170, 148.24], offset: [-10.0, -3.5] },  ],
-  "flag": [
+    { rows: 3, box: [165, 116.24], offset: [0, -5.81] },
+  ],
+  docs: [
+    { rows: 1, box: [170, 98.37], offset: [-10, 1.75] },
+    { rows: 3, box: [170, 148.24], offset: [-10, -3.5] },
+  ],
+  flag: [
     { rows: 1, box: [150, 53.98], offset: [0, 0] },
-    { rows: 3, box: [150, 116.96], offset: [0, 0] },  ],
-  "brace": [
+    { rows: 3, box: [150, 116.96], offset: [0, 0] },
+  ],
+  brace: [
     { rows: 1, box: [148.5, 46], offset: [-0.75, 0] },
-    { rows: 3, box: [150.6, 93.6], offset: [0.3, 0] },  ],
+    { rows: 3, box: [150.6, 93.6], offset: [0.3, 0] },
+  ],
   "brace-r": [
     { rows: 1, box: [145, 46], offset: [0, 0] },
-    { rows: 3, box: [150.6, 93.6], offset: [0, 0] },  ],
-  "braces": [
+    { rows: 3, box: [150.6, 93.6], offset: [0, 0] },
+  ],
+  braces: [
     { rows: 1, box: [147.5, 46], offset: [0, 0] },
-    { rows: 3, box: [154.5, 93.6], offset: [0, 0] },  ],
+    { rows: 3, box: [154.5, 93.6], offset: [0, 0] },
+  ],
 };
 
 /** The measured cases for `name`, as `it.each` rows: a description, and the padded label, box and offset. */

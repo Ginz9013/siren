@@ -60,17 +60,25 @@ function windowShape(band: number, decorations: (box: Rect) => ShapeFrame[]): Sh
 /** Mermaid's `barHeight`: the height of a browser's bar. */
 const BROWSER_BAR = 18;
 
-/**
- * Mermaid's flowchart node padding. The padded label stands for the label
- * plus this much on each side, so a handler that pads by a different
- * amount — a bang's and a cloud's `halfPadding` multiples — starts from the
- * label without it.
- */
-const PADDING = 15;
+/** Mermaid's flowchart node padding: `p` when a record is told no padding of its own. */
+const MERMAID_PADDING: Size = { width: 15, height: 15 };
 
-/** The label Mermaid measures, before its padding: the padded label less `PADDING` on each side. */
-function bareLabel(label: Size): Size {
-  return { width: Math.max(label.width - 2 * PADDING, 0), height: Math.max(label.height - 2 * PADDING, 0) };
+/**
+ * The text a handler measures and the node padding `p`, across and up: the
+ * padded label less `padding` on each side, and `padding` itself. A handler
+ * that pads by its own multiple of `p` — a bang's and a cloud's
+ * `halfPadding` — starts from the text. Laid out, `padding` is Siren's own
+ * (`layoutGraph`), so the shape stands to a rectangle as Mermaid's does.
+ */
+function bareLabel(label: Size, padding: Size = MERMAID_PADDING): { bare: Size; px: number; py: number } {
+  return {
+    bare: {
+      width: Math.max(label.width - 2 * padding.width, 0),
+      height: Math.max(label.height - 2 * padding.height, 0),
+    },
+    px: padding.width,
+    py: padding.height,
+  };
 }
 
 /** `value` to three decimals, so that an outline written from fractions reads as its formula does. */
@@ -83,9 +91,9 @@ function n(value: number): number {
  * Mermaid's `bbox.width + 10 x halfPadding` by `bbox.height + 8 x
  * halfPadding`.
  */
-function bangCorners(label: Size): Size {
-  const bare = bareLabel(label);
-  return { width: bare.width + 5 * PADDING, height: bare.height + 4 * PADDING };
+function bangCorners(label: Size, padding?: Size): Size {
+  const { bare, px, py } = bareLabel(label, padding);
+  return { width: bare.width + 5 * px, height: bare.height + 4 * py };
 }
 
 /** How much bigger a bang's outline is than the `w x h` its corners span, each way. */
@@ -198,9 +206,9 @@ function cloudArcs(w: number, h: number): Arc[] {
 }
 
 /** The `w x h` a cloud's arcs join, for a padded label: Mermaid's `bbox + 2 x halfPadding` each way. */
-function cloudCorners(label: Size): Size {
-  const bare = bareLabel(label);
-  return { width: bare.width + PADDING, height: bare.height + PADDING };
+function cloudCorners(label: Size, padding?: Size): Size {
+  const { bare, px, py } = bareLabel(label, padding);
+  return { width: bare.width + px, height: bare.height + py };
 }
 
 /** The extent of a cloud joining a `1 x ratio` — every cloud is one of these, scaled. */
@@ -401,8 +409,8 @@ export const COMPOSITE_SHAPES = {
   // and the label is centred on the `w x h`, which the bulges leave a
   // little left of and above the box's centre.
   cloud: {
-    box: (label) => {
-      const { width: w, height: h } = cloudCorners(label);
+    box: (label, _direction, padding) => {
+      const { width: w, height: h } = cloudCorners(label, padding);
       const { minX, minY, maxX, maxY } = extentOf(cloudArcs(w, h));
       return { width: maxX - minX, height: maxY - minY };
     },
@@ -442,8 +450,8 @@ export const COMPOSITE_SHAPES = {
   // box, is `1.25 x w` by `1.25 x h`. Mermaid centres the label on the
   // `w x h`, a fortieth of each up and left of the box's centre.
   bang: {
-    box: (label) => {
-      const { width, height } = bangCorners(label);
+    box: (label, _direction, padding) => {
+      const { width, height } = bangCorners(label, padding);
       return { width: BANG_SPREAD * width, height: BANG_SPREAD * height };
     },
     labelRect: (box, label) => {
