@@ -2100,9 +2100,11 @@ export interface ResolvedClass {
   annotation: string | null;
   /**
    * The last label any declaration of the class wrote, or `null` when none
-   * did. Unlike `annotation` and `generic` (first-named wins, a conflict is
-   * a warning), a later label replaces an earlier one silently — what
-   * Mermaid 11.17.2 draws, measured.
+   * did. Unlike `annotation` (first-named wins, a conflict is a warning)
+   * and `generic` (the first naming's wins, a different one later is a
+   * warning, and one given after a naming without any is an error), a later
+   * label replaces an earlier one silently — what Mermaid 11.17.2 draws,
+   * measured.
    */
   label: Label | null;
   members: ClassMember[];

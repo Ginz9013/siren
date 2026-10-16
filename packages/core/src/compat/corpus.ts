@@ -5750,6 +5750,72 @@ line2\`"]`,
       expectSame("members", members(result, "Version"), ["+int 2nd", "+String <tag>", "+< x"]);
     },
   },
+  {
+    id: "cls-generic-forms",
+    kind: "class",
+    source: `classDiagram
+      class Box ~T~
+      class Bag~~
+      Shelf~K~ : +int size
+      note for Box~T~ "holds one"`,
+    status: "supported",
+    meaning:
+      "A class's generic may follow a space, may be empty (no generic), may " +
+      "stand on the inline member form's class, and may stand on a note's " +
+      "target when it is that class's own. Measured on Mermaid 12.2.0 " +
+      "(Chrome): `Box<T>`, `Bag`, `Shelf<K>` with `+int size`, and the note " +
+      "`holds one`. Siren used to refuse each of the four lines.",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Box", "Bag", "Shelf"]);
+      expectSame("names", texts(result, "text.siren-class-name"), ["Box<T>", "Bag", "Shelf<K>"]);
+      expectSame("Shelf's members", members(result, "Shelf"), ["+int size"]);
+      expectSame("note texts", texts(result, "text.siren-note-text"), ["holds one"]);
+    },
+  },
+  {
+    id: "cls-generic-after-first-naming",
+    kind: "class",
+    source: `classDiagram
+      class Box
+      class Box~T~`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A class keeps " +
+      "what its first naming gave it, generic-less included: Mermaid 12.2.0 " +
+      "draws `Box`, the `T` gone with no diagnostic (measured, Chrome; so " +
+      "after `Box --> C` or `Box : +x`). Siren refuses it (ADR-0001), with an " +
+      "error saying to write the generic where the class is first named. " +
+      "Siren used to draw `Box<T>`. `class Box~T~` alone renders in both.",
+  },
+  {
+    id: "cls-generic-tag",
+    kind: "class",
+    source: `classDiagram
+      class Box~List<int>~`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A `<` before a " +
+      "letter, `/` or `!` in a class name's generic opens markup the name " +
+      "loses: Mermaid 12.2.0 draws `Box<List>` (measured, Chrome). Siren " +
+      "refuses it (ADR-0001), with an error saying to write the `<` as " +
+      "`#lt;`. Siren used to draw `Box<List<int>>`. " +
+      "`class Box~List#lt;int#gt;~` renders `Box<List<int>>` in both.",
+  },
+  {
+    id: "cls-note-generic-mismatch",
+    kind: "class",
+    source: `classDiagram
+      class Box~U~
+      note for Box~T~ "n"`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A note's target " +
+      "names its class by name alone: Mermaid 12.2.0 draws `Box<U>` with the " +
+      "note, the `T` the note named gone with no diagnostic (measured, " +
+      "Chrome). Siren refuses it (ADR-0001), with an error saying to write " +
+      "the note for `Box` alone. Siren used to refuse the line as " +
+      "unrecognized. `note for Box~U~ \"n\"` renders in both.",
+  },
   // -------------------------------------------------------------------------
   // sequenceDiagram
   // -------------------------------------------------------------------------

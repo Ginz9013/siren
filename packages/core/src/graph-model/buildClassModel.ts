@@ -112,12 +112,15 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
 interface ClassAccumulator {
   resolved: ResolvedClass;
   memberKeys: Set<string>;
+  /** The line the class was first named on, when the declaration says. */
+  firstLine?: number;
 }
 
-function emptyClass(id: string): ClassAccumulator {
+function emptyClass(id: string, firstLine?: number): ClassAccumulator {
   return {
     resolved: { id, generic: null, annotation: null, label: null, members: [], namespaceId: null },
     memberKeys: new Set<string>(),
+    firstLine,
   };
 }
 
@@ -140,7 +143,7 @@ function resolveClasses(
   for (const declaration of document.classes) {
     const existing = classesById.get(declaration.id);
     if (existing === undefined) {
-      const created = emptyClass(declaration.id);
+      const created = emptyClass(declaration.id, declaration.line);
       created.resolved.generic = declaration.generic;
       created.resolved.annotation = declaration.annotation;
       created.resolved.label = declaration.label;
@@ -153,14 +156,14 @@ function resolveClasses(
 
     // An annotation and a generic are single-valued, so they cannot be
     // unioned the way members are: the first declaration that names one
-    // wins, as it does in Mermaid 11.17.2 (measured: `class A~T~` then
+    // wins, as it does in Mermaid (measured, 11.17.2: `class A~T~` then
     // `class A~U~` keeps `T`; `<<interface>> A` then `<<service>> A` draws
     // only «interface»). A second, different one is a warning because
     // Mermaid drops it without a word, which is likely not what the author
-    // meant. First-*named*, not first-declared — the implicit declaration a
-    // relationship makes carries neither, and it is usually the one that
-    // introduced the class, so taking its nulls would discard whatever the
-    // explicit declaration said.
+    // meant. For an annotation that is first-*named*, not first-declared —
+    // the implicit declaration a relationship makes carries none, and
+    // taking its null would discard what the explicit declaration said. A
+    // generic is first-declared (below).
     existing.resolved.annotation = mergeAttribute(
       existing.resolved.annotation,
       declaration.annotation,
@@ -169,14 +172,33 @@ function resolveClasses(
       declaration,
       diagnostics,
     );
-    existing.resolved.generic = mergeAttribute(
-      existing.resolved.generic,
-      declaration.generic,
-      "generics",
-      "generic",
-      declaration,
-      diagnostics,
-    );
+    // A generic is kept from the class's first naming even when that gave
+    // none: measured on Mermaid 12.2.0 (Chrome), `class A` then `class
+    // A~T~`, `A --> C` then `class A~T~` and `class A` then `A~T~ --> B`
+    // draw `A`, the `T` gone with no diagnostic — a picture other than the
+    // one written, so it is refused (ADR-0001), saying where to write it.
+    // A different generic after a first one is kept to the first, as
+    // Mermaid draws it, with a warning.
+    if (existing.resolved.generic === null && declaration.generic !== null) {
+      const where = existing.firstLine === undefined ? "" : ` on line ${existing.firstLine}`;
+      diagnostics.push({
+        severity: "error",
+        message:
+          `Class "${declaration.id}" gets the generic "${declaration.generic}" here, but it was first named${where} without one, ` +
+          `and a class keeps what its first naming gave it. Write "~${declaration.generic}~" where "${declaration.id}" is first named.`,
+        line: declaration.line,
+        column: declaration.column,
+      });
+    } else {
+      existing.resolved.generic = mergeAttribute(
+        existing.resolved.generic,
+        declaration.generic,
+        "generics",
+        "generic",
+        declaration,
+        diagnostics,
+      );
+    }
     // A label is single-valued too, but Mermaid does not merge it the way
     // it merges those two: the *last* label written is the one drawn, with
     // no diagnostic (measured, 11.17.2: `class A["x"]` then `class A["y"]`

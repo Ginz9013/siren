@@ -1843,8 +1843,22 @@ const SILENTLY_WRONG = 0;
  * report that block as unterminated, with no row to say so:
  * `fc-id-end-prefix-in-subgraph` writes it down. No `supported` row moved:
  * none wrote such an id. `silently-wrong` does not move.
+ *
+ * **52 → 55: case (2), three refusals written down for the first time.**
+ * `01M51RR6AJKAR05VBT12A2BSB4` refused three class-diagram generics Mermaid
+ * 12.2.0 draws as something other than written, with no diagnostic
+ * (measured, Chrome), under ADR-0001: a generic given after the class was
+ * first named without one (`class Box` then `class Box~T~` draws `Box`),
+ * `cls-generic-after-first-naming`, which Siren used to draw `Box<T>`; a
+ * `<` opening a tag in a generic (`class Box~List<int>~` draws
+ * `Box<List>`), `cls-generic-tag`, which Siren used to draw
+ * `Box<List<int>>`; and a note's target naming a generic its class does
+ * not have (`note for Box~T~` on a `Box~U~`), `cls-note-generic-mismatch`,
+ * which Siren used to refuse as an unrecognized line, with no row to say
+ * so. No `supported` row moved: `cls-generic-forms`, new beside them, is
+ * `supported`. `silently-wrong` does not move.
  */
-const REJECTED = 52;
+const REJECTED = 55;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

@@ -194,24 +194,71 @@ describe("buildClassModel", () => {
     ]);
   });
 
-  it("keeps an annotation and a generic carried by a later declaration than the one that introduced the class", () => {
+  it("keeps an annotation carried by a later declaration than the one that introduced the class", () => {
     // The implicit declaration a relationship makes comes first and carries
-    // neither, so taking the first declaration's values wholesale would
-    // throw away everything the explicit `class Shape~T~ { <<interface>> }`
-    // said.
+    // none, so taking the first declaration's values wholesale would throw
+    // away the explicit `class Shape { <<interface>> }`.
     const { model, diagnostics } = buildClassModel(
       classDocument({
-        classes: [
-          classDecl({ id: "Shape" }),
-          classDecl({ id: "Shape", annotation: "interface", generic: "T" }),
-        ],
+        classes: [classDecl({ id: "Shape" }), classDecl({ id: "Shape", annotation: "interface" })],
       }),
     );
 
     expect(diagnostics).toEqual([]);
     expect(model.classes).toHaveLength(1);
     expect(model.classes[0].annotation).toBe("interface");
-    expect(model.classes[0].generic).toBe("T");
+  });
+
+  it("refuses a generic given after the class was first named without one", () => {
+    // Measured on Mermaid 12.2.0 (Chrome): a class keeps what its first
+    // naming gave it, generic-less included — `class A` then `class A~T~`,
+    // `A --> C` then `class A~T~`, `A : +x` then `class A~T~`, `class A~~`
+    // then `class A~T~`, `namespace N { class A }` then `class A~T~`, and
+    // `class A` then `A~T~ --> B` each draw `A`, the `T` gone with no
+    // diagnostic. A picture other than the one written, refused (ADR-0001).
+    const message = (line: number) =>
+      `Class "A" gets the generic "T" here, but it was first named on line ${line} without one, ` +
+      'and a class keeps what its first naming gave it. Write "~T~" where "A" is first named.';
+    for (const [source, line, column, first] of [
+      ["classDiagram\n  class A\n  class A~T~", 3, 3, 2],
+      ["classDiagram\n  A --> C\n  class A~T~", 3, 3, 2],
+      ["classDiagram\n  A : +x\n  class A~T~", 3, 3, 2],
+      ["classDiagram\n  class A~~\n  class A~T~", 3, 3, 2],
+      ["classDiagram\n  namespace N {\n    class A\n  }\n  class A~T~", 5, 3, 3],
+      ["classDiagram\n  class A\n  A~T~ --> B", 3, 3, 2],
+    ] as const) {
+      const parsed = parseClassDiagram(source);
+      if (parsed.document === null || parsed.document.kind !== "class") throw new Error(source);
+      expect([source, parsed.diagnostics]).toEqual([source, []]);
+      const { model, diagnostics } = buildClassModel(parsed.document);
+      expect([source, diagnostics]).toEqual([source, [{ severity: "error", message: message(first), line, column }]]);
+      expect(model.classes.find((c) => c.id === "A")!.generic).toBeNull();
+    }
+  });
+
+  it("keeps the first generic a class was named with, warning about a different later one in any order", () => {
+    // Measured on Mermaid 12.2.0 (Chrome): `class A~T~` then `A~U~ --> B`,
+    // and `A~T~ --> B` then `A~U~ --> C`, draw `A<T>`; `A~U~ --> B` then
+    // `class A~T~` draws `A<U>`; `A~T~ --> B` then `class A` draws `A<T>`.
+    const conflict = (kept: string, dropped: string, line: number) => ({
+      severity: "warning",
+      message: `Class "A" is declared with conflicting generics ("${kept}" vs. "${dropped}"); keeping the first-seen generic.`,
+      line,
+      column: 3,
+    });
+    for (const [source, generic, warnings] of [
+      ["classDiagram\n  class A~T~\n  A~U~ --> B", "T", [conflict("T", "U", 3)]],
+      ["classDiagram\n  A~T~ --> B\n  A~U~ --> C", "T", [conflict("T", "U", 3)]],
+      ["classDiagram\n  A~U~ --> B\n  class A~T~", "U", [conflict("U", "T", 3)]],
+      ["classDiagram\n  A~T~ --> B\n  A~T~ --> C\n  class A", "T", []],
+    ] as const) {
+      const parsed = parseClassDiagram(source);
+      if (parsed.document === null || parsed.document.kind !== "class") throw new Error(source);
+      expect([source, parsed.diagnostics]).toEqual([source, []]);
+      const { model, diagnostics } = buildClassModel(parsed.document);
+      expect([source, diagnostics]).toEqual([source, warnings]);
+      expect(model.classes.find((c) => c.id === "A")!.generic).toBe(generic);
+    }
   });
 
   it("warns and keeps the first annotation when two declarations of one class annotate it differently", () => {

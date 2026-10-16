@@ -110,6 +110,11 @@ drawn decoded, `A<<>` (see **Changed**).
 Breaking for a class document with a method that declares a return type, which used to be drawn
 `+foo() bool` and is now drawn `+foo() : bool`, its box sized from that text (see **Changed**).
 
+Breaking for a class document that gives a class a generic after first naming it without one
+(`class A` then `class A~T~`), which used to draw `A<T>`, and for one with a `<` opening a tag in
+a class name's generic (`class A~List<int>~`), which used to draw `A<List<int>>`. Each is now
+refused (see **Changed**).
+
 ### Added
 
 - A flowchart node's `@{ … }` data block is read as Mermaid 12.2.0 reads it, for what Siren can
@@ -258,6 +263,11 @@ Breaking for a class document with a method that declares a return type, which u
   class declared or named before keeps what it had. Such a line used to be refused as unrecognized.
   On a lollipop `()` end, which names an interface, a generic is refused: Mermaid draws the
   interface's name with its tildes.
+- More class-name generics are read as Mermaid 12.2.0 reads them (nook `01M51RR6AJKAR05VBT12A2BSB4`):
+  after a space on a declaration (`class A ~T~`, as a relationship's end already allowed); empty, as
+  none (`class A~~`, `A~~ --> B` draw `A`); on the inline member form's class (`A~T~ : +x`); and on
+  a note's target when it is that class's own generic (`note for A~T~ "n"` on a class first named
+  `A~T~`). Each used to be refused as an unrecognized line.
 
 ### Changed
 
@@ -650,6 +660,19 @@ Breaking for a class document with a method that declares a return type, which u
   Mermaid 12.2.0 draws it, in a class block and after `A :` alike: `+foo() bool`, `+foo()bool` and
   `+foo()  bool` draw `+foo() : bool`, and `+foo(int a) List~T~` draws `+foo(int a) : List<T>`. The
   box is measured from the new text. A method with no return type is unchanged.
+- **A class generic given after the class was first named without one is refused** (nook
+  `01M51RR6AJKAR05VBT12A2BSB4`): `class A` then `class A~T~`, `A --> C` or `A : +x` then `class
+  A~T~`, and `class A` then `A~T~ --> B`. Mermaid 12.2.0 keeps what a class's first naming gave it
+  and draws `A`, dropping the `T`; Siren drew `A<T>`. The error says to write the generic where the
+  class is first named. A different generic after a first one is still kept to the first, with a
+  warning.
+- **A `<` opening a tag in a class name's generic is refused** (nook `01M51RR6AJKAR05VBT12A2BSB4`):
+  before a letter, `/` or `!` (`class A~List<int>~`, `A~List<int>~ --> B`), where Mermaid 12.2.0 reads
+  markup and draws `A<List>`; Siren drew `A<List<int>>`. The error suggests `#lt;`. Any other `<`
+  (`~a<1~`, `~a < b~`) is drawn as written, as before.
+- **A note's target with a generic other than its class's is refused** (nook
+  `01M51RR6AJKAR05VBT12A2BSB4`): `note for A~T~ "n"` on a class first named without `T`, or never
+  named, whose `T` Mermaid 12.2.0 does not draw.
 
 ### Fixed
 
