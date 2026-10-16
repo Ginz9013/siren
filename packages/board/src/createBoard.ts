@@ -2,6 +2,7 @@ import { render } from "siren-core";
 import type {
   AnimationController,
   Diagnostic,
+  IconifyJSON,
   InteractionTarget,
   SirenRenderResult,
   TextMeasurer,
@@ -56,6 +57,13 @@ export interface BoardOptions {
    * nothing. `click X href` needs no handler: it is drawn as a link.
    */
   onClick?: (target: InteractionTarget) => void;
+  /**
+   * The icon packs a flowchart's icon nodes are drawn from; passed
+   * unchanged to core's `render()` on every render (see
+   * `RenderOptions.iconPacks`). Iconify JSON, handed over as data: nothing
+   * is fetched.
+   */
+  iconPacks?: readonly IconifyJSON[];
 }
 
 /**
@@ -222,6 +230,7 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     return render(source, viewport.content, {
       measureText,
       onClick: options.onClick,
+      ...(options.iconPacks === undefined ? {} : { iconPacks: options.iconPacks }),
       timeline: full ? false : (name ?? true),
     });
   }

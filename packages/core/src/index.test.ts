@@ -1303,8 +1303,12 @@ exit note:1 fade
       result
         .svg!.querySelector('g.siren-class[data-siren-id="Registry"]')!
         .querySelectorAll("text.siren-member"),
-    ).map((t) => t.textContent);
-    expect(registryMembers).toEqual(["-int cachedCount$", "+lookup(String name) : Animal$"]);
+    ).map((t) => [t.textContent, t.getAttribute("style")]);
+    // A `$` classifier is drawn as an underline on the whole line, not as a character of it.
+    expect(registryMembers).toEqual([
+      ["-int cachedCount", "text-decoration:underline"],
+      ["+lookup(String name) : Animal", "text-decoration:underline"],
+    ]);
 
     // All eight Mermaid relationship kinds, over ten statements.
     const relationships = Array.from(
@@ -2154,7 +2158,7 @@ click Sneaky call inspect() "<b>tooltip</b>"
       "#int durationInSeconds",
       "-bool licensed",
       "~String catalogKey",
-      "+play()*",
+      "+play()",
       "+describe() : String",
     ]);
     expect(classGroup("Media").querySelectorAll("line.siren-class-divider")).toHaveLength(2);
@@ -2172,10 +2176,10 @@ click Sneaky call inspect() "<b>tooltip</b>"
     );
     expect(membersOf("Shelf")).toEqual([
       "-Map<String, List<T>> byGenre",
-      "-int loadedCount$",
+      "-int loadedCount",
       "+add(String genre, T item)",
       "+find(String genre) : List<T>",
-      "+clear()$",
+      "+clear()",
     ]);
 
     // --- annotations ---
@@ -3610,23 +3614,15 @@ style Ghost fill:#fdd
     const container = document.createElement("div");
     // `Smuggles` is `fill:red`, not a `#` color: a `#` would make it a Mermaid style line, whose last `;` is dropped before the gate sees it.
     const source = `flowchart TD
-Fetches[Fetches] --> Executes[Executes]
 Smuggles[Smuggles] --> Escapes[Escapes]
-style Fetches fill:url(#evil),stroke:#c00
-style Executes fill:expression(alert(1)),stroke:#c00
 style Smuggles fill:red;position:fixed,stroke:#c00
-style Escapes fill:u\\72 l(#evil),stroke:#c00
 `;
 
     const result = render(source, container);
 
     const errors = result.diagnostics.filter((d) => d.severity === "error");
-    expect(errors).toHaveLength(4);
     expect(errors.map((d) => d.message)).toEqual([
-      'Style value for "fill" uses "url(", which can fetch a remote resource; dropping the declaration.',
-      'Style value for "fill" uses "expression(", which can execute script; dropping the declaration.',
       'Style value for "fill" contains ";", which would smuggle in a second declaration; dropping the declaration.',
-      'Style value for "fill" contains "\\", which can spell a rejected function as a CSS escape; dropping the declaration.',
     ]);
 
     const frameStyle = (id: string) =>
@@ -3634,17 +3630,35 @@ style Escapes fill:u\\72 l(#evil),stroke:#c00
         .svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect.siren-node-frame`)!
         .getAttribute("style");
 
-    // Only the sibling survives, in each case.
-    for (const id of ["Fetches", "Executes", "Smuggles", "Escapes"]) {
-      expect([id, frameStyle(id)]).toEqual([id, "stroke:#c00"]);
-    }
+    // Only the sibling survives.
+    expect(frameStyle("Smuggles")).toBe("stroke:#c00");
 
     // And nothing refused is anywhere in the serialized document, in any
     // attribute — the gate is about what the browser is handed, not about
     // which element it was handed on.
-    const markup = container.innerHTML;
-    for (const forbidden of ["url(#evil", "expression(", "position:fixed", "\\"]) {
-      expect([forbidden, markup.includes(forbidden)]).toEqual([forbidden, false]);
+    expect(container.innerHTML.includes("position:fixed")).toBe(false);
+  });
+
+  it("refuses a flowchart style value holding a CSS function before the gate, so none of it reaches the markup", () => {
+    // `url(`, `expression(` and an escaped `u\72 l(` all hold a `(`, which a
+    // flowchart's styling value cannot: Mermaid 12.2.0 refuses the line
+    // ("got 'PS'"), and so does the parser, at the `(`, before the shared
+    // gate is asked. The security point is the same: nothing of it is drawn.
+    for (const [value, column] of [
+      ["fill:url(#evil)", 17],
+      ["fill:expression(alert(1))", 24],
+      ["fill:u\\72 l(#evil)", 20],
+    ] as const) {
+      const container = document.createElement("div");
+      const result = render(`flowchart TD\nA --> B\nstyle A ${value},stroke:#c00\n`, container);
+
+      expect(result.svg).toBeNull();
+      expect(result.diagnostics.map((d) => [d.severity, d.line, d.column, d.message.split(":")[0]])).toEqual([
+        ["error", 3, column, 'A style declaration cannot hold "("'],
+      ]);
+      for (const forbidden of ["url(#evil", "expression(", "\\"]) {
+        expect([forbidden, container.innerHTML.includes(forbidden)]).toEqual([forbidden, false]);
+      }
     }
   });
 
@@ -4117,7 +4131,7 @@ linkStyle 0 stroke:#f00
     const result = render(
       `flowchart TD
 A[Start] --> B[End]
-linkStyle 0 stroke:url(#evil),stroke-width:4px
+linkStyle 0 stroke:red;position:fixed,stroke-width:4px
 `,
       container,
     );
@@ -4126,7 +4140,7 @@ linkStyle 0 stroke:url(#evil),stroke-width:4px
       {
         severity: "error",
         message:
-          'Style value for "stroke" uses "url(", which can fetch a remote resource; dropping the declaration.',
+          'Style value for "stroke" contains ";", which would smuggle in a second declaration; dropping the declaration.',
         line: 3,
         column: 1,
       },
@@ -4134,8 +4148,18 @@ linkStyle 0 stroke:url(#evil),stroke-width:4px
     expect(
       result.svg!.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("style"),
     ).toBe("stroke-width:4px");
-    // Not merely off the attribute: nowhere in the document. The one
-    // `url(` the markup may contain is the renderer's own marker reference.
+    // Not merely off the attribute: nowhere in the document.
+    expect(container.innerHTML.includes("position:fixed")).toBe(false);
+  });
+
+  it("refuses a `linkStyle` value holding a CSS function before the gate, so none of it reaches the markup", () => {
+    const container = document.createElement("div");
+    const result = render("flowchart TD\nA[Start] --> B[End]\nlinkStyle 0 stroke:url(#evil),stroke-width:4px\n", container);
+
+    expect(result.svg).toBeNull();
+    expect(result.diagnostics.map((d) => [d.severity, d.line, d.column, d.message.split(":")[0]])).toEqual([
+      ["error", 3, 23, 'A style declaration cannot hold "("'],
+    ]);
     expect(container.innerHTML.includes("url(#evil")).toBe(false);
   });
 
@@ -8639,5 +8663,306 @@ highlight A-%%B glow
 
     expect(result.diagnostics.map((d) => [d.severity, d.message.includes("%%Z")])).toEqual([["error", true]]);
     expect(result.svg!.querySelectorAll("g.siren-node")).toHaveLength(2);
+  });
+});
+
+/**
+ * A flowchart edge written with an id of its own, through `render()`
+ * (01M51XADJKSGRYG5CM1GG0T91R).
+ */
+describe("render() of a flowchart edge with its own id", () => {
+  it("stamps the edge with its own id, and a timeline enters it by that id", () => {
+    const container = document.createElement("div");
+    const result = render("flowchart LR\nA e1@--> B\nA --> B\ntimeline:\nenter e1 fade\n", container);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(
+      Array.from(result.svg!.querySelectorAll("path.siren-edge")).map((path) => path.getAttribute("data-siren-id")),
+    ).toEqual(["e1", "A-B#2"]);
+    const edge = result.svg!.querySelector('path.siren-edge[data-siren-id="e1"]')!;
+    expect(edge.classList.contains("siren-pending")).toBe(true);
+    result.controller!.next();
+    expect(edge.classList.contains("siren-pending")).toBe(false);
+  });
+
+  it("refuses a timeline naming an id a node and an edge are both stamped with", () => {
+    const container = document.createElement("div");
+    const result = render("flowchart LR\nA-B\nA --> B\ntimeline:\nenter A-B fade\n", container);
+
+    expect(result.diagnostics.map((d) => [d.severity, d.line])).toEqual([["error", 5]]);
+    expect(result.diagnostics[0]!.message).toContain('"A-B" is the id of more than one thing');
+  });
+});
+
+describe("render() puts a shape's label where its shape table record says", () => {
+  it("centres a three-row label on a sloped rectangle's rectangle, under the slope, in an LR flowchart", () => {
+    const container = document.createElement("div");
+    const { diagnostics } = render('flowchart LR\n  A@{ shape: sl-rect, label: "a<br>b<br>c" } --> B', container);
+    expect(diagnostics).toEqual([]);
+
+    const group = container.querySelector('g.siren-node[data-siren-id="A"]')!;
+    // The outline is `left,slope-top left,bottom right,bottom right,top`.
+    const points = group
+      .querySelector(".siren-node-frame")!
+      .getAttribute("d")!
+      .match(/-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?/g)!
+      .map((pair) => pair.split(",").map(Number));
+    const [[, slopeTop], [, bottom], , [, top]] = points;
+    const rows = Array.from(group.querySelectorAll("tspan.siren-label-row")).map((row) => Number(row.getAttribute("y")));
+
+    // The middle row sits at the middle of the rectangle under the slope —
+    // not at the middle of the node's box.
+    expect(rows).toHaveLength(3);
+    expect(rows[1]).toBeCloseTo((slopeTop! + bottom!) / 2, 9);
+    expect(rows[1]).not.toBeCloseTo((top! + bottom!) / 2, 0);
+  });
+});
+
+describe("render() — a figure a `@{ shape: … }` block names", () => {
+  it("draws every element of a browser, and the author's `style` reaches its window and not its bar's decorations", () => {
+    const container = document.createElement("div");
+    const result = render('flowchart TB\n  A@{ shape: browser, label: "Web" }\n  style A stroke:#f00', container);
+
+    expect(result.diagnostics).toEqual([]);
+    const group = result.svg!.querySelector('g.siren-node[data-siren-id="A"]')!;
+    const frames = Array.from(group.querySelectorAll(".siren-node-frame"));
+    expect(frames.map((frame) => frame.tagName)).toEqual(["rect", "line", "circle", "circle", "circle", "rect"]);
+    // Measured in Chrome: Mermaid 12.2.0 paints the window with the author's
+    // style and keeps the line, dots and address bar in the border colour.
+    expect(frames.map((frame) => (frame.getAttribute("style") ?? "").includes("stroke:#f00"))).toEqual([
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
+    expect(group.getAttribute("data-siren-shape")).toBe("browser");
+  });
+});
+
+/**
+ * An icon node through `render()`: the icon is looked up in the packs the
+ * caller registered with `iconPacks` (Iconify JSON, handed over as data),
+ * and an icon no registered pack holds is an error — Mermaid 12.2.0 draws a
+ * "?" in its place (measured), a picture silently wrong.
+ */
+describe("render() — an icon from a registered pack", () => {
+  const PACK = {
+    prefix: "t",
+    width: 24,
+    height: 24,
+    icons: {
+      sq: { body: '<path d="M0 0h24v24H0z" fill="currentColor"/>' },
+      evil: {
+        body:
+          '<script>alert(1)</script><path d="M0 0h1" onclick="alert(1)" fill="url(https://example.com/x)"/>' +
+          '<a href="javascript:alert(1)"><path d="M1 1"/></a><use href="https://example.com/i.svg#x"/>' +
+          '<foreignObject><div xmlns="http://www.w3.org/1999/xhtml">x</div></foreignObject>',
+      },
+    },
+  };
+
+  it("draws the icon's glyph inside the node, with its label below", () => {
+    const container = document.createElement("div");
+    const result = render('flowchart TB\n  A@{ icon: "t:sq", form: square, label: "User" }', container, {
+      iconPacks: [PACK],
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    const group = result.svg!.querySelector('g.siren-node[data-siren-id="A"]')!;
+    expect(group.getAttribute("data-siren-shape")).toBe("icon");
+    expect(Array.from(group.querySelectorAll(":scope > g > path")).map((path) => path.getAttribute("d"))).toEqual([
+      "M0 0h24v24H0z",
+    ]);
+    expect(group.querySelector("text")!.textContent).toBe("User");
+  });
+
+  it("refuses an icon whose pack is not registered, at its block, saying how to register one", () => {
+    const container = document.createElement("div");
+    const result = render('flowchart TB\n  A --> B@{ icon: "fa:user" }', container);
+
+    expect(result.svg).toBeNull();
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'No icon pack "fa" is registered, so the icon "fa:user" cannot be drawn. ' +
+          'Pass the pack\'s Iconify JSON in the "iconPacks" render option',
+        line: 2,
+        column: 10,
+      },
+    ]);
+  });
+
+  it("refuses an icon the registered pack does not hold", () => {
+    const result = render('flowchart TB\n  A@{ icon: "t:nope" }', document.createElement("div"), { iconPacks: [PACK] });
+
+    expect(result.svg).toBeNull();
+    expect(result.diagnostics.map((d) => d.message)).toEqual([
+      'The icon pack "t" has no icon "nope". Use an icon the pack holds, or register a pack that holds it',
+    ]);
+  });
+
+  it("draws `shape: icon`, which names no icon, with no pack registered", () => {
+    const result = render("flowchart TB\n  A@{ shape: icon }", document.createElement("div"));
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.svg!.querySelector('g.siren-node[data-siren-id="A"] text')!.textContent).toBe("A");
+  });
+
+  it("draws none of a pack's script, handlers, links or embedded content", () => {
+    const result = render('flowchart TB\n  A@{ icon: "t:evil" }', document.createElement("div"), { iconPacks: [PACK] });
+
+    expect(result.diagnostics).toEqual([]);
+    const glyph = result.svg!.querySelector('g.siren-node[data-siren-id="A"] > g')!;
+    expect(glyph.innerHTML).toBe('<path d="M0 0h1"></path>');
+    expect(result.svg!.querySelectorAll("script, a, use, foreignObject, [onclick]")).toHaveLength(0);
+  });
+
+  it("gives two icons with ids of their own different ids, and points each one's references at its own", () => {
+    const pack = {
+      prefix: "g",
+      icons: {
+        i: { body: '<defs><linearGradient id="a"><stop offset="0"/></linearGradient></defs><path d="M0 0" fill="url(#a)"/>' },
+      },
+    };
+    const result = render('flowchart TB\n  A@{ icon: "g:i" }\n  B@{ icon: "g:i" }', document.createElement("div"), {
+      iconPacks: [pack],
+    });
+
+    const ids = Array.from(result.svg!.querySelectorAll("linearGradient")).map((gradient) => gradient.id);
+    const fills = Array.from(result.svg!.querySelectorAll("g.siren-node > g > path")).map((path) => path.getAttribute("fill"));
+    expect(new Set(ids).size).toBe(2);
+    expect(fills).toEqual(ids.map((id) => `url(#${id})`));
+  });
+});
+
+describe("render() of a flowchart with subgraphs nested inside one that keeps a direction", () => {
+  it("draws an edge between a node and one in a subgraph nested below it, side by side as the direction says", () => {
+    // Measured (Mermaid 12.2.0, Chrome): `F` and the subgraph `C` holding
+    // `G` sit side by side inside `A`'s `direction LR`, `G` to the right,
+    // and the edge runs from `F` to `G`.
+    const result = render(
+      "flowchart TB\nsubgraph A\ndirection LR\nsubgraph B\nF\nsubgraph C\nG\nend\nend\nend\nF --> G",
+      document.createElement("div"),
+    );
+    expect(result.diagnostics).toEqual([]);
+    const centreX = (id: string) => {
+      const shape = result.svg!.querySelector(`g.siren-node[data-siren-id="${id}"] rect`)!;
+      return Number(shape.getAttribute("x")) + Number(shape.getAttribute("width")) / 2;
+    };
+    expect(centreX("G")).toBeGreaterThan(centreX("F"));
+    expect(result.svg!.querySelectorAll("path.siren-edge")).toHaveLength(1);
+  });
+});
+
+describe("render() — a chain through the smallest shapes", () => {
+  /** The box a node's first frame covers: a `<rect>`'s own, or a `<circle>`'s square. */
+  const boxOf = (svg: SVGSVGElement, id: string) => {
+    const frame = svg.querySelector(`g.siren-node[data-siren-id="${id}"] .siren-node-frame`)!;
+    const at = (name: string) => Number(frame.getAttribute(name));
+    return frame.tagName === "circle"
+      ? { left: at("cx") - at("r"), right: at("cx") + at("r"), top: at("cy") - at("r"), bottom: at("cy") + at("r") }
+      : { left: at("x"), right: at("x") + at("width"), top: at("y"), bottom: at("y") + at("height") };
+  };
+  /** How far `point` stands outside `box`; 0 on or inside it. */
+  const outside = (point: Point, box: ReturnType<typeof boxOf>) =>
+    Math.hypot(Math.max(box.left - point.x, 0, point.x - box.right), Math.max(box.top - point.y, 0, point.y - box.bottom));
+
+  it.each(["LR", "TB"])("lays out and joins a 2px anchor and 14px circles in a %s chain", (direction) => {
+    const container = document.createElement("div");
+    const result = render(
+      `flowchart ${direction}\n  A[Start] --> S@{ shape: sm-circ } --> N@{ shape: anchor } --> F@{ shape: f-circ }\n` +
+        "  F --> E@{ shape: fr-circ } --> B[End]\n  S --> F",
+      container,
+    );
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+    const edges = Array.from(svg.querySelectorAll("path.siren-edge"));
+    expect(edges.map((edge) => edge.getAttribute("data-siren-id"))).toEqual(["A-S", "S-N", "N-F", "F-E", "E-B", "S-F"]);
+    for (const edge of edges) {
+      const [from, to] = edge.getAttribute("data-siren-id")!.split("-") as [string, string];
+      const route = routeOf(edge);
+      expect(route.length).toBeGreaterThanOrEqual(2);
+      expect(route.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))).toBe(true);
+      // Each end meets the node it joins, however small that node is.
+      expect(outside(route[0]!, boxOf(svg, from))).toBeLessThan(1);
+      expect(outside(route[route.length - 1]!, boxOf(svg, to))).toBeLessThan(1);
+    }
+  });
+});
+
+describe("render() of a flowchart edge from a subgraph to its own member inside a subgraph that keeps its direction", () => {
+  it("refuses it in the author's words, saying how to write it instead", () => {
+    // Measured (Mermaid 12.2.0, Chrome): `B --> F` with `F` inside `B`,
+    // inside `A`'s `direction LR`, stops the diagram rendering; so do
+    // `F --> B` and an edge to a subgraph nested in `B`.
+    for (const [source, edge, cluster, member] of [
+      ["flowchart TB\nsubgraph A\ndirection LR\nsubgraph B\nF\nend\nend\nB --> F", "B-F", "B", "F"],
+      ["flowchart TB\nsubgraph A\ndirection LR\nsubgraph B[Bee]\nF\nend\nend\nF --> B", "F-B", "Bee", "F"],
+      ["flowchart TB\nsubgraph A[Outer]\ndirection LR\nsubgraph B\nsubgraph C\nF\nend\nend\nend\nB --> C", "B-C", "B", "C"],
+    ] as const) {
+      const result = render(source, document.createElement("div"));
+      const holder = source.includes("A[Outer]") ? "Outer" : "A";
+      expect([source, result.svg, result.diagnostics]).toEqual([
+        source,
+        null,
+        [
+          {
+            severity: "error",
+            message:
+              `The edge "${edge}" between "${cluster}" and "${member}", which is inside it, cannot be drawn within ` +
+              `"${holder}", which lays out its members with direction LR. Remove the direction from "${holder}", ` +
+              `or connect "${cluster}" to something outside it.`,
+          },
+        ],
+      ]);
+    }
+  });
+});
+
+/**
+ * An image node through `render()`: drawn from the `data:` URL its `img:`
+ * holds, and nothing else — Siren never fetches while drawing, so any other
+ * URL is an error where Mermaid would load it.
+ */
+describe("render() — an image from a data URL", () => {
+  /** A 40 x 20 PNG: its signature and `IHDR` chunk. */
+  const PNG = `data:image/png;base64,${btoa(
+    String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 40, 0, 0, 0, 20, 8, 6, 0, 0, 0),
+  )}`;
+
+  it("draws the image, sized from its data, with its label below", () => {
+    const result = render(`flowchart TB\n  A@{ img: "${PNG}", label: "Pic", w: 200, h: 100 }`, document.createElement("div"));
+
+    expect(result.diagnostics).toEqual([]);
+    const group = result.svg!.querySelector('g.siren-node[data-siren-id="A"]')!;
+    expect(group.getAttribute("data-siren-shape")).toBe("image");
+    const image = group.querySelector("image")!;
+    expect([image.getAttribute("href"), image.getAttribute("width"), image.getAttribute("height")]).toEqual([PNG, "200", "100"]);
+    expect(group.querySelector("text")!.textContent).toBe("Pic");
+  });
+
+  it("refuses an image at a URL, at its block, saying to embed it", () => {
+    const result = render('flowchart TB\n  A --> B@{ img: "https://example.com/a.png" }', document.createElement("div"));
+
+    expect(result.svg).toBeNull();
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'Siren never fetches an image while drawing, so "https://example.com/a.png" cannot be drawn. ' +
+          'Embed the image as a data URL, such as img: "data:image/png;base64,…"',
+        line: 2,
+        column: 10,
+      },
+    ]);
+  });
+
+  it("draws no `<image>` but its own, whose `href` is the data URL", () => {
+    const result = render(`flowchart TB\n  A@{ img: "${PNG}" }\n  B --> A`, document.createElement("div"));
+
+    expect(Array.from(result.svg!.querySelectorAll("image")).map((image) => image.getAttribute("href"))).toEqual([PNG]);
   });
 });

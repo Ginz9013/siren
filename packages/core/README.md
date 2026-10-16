@@ -318,6 +318,28 @@ through diagnostics and does not throw for them.
 | `measureText` | `TextMeasurer`                         | Measures label text to size boxes. See below.                                  |
 | `onClick`     | `(target: InteractionTarget) => void`  | Called when a reader clicks an element made clickable with `call`.             |
 | `timeline`    | `boolean \| string`                    | Which timeline to apply. A document may declare several, and by default only the first applies. See below. |
+| `iconPacks`   | `IconifyJSON[]`                        | Icon packs a flowchart's icon nodes (`A@{ icon: "fa:user" }`) are drawn from. See below. |
+
+#### Registering icon packs
+
+An icon node names its icon as `prefix:name`. Pass each pack it draws from as
+[Iconify JSON](https://iconify.design/docs/types/iconify-json.html); Siren loads and fetches
+nothing, so an icon whose pack is not passed is an error diagnostic.
+
+```ts
+import fa from "@iconify-json/fa6-solid/icons.json";
+
+render('flowchart TB\n  A@{ icon: "fa6-solid:user", form: circle, label: "User" }', container, {
+  iconPacks: [fa],
+});
+```
+
+An icon's SVG is drawn through an allowlist of shapes, groups, gradients, clips and masks, so
+script, event handlers, links and references outside the icon in a pack are never drawn.
+
+An image node (`A@{ img: "data:image/png;base64,…" }`) needs no option: Siren draws an image only
+from a `data:` URL the document holds (PNG, GIF, JPEG, WebP or SVG, up to 4 MB), and refuses one at
+any other URL, since it never fetches while drawing.
 
 #### Choosing a timeline
 

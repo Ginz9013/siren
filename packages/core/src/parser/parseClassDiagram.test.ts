@@ -257,7 +257,7 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
   it("reports an error diagnostic and no document for a member line it cannot read", () => {
     const source = `classDiagram
   class Fish {
-    !!!
+    +a)b
   }
 `;
 
@@ -676,7 +676,11 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
   });
 
   it("parses a standalone annotation as a declaration of the class it names, with any author text", () => {
+    // Each class is declared first: an annotation before its class is
+    // refused (see "an annotation before its class").
     const source = `classDiagram
+  class Shape
+  Repository --> Shape
   <<interface>> Shape
   <<Service>> Repository
 `;
@@ -684,7 +688,9 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     const { document, diagnostics } = parseOk(source);
 
     expect(diagnostics).toEqual([]);
-    expect(document.classes.map((c) => ({ id: c.id, annotation: c.annotation }))).toEqual([
+    expect(
+      document.classes.filter((c) => c.annotation !== null).map((c) => ({ id: c.id, annotation: c.annotation })),
+    ).toEqual([
       { id: "Shape", annotation: "interface" },
       { id: "Repository", annotation: "Service" },
     ]);
@@ -1991,20 +1997,14 @@ describe("parseClassDiagram — a class block closed on a member's line", () => 
 
   it("does not call a `;` ending a member a separator: only one with a member after it", () => {
     // Measured: Mermaid draws `+int x;` as the one attribute `+int x;`, a
-    // single member as written. Siren cannot read a name ending in `;` and
-    // has refused it since before T4, but nothing follows the `;`, so the
-    // error says only that it is unrecognized.
-    for (const [body, line] of [
-      ["  class A {\n    +int x;\n  }", 3],
-      ["  class A { +int x; }", 2],
-      ["  class A { +int x;   }", 2],
+    // single member as written, and so does Siren.
+    for (const body of [
+      "  class A {\n    +int x;\n  }",
+      "  class A { +int x; }",
+      "  class A { +int x;   }",
     ] as const) {
       const source = `classDiagram\n${body}`;
-      const column = source.split("\n")[line - 1]!.indexOf("+") + 1;
-      expect([body, parseClassDiagram(source).diagnostics]).toEqual([
-        body,
-        [{ severity: "error", message: 'Unrecognized class member: "+int x;"', line, column }],
-      ]);
+      expect([body, parseClassDiagram(source).diagnostics]).toEqual([body, []]);
     }
   });
 
@@ -2093,13 +2093,15 @@ describe("parseClassDiagram — a class block closed on a member's line", () => 
   });
 
   it("gives that hint only when the text after the reference's `;` reads as a member", () => {
-    // `+x &lt; !!` is one member to Mermaid 12.2.0 (Chrome: `+x < !!`); what
-    // Siren cannot read is `!!`, not the `;` — no second member follows it.
+    // `+x &lt; !!` is one member to Mermaid 12.2.0 (Chrome: `+x < !!`), and
+    // to Siren, whose names may hold `!` and `?`; `+x &lt; +foo()` cannot
+    // be read as one member, and a second one follows its `;`.
     const base = (text: string) => `Unrecognized class member: "${text}"`;
     const hint = '. A ";" does not separate members: write each member on a line of its own.';
+    for (const text of ["+x &lt; !!", "+x &zz; ??"]) {
+      expect([text, parseClassDiagram(`classDiagram\n  class A {\n    ${text}\n  }`).diagnostics]).toEqual([text, []]);
+    }
     for (const [text, message] of [
-      ["+x &lt; !!", base("+x &lt; !!")],
-      ["+x &zz; ??", base("+x &zz; ??")],
       ["+x &zz; +foo()", base("+x &zz; +foo()") + hint],
       ["+x &lt; +foo()", base("+x &lt; +foo()") + hint],
     ] as const) {
@@ -2587,16 +2589,16 @@ describe("parseClassDiagram — the statements a namespace body refuses", () => 
   });
 
   it("reports a refused statement's own errors first, then that it stands in a namespace", () => {
-    // Both are true of `A : +x; y` and `A : ???`: the statement is read as
+    // Both are true of `A : +x; y` and `A : +a)b`: the statement is read as
     // what it is, its own problems reported as they are found, and then
     // refused for where it stands.
     expect(refused("  namespace N {\n    class A\n    A : +x; y\n  }").map(([, message]) => message)).toEqual([
       expect.stringContaining('A ";" cannot be written in the member "+x; y"'),
       expect.stringContaining("`A : +x; y` cannot be written inside"),
     ]);
-    expect(refused("  namespace N {\n    class A\n    A : ???\n  }").map(([, message]) => message)).toEqual([
-      'Unrecognized class member: "???"',
-      expect.stringContaining("`A : ???` cannot be written inside"),
+    expect(refused("  namespace N {\n    class A\n    A : +a)b\n  }").map(([, message]) => message)).toEqual([
+      'Unrecognized class member: "+a)b"',
+      expect.stringContaining("`A : +a)b` cannot be written inside"),
     ]);
   });
 
@@ -3139,6 +3141,36 @@ describe("parseClassDiagram — an entity code in a member", () => {
     expect([member!.type, member!.name, member!.classifier]).toEqual(["int", "#lt;", "$"]);
   });
 
+  it("reads a method's classifier right after its `)` as well as at the end of its return type", () => {
+    // Measured (Mermaid 12.2.0, Chrome), in a class block and after `A :`
+    // alike: `+foo()* bool` draws `+foo() : bool` in italics and
+    // `+foo()$ bool`, `+foo() bool$` and `+foo()$` draw underlined, while a
+    // `$` in the middle of an attribute (`+x$ int`) is drawn as written.
+    for (const body of [
+      "  class A {\n    +foo()* bool\n    +foo()$ bool\n    +foo() bool$\n    +foo()$\n    +x$ int\n  }",
+      "  class A\n  A : +foo()* bool\n  A : +foo()$ bool\n  A : +foo() bool$\n  A : +foo()$\n  A : +x$ int",
+    ]) {
+      expect(membersIn(body).map((m) => [m.memberKind, m.type, m.name, m.returnType, m.classifier])).toEqual([
+        ["method", null, "foo", "bool", "*"],
+        ["method", null, "foo", "bool", "$"],
+        ["method", null, "foo", "bool", "$"],
+        ["method", null, "foo", null, "$"],
+        ["attribute", "x$", "int", null, null],
+      ]);
+    }
+  });
+
+  it("takes a generic return type's last `$` as the classifier, and leaves one inside the parens alone", () => {
+    // Measured (Mermaid 12.2.0, Chrome): `+foo() List~T~$` draws
+    // `+foo() : List<T>` underlined; `+foo(a$)` draws `+foo(a$)` plain.
+    expect(
+      membersIn("  class A {\n    +foo() List~T~$\n    +foo(a$)\n  }").map((m) => [m.parameters, m.returnType, m.classifier]),
+    ).toEqual([
+      ["", "List~T~", "$"],
+      ["a$", null, null],
+    ]);
+  });
+
   it("reads an entity code opening a member as text, not as the `#` visibility marker", () => {
     // Measured: `#lt; x` draws `< x` and `#lt;int x` `<int x` — Mermaid
     // encodes the code before it looks for a marker, so none is found.
@@ -3208,5 +3240,377 @@ describe("parseClassDiagram — `direction TD`", () => {
     expect(diagnostics).toEqual([]);
     expect(document.direction).toBe("TB");
     expect(document.classes[0].members).toHaveLength(1);
+  });
+});
+
+describe("parseClassDiagram — punctuation in a member's name", () => {
+  const read = (body: string) => {
+    const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+    return {
+      diagnostics,
+      members: document?.kind === "class" ? document.classes.flatMap((c) => c.members.map(reconstruct)) : null,
+    };
+  };
+
+  it("reads a name holding punctuation as written, in a class block and after `A :` alike", () => {
+    // Measured (Mermaid 12.2.0, Chrome): each of these draws as written in
+    // both forms, with or without a type before the name.
+    const names = ["???", "a!b", "a?", "a,b", "[a]", "a=b", "a/b", "a'b", "a$b", '"a"', "a*b", "&", "a&"];
+    for (const name of names) {
+      for (const text of [`+${name}`, `+x ${name}`]) {
+        for (const body of [`  class A {\n    ${text}\n  }`, `  class A\n  A : ${text}`]) {
+          expect([body, read(body)]).toEqual([body, { diagnostics: [], members: [text] }]);
+        }
+      }
+    }
+  });
+
+  it("reads a class block's member ending in `;` as written, and its `&amp;` as a character reference", () => {
+    // Measured (Chrome): in a class block `+int x;` and `+x 1;` draw as
+    // written, and `+x &amp;lt;` draws `+x &lt;`.
+    for (const text of ["+int x;", "+x 1;", "+x &amp;lt;"]) {
+      const body = `  class A {\n    ${text}\n  }`;
+      expect([body, read(body)]).toEqual([body, { diagnostics: [], members: [text] }]);
+    }
+  });
+
+  it("still refuses members run together with `;`", () => {
+    const { members, diagnostics } = read("  class A {\n    +int x; +foo()\n  }");
+    expect([members, diagnostics.map((d) => d.message)]).toEqual([
+      null,
+      ['Unrecognized class member: "+int x; +foo()". A ";" does not separate members: write each member on a line of its own.'],
+    ]);
+  });
+});
+
+describe("parseClassDiagram — a member that is mostly or only markers", () => {
+  it("reads a classifier after a name ending in `$`, and a member of nothing but markers", () => {
+    // Measured (Mermaid 12.2.0, Chrome), in a class block and after `A :`
+    // alike: `+x$$` draws `+x$` underlined and `+x$*` `+x$` in italics;
+    // `$` draws an empty underlined line, `*` an empty italic one, `+$`
+    // and `+` draw `+`, and `#` draws `#`.
+    const cases = [
+      ["+x$$", "+", "x$", "$"],
+      ["+x$*", "+", "x$", "*"],
+      ["$", null, "", "$"],
+      ["*", null, "", "*"],
+      ["+$", "+", "", "$"],
+      ["+", "+", "", null],
+      ["#", "#", "", null],
+    ] as const;
+    for (const [text, visibility, name, classifier] of cases) {
+      for (const body of [`  class A {\n    ${text}\n  }`, `  class A\n  A : ${text}`]) {
+        const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+        const members = document?.kind === "class" ? document.classes.flatMap((c) => c.members) : [];
+        expect([body, diagnostics, members.map((m) => [m.memberKind, m.visibility, m.type, m.name, m.classifier])]).toEqual([
+          body,
+          [],
+          [["attribute", visibility, null, name, classifier]],
+        ]);
+      }
+    }
+  });
+});
+
+describe("parseClassDiagram — where a method's parameter list begins", () => {
+  it("takes the last `(` with a `)` after it as the parameter list's, trimmed, the rest of the parentheses its name's", () => {
+    // Measured (Mermaid 12.2.0, Chrome), in a class block and after `A :`
+    // alike: `+foo(a)( b )` draws `+foo(a)(b)`, `+foo( a )` `+foo(a)`,
+    // `+foo(a(b))` `+foo(a(b))`, and `+a(b)c( d ) e` `+a(b)c(d) : e` —
+    // only the last parameter list is trimmed.
+    for (const [text, drawn] of [
+      ["+foo(a)( b )", "+foo(a)(b)"],
+      ["+foo( a )", "+foo(a)"],
+      ["+foo(a(b))", "+foo(a(b))"],
+      ["+a(b)c( d ) e", "+a(b)c(d) e"],
+    ] as const) {
+      for (const body of [`  class A {\n    ${text}\n  }`, `  class A\n  A : ${text}`]) {
+        const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+        const members = document?.kind === "class" ? document.classes.flatMap((c) => c.members) : [];
+        expect([body, diagnostics, members.map(reconstruct)]).toEqual([body, [], [drawn]]);
+      }
+    }
+  });
+});
+
+describe("parseClassDiagram — a second `:` in an inline member", () => {
+  const colon = (member: string) =>
+    `A ":" cannot be written in the member "${member}" after "A :": the member ends before it. ` +
+    'Write a return type after a space, as in "+foo() bool", and a type before the name, as in "+int x"; ' +
+    'or write the member in a class block.';
+
+  it.each([
+    ["before a type", "+x : int"],
+    ["inside a parameter list", "+foo(a:int)"],
+    ["before a return type", "+foo() : bool"],
+    ["inside a return type", "+foo() bool:x"],
+  ])("refuses a `:` %s, once, at the `:`", (_, member) => {
+    // Measured (Mermaid 12.2.0, Chrome): each is a parse error at the second
+    // `:` ("Expecting 'NEWLINE', 'EOF', got 'LABEL'").
+    const { document, diagnostics } = parseClassDiagram(`classDiagram\n  class A\n  A : ${member}`);
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      { severity: "error", message: colon(member), line: 3, column: 7 + member.indexOf(":") },
+    ]);
+  });
+
+  it("still reads a `:` in a class block's member, and an entity code's `;` beside the `:` after `A`", () => {
+    for (const body of ["  class A {\n    +x : int\n  }", "  class A\n  A : +x #58; y"]) {
+      expect([body, parseClassDiagram(`classDiagram\n${body}`).diagnostics]).toEqual([body, []]);
+    }
+  });
+});
+
+describe("parseClassDiagram — a `direction TD` spelled another way", () => {
+  it("refuses `direction td` and `direction TD x` as it refuses `direction TD`, naming what was written", () => {
+    // Measured (Mermaid 12.2.0, Chrome): `direction td`, `direction Td` and
+    // `direction TD x` set no direction — the diagram keeps the one before
+    // it, with no diagnostic; `direction td %% x` is a parse error.
+    for (const [statement, written] of [
+      ["direction td", "direction td"],
+      ["direction Td", "direction Td"],
+      ["direction TD x", "direction TD x"],
+      ["direction td %% x", "direction td"],
+    ] as const) {
+      const source = `classDiagram\n  direction LR\n  ${statement}\n  A --> B`;
+      const { document, diagnostics } = parseClassDiagram(source);
+      expect([statement, document, diagnostics]).toEqual([
+        statement,
+        null,
+        [
+          {
+            severity: "error",
+            message: `\`${written}\` is not a class-diagram direction: write \`direction TB\` for top to bottom.`,
+            line: 3,
+            column: 3,
+          },
+        ],
+      ]);
+    }
+  });
+});
+
+describe("parseClassDiagram — `class C … direction XX` that declares nothing", () => {
+  it("refuses it saying a direction is a statement of its own, not that it would declare a class", () => {
+    // Measured (Mermaid 12.2.0, Chrome): with a `;`, a `%%` comment, a
+    // `~generic~` or a `:::style` on the line, `class C direction XX` draws
+    // no class `CdirectionXX` but is a lexical or parse error.
+    // A `%%` comment is no part of the statement the error quotes.
+    for (const [line, quoted] of [
+      ["class C direction XX;", "class C direction XX;"],
+      ["class C direction XX %% x", "class C direction XX"],
+      ["class C~T~ direction XX", "class C~T~ direction XX"],
+      ["class C:::foo direction XX", "class C:::foo direction XX"],
+    ] as const) {
+      const { document, diagnostics } = parseClassDiagram(`classDiagram\n  ${line}`);
+      expect([line, document, diagnostics]).toEqual([
+        line,
+        null,
+        [
+          {
+            severity: "error",
+            message:
+              `\`${quoted}\` cannot set a direction: a class declaration ends before \`direction\`. ` +
+              "Write the direction on a line of its own, such as `direction LR`.",
+            line: 2,
+            column: 3,
+          },
+        ],
+      ]);
+    }
+  });
+});
+
+describe("parseClassDiagram — an annotation before its class", () => {
+  const before = (annotation: string, id: string) =>
+    `\`${annotation} ${id}\` annotates the class "${id}" before it is declared. ` +
+    `Declare it first, such as \`class ${id}\`, or write the annotation inside its block, such as \`class ${id} { ${annotation} }\`.`;
+
+  it("refuses `<<x>> A` written before anything declares A, at the annotation", () => {
+    // Measured (Mermaid 12.2.0, Chrome): each stops the diagram rendering
+    // ("Cannot read properties of undefined (reading 'annotations')") — a
+    // later `class A`, `A --> B` or `A : +x` comes too late, and a note,
+    // `style`, `cssClass` or `click` naming A declares no class.
+    for (const body of [
+      "  <<x>> A\n  class A",
+      "  <<x>> A\n  A --> B",
+      "  <<x>> A\n  A : +x",
+      '  note for A "n"\n  <<x>> A',
+      "  style A fill:#f00\n  <<x>> A",
+      '  click A href "u"\n  <<x>> A',
+    ]) {
+      const source = `classDiagram\n${body}`;
+      const line = source.split("\n").findIndex((l) => l.includes("<<x>>")) + 1;
+      const { document, diagnostics } = parseClassDiagram(source);
+      expect([body, document, diagnostics]).toEqual([
+        body,
+        null,
+        [{ severity: "error", message: before("<<x>>", "A"), line, column: 3 }],
+      ]);
+    }
+  });
+
+  it("reads `<<x>> A` after a class declaration, an inline member or a relationship has declared A", () => {
+    // Measured (Chrome): each draws «x» above A.
+    for (const body of [
+      "  class A\n  <<x>> A",
+      "  A --> B\n  <<x>> A",
+      "  B --> A\n  <<x>> A",
+      "  A : +x\n  <<x>> A",
+      "  namespace N {\n    class A\n  }\n  <<x>> A",
+    ]) {
+      const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+      expect([body, diagnostics, document?.kind === "class" && document.classes.some((c) => c.annotation === "x")]).toEqual([
+        body,
+        [],
+        true,
+      ]);
+    }
+  });
+});
+
+describe("parseClassDiagram — a `%%` comment line inside a class block", () => {
+  it("reads a line that begins with `%%` as a comment, not a member, while a later `%%` stays member text", () => {
+    // Measured (Mermaid 12.2.0, Chrome): `class A {` ⏎ `%% hi` ⏎ `+x` ⏎ `}`
+    // draws only `+x`, indented or not; `+x %% c` draws the member `+x %% c`.
+    for (const body of [
+      "  class A {\n    %% hi\n    +x\n  }",
+      "  class A {\n%% hi there\n    +x\n  }",
+      "  class A {\n    +x\n    %%hi\n  }",
+    ]) {
+      const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+      expect([body, diagnostics, document?.kind === "class" ? document.classes.flatMap((c) => c.members.map(reconstruct)) : null]).toEqual([
+        body,
+        [],
+        ["+x"],
+      ]);
+    }
+    const { document } = parseClassDiagram("classDiagram\n  class A {\n    +x %% c\n  }");
+    expect(document?.kind === "class" ? document.classes.flatMap((c) => c.members.map(reconstruct)) : null).toEqual(["+x %% c"]);
+  });
+});
+
+describe("parseClassDiagram — a space after a member's visibility", () => {
+  it("keeps that a space followed the visibility marker, however many were written", () => {
+    // Measured (Mermaid 12.2.0, Chrome), in a class block and after `A :`
+    // alike: `+ x` and `+  x` draw `+ x`, `- int x` `- int x`, `+ foo()`
+    // `+ foo()`; `+x` draws `+x`, and `+ $` draws `+` underlined — the
+    // space is drawn only before text.
+    for (const [text, spaced] of [
+      ["+ x", true],
+      ["+  x", true],
+      ["- int x", true],
+      ["+ foo()", true],
+      ["+x", false],
+      ["+ $", false],
+    ] as const) {
+      for (const body of [`  class A {\n    ${text}\n  }`, `  class A\n  A : ${text}`]) {
+        const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+        const members = document?.kind === "class" ? document.classes.flatMap((c) => c.members) : [];
+        expect([body, diagnostics, members.map((m) => m.spaceAfterVisibility === true)]).toEqual([body, [], [spaced]]);
+      }
+    }
+  });
+});
+
+describe("parseClassDiagram — a method with no name", () => {
+  it("reads `+(a)` as a nameless method after a visibility marker, and still refuses `(a)`", () => {
+    // Measured (Mermaid 12.2.0, Chrome), in a class block and after `A :`
+    // alike: `+(a)` draws `+(a)`, `-(a)` `-(a)`, `+(a) int` `+(a) : int`,
+    // `+( a )` `+(a)` and `#(a)$` `#(a)` underlined; `(a)` stops the
+    // diagram rendering.
+    for (const [text, drawn, classifier] of [
+      ["+(a)", "+(a)", null],
+      ["-(a)", "-(a)", null],
+      ["+(a) int", "+(a) int", null],
+      ["+( a )", "+(a)", null],
+      ["#(a)$", "#(a)", "$"],
+    ] as const) {
+      for (const body of [`  class A {\n    ${text}\n  }`, `  class A\n  A : ${text}`]) {
+        const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+        const members = document?.kind === "class" ? document.classes.flatMap((c) => c.members) : [];
+        expect([body, diagnostics, members.map((m) => [m.memberKind, m.name, reconstruct({ ...m, classifier: null }), m.classifier])]).toEqual([
+          body,
+          [],
+          [["method", "", drawn, classifier]],
+        ]);
+      }
+    }
+    expect(parseClassDiagram("classDiagram\n  class A {\n    (a)\n  }").diagnostics.map((d) => d.message)).toEqual([
+      'Unrecognized class member: "(a)"',
+    ]);
+  });
+});
+
+describe("parseClassDiagram — a `direction` with a value it does not set", () => {
+  it("refuses a value in the wrong case, or none it knows, saying which to write", () => {
+    // Measured (Mermaid 12.2.0, Chrome): after `direction BT`, each of these
+    // sets nothing — the diagram stays bottom to top, with no diagnostic.
+    const known = (written: string, value: string, meaning: string) =>
+      `\`${written}\` is not a class-diagram direction: write \`direction ${value}\` for ${meaning}.`;
+    const unknown = (written: string) =>
+      `\`${written}\` is not a class-diagram direction: write \`direction TB\`, \`direction BT\`, \`direction LR\`, or \`direction RL\`.`;
+    for (const [statement, message] of [
+      ["direction lr", known("direction lr", "LR", "left to right")],
+      ["direction Lr", known("direction Lr", "LR", "left to right")],
+      ["direction lr x", known("direction lr x", "LR", "left to right")],
+      ["direction rl", known("direction rl", "RL", "right to left")],
+      ["direction tb", known("direction tb", "TB", "top to bottom")],
+      ["direction bt", known("direction bt", "BT", "bottom to top")],
+      ["direction XX", unknown("direction XX")],
+      ["direction l r", unknown("direction l r")],
+      ["direction", unknown("direction")],
+    ] as const) {
+      const { document, diagnostics } = parseClassDiagram(`classDiagram\n  direction BT\n  ${statement}\n  A --> B`);
+      expect([statement, document, diagnostics]).toEqual([
+        statement,
+        null,
+        [{ severity: "error", message, line: 3, column: 3 }],
+      ]);
+    }
+  });
+});
+
+describe("parseClassDiagram — a line that is nothing but `%%`", () => {
+  const membersOf = (source: string) => {
+    const { document, diagnostics } = parseClassDiagram(source);
+    return { diagnostics, members: document?.kind === "class" ? document.classes.flatMap((c) => c.members.map(reconstruct)) : null };
+  };
+
+  it("reads it as the member `%%` inside a class block, indented or not, and a `%%` with spaces after it as a comment", () => {
+    // Measured (Mermaid 12.2.0, Chrome): `class A {` ⏎ `%%` ⏎ `+x` ⏎ `}`
+    // draws the members `%%` and `+x`, the `%%` indented too, while `%%`
+    // followed by spaces is a comment line and draws nothing.
+    expect(membersOf("classDiagram\n  class A {\n%%\n    +x\n  }")).toEqual({ diagnostics: [], members: ["%%", "+x"] });
+    expect(membersOf("classDiagram\n  class A {\n    %%\n  }")).toEqual({ diagnostics: [], members: ["%%"] });
+    expect(membersOf("classDiagram\n  class A {\n    %%   \n    +x\n  }")).toEqual({ diagnostics: [], members: ["+x"] });
+  });
+
+  it("reads it as nothing between statements", () => {
+    // Measured (Chrome): `class A` ⏎ `%%` ⏎ `class B` draws A and B, and a
+    // last line `%%` draws nothing more.
+    for (const source of ["classDiagram\n  class A\n%%\n  class B", "classDiagram\n  class A\n  %%"]) {
+      expect([source, parseClassDiagram(source).diagnostics]).toEqual([source, []]);
+    }
+  });
+
+  it("refuses it in a namespace's body, outside a class block", () => {
+    // Measured (Chrome): `namespace N {` ⏎ `%%` ⏎ `class A` ⏎ `}` is a parse
+    // error at the `%%`; inside the class block there, it is a member.
+    const { document, diagnostics } = parseClassDiagram("classDiagram\n  namespace N {\n    %%\n    class A\n  }");
+    expect([document, diagnostics]).toEqual([
+      null,
+      [
+        {
+          severity: "error",
+          message:
+            'A line that is nothing but "%%" is not a comment in a namespace: a comment needs text after its "%%". ' +
+            'Write "%% text", or leave the line blank.',
+          line: 3,
+          column: 5,
+        },
+      ],
+    ]);
+    expect(membersOf("classDiagram\n  namespace N {\n    class A {\n      %%\n    }\n  }")).toEqual({ diagnostics: [], members: ["%%"] });
   });
 });

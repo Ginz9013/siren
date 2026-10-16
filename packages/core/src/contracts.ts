@@ -79,7 +79,61 @@ export type NodeShape =
   | "parallelogram"
   | "parallelogram-alt"
   | "trapezoid"
-  | "trapezoid-alt";
+  | "trapezoid-alt"
+  // The shapes Mermaid names only in a node's `@{ shape: … }` block, each
+  // one record in the shape table (`layout/shapes/`), named by the alias
+  // Mermaid spells out.
+  | "notched-rectangle"
+  | "folder"
+  | "notched-pentagon"
+  | "sloped-rectangle"
+  | "triangle"
+  | "flipped-triangle"
+  | "lined-rectangle"
+  | "divided-rectangle"
+  | "window-pane"
+  | "stacked-rectangle"
+  | "tagged-rectangle"
+  | "text"
+  | "composite"
+  | "note"
+  | "data-store"
+  | "state"
+  // The shapes Mermaid draws at a fixed size and with no text.
+  | "fork"
+  | "hourglass"
+  | "bolt"
+  | "small-circle"
+  | "framed-circle"
+  | "filled-circle"
+  | "anchor"
+  | "crossed-circle"
+  | "choice"
+  // The shapes with a curved outline.
+  | "half-rounded-rectangle"
+  | "curved-trapezoid"
+  | "horizontal-cylinder"
+  | "lined-cylinder"
+  | "bow-tie-rectangle"
+  | "document"
+  | "lined-document"
+  | "tagged-document"
+  | "stacked-document"
+  | "flag"
+  | "brace-left"
+  | "brace-right"
+  | "braces"
+  // The shapes drawn as a figure plus decorations, named by Mermaid's short name.
+  | "bucket"
+  | "person"
+  | "console"
+  | "browser"
+  | "cloud"
+  | "bang"
+  // An icon from a registered pack, in one of its forms (`NodeIcon`).
+  | "icon"
+  // An image from a data URL (`NodeImage`).
+  | "image";
 
 /** Effect names accepted by `enter`/`exit` timeline actions. */
 export type EnterExitEffect =
@@ -104,6 +158,7 @@ export type TimelineActionKind = "enter" | "exit" | "highlight" | "unhighlight";
  */
 import type { Label, LabelBox, PlacedLabel } from "./label/label";
 import type { Curve } from "./curve/curve";
+import type { IconGlyph } from "./icon/iconPacks";
 
 export type {
   Label,
@@ -141,6 +196,58 @@ export interface SirenNode {
    * fold into `"rect"` for itself, and one of them eventually would not.
    */
   shape: NodeShape;
+  /**
+   * What an `icon` node draws, from its `@{ icon, form, pos, h }`; absent
+   * for every other shape.
+   */
+  icon?: NodeIcon;
+  /**
+   * What an `image` node draws, from its `@{ img, w, h, constraint, pos }`;
+   * absent for every other shape.
+   */
+  image?: NodeImage;
+  line?: number;
+  column?: number;
+}
+
+/**
+ * An image node's image, as its `@{ … }` block wrote it: the `data:` URL it
+ * is drawn from — the only kind Siren draws, since it never fetches while
+ * drawing — the image's natural size, read off the data's header, and the
+ * size the author asked for (`w`, `h`; `null` when not written), whether
+ * that size keeps the image's proportions (`constraint: on`), and which side
+ * of it its label goes on. `line`/`column` are where its `img:` stands.
+ */
+export interface NodeImage {
+  src: string;
+  naturalWidth: number;
+  naturalHeight: number;
+  w: number | null;
+  h: number | null;
+  constraint: boolean;
+  pos: "t" | "b";
+  line?: number;
+  column?: number;
+}
+
+/**
+ * An icon node's icon, as its `@{ … }` block wrote it: the icon it names
+ * (`prefix:name`), the form drawn behind it, which side of it its label goes
+ * on, and its size in pixels.
+ *
+ * `name` is `null` for `shape: icon` written with no `icon:` — an empty box
+ * with the label below it, as Mermaid draws it. `glyph` is what `render()`
+ * found for `name` in the packs its caller registered (`iconPacks`): the
+ * parser knows no packs, so it is absent until then, and an icon drawn
+ * without one draws its box and label only. `line`/`column` are where the
+ * block stands, for the diagnostic about an icon no pack holds.
+ */
+export interface NodeIcon {
+  name: string | null;
+  form: "square" | "circle" | "rounded" | null;
+  pos: "t" | "b";
+  size: number;
+  glyph?: IconGlyph;
   line?: number;
   column?: number;
 }
@@ -150,11 +257,12 @@ export interface SirenNode {
  * tokens compose from, and the flowchart's counterpart of
  * `SequenceArrowLine` and `ClassRelationshipLine`.
  *
- * `-.-` is `dotted` and `===` is `thick`; every other spelling is `solid`.
- * Measured in mermaid 11.17.2, which records exactly this axis as an edge's
- * `stroke`.
+ * `-.-` is `dotted`, `===` is `thick` and `~~~` is `invisible` — laid out
+ * like any edge and drawn with no line, its label still drawn; every other
+ * spelling is `solid`. Measured in mermaid 11.17.2 and 12.2.0, which record
+ * exactly this axis as an edge's `stroke`.
  */
-export type EdgeLine = "solid" | "dotted" | "thick";
+export type EdgeLine = "solid" | "dotted" | "thick" | "invisible";
 
 /**
  * What is drawn at one end of an edge — the other two axes, one per end,
@@ -225,8 +333,40 @@ export interface SirenEdge {
    * Siren does not yet, which is a gap of its own.
    */
   label: Label | null;
+  /**
+   * The id the author gave the edge itself, `A e1@--> B`, when they gave
+   * one: it replaces the `${from}-${to}` id the model would otherwise
+   * derive, and `idLine`/`idColumn` are where it was written.
+   */
+  id?: string;
+  idLine?: number;
+  idColumn?: number;
+  /**
+   * What `e1@{ … }` blocks written below the edge said about it, each key a
+   * later block wrote laid over an earlier one's — absent when none was
+   * written.
+   */
+  data?: SirenEdgeData;
   sourceLine?: number;
   sourceColumn?: number;
+}
+
+/** How fast an animated edge's dashes march: 20s or 50s a cycle. */
+export type EdgeAnimation = "fast" | "slow";
+
+/**
+ * The keys of an edge's `@{ … }` block that change how it is drawn, as
+ * written: `animate` read for truth, as Mermaid reads it, `animation` one of
+ * the two speeds, and `curve` a name still to be checked against the curves
+ * Siren draws. `line`/`column` are where the block that set `curve`
+ * stands, or the last block when none did.
+ */
+export interface SirenEdgeData {
+  animate?: boolean;
+  animation?: EdgeAnimation;
+  curve?: string;
+  line: number;
+  column: number;
 }
 
 /**
@@ -1284,6 +1424,10 @@ export interface GraphNode {
    * draw. Neither of them re-derives it from the source.
    */
   shape: NodeShape;
+  /** Carried unchanged from `SirenNode.icon`: what an `icon` node draws. */
+  icon?: NodeIcon;
+  /** Carried unchanged from `SirenNode.image`: what an `image` node draws. */
+  image?: NodeImage;
   /**
    * Author declarations to emit as this node's inline `style` attributes, in
    * declaration order, with rejected values already dropped and each half
@@ -1461,8 +1605,18 @@ export interface GraphEdge {
    * grows a field when the author wrote something for it, so a document
    * with no `interpolate` builds exactly the edges it built before. An
    * unknown name the author did write is present, as the `rounded` it draws.
+   *
+   * An edge's own `e1@{ curve: … }` sets it too, on the same terms as a
+   * `linkStyle N interpolate`: whichever of the two is written later wins,
+   * and either beats `linkStyle default`.
    */
   curve?: Curve;
+  /**
+   * How fast this edge's dashes march, when its `e1@{ … }` data animates it
+   * (`animate: true` is `fast`; `animation` names the speed). Absent when
+   * nothing animates it. A drawing of its own, independent of the timeline.
+   */
+  animation?: EdgeAnimation;
 }
 
 /**
@@ -1606,6 +1760,16 @@ export interface PositionedNode extends GraphNode {
    * no measurer: the rows are drawn where the space for them was reserved.
    */
   labelBox: LabelBox;
+  /**
+   * How far the label's centre sits from the node's centre, when the shape
+   * puts it anywhere else — a folder centres it on its body, below the tab;
+   * a triangle stands it on its base. Absent, the label is centred on the
+   * node, which is where most shapes put it.
+   *
+   * Reported by layout, which read it off the shape table together with the
+   * box, so the renderer draws the label where the room for it was made.
+   */
+  labelOffset?: { x: number; y: number };
 }
 
 /** An edge with a layout-assigned point path. */
@@ -1744,26 +1908,44 @@ export type ClassMemberVisibility = "+" | "-" | "#" | "~";
 
 /**
  * A member's classifier, stored as the character the author wrote: `*`
- * abstract, `$` static. Mermaid appends it to the end of the member line.
+ * abstract, `$` static. It is written last on an attribute, and on a method
+ * either right after its `)` or last; it is drawn as a style on the whole
+ * member line — `*` italic, `$` underlined — never as a character of it.
  */
 export type ClassMemberClassifier = "*" | "$";
 
 /**
- * One attribute or method line of a class. Every part is kept as written,
- * so the source line can be reconstructed from the parts (that is how the
- * renderer prints it) without the parser having to keep the raw string.
+ * One attribute or method line of a class, split into the parts layout
+ * composes the drawn line from. Each part is kept as written — entity codes
+ * and character references undecoded, generics still `~T~` — except an
+ * attribute's type, its words single-spaced, and a method's last parameter
+ * list, which is trimmed as it is drawn.
  */
 export interface ClassMember {
   memberKind: ClassMemberKind;
   visibility: ClassMemberVisibility | null;
   classifier: ClassMemberClassifier | null;
+  /**
+   * The member's name: an attribute's last word, a method's text before its
+   * first `(`. `""` for a member of nothing but markers (`+`, `$`).
+   */
   name: string;
   /** An attribute's type (`int` in `+int size`), or `null` when untyped. Always `null` for a method. */
   type: string | null;
-  /** A method's parameter text between its parens, `""` for `()`. Always `null` for an attribute. */
+  /**
+   * A method's parameter text: everything between the `(` after its name and
+   * its last `)`, `""` for `()`. Only the last parameter list — the one that
+   * begins at the last `(` with a `)` after it — is trimmed, so `+foo( a )`
+   * keeps `a` and `+foo(a)( b )` keeps `a)(b`. Always `null` for an attribute.
+   */
   parameters: string | null;
   /** A method's return type (`bool` in `+swim() bool`), or `null` when it declares none. */
   returnType: string | null;
+  /**
+   * `true` when whitespace followed the visibility marker before text
+   * (`+ x`): the line is drawn with one space there, `+ x`. Absent otherwise.
+   */
+  spaceAfterVisibility?: boolean;
   line?: number;
   column?: number;
 }
@@ -2263,6 +2445,11 @@ export interface PositionedClassMember {
   text: string;
   x: number;
   y: number;
+  /**
+   * The member's classifier, which the text leaves out: the whole line is
+   * drawn italic for `*` and underlined for `$`. Absent or `null` for none.
+   */
+  classifier?: ClassMemberClassifier | null;
 }
 
 /**

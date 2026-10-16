@@ -1180,6 +1180,43 @@ classDiagram
       }
     });
 
+    it("reads a bare `%%` between class statements, indented or not, as nothing", () => {
+      // Measured (Chrome): `class A` ⏎ `%%` ⏎ `class B` draws A and B, and a
+      // last line `%%` draws nothing more — the class parser, handed the
+      // line, skips it there.
+      const bare = parseSiren("classDiagram\n  class A\n%%\n    %%\n  class B\n  %%");
+      const without = parseSiren("classDiagram\n  class A\n\n\n  class B\n");
+      expect(bare.diagnostics).toEqual([]);
+      expect(bare.document).toEqual(without.document);
+    });
+
+    it("hands a class diagram its bare `%%` lines, a class block reading one as the member `%%`", () => {
+      // Measured (Chrome): `class A {` ⏎ `%%` ⏎ `+x` ⏎ `}` draws the members
+      // `%%` and `+x`; `%% hi` and `%%   ` there are comments; a bare `%%` in
+      // a namespace's body, outside a class block, is a parse error.
+      const members = (source: string) => {
+        const { document, diagnostics } = parseSiren(source);
+        return {
+          diagnostics,
+          members: document?.kind === "class" ? document.classes.flatMap((c) => c.members.map((m) => m.name)) : null,
+        };
+      };
+      expect(members("classDiagram\n  class A {\n%%\n    %% hi\n    %%   \n    +x\n  }")).toEqual({
+        diagnostics: [],
+        members: ["%%", "x"],
+      });
+      expect(parseSiren("classDiagram\n  namespace N {\n    %%\n    class A\n  }").diagnostics).toEqual([
+        {
+          severity: "error",
+          message:
+            'A line that is nothing but "%%" is not a comment in a namespace: a comment needs text after its "%%". ' +
+            'Write "%% text", or leave the line blank.',
+          line: 3,
+          column: 5,
+        },
+      ]);
+    });
+
     it("still reads `%%` followed by nothing but spaces or a tab as a comment, as Mermaid does — any character after `%%` makes one", () => {
       // `[^\n]+` matches a space as well as a word: measured, `%%   `, `%%\t`
       // and `%%%` vanish in a flowchart and in an ER diagram alike.
@@ -1348,14 +1385,14 @@ timeline:
   it("keeps a value's own commas and colons inside one flowchart declaration", () => {
     const source = `flowchart TD
   A[Start]
-  style A fill:rgb(255, 0, 0),stroke-width:2px
+  style A font-family:a b,stroke-width:2px
 `;
 
     const { document, diagnostics } = parseFlowchartOk(source);
 
     expect(diagnostics).toEqual([]);
     expect(document.styles[0].properties).toEqual([
-      { property: "fill", value: "rgb(255, 0, 0)" },
+      { property: "font-family", value: "a b" },
       { property: "stroke-width", value: "2px" },
     ]);
   });
@@ -2265,24 +2302,26 @@ describe("the arrow token an edge is written with", () => {
     }
   });
 
-  it("keeps a declaration list out of the arrow cut, so a `--custom-property` is still a declaration", () => {
+  it("keeps a declaration list out of the arrow cut, so a `--custom-property` is refused as a declaration", () => {
     // Found by asking what else on a flowchart line can contain `--` now
     // that the separator is a pattern rather than the literal `-->`. A
     // styling statement's body is a declaration list, and `splitStatements`
     // already keeps `;` from meaning anything inside one; this is the same
     // rule for the same reason, one separator over.
     //
-    // Mermaid rejects `style A --my-token:4` outright (measured), so no
-    // document it draws turns on this. What turns on it is the diagnostic:
-    // without the guard the author of a `style` statement was told Siren
-    // could not draw the arrow `--`.
+    // Mermaid rejects `style A --my-token:4` outright (measured), and so
+    // does Siren — as a declaration holding `--`. What turns on the guard
+    // is the diagnostic: without it the author of a `style` statement was
+    // told Siren could not draw the arrow `--`.
     for (const statement of [
       "style A --my-token:4",
       "classDef hot --my-token:4",
       "linkStyle 0 stroke-dasharray:4--4",
     ]) {
       const { diagnostics } = parseSiren(`flowchart TB\n  A[X] --> B\n  ${statement}\n`);
-      expect([statement, diagnostics]).toEqual([statement, []]);
+      expect([statement, diagnostics.length]).toEqual([statement, 1]);
+      expect(diagnostics[0]!.message).toMatch(/^A style declaration cannot hold "--"/);
+      expect(diagnostics[0]!.message).not.toContain("does not draw the arrow");
     }
   });
 
@@ -3631,16 +3670,56 @@ describe("a `%%` in the middle of a flowchart line", () => {
     }
   });
 
-  it("still cuts a `%%` that begins a timeline target in every other kind, whose ids hold no `%`", () => {
-    for (const [header, body] of [
-      ["sequenceDiagram", "  A->>B: m"],
-      ["classDiagram", "  class A"],
-      ["stateDiagram-v2", "  A --> B"],
-      ["erDiagram", "  A ||--o{ B : r"],
-    ] as const) {
-      expect([header, parseSiren(`${header}\n${body}\ntimeline:\n  enter %%B fade\n`)]).toEqual([
-        header,
-        parseSiren(`${header}\n${body}\ntimeline:\n  enter\n`),
+  // In every other kind a `%%` opens a comment wherever it stands, so ids
+  // there never begin with one: the cut leaves the verb with no target, and
+  // the refusal says why rather than calling the verb unrecognized.
+  const commentAteTheTarget = (verb: string) =>
+    `The "%%" after "${verb}" starts a comment, so "${verb}" has no target; an id in this diagram cannot begin with "%%"`;
+
+  it("explains a `%%` that begins a timeline target in a class diagram: it starts a comment", () => {
+    const { document, diagnostics } = parseSiren("classDiagram\n  class B\ntimeline:\n  enter %%B fade\n");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: commentAteTheTarget("enter"), line: 4, column: 3 }]);
+  });
+
+  it("explains a `%%` that begins a timeline target in a sequence diagram: it starts a comment", () => {
+    const { document, diagnostics } = parseSiren("sequenceDiagram\n  A->>B: m\ntimeline:\n  enter A fade, highlight %%B glow\n");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: commentAteTheTarget("highlight"), line: 4, column: 3 }]);
+  });
+
+  it("explains a `%%` that begins a timeline target in a state diagram: it starts a comment", () => {
+    const { document, diagnostics } = parseSiren("stateDiagram-v2\n  A --> B\ntimeline one:\n  enter A fade\n\tunhighlight %%B\n");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: commentAteTheTarget("unhighlight"), line: 5, column: 2 }]);
+  });
+
+  it("explains a `%%` that begins a timeline target in an ER diagram: it starts a comment", () => {
+    const { document, diagnostics } = parseSiren("erDiagram\n  A ||--o{ B : r\ntimeline:\n  enter %%B fade\n");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: commentAteTheTarget("enter"), line: 4, column: 3 }]);
+  });
+
+  it("still calls a word that is no timeline verb unrecognized when a `%%` follows it", () => {
+    // The explanation is for a verb whose target the comment took; `foo` is
+    // not a verb, so what is wrong with the action is `foo` itself.
+    for (const word of ["foo", "toString", "Enter"]) {
+      expect([word, parseSiren(`classDiagram\n  class B\ntimeline:\n  ${word} %%B fade\n`).diagnostics]).toEqual([
+        word,
+        [{ severity: "error", message: `Unrecognized timeline action: "${word}"`, line: 4, column: 3 }],
+      ]);
+    }
+  });
+
+  it("still calls a verb with no target unrecognized where no `%%` took the target", () => {
+    for (const commented of ["  enter %% note", "  enter %%", "  enter%%B fade"]) {
+      expect([commented, parseSiren(`classDiagram\n  class B\ntimeline:\n${commented}\n`).diagnostics]).toEqual([
+        commented,
+        [{ severity: "error", message: 'Unrecognized timeline action: "enter"', line: 4, column: 3 }],
       ]);
     }
   });

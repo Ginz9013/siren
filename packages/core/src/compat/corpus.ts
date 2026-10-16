@@ -180,7 +180,9 @@ function edgeDrawing(result: SirenRenderResult, id: string): string {
     ? "dotted"
     : classes.includes("siren-edge-thick")
       ? "thick"
-      : "solid";
+      : classes.includes("siren-edge-invisible")
+        ? "invisible"
+        : "solid";
 
   const endAt = (side: "start" | "end"): string => {
     const reference = path.getAttribute(`marker-${side}`);
@@ -700,6 +702,82 @@ function nodeOutline(result: SirenRenderResult, id: string): string {
 
   const cycle = outlineCycle(frame);
   return OUTLINE_NAMES.get(cycle.join(" ")) ?? `an unnamed path through ${cycle.join(" ")}`;
+}
+
+/**
+ * Every element one flowchart node draws its outline with, each described
+ * by its geometry: a `<path>` as the canonical cycle of positions its
+ * vertices take inside that path's own extent (`outlineCycle`), a `<rect>`
+ * as `rect` with the classes it wears beside `siren-node-frame` and the
+ * declarations it carries inline.
+ *
+ * For the shapes only a `@{ shape: … }` block names, which `nodeOutline`
+ * has no names for:
+ * a row states the cycle it expects through `canonicalCycle`, from the
+ * vertices of Mermaid's own handler.
+ */
+function frameOutlines(result: SirenRenderResult, id: string): string[] {
+  const group = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"]`);
+  if (group === null) throw new Error(`no node "${id}" was drawn`);
+  return Array.from(group.querySelectorAll(".siren-node-frame")).map((frame) => {
+    if (frame.tagName === "path") return `path ${outlineCycle(frame).join(" ")}`;
+    const classes = (frame.getAttribute("class") ?? "").split(/\s+/).filter((c) => c !== "siren-node-frame");
+    const style = frame.getAttribute("style");
+    return [frame.tagName, ...classes, ...(style === null ? [] : [`{${style}}`])].join(" ");
+  });
+}
+
+/** `cycle` as `frameOutlines` reports a `<path>` drawn through it. */
+function pathThrough(cycle: readonly string[]): string {
+  return `path ${canonicalCycle(cycle).join(" ")}`;
+}
+
+/**
+ * Every frame one flowchart node draws, each as the segments its path runs
+ * through in order — `line`, `curve` (an arc), or `wave` for a run of ten or
+ * more straight segments evenly spaced across, which is how a sampled sine
+ * wave is drawn — named
+ * by where their ends sit inside that frame's extent, and prefixed by the
+ * paint classes it wears beside `siren-node-frame`. Subpaths are separated
+ * by ` / `.
+ *
+ * For the curved shapes a `@{ shape: … }` block names, whose wavy edges
+ * `nodeOutline` cannot name:
+ * a wave is one stretch of the outline however finely it is sampled.
+ */
+function segmentOutlines(result: SirenRenderResult, id: string): string[] {
+  const group = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"]`);
+  if (group === null) throw new Error(`no node "${id}" was drawn`);
+  return Array.from(group.querySelectorAll(".siren-node-frame")).map((frame) => {
+    const classes = (frame.getAttribute("class") ?? "").split(/\s+/).filter((c) => c !== "siren-node-frame");
+    const subpaths = subpathsOf(frame.getAttribute("d") ?? "");
+    const named = positionNamer(subpaths.flat().flatMap((s) => [s.from, s.to]));
+    const described = subpaths.map((segments) => {
+      const parts: string[] = [];
+      for (let i = 0; i < segments.length; ) {
+        const step = segments[i].to[0] - segments[i].from[0];
+        let run = i;
+        while (
+          run < segments.length &&
+          !segments[run].curved &&
+          step !== 0 &&
+          Math.abs(segments[run].to[0] - segments[run].from[0] - step) < 0.02
+        ) {
+          run++;
+        }
+        if (run - i >= 10) {
+          parts.push(`wave ${named(segments[i].from)}-${named(segments[run - 1].to)}`);
+          i = run;
+          continue;
+        }
+        const s = segments[i];
+        parts.push(`${s.curved ? "curve" : "line"} ${named(s.from)}-${named(s.to)}`);
+        i++;
+      }
+      return parts.join(", ");
+    });
+    return [frame.tagName, ...classes].join(" ") + `: ${described.join(" / ")}`;
+  });
 }
 
 /**
@@ -3312,16 +3390,498 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
   {
+    id: "fc-node-shape-data-polygons",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ shape: notch-rect, label: "Card" } --> B@{ shape: notch-pent, label: "Loop" }
+      B --> C@{ shape: sl-rect, label: "Input" } --> D@{ shape: tri, label: "Extract" }
+      D --> E@{ shape: flip-tri, label: "File" }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws five outlines its `@{ … }` block names (measured " +
+      "in Chrome, classic look): `notch-rect` a rectangle with its top left " +
+      "corner cut, `notch-pent` one with both top corners cut, `sl-rect` a " +
+      "rectangle under a slope rising to the right, `tri` a triangle " +
+      "standing on its base with the label at the bottom, `flip-tri` one " +
+      "pointing down with the label at the top. Siren draws the same five " +
+      "from its shape table (nook 01M51XAC4N).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Card]", "B[Loop]", "C[Input]", "D[Extract]", "E[File]"]);
+      expectSame("edges", edges(result), ["A-B", "B-C", "C-D", "D-E"]);
+      expectSame("outline", frameOutlines(result, "A"), [
+        pathThrough(["in-left,top", "right,top", "right,bottom", "left,bottom", "left,in-top"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "B"), [
+        pathThrough(["in-left,top", "in-right,top", "right,in-top", "right,bottom", "left,bottom", "left,in-top"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "C"), [
+        pathThrough(["left,in-top", "left,bottom", "right,bottom", "right,top"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "D"), [pathThrough(["left,bottom", "right,bottom", "mid,top"])]);
+      expectSame("outline", frameOutlines(result, "E"), [pathThrough(["left,top", "right,top", "mid,bottom"])]);
+    },
+  },
+  {
+    id: "fc-node-shape-data-marked-rectangles",
+    kind: "flowchart",
+    source: `flowchart LR
+      A@{ shape: folder, label: "Docs" } --> B@{ shape: lin-rect, label: "Shaded" }
+      B --> C@{ shape: div-rect, label: "Divided" } --> D@{ shape: win-pane, label: "Storage" }
+      D --> E@{ shape: st-rect, label: "Batch" } --> F@{ shape: tag-rect, label: "Tagged" }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws six rectangles its `@{ … }` block names, each " +
+      "marked its own way (measured in Chrome, classic look): `folder` with " +
+      "a tab along its top left, `lin-rect` with a line down its left side, " +
+      "`div-rect` with a band across its top, `win-pane` with a pane along " +
+      "its top and one down its left, `st-rect` as three stacked sheets, " +
+      "`tag-rect` with a tag in its bottom right corner. Each puts its label " +
+      "clear of the marking. Siren draws the same six from its shape table " +
+      "(nook 01M51XAC4N).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Docs]", "B[Shaded]", "C[Divided]", "D[Storage]", "E[Batch]", "F[Tagged]"]);
+      expectSame("edges", edges(result), ["A-B", "B-C", "C-D", "D-E", "E-F"]);
+      expectSame("outline", frameOutlines(result, "A"), [
+        pathThrough(["left,top", "in-left,top", "in-left,in-top", "right,in-top", "right,bottom", "left,bottom"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "B"), [
+        pathThrough(["left,top", "right,top", "right,bottom", "left,bottom", "in-left,top", "in-left,bottom"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "C"), [
+        pathThrough(["left,top", "right,top", "right,bottom", "left,bottom", "left,in-top", "right,in-top"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "D"), [
+        pathThrough([
+          "left,top",
+          "right,top",
+          "right,bottom",
+          "left,bottom",
+          "left,in-top",
+          "right,in-top",
+          "in-left,top",
+          "in-left,bottom",
+        ]),
+      ]);
+      expectSame("outline", frameOutlines(result, "E"), [
+        pathThrough([
+          "left,in-top",
+          "left,bottom",
+          "in-right,bottom",
+          "in-right,in-bottom",
+          "in-right,in-bottom",
+          "in-right,in-bottom",
+          "right,in-bottom",
+          "right,top",
+          "in-left,top",
+          "in-left,in-top",
+          "in-left,in-top",
+          "in-left,in-top",
+        ]),
+        pathThrough(["left,in-top", "in-right,in-top", "in-right,bottom", "right,bottom", "right,top", "left,top"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "F"), [
+        pathThrough(["left,top", "right,top", "right,bottom", "left,bottom"]),
+        pathThrough(["left,bottom", "right,bottom", "right,top"]),
+      ]);
+    },
+  },
+  {
+    id: "fc-node-shape-data-plain-rectangles",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ shape: text, label: "Words" } --> B@{ shape: datastore, label: "Store" }
+      B --> C@{ shape: note, label: "Remember" } --> D@{ shape: composite, label: "Group" }
+      D --> E@{ shape: state, label: "Idle" }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws five rectangles its `@{ … }` block names, painted " +
+      "differently (measured in Chrome, classic look): `text` neither filled " +
+      "nor stroked, `datastore` stroked along its top and bottom only (a " +
+      "dash its own width and height long), and the undocumented `note` as " +
+      "a rectangle. Siren draws the same from its shape table (nook " +
+      "01M51XAC4N). ⚠️ **`composite` differs in paint.** Mermaid draws it " +
+      "as a rectangle classed `cluster composite` and fills it white " +
+      "(measured); Siren draws it unfilled, the paint its own group frame " +
+      "(a subgraph) takes. ⚠️ " +
+      "**`state` diverges.** Mermaid's handler asks for a rectangle with 5px " +
+      "corners and draws one sized `NaN`, so only the label shows; Siren " +
+      "draws the rectangle with 5px corners that the handler asks for.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Words]", "B[Store]", "C[Remember]", "D[Group]", "E[Idle]"]);
+      expectSame("edges", edges(result), ["A-B", "B-C", "C-D", "D-E"]);
+      expectSame("outline", frameOutlines(result, "A"), ["rect siren-node-bare"]);
+      const store = svgOf(result).querySelector('g.siren-node[data-siren-id="B"] .siren-node-frame')!;
+      const [width, height] = ["width", "height"].map((name) => store.getAttribute(name));
+      expectSame("outline", frameOutlines(result, "B"), [`rect {rx:0px;stroke-dasharray:${width} ${height}}`]);
+      expectSame("outline", frameOutlines(result, "C"), ["rect siren-node-note"]);
+      expectSame("outline", frameOutlines(result, "D"), ["rect siren-node-hollow"]);
+      expectSame("outline", frameOutlines(result, "E"), ["rect {rx:5px}"]);
+    },
+  },
+  {
+    id: "fc-node-shape-data-labelless",
+    kind: "flowchart",
+    source: `flowchart TB
+      S@{ shape: sm-circ } --> F@{ shape: fork } --> H@{ shape: hourglass }
+      F --> B@{ shape: bolt } --> J@{ shape: f-circ }
+      H --> J --> X@{ shape: cross-circ } --> C@{ shape: choice }
+      C --> N@{ shape: anchor } --> E@{ shape: fr-circ }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws nine shapes its `@{ … }` block names at a fixed " +
+      "size and with no text (measured in Chrome, classic look): a 70x10 " +
+      "fork bar, a 30x30 hourglass, a 35x70 lightning bolt, 14px small, " +
+      "filled and framed circles, a 60px crossed circle, a 28px choice " +
+      "diamond and a 2px anchor dot. Siren draws the same nine from its " +
+      "shape table (nook 01M51XACB6), with no text, and joins every edge to " +
+      "them however small they are.",
+    assert: (result) => {
+      const drawn = svgOf(result);
+      const ids = ["S", "F", "H", "B", "J", "X", "C", "N", "E"];
+      expectSame(
+        "nodes",
+        elements(result, "g.siren-node").map(idOf),
+        ids,
+      );
+      expectSame(
+        "texts",
+        ids.map((id) => drawn.querySelectorAll(`g.siren-node[data-siren-id="${id}"] text`).length),
+        ids.map(() => 0),
+      );
+      expectSame("edges", edges(result), ["S-F", "F-H", "F-B", "B-J", "H-J", "J-X", "X-C", "C-N", "N-E"]);
+      expectSame("outline", frameOutlines(result, "F"), [
+        pathThrough(["left,top", "right,top", "right,bottom", "left,bottom"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "C"), [
+        pathThrough(["mid,bottom", "right,mid", "mid,top", "left,mid"]),
+      ]);
+      expectSame("outline", frameOutlines(result, "J"), ["circle siren-node-ink"]);
+      expectSame("outline", frameOutlines(result, "E"), ["circle", "circle"]);
+      const fork = drawn.querySelector('g.siren-node[data-siren-id="F"] .siren-node-frame')!;
+      const corners = fork.getAttribute("d")!.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+      expectSame("fork size", [corners[2]! - corners[0]!, corners[5]! - corners[3]!], [70, 10]);
+    },
+  },
+  {
+    id: "fc-node-shape-data-labelless-lr",
+    kind: "flowchart",
+    source: `flowchart LR
+      A --> F@{ shape: fork } --> B`,
+    status: "supported",
+    meaning:
+      "In a flowchart running left to right Mermaid 12.2.0 stands a fork " +
+      "upright, 10 wide and 70 tall (measured in Chrome; its handler swaps " +
+      "the bar for `LR` and `RL`). Siren does the same (nook 01M51XACB6).",
+    assert: (result) => {
+      expectSame("edges", edges(result), ["A-F", "F-B"]);
+      const fork = svgOf(result).querySelector('g.siren-node[data-siren-id="F"] .siren-node-frame')!;
+      const corners = fork.getAttribute("d")!.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+      expectSame("fork size", [corners[2]! - corners[0]!, corners[5]! - corners[3]!], [10, 70]);
+    },
+  },
+  {
+    id: "fc-node-shape-data-own-paint-style",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ shape: sm-circ } --> B
+      style A fill:#f00`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid 12.2.0 draws this silently wrong.** It draws a small " +
+      "circle, and an anchor, in their own paint whatever `style A`, " +
+      "`class A c` or `A:::c` declares — the declaration does nothing, with " +
+      "no word said (measured in Chrome; `classDef default` does reach a " +
+      "small circle). Siren refuses the declaration where it is written, " +
+      "saying the shape is drawn in its own paint (ADR-0001).",
+  },
+  {
+    id: "fc-node-shape-data-labelless-label",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[Ready]@{ shape: fork } --> B`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid 12.2.0 draws this silently wrong.** Its fork handler " +
+      "empties the node's label before drawing, so `Ready` vanishes and a " +
+      "bare bar is drawn with no word said (measured in Chrome; the same for " +
+      "every shape that draws no text, and for a `label:` in the block). " +
+      "Siren refuses it at the label, saying the shape draws no text and to " +
+      "remove the label or choose a shape that draws one (ADR-0001; nook " +
+      "01M51XACB6).",
+  },
+  {
+    id: "fc-node-shape-data-rounded-ends",
+    kind: "flowchart",
+    source: `flowchart LR
+      A@{ shape: delay, label: "Wait" } --> B@{ shape: curv-trap, label: "Show" }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws two outlines with one round end that its " +
+      "`@{ … }` block names (measured in Chrome, classic look): `delay` a " +
+      "rectangle whose right end is a half circle, `curv-trap` (a display) " +
+      "one whose left end is a point and whose right end is a half circle. " +
+      "Siren draws the same two from its shape table, the ends as arcs " +
+      "(nook 01M51XACHPG8EB9R9JNH0C71HV).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Wait]", "B[Show]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+      expectSame(
+        "outline",
+        nodeOutline(result, "A"),
+        "an unnamed curved path: line left,top-right,top, curve right,top-right,bottom, " +
+          "line right,bottom-left,bottom, line left,bottom-left,top",
+      );
+      expectSame(
+        "outline",
+        nodeOutline(result, "B"),
+        "an unnamed curved path: line right,top-in-left,top, line in-left,top-left,mid, " +
+          "line left,mid-in-left,bottom, line in-left,bottom-right,bottom, curve right,bottom-right,top",
+      );
+    },
+  },
+  {
+    id: "fc-node-shape-data-cylinders",
+    kind: "flowchart",
+    source: `flowchart LR
+      A@{ shape: h-cyl, label: "Direct" } --> B@{ shape: lin-cyl, label: "Disk" }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws two cylinders its `@{ … }` block names (measured " +
+      "in Chrome, classic look): `h-cyl` lying on its side, its lid at the " +
+      "right end and its label left of the lid, and `lin-cyl` standing up " +
+      "with a line just below its lid and its label below the lid. Siren " +
+      "draws the same two from its shape table, each as a tube and a whole " +
+      "lid over it (nook 01M51XACHPG8EB9R9JNH0C71HV).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Direct]", "B[Disk]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+      expectSame(
+        "outline",
+        nodeOutline(result, "A"),
+        "an unnamed curved path: curve left,bottom-left,top, line left,top-right,top, " +
+          "curve right,top-right,bottom, line right,bottom-left,bottom / " +
+          "curve right,top-right,bottom, curve right,bottom-right,top",
+      );
+      expectSame(
+        "outline",
+        nodeOutline(result, "B"),
+        "an unnamed curved path: curve left,top-right,top, line right,top-right,bottom, " +
+          "curve right,bottom-left,bottom, line left,bottom-left,top / " +
+          "curve left,top-right,top, curve right,top-left,top / curve left,in-top-right,in-top",
+      );
+    },
+  },
+  {
+    id: "fc-node-shape-data-bow-tie",
+    kind: "flowchart",
+    source: `flowchart LR
+      A@{ shape: bow-rect, label: "Stored" } --> B`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws `bow-rect` (stored data) as a rectangle whose " +
+      "left end bulges out and whose right end curves in, each half an " +
+      "ellipse (measured in Chrome, classic look). Siren draws the same from " +
+      "its shape table, the ends as arcs (nook 01M51XACHPG8EB9R9JNH0C71HV).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Stored]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+      expectSame(
+        "outline",
+        nodeOutline(result, "A"),
+        "an unnamed curved path: line right,top-left,top, curve left,top-left,bottom, " +
+          "line left,bottom-right,bottom, curve right,bottom-right,top",
+      );
+    },
+  },
+  {
+    id: "fc-node-shape-data-documents",
+    kind: "flowchart",
+    source: `flowchart LR
+      A@{ shape: doc, label: "Report" } --> B@{ shape: lin-doc, label: "Lined" }
+      B --> C@{ shape: tag-doc, label: "Tagged" }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws three documents its `@{ … }` block names, each " +
+      "a rectangle whose bottom is a sine wave (measured in Chrome, classic " +
+      "look): `doc` plain, `lin-doc` with a line down its left side, " +
+      "`tag-doc` with a filled tag over its bottom right corner. Siren draws " +
+      "the same three from its shape table, the wave sampled as Mermaid " +
+      "samples it (nook 01M51XACHPG8EB9R9JNH0C71HV).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Report]", "B[Lined]", "C[Tagged]"]);
+      expectSame("edges", edges(result), ["A-B", "B-C"]);
+      expectSame("outline", segmentOutlines(result, "A"), [
+        "path: wave left,in-bottom-right,in-bottom, line right,in-bottom-right,top, " +
+          "line right,top-left,top, line left,top-left,in-bottom",
+      ]);
+      expectSame("outline", segmentOutlines(result, "B"), [
+        "path: wave left,in-bottom-right,in-bottom, line right,in-bottom-right,top, " +
+          "line right,top-left,top, line left,top-left,in-bottom / line in-left,top-in-left,in-bottom",
+      ]);
+      expectSame("outline", segmentOutlines(result, "C"), [
+        "path: wave left,in-bottom-right,in-bottom, line right,in-bottom-right,top, " +
+          "line right,top-left,top, line left,top-left,in-bottom",
+        "path: line left,bottom-right,top, line right,top-right,in-bottom, " +
+          "line right,in-bottom-right,in-bottom, wave right,in-bottom-left,in-bottom, line left,in-bottom-left,bottom",
+      ]);
+    },
+  },
+  {
+    id: "fc-node-shape-data-stacked-documents",
+    kind: "flowchart",
+    source: `flowchart LR
+      A@{ shape: docs, label: "Pages" } --> B`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws `docs` (documents) as three stacked sheets, the " +
+      "front one at the bottom left with a sine wave for its bottom, and its " +
+      "label on the front sheet (measured in Chrome, classic look): the " +
+      "stack's silhouette, then the middle sheet's edges over it. Siren draws " +
+      "the same from its shape table (nook 01M51XACHPG8EB9R9JNH0C71HV).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Pages]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+      expectSame("outline", segmentOutlines(result, "A"), [
+        "path: line left,in-top-left,in-bottom, wave left,in-bottom-in-right,in-bottom, " +
+          "line in-right,in-bottom-in-right,in-bottom, line in-right,in-bottom-in-right,in-bottom, " +
+          "line in-right,in-bottom-in-right,in-bottom, line in-right,in-bottom-right,in-bottom, " +
+          "line right,in-bottom-right,top, line right,top-in-left,top, line in-left,top-in-left,in-top, " +
+          "line in-left,in-top-in-left,in-top, line in-left,in-top-in-left,in-top, line in-left,in-top-left,in-top",
+        "path: line left,in-top-in-right,in-top, line in-right,in-top-in-right,bottom, " +
+          "line in-right,bottom-right,bottom, line right,bottom-right,top, line right,top-left,top, " +
+          "line left,top-left,in-top",
+      ]);
+    },
+  },
+  {
+    id: "fc-node-shape-data-flag",
+    kind: "flowchart",
+    source: `flowchart LR
+      A@{ shape: flag, label: "Tape" } --> B`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws `flag` (a paper tape) as a band whose top and " +
+      "bottom are the same whole cycle of a sine wave, its label centred " +
+      "(measured in Chrome, classic look). Siren draws the same from its " +
+      "shape table, the waves sampled as Mermaid samples them (nook " +
+      "01M51XACHPG8EB9R9JNH0C71HV).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Tape]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+      expectSame("outline", segmentOutlines(result, "A"), [
+        "path: wave left,in-bottom-right,in-bottom, line right,in-bottom-right,in-top, " +
+          "wave right,in-top-left,in-top, line left,in-top-left,in-bottom",
+      ]);
+    },
+  },
+  {
+    id: "fc-node-shape-data-braces",
+    kind: "flowchart",
+    source: `flowchart LR
+      A@{ shape: brace, label: "Note" } --> B@{ shape: brace-r, label: "Aside" }
+      B --> C@{ shape: braces, label: "Both" }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws three comments its `@{ … }` block names as curly " +
+      "braces beside the label, open paths with no outline round the label " +
+      "(measured in Chrome, classic look): `brace` one on the left, `brace-r` " +
+      "one on the right, `braces` one on each side. Siren draws the same " +
+      "from its shape table, each brace an open path of quarter-circle arcs " +
+      "painted hollow (nook 01M51XACHPG8EB9R9JNH0C71HV).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Note]", "B[Aside]", "C[Both]"]);
+      expectSame("edges", edges(result), ["A-B", "B-C"]);
+      const left =
+        "path siren-node-hollow: curve right,bottom-mid,in-bottom, line mid,in-bottom-mid,in-bottom, " +
+        "curve mid,in-bottom-left,mid, curve left,mid-mid,in-top, line mid,in-top-mid,in-top, curve mid,in-top-right,top";
+      const right =
+        "path siren-node-hollow: curve left,top-mid,in-top, line mid,in-top-mid,in-top, " +
+        "curve mid,in-top-right,mid, curve right,mid-mid,in-bottom, line mid,in-bottom-mid,in-bottom, curve mid,in-bottom-left,bottom";
+      expectSame("outline", segmentOutlines(result, "A"), [left]);
+      expectSame("outline", segmentOutlines(result, "B"), [right]);
+      expectSame("outline", segmentOutlines(result, "C"), [left, right]);
+    },
+  },
+  {
+    id: "fc-node-shape-data-figures",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ shape: bucket, label: "Bucket" } --> B@{ shape: person, label: "User" }
+      B --> C@{ shape: console, label: "Shell" } --> D@{ shape: browser, label: "Web" }
+      D --> E@{ shape: cloud, label: "Cloud" } --> F@{ shape: bang, label: "Bang" }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws six figures its `@{ … }` block names (measured " +
+      "in Chrome, classic look): `bucket` a body tapering to its bottom " +
+      "under an open elliptical rim, `person` a rounded body under a round " +
+      "head, `console` a window with 12px corners and a `>_` prompt in its " +
+      "top left, `browser` a window with a bar holding three dots and an " +
+      "address bar, `cloud` an outline of ten bulging arcs, `bang` one of " +
+      "fourteen scalloped arcs. Each puts its label clear of the figure's " +
+      "marking — under the head, the prompt, the bar. Siren draws the same " +
+      "six from its shape table (nook 01M51XACRX8H03160HPE1WQFZ4); its " +
+      "prompt is two stroked glyphs rather than text.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Bucket]", "B[User]", "C[Shell]", "D[Web]", "E[Cloud]", "F[Bang]"]);
+      expectSame("edges", edges(result), ["A-B", "B-C", "C-D", "D-E", "E-F"]);
+      const drawnWith = (id: string) =>
+        Array.from(svgOf(result).querySelectorAll(`g.siren-node[data-siren-id="${id}"] .siren-node-frame`)).map(
+          (frame) => [frame.tagName, ...(frame.getAttribute("class") ?? "").split(/\s+/).filter((c) => c !== "siren-node-frame")].join(" "),
+        );
+      expectSame("frames", drawnWith("A"), ["path", "path siren-node-hollow"]);
+      expectSame("frames", drawnWith("B"), ["rect", "circle"]);
+      expectSame("frames", drawnWith("C"), ["rect", "path siren-node-hollow"]);
+      expectSame("frames", drawnWith("D"), [
+        "rect",
+        "line",
+        "circle siren-node-ink",
+        "circle siren-node-ink",
+        "circle siren-node-ink",
+        "rect siren-node-hollow",
+      ]);
+      expectSame("frames", drawnWith("E"), ["path"]);
+      expectSame("frames", drawnWith("F"), ["path"]);
+      // The label on the person's body, below its head, and below the
+      // middle of a console's and a browser's window, clear of the prompt
+      // and the bar.
+      const labelAndFrame = (id: string) => {
+        const group = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"]`)!;
+        const rect = group.querySelector("rect.siren-node-frame")!;
+        const top = Number(rect.getAttribute("y"));
+        return { y: Number(group.querySelector("text")!.getAttribute("y")), middle: top + Number(rect.getAttribute("height")) / 2 };
+      };
+      const person = labelAndFrame("B");
+      expectSame("label on the body", Math.round(person.y), Math.round(person.middle));
+      for (const id of ["C", "D"]) {
+        const window = labelAndFrame(id);
+        expectSame(`${id}'s label below the middle`, window.y > window.middle, true);
+      }
+    },
+  },
+  {
     id: "fc-node-shape-data-undrawn",
     kind: "flowchart",
     source: `flowchart TB
-      A@{ shape: cloud, label: "x" } --> B`,
-    status: "rejected",
+      A@{ shape: icon, label: "x" } --> B`,
+    status: "supported",
     meaning:
-      "Mermaid 12.2.0 draws `A` as a cloud (measured), one of the 39 shapes " +
-      "its `@{ … }` names that Siren has no geometry for. Refused at the " +
-      "`@`, saying the shape is not drawn yet and naming the fourteen it can " +
-      "draw.",
+      "Mermaid 12.2.0 draws `A` as an icon node with no icon (measured), " +
+      "an undocumented name its shape map accepts: an empty 48px box, its " +
+      "label 8px below it. Siren draws it from its shape table, a frame " +
+      "neither filled nor stroked with the label below (nook " +
+      "01M51XACZJ8QSCSGEDZE7M4XDK). **Was refused** as a shape not drawn " +
+      "yet, and before that **was `shape: cloud`** until Siren drew the " +
+      "cloud (nook 01M51XACRX).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[x]", "B[B]"]);
+      const group = svgOf(result).querySelector('g.siren-node[data-siren-id="A"]')!;
+      expectSame("shape", group.getAttribute("data-siren-shape"), "icon");
+      const frame = group.querySelector(".siren-node-frame")!;
+      expectSame("frame", frame.getAttribute("class"), "siren-node-frame siren-node-bare");
+      // The label below the 48px box.
+      const top = Number(frame.getAttribute("y"));
+      expectSame("label below the icon", Number(group.querySelector("text")!.getAttribute("y")) > top + 48, true);
+    },
   },
   {
     id: "fc-node-shape-data-icon",
@@ -3330,9 +3890,13 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       A@{ icon: "fa:user", label: "x" } --> B`,
     status: "rejected",
     meaning:
-      "Mermaid 12.2.0 draws `A` as an icon node labelled `x` (measured). " +
-      "Siren draws no icons: `icon`, `img`, `form`, `pos`, `w`, `h` and " +
-      "`constraint` are refused at the `@`, saying to leave the key out.",
+      "Mermaid 12.2.0 draws `A` as an icon node labelled `x` when a pack " +
+      "named `fa` is registered, and a `?` in its place when none is " +
+      "(measured): a picture silently wrong, refused under ADR-0001. Siren " +
+      "draws an icon from a pack its caller registers with the `iconPacks` " +
+      "render option, which this corpus registers none of: refused at the " +
+      "`@`, saying how to register the pack (nook 01M51XACZJ8QSCSGEDZE7M4XDK). " +
+      "**Was refused** as a key not supported yet.",
   },
   {
     id: "fc-node-shape-data-in-edge-label",
@@ -3358,13 +3922,20 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     source: `flowchart TB
       A e1@--> B
       e1@{ animate: true }`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "Mermaid 12.2.0 names the edge `e1` and reads the `@{ … }` after it as " +
       "that edge's data (measured; with no edge `e1` the same line is a " +
-      "node). Siren does not support edge ids yet (the `@{ … }` board): " +
-      "refused at the id, saying to leave it out, and the data line is told " +
-      "to go with it.",
+      "node), marching its dashes 20s a cycle. Siren draws the edge `e1` " +
+      "with the same march (nook 01M51XAE8B); it refused `animate` before.",
+    assert: (result) => {
+      expectSame("edges", edges(result), ["e1"]);
+      expectSame(
+        "e1's classes",
+        elements(result, 'path.siren-edge[data-siren-id="e1"]')[0]?.getAttribute("class"),
+        "siren-edge siren-edge-animation-fast",
+      );
+    },
   },
   {
     id: "fc-text-markdown",
@@ -5967,6 +6538,311 @@ line2\`"]`,
         labelRows(svgOf(result).querySelector('g.siren-class[data-siren-id="Box"] text.siren-class-name')),
         ["Box<Key", "Value>"],
       );
+    },
+  },
+  {
+    id: "cls-member-classifiers",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        +x$
+        +y*
+        +x$ int
+        +foo()$
+        +foo()* bool
+        +foo() bool$
+        +foo() List~T~$
+        +foo(a$)
+      }
+      A : +bar()$ int`,
+    status: "supported",
+    meaning:
+      "A member's classifier is a style on its whole line, not a character " +
+      "of it: Mermaid 12.2.0 draws `+x$` as `+x` underlined (static) and " +
+      "`+y*` as `+y` in italics (abstract), visibility and return type " +
+      "included (measured, Chrome). An attribute's classifier is its last " +
+      "character only — `+x$ int` is drawn as written — and a method's " +
+      "stands right after its `)` or at the end of its return type " +
+      "(`+foo() List~T~$` is `+foo() : List<T>` underlined; `+foo(a$)` is " +
+      "drawn as written), in a " +
+      "class block and after `A :` alike. Siren used to draw the `$` or `*` " +
+      "at the end of the line, and `+foo()* bool` as `+foo() : * bool` " +
+      "(nook 01M51XAEEX).",
+    assert: (result) => {
+      const lines = Array.from(
+        svgOf(result).querySelectorAll('g.siren-class[data-siren-id="A"] text.siren-member'),
+      ).map((t) => `${t.textContent} {${t.getAttribute("style") ?? ""}}`);
+      expectSame("member lines", lines, [
+        "+x {text-decoration:underline}",
+        "+y {font-style:italic}",
+        "+x$ int {}",
+        "+foo() {text-decoration:underline}",
+        "+foo() : bool {font-style:italic}",
+        "+foo() : bool {text-decoration:underline}",
+        "+foo() : List<T> {text-decoration:underline}",
+        "+foo(a$) {}",
+        "+bar() : int {text-decoration:underline}",
+      ]);
+    },
+  },
+  {
+    id: "cls-member-punctuation",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        +???
+        +x a!b
+        +[a]
+        +x "a"
+        +a$b
+        +x a*b
+        +x a&
+        +int x;
+        +x &amp;lt;
+      }
+      A : +a=b
+      A : +x a/b
+      A : +a'b`,
+    status: "supported",
+    meaning:
+      "A member's name may hold punctuation — `?`, `!`, `,`, `[`, `]`, `=`, " +
+      "`/`, `'`, `\"`, `$`, `*`, `&` — and a class block's member may end in " +
+      "`;`: Mermaid 12.2.0 draws each as written, in a class block and after " +
+      "`A :` alike, and `+x &amp;lt;` as `+x &lt;` (measured, Chrome). Siren " +
+      "used to refuse each as an unrecognized member (nook 01M51XAEND).",
+    assert: (result) => {
+      expectSame("members", members(result, "A"), [
+        "+???",
+        "+x a!b",
+        "+[a]",
+        '+x "a"',
+        "+a$b",
+        "+x a*b",
+        "+x a&",
+        "+int x;",
+        "+x &lt;",
+        "+a=b",
+        "+x a/b",
+        "+a'b",
+      ]);
+    },
+  },
+  {
+    id: "cls-member-markers-only",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        +x$$
+        +x$*
+        +
+        $
+      }`,
+    status: "supported",
+    meaning:
+      "A member's classifier is its last character even after another `$`, " +
+      "and a member may be nothing but markers: Mermaid 12.2.0 draws `+x$$` " +
+      "as `+x$` underlined, `+x$*` as `+x$` in italics, `+` as `+` and `$` " +
+      "as an empty underlined line (measured, Chrome). Siren used to refuse " +
+      "each (nook 01M51XAEND).",
+    assert: (result) => {
+      const lines = Array.from(
+        svgOf(result).querySelectorAll('g.siren-class[data-siren-id="A"] text.siren-member'),
+      ).map((t) => `${t.textContent} {${t.getAttribute("style") ?? ""}}`);
+      expectSame("member lines", lines, [
+        "+x$ {text-decoration:underline}",
+        "+x$ {font-style:italic}",
+        "+ {}",
+        " {text-decoration:underline}",
+      ]);
+    },
+  },
+  {
+    id: "cls-member-repeated",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        +x
+        +x
+        +y
+      }
+      A : +x
+      class A {
+        +z
+      }`,
+    status: "supported",
+    meaning:
+      "A member written again is drawn again: Mermaid 12.2.0 draws `+x` " +
+      "three times here, in the order written across every declaration of " +
+      "the class (measured, Chrome). Siren used to draw it once " +
+      "(nook 01M51XAEND).",
+    assert: (result) => {
+      expectSame("members", members(result, "A"), ["+x", "+x", "+y", "+x", "+z"]);
+    },
+  },
+  {
+    id: "cls-method-last-paren",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        +foo(a)( b )
+        +foo( a )
+        +foo(a(b)) int
+      }`,
+    status: "supported",
+    meaning:
+      "A method's parameter list is the one that begins at its last `(` with " +
+      "a `)` after it, and only that one is trimmed: Mermaid 12.2.0 draws " +
+      "`+foo(a)( b )` as `+foo(a)(b)` and `+foo( a )` as `+foo(a)` " +
+      "(measured, Chrome). Siren used to draw both as written " +
+      "(nook 01M51XAEND).",
+    assert: (result) => {
+      expectSame("members", members(result, "A"), ["+foo(a)(b)", "+foo(a)", "+foo(a(b)) : int"]);
+    },
+  },
+  {
+    id: "cls-direction-td-spelling",
+    kind: "class",
+    source: `classDiagram
+      direction LR
+      direction td
+      Order --> Item`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** `direction td` " +
+      "sets nothing in a class diagram — its lexer reads only `TB`, `BT`, " +
+      "`RL` and `LR`, in capitals — so this diagram is laid out left to " +
+      "right (measured, Chrome), not top to bottom; so is `direction TD x`. " +
+      "Siren refuses each (ADR-0001) as it refuses `direction TD`, saying to " +
+      "write `direction TB`. Siren used to refuse each as an unrecognized " +
+      "line (nook 01M51XAEND).",
+  },
+  {
+    id: "cls-direction-value-case",
+    kind: "class",
+    source: `classDiagram
+      direction BT
+      direction lr
+      Order --> Item`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** `direction lr` " +
+      "sets nothing in a class diagram — its lexer reads a value only in " +
+      "capitals — so this diagram stays bottom to top (measured, Chrome), " +
+      "not left to right; so do `direction XX`, `direction lr x` and a bare " +
+      "`direction`. Siren refuses each (ADR-0001), naming the direction to " +
+      "write, `direction LR` here. Siren used to refuse each as an " +
+      "unrecognized line (nook 01M51Z1XFF).",
+  },
+  {
+    id: "cls-member-visibility-space",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        + x
+        -  int y
+        + foo() bool
+      }
+      A : # z`,
+    status: "supported",
+    meaning:
+      "A space after a member's visibility marker is drawn, one however " +
+      "many were written: Mermaid 12.2.0 draws `+ x`, `- int y`, " +
+      "`+ foo() : bool` and `# z` (measured, Chrome). Siren used to drop it " +
+      "(nook 01M51Z1XFF).",
+    assert: (result) => {
+      expectSame("members", members(result, "A"), ["+ x", "- int y", "# z", "+ foo() : bool"]);
+    },
+  },
+  {
+    id: "cls-method-nameless",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        +(a)
+        -( b ) int
+      }`,
+    status: "supported",
+    meaning:
+      "A method may have no name after its visibility marker: Mermaid " +
+      "12.2.0 draws `+(a)` and `-(b) : int` (measured, Chrome); `(a)` " +
+      "alone stops it rendering. Siren used to refuse both " +
+      "(nook 01M51Z1XFF).",
+    assert: (result) => {
+      expectSame("members", members(result, "A"), ["+(a)", "-(b) : int"]);
+    },
+  },
+  {
+    id: "cls-member-empty-line",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        +x
+        $
+        +y
+        +z
+      }`,
+    status: "supported",
+    meaning:
+      "A member line that draws no text takes no room: Mermaid 12.2.0 sizes " +
+      "the `$` line's label 0 high, so `+y` sits right under `+x`, a line " +
+      "apart as `+z` is under `+y` (measured, Chrome). Siren used to give it " +
+      "a line of its own (nook 01M51Z1XFF).",
+    assert: (result) => {
+      const ys = Array.from(
+        svgOf(result).querySelectorAll('g.siren-class[data-siren-id="A"] text.siren-member'),
+      )
+        .filter((t) => (t.textContent ?? "") !== "")
+        .map((t) => Number(t.getAttribute("y")));
+      expectSame("line gaps equal", ys[1]! - ys[0]! === ys[2]! - ys[1]!, true);
+    },
+  },
+  {
+    id: "cls-member-bare-percent",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        %%
+        %% a comment
+        +x
+      }
+      %%
+      class B`,
+    status: "supported",
+    meaning:
+      "A line that is nothing but `%%` is no comment line — one needs a " +
+      "character after its `%%` — so in a class block it is the member " +
+      "`%%`: Mermaid 12.2.0 draws `%%` and `+x` in A, the `%% a comment` " +
+      "line gone, and reads the bare `%%` between statements as nothing " +
+      "(measured, Chrome). Siren used to drop it in the block too " +
+      "(nook 01M521P5NA).",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["A", "B"]);
+      expectSame("members", members(result, "A"), ["%%", "+x"]);
+    },
+  },
+  {
+    id: "cls-compartment-textless",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        $
+        +f()
+      }`,
+    status: "supported",
+    meaning:
+      "An attribute compartment whose every line draws no text takes no " +
+      "room: Mermaid 12.2.0 draws `$` ⏎ `+f()` exactly as tall as `+f()` " +
+      "alone, its dividers in the same places (measured, Chrome). Siren " +
+      "used to give the `$` a compartment of its own, padding and divider " +
+      "included (nook 01M521P5NA). A known departure remains: a block of " +
+      "nothing but `$` or `*` is drawn like a class with no members, no " +
+      "divider at all, by Siren's own rule of a divider above every " +
+      "compartment that draws something; Mermaid draws it with both " +
+      "dividers, 12px shorter than an empty class.",
+    assert: (result) => {
+      const box = svgOf(result).querySelector('g.siren-class[data-siren-id="A"]');
+      expectSame("members", members(result, "A"), ["+f()"]);
+      expectSame("dividers", box?.querySelectorAll("line.siren-class-divider").length ?? 0, 1);
     },
   },
   // -------------------------------------------------------------------------
@@ -12224,6 +13100,448 @@ line2\`"]`,
       expectSame("participants", participants(result), ["A", "B"]);
       expectSame("messages", messages(result), ["A-B: Hello"]);
     },
+  },
+
+  // -------------------------------------------------------------------------
+  // flowchart edge ids — `A e1@--> B` (01M51XADJKSGRYG5CM1GG0T91R)
+  // -------------------------------------------------------------------------
+  {
+    id: "fc-edge-id-timeline",
+    kind: "flowchart",
+    source: `flowchart LR
+      A e1@--> B
+      A --> B
+      A e2@-.->|x| B
+
+      timeline:
+        enter e1 fade
+        enter A-B#2 fade`,
+    status: "supported",
+    meaning:
+      "An edge written with an id of its own answers to it: Mermaid 12.2.0 " +
+      "names the edges `e1`, `L_A_B_2` and `e2` (measured), numbering a " +
+      "pair's repeats across every edge between it, named or not. Siren " +
+      "stamps `e1`, `A-B#2` and `e2`, and a timeline names an edge by its own " +
+      "id.",
+    assert: (result) => {
+      expectSame("edges", edges(result), ["e1", "A-B#2", "e2"]);
+      expectSame("e2's drawing", edgeDrawing(result, "e2"), "dotted none arrow");
+      expectSame("e2's label", edgeLabel(result, "e2"), "x");
+      expectSame("timeline steps", result.controller?.totalSteps ?? 0, 2);
+    },
+  },
+  {
+    id: "fc-edge-id-group",
+    kind: "flowchart",
+    source: `flowchart LR
+      A & B e1@--> C`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 draws A-C and B-C and gives the id `e1` to B-C alone " +
+      "(measured; `A e1@--> B & C` gives it to A-B) — which edge an id names " +
+      "is not what was written (ADR-0001). Siren refuses it at the id, saying " +
+      "to write the edge it names on a line of its own.",
+  },
+  {
+    id: "fc-edge-id-names-a-node",
+    kind: "flowchart",
+    source: `flowchart LR
+      A e1@--> B
+      C --> e1`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 draws no node `e1` after an edge took the id: the line " +
+      "`e1` draws nothing, and `C --> e1` an edge to nothing (measured). " +
+      "Siren refuses the edge id a node also holds (ADR-0001), saying to give " +
+      "the edge another id.",
+  },
+  {
+    id: "fc-edge-id-repeated",
+    kind: "flowchart",
+    source: `flowchart LR
+      A e1@--> B
+      C e1@--> D`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 keeps the first `e1` and names C-D with an id of its " +
+      "own (measured); an id written to name an edge names none. Siren " +
+      "refuses an edge id another edge holds — written, or derived as `A-B` " +
+      "or `A-B#2` — at the second, saying to give it another id.",
+  },
+  {
+    id: "fc-edge-id-data-before-edge",
+    kind: "flowchart",
+    source: `flowchart LR
+      e1@{ shape: circle }
+      A e1@--> B`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 reads an `@{ … }` block on `e1` written above the edge " +
+      "as a node's, and draws a circle `e1` beside the edge (measured). Siren " +
+      "refuses it at the block, saying to move it below the edge.",
+  },
+  {
+    id: "fc-edge-id-alphabet",
+    kind: "flowchart",
+    source: `flowchart LR
+      A e$1@--> B`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 takes any run of characters but a space or a `\"` as " +
+      "an edge id (`e$1`, `é1`, measured). Siren keeps an edge id to the " +
+      "alphabet of a node id — letters, digits, `_`, `-`, `.` and `%` — so " +
+      "the two can be compared and written in a timeline, and refuses the " +
+      "rest at the id.",
+  },
+  {
+    id: "fc-edge-id-names-a-subgraph",
+    kind: "flowchart",
+    source: `flowchart LR
+      subgraph S
+        C
+      end
+      A S@--> B`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 draws the subgraph `S` and the edge A-B named `S` " +
+      "(measured), so an endpoint `S` written later would have to mean one " +
+      "of the two. Siren refuses an edge id that names a subgraph, saying to " +
+      "give the edge another id.",
+  },
+  {
+    id: "fc-edge-id-click",
+    kind: "flowchart",
+    source: `flowchart LR
+      A e1@--> B
+      click e1 href "https://example.com"`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 makes nothing clickable: a click reaches a node, and " +
+      "`e1` is an edge (measured). Siren refuses the click, saying it reaches " +
+      "only a node.",
+  },
+  {
+    id: "fc-edge-id-style",
+    kind: "flowchart",
+    source: `flowchart LR
+      A e1@--> B
+      style e1 stroke:#f00`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 draws the edge unstyled, the `style` reaching nothing " +
+      "(measured; ADR-0001). Siren refuses it, saying to style an edge with " +
+      "`linkStyle` and its number.",
+  },
+  {
+    id: "fc-edge-id-class",
+    kind: "flowchart",
+    source: `flowchart LR
+      A e1@--> B
+      classDef c stroke-width:9px
+      class e1 c`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 paints the edge `e1` with `c`'s declarations (measured, " +
+      "`stroke-width:9px` on its path). Siren paints it the same, beneath " +
+      "any `linkStyle` naming it (nook 01M51XAE8B); it refused the class " +
+      "before.",
+    assert: (result) => {
+      expectSame(
+        "e1's style",
+        elements(result, 'path.siren-edge[data-siren-id="e1"]')[0]?.getAttribute("style"),
+        "stroke-width:9px",
+      );
+    },
+  },
+  {
+    id: "fc-acc-title-with-arrow",
+    kind: "flowchart",
+    source: `flowchart TB
+      accTitle: a --> b
+      accDescr: c --> d
+      A --> B`,
+    status: "supported",
+    meaning:
+      "An accessibility line keeps everything after its `:`, an arrow " +
+      "included: Mermaid 12.2.0 records the title `a --> b` and the " +
+      "description `c --> d`, and draws only A-B (measured). Siren refused " +
+      "both lines as unrecognized, having cut them at the arrow first " +
+      "(nook 01M51XADTQ).",
+    assert: (result) => {
+      const svg = svgOf(result);
+      expectSame("the accessible title text", svg.querySelector("title")?.textContent, "a --> b");
+      expectSame("the accessible description text", svg.querySelector("desc")?.textContent, "c --> d");
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+    },
+  },
+  {
+    id: "fc-invisible-link",
+    kind: "flowchart",
+    source: `flowchart LR
+      A ~~~|x| B
+      B --> C
+      C ~~~ D
+      linkStyle 2 stroke:#f00,stroke-width:4px`,
+    status: "supported",
+    meaning:
+      "`~~~` is an invisible edge: Mermaid 12.2.0 lays it out like any edge " +
+      "and draws its path with `stroke-width: 0` and no marker, its label " +
+      "`x` still drawn, and counts it among the edges a `linkStyle` numbers, " +
+      "so `linkStyle 2` paints C-D visible (measured with the probe, and its " +
+      "stylesheet's `.edge-thickness-invisible { stroke-width: 0 }`). " +
+      "Siren refused `~~~` as an unrecognized line (nook 01M51XAE1J).",
+    assert: (result) => {
+      expectSame("edges", edges(result), ["A-B", "B-C", "C-D"]);
+      expectSame("A-B's drawing", edgeDrawing(result, "A-B"), "invisible none none");
+      expectSame("B-C's drawing", edgeDrawing(result, "B-C"), "solid none arrow");
+      expectSame("C-D's drawing", edgeDrawing(result, "C-D"), "invisible none none");
+      expectSame("A-B's label", edgeLabel(result, "A-B"), "x");
+      expectSame(
+        "C-D painted by linkStyle 2",
+        elements(result, 'path.siren-edge[data-siren-id="C-D"]')[0]?.getAttribute("style"),
+        "stroke:#f00;stroke-width:4px",
+      );
+      expectSame("B laid out right of A", nodeCenter(result, "B").x > nodeCenter(result, "A").x, true);
+    },
+  },
+  {
+    id: "fc-edge-data-animation-and-curve",
+    kind: "flowchart",
+    source: `flowchart TB
+      A e1@--> D
+      A e2@-.-> B
+      B --> D
+      e1@{ animation: slow, curve: linear }
+      e2@{ animate: true }
+      linkStyle 1 stroke:#f00,stroke-dasharray:2 2`,
+    status: "supported",
+    meaning:
+      "An edge's own data animates it and picks its curve: Mermaid 12.2.0 " +
+      "marches `e1`'s dashes 50s a cycle and `e2`'s 20s, the march's 9,5 dash " +
+      "beating the dotted line's and the `linkStyle` dash while its " +
+      "`stroke:#f00` still paints `e2` (measured in headless Chrome). On ELK " +
+      "Mermaid draws every edge rounded whatever `curve:` says; Siren draws " +
+      "`e1` linear, as it draws `linkStyle … interpolate` (nook 01M51XAE8B).",
+    assert: (result) => {
+      const classOf = (id: string) =>
+        elements(result, `path.siren-edge[data-siren-id="${id}"]`)[0]?.getAttribute("class");
+      expectSame("e1's classes", classOf("e1"), "siren-edge siren-edge-animation-slow");
+      expectSame("e2's classes", classOf("e2"), "siren-edge siren-edge-dotted siren-edge-animation-fast");
+      expectSame(
+        "e2's style",
+        elements(result, 'path.siren-edge[data-siren-id="e2"]')[0]?.getAttribute("style"),
+        "stroke:#f00",
+      );
+      expectSame("e1's curve", edgeCurve(result, "e1"), "through its route");
+    },
+  },
+  {
+    id: "fc-label-quoted-run-then-text",
+    kind: "flowchart",
+    source: `flowchart LR
+      A -->|"a" b| B
+      B -->|"c"d| C`,
+    status: "supported",
+    meaning:
+      "A `|label|` opening with a quoted run keeps what follows it, the " +
+      "quotes coming off: Mermaid 12.2.0 draws `a b` and `cd` (measured). " +
+      "Siren drew the quotes as text, `\"a\" b` (nook 01M51Z206K).",
+    assert: (result) => {
+      expectSame("A-B's label", edgeLabel(result, "A-B"), "a b");
+      expectSame("B-C's label", edgeLabel(result, "B-C"), "cd");
+    },
+  },
+  {
+    id: "fc-acc-title-with-semicolon",
+    kind: "flowchart",
+    source: `flowchart LR
+      accTitle: a --> b; C --> D
+      A --> B`,
+    status: "supported",
+    meaning:
+      "An accessibility line keeps everything after its `:`, a `;` included: " +
+      "Mermaid 12.2.0 records the title `a --> b; C --> D` and draws only " +
+      "A-B (measured). Siren cut the line at the `;` and drew an edge C-D " +
+      "(nook 01M51Z206K).",
+    assert: (result) => {
+      expectSame("the accessible title text", svgOf(result).querySelector("title")?.textContent, "a --> b; C --> D");
+      expectSame("edges", edges(result), ["A-B"]);
+    },
+  },
+  {
+    id: "fc-label-unclosed-tag",
+    kind: "flowchart",
+    source: `flowchart LR
+      A -->|a<b| B`,
+    status: "supported",
+    meaning:
+      "A `<` opening what reads as a tag is dropped from a `|label|`: " +
+      "Mermaid 12.2.0 draws the label `a` (measured in headless Chrome), and " +
+      "so does Siren.",
+    assert: (result) => {
+      expectSame("A-B's label", edgeLabel(result, "A-B"), "a");
+    },
+  },
+  {
+    id: "fc-edge-class-animation",
+    kind: "flowchart",
+    source: `flowchart LR
+      A e1@--> B
+      classDef moving stroke-dasharray:9 5,animation: dash 25s linear infinite
+      class e1 moving`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 animates the edge with the `dash` keyframes of its own " +
+      "stylesheet, 25s a cycle (measured in headless Chrome). Siren's " +
+      "stylesheet carries no such keyframes, so the edge would be drawn " +
+      "still: the class is refused at the statement that applies it, saying " +
+      "to write `e1@{ animate: true }` instead.",
+  },
+  {
+    id: "fc-edge-class-above-edge",
+    kind: "flowchart",
+    source: `flowchart LR
+      classDef c stroke:#f00
+      class e1 c
+      A e1@--> B`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 applies a class to an edge only once the edge exists, " +
+      "so `class e1 c` above `A e1@--> B` paints nothing (measured in " +
+      "headless Chrome). Siren reads the whole document before styling, so " +
+      "it would paint the edge where Mermaid does not: refused, saying to " +
+      "move the statement below the edge.",
+  },
+
+  {
+    id: "fc-node-icon-form-unknown",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ icon: "fa:user", form: blob }`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 draws an icon with a `form` it does not know as an " +
+      "icon with no form (measured, Chrome): the author's word silently " +
+      "dropped, refused under ADR-0001, naming square, circle and rounded " +
+      "(nook 01M51XACZJ8QSCSGEDZE7M4XDK).",
+  },
+  {
+    id: "fc-node-icon-pos-unknown",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ icon: "fa:user", label: "x", pos: top }`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 puts an icon's label above it only for `pos: t`, and " +
+      "below it for any other value (`node.pos === 't'`): `pos: top` is " +
+      "silently drawn below, refused under ADR-0001, naming `t` and `b` " +
+      "(nook 01M51XACZJ8QSCSGEDZE7M4XDK).",
+  },
+  {
+    id: "fc-node-icon-size-invalid",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ icon: "fa:user", h: big }`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 reads `h` as `Number(h)`, so `h: big` is `NaN` and " +
+      "the icon's size and box are `NaN`: a picture silently broken, " +
+      "refused under ADR-0001, asking for a number of pixels above 0 (nook " +
+      "01M51XACZJ8QSCSGEDZE7M4XDK).",
+  },
+  {
+    id: "fc-node-icon-keys-without-icon",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ shape: circle, form: square, pos: t, h: 90 }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 reads `form`, `pos` and `h` for a node that is no " +
+      "icon and draws nothing different (measured: a plain rectangle " +
+      "`A`). Siren draws the circle and warns that each key is ignored " +
+      "(nook 01M51XACZJ8QSCSGEDZE7M4XDK).",
+    warnings: [
+      '"form" only shapes an icon node, and is ignored here. Remove it, or give the node an icon',
+      '"pos" only shapes an icon or image node, and is ignored here. Remove it, or give the node an icon or an image',
+      '"h" only shapes an icon or image node, and is ignored here. Remove it, or give the node an icon or an image',
+    ],
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]"]);
+      expectSame(
+        "shape",
+        svgOf(result).querySelector('g.siren-node[data-siren-id="A"]')!.getAttribute("data-siren-shape"),
+        "circle",
+      );
+    },
+  },
+
+  {
+    id: "fc-node-image-data-url",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ img: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAYAAAA=", label: "Pic", w: 200, h: 100 } --> B@{ img: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAYAAAA=", label: "Kept", h: 50, constraint: on, pos: t }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws an `img:` node as the image over a rectangle " +
+      "in the node's paint, `w` by `h` (here 200 x 100), or with " +
+      "`constraint: on` keeping its proportions (here 100 x 50 from `h: 50` " +
+      "for a 40 x 20 PNG), its label 8px below it or, with `pos: t`, above " +
+      "(measured, Chrome). Siren draws the same from the data URL, its " +
+      "natural size read off the data's header (nook " +
+      "01M51XAD6416EJHSDVWB725NRY).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Pic]", "B[Kept]"]);
+      const sizeOf = (id: string) => {
+        const image = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"] image`)!;
+        return [image.getAttribute("width"), image.getAttribute("height")];
+      };
+      expectSame("A's image", sizeOf("A"), ["200", "100"]);
+      expectSame("B's image", sizeOf("B"), ["100", "50"]);
+      const group = svgOf(result).querySelector('g.siren-node[data-siren-id="B"]')!;
+      expectSame(
+        "B's label above its image",
+        Number(group.querySelector("text")!.getAttribute("y")) < Number(group.querySelector("image")!.getAttribute("y")),
+        true,
+      );
+    },
+  },
+  {
+    id: "fc-node-image-url",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ img: "https://example.com/a.png", label: "Pic" }`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 loads the image at the URL and draws it. Siren never " +
+      "fetches anything while drawing, so it draws an image only from a " +
+      "data URL the document holds and refuses any other, saying to embed " +
+      "the image: a deliberate departure, recorded as its own decision " +
+      "(nook 01M52V0X4P).",
+  },
+  {
+    id: "fc-node-image-constraint-unknown",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ img: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAYAAAA=", h: 50, constraint: yes }`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 keeps an image's proportions only for " +
+      "`constraint: on` (`node.constraint === 'on'`), so `constraint: yes` " +
+      "is silently drawn unconstrained, refused under ADR-0001, naming `on` " +
+      "and `off` (nook 01M51XAD6416EJHSDVWB725NRY).",
+  },
+  {
+    id: "fc-node-image-and-icon",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ img: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAYAAAA=", icon: "fa:user" }`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 draws a node given both an `img:` and an `icon:` as " +
+      "the image and drops the icon without a word (`getTypeFromVertex`, " +
+      "measured), refused under ADR-0001, saying the icon would be dropped (nook " +
+      "01M51XAD6416EJHSDVWB725NRY).",
   },
 
   // -------------------------------------------------------------------------

@@ -6,13 +6,14 @@ import {
   readDirectives,
   readFrontmatter,
 } from "./documentConfig";
+import { bareCommentError, isBareCommentLine } from "./bareCommentLine";
 import { parseClassDiagram } from "./parseClassDiagram";
 import { parseErDiagram } from "./parseErDiagram";
 import { type DiagramKind, listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
 import { parseFlowchart } from "./parseFlowchart";
 import { parseSequenceDiagram } from "./parseSequenceDiagram";
 import { parseStateDiagram } from "./parseStateDiagram";
-import { isTimelineHeader } from "./parseTimelineBlock";
+import { isTimelineHeader, isTimelineVerb, unrecognizedActionMessage } from "./parseTimelineBlock";
 import { styleLines } from "./styleLines";
 import { tagQuotesRewritten } from "./tagQuotes";
 
@@ -61,13 +62,16 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = 
  * diagram as Mermaid's grammar is handed it, and each kind's parser decides.
  * A timeline block is Siren's own syntax, not Mermaid's (ADR-0017), and
  * its lines are still cut at their first `%%` — save, in a flowchart, one
- * glued to or beginning an action's target (`cutTimelineComment`).
+ * glued to or beginning an action's target (`cutTimelineComment`). In
+ * every other kind such a `%%` still opens the comment, and the action it
+ * leaves with no target is noted (`commentedTargets`) so its refusal can
+ * say why.
  *
  * Except a line that is nothing but `%%` (`bareCommentLines`). Mermaid's
  * `cleanupComments` removes `^\s*%%(?!{)[^\n]+\n?`, so a whole-line
  * comment needs at least one character — a space will do — after its
  * `%%`; a bare `%%` is left to the diagram's grammar. What that grammar
- * makes of it differs by kind (`bareCommentMessage`), so the line is still
+ * makes of it differs by kind (`BARE_COMMENT_OUTCOME`), so the line is still
  * blanked here and the kind decides, once the header is known, whether the
  * document is refused for it (ADR-0017).
  *
@@ -111,12 +115,13 @@ function asMermaidReads(source: string): {
   frontmatter: FrontmatterRead;
   directives: DirectivesRead;
   bareCommentLines: BareCommentLine[];
+  commentedTargets: CommentedTarget[];
 } {
   const frontmatter = readFrontmatter(tagQuotesRewritten(source).split(/\r\n|\r|\n/).join("\n"));
   const directives = readDirectives(frontmatter.source);
   const linesAsWritten = directives.source.split("\n");
   const bareCommentLines = linesAsWritten.flatMap((line, index) =>
-    line.trimStart() === "%%" ? [{ line: index + 1, column: line.length - 1 }] : [],
+    isBareCommentLine(line) ? [{ line: index + 1, column: line.length - 1 }] : [],
   );
   const wholeLinesBlanked = linesAsWritten.map((line) =>
     line.trimStart().startsWith("%%") ? "" : line,
@@ -136,7 +141,81 @@ function asMermaidReads(source: string): {
   const lines = linesAsRead.map((line, index) =>
     index < timelineStart ? line : cutTimelineComment(line, gluedTargets),
   );
-  return { lines, header, timelineStart, asWritten: read.asWritten, frontmatter, directives, bareCommentLines };
+  const commentedTargets = gluedTargets
+    ? []
+    : linesAsRead.flatMap((line, index) => {
+        const target = index < timelineStart ? null : commentedTarget(line);
+        return target === null ? [] : [{ line: index + 1, action: target }];
+      });
+  return {
+    lines,
+    header,
+    timelineStart,
+    asWritten: read.asWritten,
+    frontmatter,
+    directives,
+    bareCommentLines,
+    commentedTargets,
+  };
+}
+
+/**
+ * A timeline line, outside a flowchart, whose first `%%` stands where its
+ * last action's target begins (`enter %%B fade`): the `%%` opens the
+ * comment there, so the cut leaves that action as `action`, a verb with no
+ * target, on line `line`.
+ */
+interface CommentedTarget {
+  line: number;
+  action: string;
+}
+
+/**
+ * The action left with no target when `line` is cut at its first `%%`, or
+ * `null` when that `%%` does not begin a target: none on the line, one on
+ * a header, one with a space or the line's end after it (a comment's own
+ * form), one anywhere but the target slot — or one after a word that is
+ * no timeline verb, which is what is wrong with that action.
+ */
+function commentedTarget(line: string): string | null {
+  const at = line.indexOf("%%");
+  if (at === -1) return null;
+  const before = line.slice(0, at);
+  if (isTimelineHeader(before.trim())) return null;
+  if (!beginsTarget(line, at)) return null;
+  const verb = lastAction(before).trim();
+  return isTimelineVerb(verb) ? verb : null;
+}
+
+/**
+ * Why the action on a `CommentedTarget`'s line has no target. The id the
+ * author meant cannot be named in this kind: its own grammar reads a `%%`
+ * as a comment, so none of its ids begin with one.
+ */
+function commentAteTheTarget(verb: string): string {
+  return `The "%%" after "${verb}" starts a comment, so "${verb}" has no target; an id in this diagram cannot begin with "%%"`;
+}
+
+/**
+ * `diagnostics` with the timeline grammar's refusal of each
+ * `commentedTargets` action — the last one on its line naming that action,
+ * since the cut action is its line's last — saying why it has no target.
+ */
+function explainCommentedTargets(
+  diagnostics: readonly Diagnostic[],
+  commentedTargets: readonly CommentedTarget[],
+): Diagnostic[] {
+  const explained = [...diagnostics];
+  for (const target of commentedTargets) {
+    const refused = unrecognizedActionMessage(target.action);
+    for (let index = explained.length - 1; index >= 0; index--) {
+      const diagnostic = explained[index]!;
+      if (diagnostic.line !== target.line || diagnostic.message !== refused) continue;
+      explained[index] = { ...diagnostic, message: commentAteTheTarget(target.action) };
+      break;
+    }
+  }
+  return explained;
 }
 
 /** `line` without everything from its first `%%` on. */
@@ -152,7 +231,7 @@ function cutAtDoublePercent(line: string): string {
  * `%` is an id character. That is a `%%` glued to the end of a target:
  * `A%%x` is one node id (measured on Mermaid 12.2.0), so `unhighlight A%%x`
  * names that node, where the cut aimed it at `A`, silently. And it is a
- * `%%` that begins a target (`BEGINS_TARGET_RE`): `A --> %%B` draws a node
+ * `%%` that begins a target (`beginsTarget`): `A --> %%B` draws a node
  * `%%B`, so `enter %%B fade` names it, where the cut left the verb with no
  * target. Either way the target runs on to the next space.
  *
@@ -170,7 +249,7 @@ function cutTimelineComment(line: string, gluedTargets: boolean): string {
     const at = line.indexOf("%%", from);
     if (at === -1) return line;
     const before = line.slice(0, at);
-    const inTarget = endsInTargetSlot(before) || (beginsTargetSlot(before) && BEGINS_TARGET_RE.test(line.slice(at)));
+    const inTarget = endsInTargetSlot(before) || beginsTarget(line, at);
     if (!inTarget) return before;
     from = at + line.slice(at).search(/\s|$/);
   }
@@ -181,6 +260,16 @@ function cutTimelineComment(line: string, gluedTargets: boolean): string {
  * it. `%% note` and a `%%` at the line's end are a comment's own form.
  */
 const BEGINS_TARGET_RE = /^%%\S/;
+
+/**
+ * Whether the `%%` at `at` in a timeline line begins its last action's
+ * target: it stands where that target begins (`beginsTargetSlot`) and
+ * text follows it straight away (`BEGINS_TARGET_RE`). A flowchart reads it
+ * as the target's; every other kind as a comment that took the target.
+ */
+function beginsTarget(line: string, at: number): boolean {
+  return beginsTargetSlot(line.slice(0, at)) && BEGINS_TARGET_RE.test(line.slice(at));
+}
 
 /** The last comma-separated action of a timeline line read up to some point. */
 function lastAction(before: string): string {
@@ -210,34 +299,57 @@ interface BareCommentLine {
   column: number;
 }
 
-// The cause and the fix, and nothing about another tool: an author reads
-// what is wrong with the line and how to write it.
-const BARE_COMMENT_IS_NOT = 'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%"';
-const BARE_COMMENT_HINT = ' Write "%% text", or leave the line blank.';
-const BARE_COMMENT_DRAWN = `${BARE_COMMENT_IS_NOT}, so this line is a node named "%%".${BARE_COMMENT_HINT}`;
-const BARE_COMMENT_REFUSED = `${BARE_COMMENT_IS_NOT}.${BARE_COMMENT_HINT}`;
+const BARE_COMMENT_DRAWN = bareCommentError({ drawnAs: 'so this line is a node named "%%"' });
+const BARE_COMMENT_REFUSED = bareCommentError();
 
 /**
- * What Mermaid makes of a bare `%%` line in each kind, as the refusal to
- * give for it (measured on 12.2.0), given whether the line stands below the
- * kind's header. `null` where the kind's grammar reads the line as a
- * comment after all (sequence, class and state: their lexers have a `%%`
- * rule of their own), so it means here what it means there. A flowchart
- * draws the line as a node below its header and refuses the document above
- * it; an ER diagram refuses it anywhere. A record rather than a switch, as
+ * What a kind makes of a bare `%%` line: refused with this message, read as
+ * a comment, or handed to the kind's own parser, which reads it by where it
+ * stands.
+ */
+type BareCommentOutcome = { refused: string } | "comment" | "handed";
+
+/**
+ * What Mermaid makes of a bare `%%` line in each kind (measured on 12.2.0),
+ * given whether the line stands below the kind's header. Sequence and state
+ * diagrams read it as a comment after all (their lexers have a `%%` rule of
+ * their own), so it means here what it means there. A class diagram reads it
+ * by where it stands — a class block's member `%%`, nothing between
+ * statements, a parse error in a namespace's body — so the line is handed
+ * to `parseClassDiagram`, which knows where it stands. A flowchart draws the
+ * line as a node below its header and refuses the document above it; an ER
+ * diagram refuses it anywhere. A record rather than a switch, as
  * `PARSE_KIND` is, so a new kind cannot arrive without this decision.
  */
-const BARE_COMMENT_MESSAGE: Record<DiagramKind, (belowHeader: boolean) => string | null> = {
-  flowchart: (belowHeader) => (belowHeader ? BARE_COMMENT_DRAWN : BARE_COMMENT_REFUSED),
-  sequence: () => null,
-  class: () => null,
-  state: () => null,
-  er: () => BARE_COMMENT_REFUSED,
+const BARE_COMMENT_OUTCOME: Record<DiagramKind, (belowHeader: boolean) => BareCommentOutcome> = {
+  flowchart: (belowHeader) => ({ refused: belowHeader ? BARE_COMMENT_DRAWN : BARE_COMMENT_REFUSED }),
+  sequence: () => "comment",
+  class: (belowHeader) => (belowHeader ? "handed" : "comment"),
+  state: () => "comment",
+  er: () => ({ refused: BARE_COMMENT_REFUSED }),
 };
 
-/** `BARE_COMMENT_MESSAGE` for the line `at`, in a document of `header`'s kind. */
-function bareCommentMessage(header: Header | null, at: BareCommentLine): string | null {
-  return header?.kind ? BARE_COMMENT_MESSAGE[header.kind](at.line > header.index + 1) : null;
+/** `BARE_COMMENT_OUTCOME` for the line `at`, in a document of `header`'s kind; a comment where no kind is named. */
+function bareCommentOutcome(header: Header | null, at: BareCommentLine): BareCommentOutcome {
+  return header?.kind ? BARE_COMMENT_OUTCOME[header.kind](at.line > header.index + 1) : "comment";
+}
+
+/**
+ * `lines` with each bare `%%` line in `bareCommentLines` above
+ * `timelineStart` that `header`'s kind is handed (`BARE_COMMENT_OUTCOME`)
+ * put back, at its column.
+ */
+function withBareCommentLines(
+  lines: readonly string[],
+  header: Header | null,
+  timelineStart: number,
+  bareCommentLines: readonly BareCommentLine[],
+): readonly string[] {
+  const handed = bareCommentLines.filter((at) => at.line - 1 < timelineStart && bareCommentOutcome(header, at) === "handed");
+  if (handed.length === 0) return lines;
+  const restored = [...lines];
+  for (const at of handed) restored[at.line - 1] = `${" ".repeat(at.column - 1)}%%`;
+  return restored;
 }
 
 /**
@@ -268,7 +380,7 @@ function bareCommentMessage(header: Header | null, at: BareCommentLine): string 
  * Mermaid does not read it as a comment there.
  */
 export function parseSiren(source: string): ParseResult {
-  const { lines, header, timelineStart, asWritten, frontmatter, directives, bareCommentLines } =
+  const { lines, header, timelineStart, asWritten, frontmatter, directives, bareCommentLines, commentedTargets } =
     asMermaidReads(source);
   for (const read of [frontmatter, directives]) {
     if (read.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
@@ -284,14 +396,18 @@ export function parseSiren(source: string): ParseResult {
   // parser ends it.
   const bareCommentRefusals = bareCommentLines.flatMap((at): Diagnostic[] => {
     if (at.line - 1 >= timelineStart) return [];
-    const message = bareCommentMessage(header, at);
-    return message === null ? [] : [{ severity: "error", message, ...at }];
+    const outcome = bareCommentOutcome(header, at);
+    return typeof outcome === "string" ? [] : [{ severity: "error", message: outcome.refused, ...at }];
   });
   if (bareCommentRefusals.length > 0) {
     return { document: null, diagnostics: bareCommentRefusals, config: {} };
   }
   const documentConfig = documentConfigOf(frontmatter, directives, header?.kind ?? null);
-  const { document, diagnostics } = asWritten(dispatch(lines, header));
+  const parsed = dispatch(withBareCommentLines(lines, header, timelineStart, bareCommentLines), header);
+  const { document, diagnostics } = asWritten({
+    ...parsed,
+    diagnostics: explainCommentedTargets(parsed.diagnostics, commentedTargets),
+  });
   return { document, diagnostics: [...documentConfig.diagnostics, ...diagnostics], config: documentConfig.config };
 }
 

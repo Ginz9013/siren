@@ -1,0 +1,7 @@
+flowchart TB
+  A@{ shape: bucket, label: "Object storage" } --> B@{ shape: person, label: "Customer" }
+  B --> C@{ shape: console, label: "Admin shell" }
+  C --> D@{ shape: browser, label: "Web front end" }
+  A --> E@{ shape: cloud, label: "Hosted service" }
+  E --> F@{ shape: bang, label: "Outage" }
+  D --> G@{ shape: cloud, label: "Two lines<br>of cloud" }

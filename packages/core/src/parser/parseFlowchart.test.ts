@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseFlowchart } from "./parseFlowchart";
+import { NODE_DATA_SHAPES as SHAPE_OF_NAME, SHAPE_NAME_LISTS } from "./flowchartNodeData";
+import { SHAPES_DRAWN_WITHOUT_TEXT, SHAPES_TAKING_NO_STYLE } from "../nodeShapeTraits";
+import { SHAPES } from "../layout/shapes/shapeTable";
 import { parseSiren } from "./parseSiren";
 import type { Diagnostic, DiagramParseResult, FlowchartDocument, NodeShape, SirenNode } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
@@ -428,42 +431,22 @@ describe("a node's `@{ … }` block written across lines", () => {
   });
 });
 
-/** The fourteen short names a refused `shape:` is told to choose from, in that order. */
+/** The examples a refused `shape:` is pointed to: the fourteen bracket shapes' short names, in that order. */
 const SHAPE_CHOICES = "rect, rounded, stadium, fr-rect, cyl, circle, diam, hex, lean-r, lean-l, trap-b, trap-t, dbl-circ, odd";
 
 /**
- * A `shape:` Siren does not draw. Measured on Mermaid 12.2.0: it draws
- * `cloud`, `datastore` and the rest of its 39 documented shapes Siren has
- * no geometry for, and the undocumented `state`, `choice`, `note`,
- * `composite`, `icon` and `anchor`; it refuses `foo` ("No such shape"),
+ * A `shape:` Siren does not draw. Measured on Mermaid 12.2.0: it refuses `foo` ("No such shape"),
  * and any name with an upper-case letter or a `_` ("Shape names should be
  * lowercase"); `shape: 1` throws.
  */
 describe("a `shape:` Siren does not draw", () => {
-  it.each(["cloud", "datastore", "data-store", "doc", "lin-cyl", "state", "choice", "note", "composite", "icon", "anchor"])(
-    "refuses `shape: %s` at the `@`, as a shape not drawn yet",
-    (name) => {
-      const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> Bc@{ shape: ${name} }`);
-
-      expect(document).toBeNull();
-      expect(diagnostics).toEqual([
-        {
-          severity: "error",
-          message: `Siren does not draw the shape "${name}" yet. Use one of: ${SHAPE_CHOICES}`,
-          line: 2,
-          column: 11,
-        },
-      ]);
-    },
-  );
-
   it.each([
-    ["foo", `There is no shape "foo". Use one of: ${SHAPE_CHOICES}`],
+    ["foo", `There is no shape "foo". Use a shape such as: ${SHAPE_CHOICES}`],
     ["Rect", 'There is no shape "Rect". Shape names are lower-case, with "-" between words: rect'],
     ["lean_right", 'There is no shape "lean_right". Shape names are lower-case, with "-" between words: lean-right'],
     [
       "squareRect",
-      `There is no shape "squareRect". Shape names are lower-case, with "-" between words. Use one of: ${SHAPE_CHOICES}`,
+      `There is no shape "squareRect". Shape names are lower-case, with "-" between words. Use a shape such as: ${SHAPE_CHOICES}`,
     ],
     ["1", 'A shape is a name, such as "shape: circle"'],
   ])("refuses `shape: %s` as no shape", (name, message) => {
@@ -476,27 +459,12 @@ describe("a `shape:` Siren does not draw", () => {
 
 /**
  * The keys of an `@{ … }` block other than `shape`, `label` and
- * `labelType`. Measured on Mermaid 12.2.0: `icon`, `img`, `form`, `pos`,
- * `w`, `h` and `constraint` change what a node draws (an icon or image
- * node, its size); any other key is read and ignored (`A@{ foo: 1 }` is a
+ * `labelType`. Measured on Mermaid 12.2.0: the icon and image keys are
+ * read (below); any other key is read and ignored (`A@{ foo: 1 }` is a
  * plain node). What is not YAML is refused ("missed comma between flow
  * collection entries").
  */
 describe("the other keys of a node's `@{ … }` block", () => {
-  it.each(["icon", "img", "form", "pos", "w", "h", "constraint"])("refuses `%s` at the `@`, as not supported yet", (key) => {
-    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A@{ shape: circle, ${key}: x }`);
-
-    expect(document).toBeNull();
-    expect(diagnostics).toEqual([
-      {
-        severity: "error",
-        message: `Siren does not support "${key}" in a node's "@{ … }" block yet. Leave it out`,
-        line: 2,
-        column: 4,
-      },
-    ]);
-  });
-
   it("ignores a key it does not know, with a warning at the `@`", () => {
     const { document, diagnostics } = parseOk("flowchart TB\n  A@{ foo: 1, shape: hex }");
 
@@ -690,30 +658,18 @@ describe("an `@{` written where no node is", () => {
     ]);
   });
 
-  it("keeps a closed `@{ … }` inside a `|label|` as the label's text, and reads the next line on its own", () => {
-    // Mermaid 12.2.0 refuses this too ("got 'DIAMOND_START'"); see below.
-    const { document, diagnostics } = parseOk("flowchart TB\n  A -->|a@{b}| B\n  C");
-
-    expect(diagnostics).toEqual([]);
-    expect(document.edges.map((edge) => [edge.from, edge.to, edge.label?.text ?? null])).toEqual([["A", "B", "a@{b}"]]);
-    expect(document.nodes.map((node) => [node.id, node.line])).toEqual([
-      ["A", 2],
-      ["B", 2],
-      ["C", 3],
-    ]);
-  });
-
-  it("opens no block inside a `|label|`, so the line after it is read on its own", () => {
+  it.each([
+    ["A -->|a@{b}| B", 11],
+    ["A -->|mail@{x| B", 14],
+  ])("opens no block inside `%s`, refusing its brace and reading the line after it on its own", (written, column) => {
     // Mermaid 12.2.0 refuses a brace in a `|label|` ("got 'DIAMOND_START'"),
-    // which Siren draws as text, `@{` or not; what this pins is only that
-    // the next line is not swallowed.
-    const { document, diagnostics } = parseOk("flowchart TB\n  A -->|mail@{x| B\n  C");
+    // and so does Siren, at the brace; what this pins is that the next line
+    // is not swallowed into a block the label never opened.
+    const { diagnostics } = parseFlowchart(`flowchart TB\n  ${written}\n  C --`);
 
-    expect(diagnostics).toEqual([]);
-    expect(document.nodes.map((node) => [node.id, node.line])).toEqual([
-      ["A", 2],
-      ["B", 2],
-      ["C", 3],
+    expect(diagnostics.map((d) => [d.line, d.column, d.message.split(".")[0]])).toEqual([
+      [2, column, 'An edge label without quotes cannot hold "{"'],
+      [3, 3, 'Unrecognized flowchart line: "C --"'],
     ]);
   });
 });
@@ -1028,67 +984,6 @@ describe("an id that begins with a keyword", () => {
 
     expect(diagnostics).toEqual([]);
     expect(document.nodes.map((node) => node.id)).toEqual([written, "B"]);
-  });
-});
-
-/**
- * An edge id, `A e1@--> B`, which Siren does not support yet (the same board
- * as `@{ … }`). Measured on Mermaid 12.2.0: accepted before every arrow
- * spelling (`e1@==>`, `e1@-- yes -->`, `e1@-->|yes|`), on one link of a
- * chain each, and after an `&` group, where it names the last link.
- */
-describe("an edge written with an id", () => {
-  it.each([
-    ["A e1@--> B", "e1", 5, "A --> B"],
-    ["A e1@-->|yes| B", "e1", 5, "A -->|yes| B"],
-    ["A e1@--> B e2@--> C", "e1", 5, "A --> B --> C"],
-    ["A & C e1@==> B", "e1", 9, "A & C ==> B"],
-    // Measured: both labels are valid Mermaid, `p q@-->r` and `x y@-z`; a
-    // label's text is no edge id, and the fix leaves it as written.
-    ['A["p q@-->r"] e1@--> B', "e1", 17, 'A["p q@-->r"] --> B'],
-    ["A[x y@-z] e1@--> B", "e1", 13, "A[x y@-z] --> B"],
-  ])("refuses %s at the id, saying to leave it out", (written, id, column, fixed) => {
-    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
-
-    expect(document).toBeNull();
-    expect(diagnostics).toEqual([
-      {
-        severity: "error",
-        message: `Siren does not support edge ids ("${id}@") yet. Leave the id out: ${fixed}`,
-        line: 2,
-        column,
-      },
-    ]);
-  });
-
-  it("takes no edge id from a label's text, so a later `@{ … }` on that word is a node's", () => {
-    const { diagnostics } = parseFlowchart("flowchart TB\n  A[x y@-z] e1@--> B\n  y@{ shape: rect }");
-
-    expect(diagnostics.map((d) => d.message)).toEqual([
-      'Siren does not support edge ids ("e1@") yet. Leave the id out: A[x y@-z] --> B',
-    ]);
-  });
-
-  it("refuses an `@{ … }` block on that id as edge data, saying to leave the line out", () => {
-    // Measured: after `A e1@--> B`, `e1@{ animate: true }` is the edge's
-    // data; with no edge named `e1`, the same line is a node `e1`.
-    const { document, diagnostics } = parseFlowchart("flowchart TB\n  A e1@--> B\n  e1@{ animate: true }");
-
-    expect(document).toBeNull();
-    expect(diagnostics).toEqual([
-      {
-        severity: "error",
-        message: 'Siren does not support edge ids ("e1@") yet. Leave the id out: A --> B',
-        line: 2,
-        column: 5,
-      },
-      {
-        severity: "error",
-        message: 'Siren does not support "@{ … }" data on the edge "e1" yet. Leave this line out',
-        line: 3,
-        column: 5,
-      },
-    ]);
   });
 });
 
@@ -1415,27 +1310,6 @@ describe("a flowchart node id's alphabet", () => {
       expect.objectContaining({ styleKind: "apply", targetIds: ["A%B"], name: "foo" }),
     ]);
     expect(document.interactions.map((interaction) => interaction.targetId)).toEqual(["A%B", "C%%D"]);
-  });
-
-  it("still names an edge id after an endpoint holding a `%`, and one holding a `%` itself", () => {
-    // Measured on Mermaid 12.2.0: `A%B e1@--> C` records the edge id `e1`
-    // from `A%B`, and `A e%1@--> B` the edge id `e%1`.
-    expect(parseFlowchart("flowchart TB\n  A%B e1@--> C").diagnostics).toEqual([
-      {
-        severity: "error",
-        message: 'Siren does not support edge ids ("e1@") yet. Leave the id out: A%B --> C',
-        line: 2,
-        column: 7,
-      },
-    ]);
-    expect(parseFlowchart("flowchart TB\n  A%%B e%1@--> C").diagnostics).toEqual([
-      {
-        severity: "error",
-        message: 'Siren does not support edge ids ("e%1@") yet. Leave the id out: A%%B --> C',
-        line: 2,
-        column: 8,
-      },
-    ]);
   });
 
   it("lets a timeline name a node whose id holds a `%`, and the edge from it", () => {
@@ -2659,7 +2533,7 @@ describe("a flowchart class name Mermaid cannot style", () => {
 });
 
 describe("a run after `:::` that is no class name", () => {
-  it.each(["A:::c~~~B", "A --> B:::c==C", "B:::c--C", "A:::c:::c", "A:::c[x]", "A:::c|x|", 'A:::c"x"', "A:::c%%x", "A:::c->B"])(
+  it.each(["A --> B:::c==C", "B:::c--C", "A:::c:::c", "A:::c[x]", "A:::c|x|", 'A:::c"x"', "A:::c%%x", "A:::c->B"])(
     "does not blame the class name in `%s`, where the run goes on into other syntax",
     (written) => {
       const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
@@ -2722,7 +2596,6 @@ describe("positions after a node's `@{ … }` block written across lines", () =>
     ["A@{\n    shape: circle\n  } --> end-x", 4, 9],
     ["A@{\n    shape: circle\n  } & end-x", 4, 7],
     ["A@{\n    shape: circle\n  }&B --> C", 4, 4],
-    ["A@{\n    shape: circle\n  } --> B e1@--> C", 4, 11],
     ["A@{\n    shape: circle\n  } --> B %% x", 4, 11],
   ])("reports a mistake after the block's `}` where it stands: %j", (written, line, column) => {
     const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
@@ -2830,3 +2703,1149 @@ describe("positions after a node's `@{ … }` block written across lines", () =>
   });
 });
 
+
+/**
+ * An edge written with an id, `A e1@--> B` (01M51XADJKSGRYG5CM1GG0T91R).
+ * Measured on Mermaid 12.2.0: the id is accepted before every arrow
+ * spelling, after a node written with a label or a `:::` class, before an
+ * arrow carrying a label in either spelling, and on each link of a chain.
+ */
+describe("an edge's own id", () => {
+  it.each([
+    ["A e1@--> B", [["A", "B", "e1"]]],
+    ["A e1@-->|x| B", [["A", "B", "e1"]]],
+    ["A e1@-- x --> B", [["A", "B", "e1"]]],
+    ["A e1@--> B e2@--> C", [["A", "B", "e1"], ["B", "C", "e2"]]],
+    ["A --> B e2@--> C", [["A", "B", undefined], ["B", "C", "e2"]]],
+    ["A e1@==> B", [["A", "B", "e1"]]],
+    ["A e1@-.-> B", [["A", "B", "e1"]]],
+    ["A e1@--- B", [["A", "B", "e1"]]],
+    ["A e1@<--> B", [["A", "B", "e1"]]],
+    ["A[x] e1@--> B", [["A", "B", "e1"]]],
+    ["A:::c e1@--> B", [["A", "B", "e1"]]],
+    ["A e.1@--> B", [["A", "B", "e.1"]]],
+    ["A e-1@--> B", [["A", "B", "e-1"]]],
+    ["A%B e%1@--> C", [["A%B", "C", "e%1"]]],
+  ])("reads %j with the id on the edge it names", (written, expected) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => [edge.from, edge.to, edge.id])).toEqual(expected);
+  });
+
+  it("takes no edge id from a label's text, so a later `@{ … }` on that word is a node's", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  A[x y@-z] e1@--> B\n  y@{ shape: circle }");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.shape])).toEqual([
+      ["A", "rect"],
+      ["B", "rect"],
+      ["y", "circle"],
+    ]);
+  });
+
+  it("keeps a label's text that looks like an id, and the label as written", () => {
+    const { document, diagnostics } = parseOk('flowchart TB\n  A["p q@-->r"] e1@--> B');
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B"]);
+    expect(document.edges.map((edge) => edge.id)).toEqual(["e1"]);
+  });
+});
+
+/**
+ * An edge id holding a character no id can (01M51XADJKSGRYG5CM1GG0T91R).
+ * Mermaid 12.2.0 takes any run of non-space characters before the `@`
+ * (`e$1`, `é1`, measured); Siren keeps an edge id to the alphabet a node id
+ * is written in, so the two can be compared and written in a timeline.
+ */
+describe("an edge id outside the id alphabet", () => {
+  it.each([
+    ["A e$1@--> B", "e$1", 5],
+    ["A é1@--> B", "é1", 5],
+    ["A --> B x!y@--> C", "x!y", 11],
+  ])("refuses %j at the id", (written, id, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          `The edge id "${id}" holds a character an id cannot. ` +
+          'Write it with letters, digits, "_", "-", "." and "%" only',
+        line: 2,
+        column,
+      },
+    ]);
+  });
+});
+
+/**
+ * An edge id on an arrow joining a group, `A & B e1@--> C`
+ * (01M51XADJKSGRYG5CM1GG0T91R). Measured on Mermaid 12.2.0: the arrow draws
+ * one edge per pair and the id names only one of them — the last for a group
+ * of sources (`A & B e1@--> C` names B-C), the first for a group of targets
+ * (`A e1@--> B & C` names A-B) — so the rest silently go without it.
+ */
+describe("an edge id on an arrow joining a group", () => {
+  it.each([
+    ["A & B e1@--> C", "e1", 9],
+    ["A e1@--> B & C", "e1", 5],
+    ["A --> B & C e2@--> D", "e2", 15],
+  ])("refuses %j at the id, saying to write each edge on a line of its own", (written, id, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          `The edge id "${id}" names one edge, but this arrow draws one for each node joined by "&". ` +
+          "Write the edge it names on a line of its own",
+        line: 2,
+        column,
+      },
+    ]);
+  });
+});
+
+/**
+ * An `@{ … }` block on an edge id written before the edge
+ * (01M51XADJKSGRYG5CM1GG0T91R). Measured on Mermaid 12.2.0:
+ * `e1@{ animate: true }` above `A e1@--> B` declares a node `e1`, drawn as a
+ * box of its own, and the edge is drawn without the data.
+ */
+describe("an edge's `@{ … }` block written before the edge", () => {
+  it("refuses it at the block, saying to move it below the edge", () => {
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  e1@{ shape: circle }\n  A e1@--> B");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'The "@{ … }" block on "e1" is written before the edge "e1", so it declares a node "e1" instead. ' +
+          "Move it below the edge",
+        line: 2,
+        column: 5,
+      },
+    ]);
+  });
+});
+
+/**
+ * An `@{ … }` block on an edge id below the edge, `e1@{ … }`
+ * (01M51XADJKSGRYG5CM1GG0T91R). Measured on Mermaid 12.2.0: it is that
+ * edge's data, not a node; `animate`, `animation` and `curve` change how the
+ * edge is drawn, and any other key (`label`, `shape`) is read and ignored.
+ */
+describe("an edge's `@{ … }` block", () => {
+  it("draws the edge, warning about a key an edge's block does not have", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  A e1@--> B\n  e1@{ label: x }");
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: `"label" is not a key of an edge's "@{ … }" block, and is ignored. Remove it`,
+        line: 3,
+        column: 5,
+      },
+    ]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B"]);
+    expect(document.edges.map((edge) => edge.id)).toEqual(["e1"]);
+  });
+
+  it.each([
+    ["animate: true", { animate: true }],
+    ["animate: false", { animate: false }],
+    // Mermaid 12.2.0 tests `animate` for truth, so any other value animates.
+    ["animate: yes", { animate: true }],
+    ["animation: slow", { animation: "slow" }],
+    ["animation: fast", { animation: "fast" }],
+    ["animate: false, animation: slow", { animate: false, animation: "slow" }],
+    ["curve: linear", { curve: "linear" }],
+  ])("reads `%s` onto the edge", (written, data) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A e1@--> B\n  e1@{ ${written} }`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges[0]!.data).toEqual({ ...data, line: 3, column: 5 });
+  });
+
+  it("keeps where the block that set the curve stands, a later block without one leaving it", () => {
+    // The curve's place decides it against a `linkStyle N interpolate`
+    // written between the two blocks: that `linkStyle` is later than the
+    // `curve:`, so it wins, whatever a later `animate` block says.
+    const { document } = parseOk(
+      "flowchart TB\n  A e1@--> B\n  e1@{ curve: step }\n  linkStyle 0 interpolate linear\n  e1@{ animate: true }",
+    );
+
+    expect(document.edges[0]!.data).toEqual({ animate: true, curve: "step", line: 3, column: 5 });
+  });
+
+  it("lays a later block's keys over an earlier one's", () => {
+    const { document } = parseOk(
+      "flowchart TB\n  A e1@--> B\n  e1@{ animate: true, curve: step }\n  e1@{ curve: linear }",
+    );
+
+    expect(document.edges[0]!.data).toEqual({ animate: true, curve: "linear", line: 4, column: 5 });
+  });
+
+  it("refuses an animation that is neither fast nor slow", () => {
+    // Measured in headless Chrome on Mermaid 12.2.0: `animation: weird`
+    // writes a class no rule styles, so the edge is drawn still.
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  A e1@--> B\n  e1@{ animation: weird }");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'There is no animation "weird". Use fast or slow',
+        line: 3,
+        column: 5,
+      },
+    ]);
+  });
+
+  it("refuses a block that is not valid YAML, at the place it stops reading", () => {
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  A e1@--> B\n  e1@{ label: [x }");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([expect.objectContaining({ severity: "error", line: 3 })]);
+    expect(diagnostics[0]!.message).toMatch(/^The "@\{ … \}" block is not valid YAML \(/);
+  });
+});
+
+/**
+ * An edge id that begins with a keyword (01M51XADJKSGRYG5CM1GG0T91R).
+ * Measured on Mermaid 12.2.0: `end@`, `end-x@`, `end.x@`, `subgraph@`,
+ * `style.x@`, `graph@`, `classDef@`, `interpolate@`, `_self@`, `default@`
+ * and `default-x@` are parse errors, the keyword read as the keyword;
+ * `endx@`, `defaultx@`, `click@`, `call@`, `href@`, `v@` and `direction@`
+ * are edge ids.
+ */
+describe("an edge id that begins with a keyword", () => {
+  it.each([
+    ["A end@--> B", "end", "end", "endNode"],
+    ["A end-x@--> B", "end-x", "end", "endX"],
+    ["A subgraph@--> B", "subgraph", "subgraph", "subgraphNode"],
+    ["A style.x@--> B", "style.x", "style", "styleX"],
+    ["A default@--> B", "default", "default", "defaultNode"],
+    ["A default-x@--> B", "default-x", "default", "defaultX"],
+  ])("refuses %j at the id", (written, id, keyword, fix) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `"${id}" begins with the keyword "${keyword}", and is read as that keyword. Rename it, such as ${fix}.`,
+        line: 2,
+        column: 5,
+      },
+    ]);
+  });
+
+  it.each(["endx", "defaultx", "click", "href", "v", "direction"])("reads `A %s@--> B` as an edge id", (id) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A ${id}@--> B`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => edge.id)).toEqual([id]);
+  });
+});
+
+/**
+ * The `shape:` names Mermaid 12.2.0 reads only in a node's `@{ … }` block
+ * and Siren draws through its shape table: each shape's short name, every alias
+ * `shapesDefs` lists for its handler, and the undocumented lowercase names
+ * its shape map also accepts. Measured in Chrome: every alias draws the
+ * same box and outline as its short name.
+ */
+const TABLE_SHAPE_NAMES: ReadonlyArray<[string, NodeShape]> = [
+  ...(["notch-rect", "card", "notched-rectangle"] as const).map(
+    (name) => [name, "notched-rectangle"] as [string, NodeShape],
+  ),
+  ...(["folder", "directory"] as const).map((name) => [name, "folder"] as [string, NodeShape]),
+  ...(["notch-pent", "loop-limit", "notched-pentagon"] as const).map((name) => [name, "notched-pentagon"] as [string, NodeShape]),
+  ...(["sl-rect", "manual-input", "sloped-rectangle"] as const).map((name) => [name, "sloped-rectangle"] as [string, NodeShape]),
+  ...(["tri", "extract", "triangle"] as const).map((name) => [name, "triangle"] as [string, NodeShape]),
+  ...(["flip-tri", "manual-file", "flipped-triangle"] as const).map((name) => [name, "flipped-triangle"] as [string, NodeShape]),
+  ...(["lin-rect", "lined-rectangle", "lined-process", "lin-proc", "shaded-process"] as const).map((name) => [name, "lined-rectangle"] as [string, NodeShape]),
+  ...(["div-rect", "div-proc", "divided-rectangle", "divided-process"] as const).map((name) => [name, "divided-rectangle"] as [string, NodeShape]),
+  ...(["win-pane", "internal-storage", "window-pane"] as const).map((name) => [name, "window-pane"] as [string, NodeShape]),
+  ...(["st-rect", "procs", "processes", "stacked-rectangle"] as const).map((name) => [name, "stacked-rectangle"] as [string, NodeShape]),
+  ...(["tag-rect", "tagged-rectangle", "tag-proc", "tagged-process"] as const).map((name) => [name, "tagged-rectangle"] as [string, NodeShape]),
+  ...(["text"] as const).map((name) => [name, "text"] as [string, NodeShape]),
+  ...(["composite"] as const).map((name) => [name, "composite"] as [string, NodeShape]),
+  ...(["note"] as const).map((name) => [name, "note"] as [string, NodeShape]),
+  ...(["datastore", "data-store"] as const).map((name) => [name, "data-store"] as [string, NodeShape]),
+  ...(["state"] as const).map((name) => [name, "state"] as [string, NodeShape]),
+];
+
+describe("a node written with a `@{ shape: … }` name from the shape table", () => {
+  it.each(TABLE_SHAPE_NAMES)("draws `shape: %s` as the %s shape", (name, shape) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A@{ shape: ${name} }`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes).toEqual([{ id: "A", label: plainLabel("A"), shape, line: 2, column: 3 }]);
+  });
+});
+
+/**
+ * The `shape:` names of the shapes with a curved outline that Siren draws
+ * through its shape table: each shape's short name and every alias
+ * `shapesDefs` lists for its handler. Measured
+ * in Chrome: every alias draws the same box and outline as its short name.
+ */
+const CURVED_SHAPE_NAMES: ReadonlyArray<[string, NodeShape]> = [
+  ...(["delay", "half-rounded-rectangle"] as const).map((name) => [name, "half-rounded-rectangle"] as [string, NodeShape]),
+  ...(["curv-trap", "curved-trapezoid", "display"] as const).map((name) => [name, "curved-trapezoid"] as [string, NodeShape]),
+  ...(["h-cyl", "das", "horizontal-cylinder"] as const).map((name) => [name, "horizontal-cylinder"] as [string, NodeShape]),
+  ...(["lin-cyl", "disk", "lined-cylinder"] as const).map((name) => [name, "lined-cylinder"] as [string, NodeShape]),
+  ...(["bow-rect", "stored-data", "bow-tie-rectangle"] as const).map((name) => [name, "bow-tie-rectangle"] as [string, NodeShape]),
+  ...(["doc", "document"] as const).map((name) => [name, "document"] as [string, NodeShape]),
+  ...(["lin-doc", "lined-document"] as const).map((name) => [name, "lined-document"] as [string, NodeShape]),
+  ...(["tag-doc", "tagged-document"] as const).map((name) => [name, "tagged-document"] as [string, NodeShape]),
+  ...(["docs", "documents", "st-doc", "stacked-document"] as const).map((name) => [name, "stacked-document"] as [string, NodeShape]),
+  ...(["flag", "paper-tape"] as const).map((name) => [name, "flag"] as [string, NodeShape]),
+  ...(["brace", "comment", "brace-l"] as const).map((name) => [name, "brace-left"] as [string, NodeShape]),
+  ...(["brace-r"] as const).map((name) => [name, "brace-right"] as [string, NodeShape]),
+  ...(["braces"] as const).map((name) => [name, "braces"] as [string, NodeShape]),
+];
+
+describe("a node written with a `@{ shape: … }` name of a curved shape", () => {
+  it.each(CURVED_SHAPE_NAMES)("draws `shape: %s` as the %s shape", (name, shape) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A@{ shape: ${name} }`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes).toEqual([{ id: "A", label: plainLabel("A"), shape, line: 2, column: 3 }]);
+  });
+});
+
+/**
+ * An accessibility line holding an arrow (01M51XADTQS79XD2S6TWN0YWRE).
+ * Measured on Mermaid 12.2.0: `accTitle: a --> b` is the title `a --> b`,
+ * and `accDescr: c --> d` the description `c --> d`; no edge is drawn.
+ */
+describe("an accessibility line holding an arrow", () => {
+  it("keeps the whole line as the title, drawing no edge", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  accTitle: a --> b\n  A --> B");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.accTitle).toBe("a --> b");
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([["A", "B"]]);
+  });
+
+  it("keeps the whole line as the description, drawing no edge", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  accDescr: c --> d\n  A --> B");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.accDescr).toBe("c --> d");
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B"]);
+  });
+});
+
+/**
+ * A bracket in an edge's `|label|` written without quotes
+ * (01M51XADTQS79XD2S6TWN0YWRE). Measured on Mermaid 12.2.0: `|a{b|`,
+ * `|a}b|`, `|a(b|`, `|a)b|`, `|a[b|` and `|a]b|` are parse errors, while
+ * `|"a{b"|`, `|a>b|` and the other spelling, `A -- a{b --> B`, are the
+ * labels as written.
+ */
+describe("a bracket in an edge's `|label|` without quotes", () => {
+  it.each([
+    ["A -->|a{b| B", "{", 10, 'A -->|"a{b"| B'],
+    ["A -->|a}b| B", "}", 10, 'A -->|"a}b"| B'],
+    ["A -->|a(b| B", "(", 10, 'A -->|"a(b"| B'],
+    ["A -->|a)b| B", ")", 10, 'A -->|"a)b"| B'],
+    ["A -->|a[b| B", "[", 10, 'A -->|"a[b"| B'],
+    ["A -->|a]b| B", "]", 10, 'A -->|"a]b"| B'],
+    ["A --> B -.->| x(y) | C", "(", 18, 'A --> B -.->|"x(y)"| C'],
+    // Columns count UTF-16 code units, as every column here does.
+    ["A -->|😀😀{b| B", "{", 13, 'A -->|"😀😀{b"| B'],
+    // A quoted run opening the label is the label's own: the bracket after
+    // it is refused, and the fix quotes the label without its quotes.
+    ['A -->|"a" {b| B', "{", 13, 'A -->|"a {b"| B'],
+  ])("refuses %j at the bracket, saying to quote the label", (written, bracket, column, fixed) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `An edge label without quotes cannot hold "${bracket}". Put the whole label in quotes: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it.each([
+    ['A -->|a"{"b| B', 10, 'A -->|"a{b"| B'],
+    ['A -->|a "b"| B', 11, 'A -->|"a b"| B'],
+  ])("refuses %j at a quote that does not open the label", (written, column, fixed) => {
+    // Measured on Mermaid 12.2.0: a quoted run after the label's first
+    // character is a parse error ("got 'STR'").
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `An edge label can be quoted only as a whole. Put the whole label in quotes: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it.each([
+    ['A -->|"a{b"| B', "a{b"],
+    ["A -->|a>b| B", "a>b"],
+    ["A -- a{b --> B", "a{b"],
+  ])("draws %j with the label as written", (written, label) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => edge.label?.text)).toEqual([label]);
+  });
+});
+
+/**
+ * A `style`, `classDef` or `linkStyle` value holding what the statement's
+ * grammar reads as something else (01M51XADTQS79XD2S6TWN0YWRE). Measured on
+ * Mermaid 12.2.0: an `@{`, an `@`, a `{` or a `}` anywhere in the
+ * declarations, or an arrow (`-->`, `-->b%%x`), is a parse error, while
+ * `stroke-dasharray: 5 5`, `font-family: a b`, `#f00`, `a-b` and a trailing
+ * `%%x` after a space are values as written.
+ */
+describe("a styling value holding an `@`, a brace or an arrow", () => {
+  it.each([
+    ["style A fill:@{x", "@{", 16, "fill:@{x"],
+    ["style A fill:a@b", "@", 17, "fill:a@b"],
+    ["classDef c fill:a{b", "{", 20, "fill:a{b"],
+    ["classDef c fill:a}b", "}", 20, "fill:a}b"],
+    ["linkStyle 0 fill:a@b", "@", 21, "fill:a@b"],
+    ["style A fill:a-->b", "-->", 17, "fill:a-->b"],
+    ["linkStyle 0 stroke:#f00,fill:a-->b%%x", "-->", 33, "stroke:#f00,fill:a-->b%%x"],
+    // An arrow's opening run is refused alone too (measured, "got
+    // 'START_LINK'" or a lexical error), each quoted as the run written.
+    ["style A stroke:a--b", "--", 19, "stroke:a--b"],
+    ["style A fill:a==b", "==", 17, "fill:a==b"],
+    ["style A fill:a~~~b", "~~~", 17, "fill:a~~~b"],
+    ["style A fill:a=b", "=", 17, "fill:a=b"],
+    ["style A stroke-dasharray:5--5", "--", 29, "stroke-dasharray:5--5"],
+    ["style A fill:a-.b", "-.", 17, "fill:a-.b"],
+  ])("refuses %j at it", (written, token, column, declarations) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> B\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `A style declaration cannot hold "${token}": ${declarations}. Leave it out`,
+        line: 3,
+        column,
+      },
+    ]);
+  });
+
+  it.each([
+    ["style A stroke-dasharray: 5 5", "5 5"],
+    ["style A font-family: a b", "a b"],
+    ["classDef c fill:#f00", "#f00"],
+    ["style A fill:a-b", "a-b"],
+    ["style A fill:a.-b", "a.-b"],
+    ["style A fill:#f00 %%x", "#f00 %%x"],
+  ])("reads %j as written", (written, value) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A --> B\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles.map((style) => style.properties.map((property) => property.value))).toEqual([[value]]);
+  });
+});
+
+describe("the three lists of `shape:` names", () => {
+  it("name each shape name once: drawn by a bracket shape, or drawn from the shape table — none is left not drawn", () => {
+    const { bracket, table, undrawn } = SHAPE_NAME_LISTS;
+    const names = [...bracket, ...table, ...undrawn];
+    const repeated = names.filter((name, i) => names.indexOf(name) !== i);
+    expect(repeated).toEqual([]);
+    expect(bracket.length).toBeGreaterThan(0);
+    expect(table.length).toBeGreaterThan(0);
+    // The last name not drawn (`icon`) is drawn now, so the list is empty.
+    expect(undrawn).toEqual([]);
+  });
+});
+
+/**
+ * The `shape:` names of the shapes Mermaid 12.2.0 draws at a fixed size and
+ * with no text (`fork`, `sm-circ`, … and the undocumented `choice` and
+ * `anchor`). Measured in Chrome: every alias draws what its short name
+ * draws, and none of them draws a label.
+ */
+const LABELLESS_SHAPE_NAMES: ReadonlyArray<[string, NodeShape]> = [...SHAPE_OF_NAME].filter(([, shape]) =>
+  SHAPES_DRAWN_WITHOUT_TEXT.has(shape),
+);
+
+describe("a node written with the `@{ shape: … }` name of a shape that draws no text", () => {
+  it("knows all 21 names of the nine shapes Mermaid draws with no text", () => {
+    // `shapesDefs`' short names and aliases for `fork`, `hourglass`, `bolt`,
+    // `sm-circ`, `fr-circ`, `f-circ` and `cross-circ`, and the undocumented
+    // `choice` and `anchor`.
+    expect(LABELLESS_SHAPE_NAMES.map(([name]) => name).sort()).toEqual(
+      [
+        ...["fork", "join", "hourglass", "collate", "bolt", "com-link", "lightning-bolt"],
+        ...["sm-circ", "start", "small-circle", "fr-circ", "stop", "framed-circle"],
+        ...["f-circ", "junction", "filled-circle", "cross-circ", "summary", "crossed-circle", "choice", "anchor"],
+      ].sort(),
+    );
+  });
+
+  it.each(LABELLESS_SHAPE_NAMES)("draws `shape: %s` as the %s shape", (name, shape) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A@{ shape: ${name} }`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes).toEqual([{ id: "A", label: plainLabel("A"), shape, line: 2, column: 3 }]);
+  });
+});
+
+/**
+ * The `shape:` names of the shapes Mermaid 12.2.0 draws as a figure plus
+ * decorations: `bucket`, `person`,
+ * `console`, `browser`, `cloud` and `bang`. Each is its short name alone —
+ * `shapesDefs` lists no other alias for any of them (measured: each draws
+ * in Chrome).
+ */
+describe("a node written with a `@{ shape: … }` name for a figure shape", () => {
+  it.each([
+    ["bucket", "bucket"],
+    ["person", "person"],
+    ["console", "console"],
+    ["browser", "browser"],
+    ["cloud", "cloud"],
+    ["bang", "bang"],
+  ] as Array<[string, NodeShape]>)("draws `shape: %s` as the %s shape", (name, shape) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A@{ shape: ${name} }`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes).toEqual([{ id: "A", label: plainLabel("A"), shape, line: 2, column: 3 }]);
+  });
+});
+
+/**
+ * A label written for a shape that draws no text. Mermaid 12.2.0 empties
+ * the label of every such shape before drawing it (`node.label = ""` in
+ * each handler; measured in Chrome: `A[Hello]@{ shape: fork }` and
+ * `A@{ shape: fork, label: "Hello" }` both draw a bare bar), so the text
+ * the author wrote silently vanishes. Siren refuses it instead, at the
+ * label, saying what to change.
+ */
+describe("a label written for a shape that draws no text", () => {
+  const refusal = (shape: string, label: string) =>
+    `The shape "${shape}" draws no text, so the label "${label}" would not be shown. ` +
+    "Remove the label, or use a shape that draws text";
+
+  it("refuses a `label:` in the same block, at the block's `@`", () => {
+    const { document, diagnostics } = parseFlowchart('flowchart TB\n  A@{ shape: fork, label: "Hello" }');
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: refusal("fork", "Hello"), line: 2, column: 4 }]);
+  });
+
+  it("refuses a bracket label on the node the block gives the shape to, at the label", () => {
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  A[Hello]@{ shape: sm-circ }");
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: refusal("small-circle", "Hello"), line: 2, column: 5 }]);
+  });
+
+  it("refuses a label written on an earlier line, where it was written", () => {
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  A[Hello]\n  A@{ shape: choice }");
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: refusal("choice", "Hello"), line: 2, column: 5 }]);
+  });
+
+  it("leaves a node whose later bracket gives it a shape that draws text, as Mermaid does", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  A@{ shape: fork }\n  A[Hello]");
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label.text, node.shape])).toEqual([["A", "Hello", "rect"]]);
+  });
+
+  it.each(['A@{ shape: fork, label: "" }', 'A@{ shape: fork, label: " " }', 'A[""]@{ shape: fork }', 'A[" "]@{ shape: fork }'])(
+    "takes an empty label, which shows nothing either way: %s",
+    (statement) => {
+      const { diagnostics } = parseOk(`flowchart TB\n  ${statement}`);
+      expect(diagnostics).toEqual([]);
+    },
+  );
+
+  it("draws a shape with no text written for it, labelled with nothing but its id", () => {
+    const { diagnostics } = parseOk("flowchart TB\n  A@{ shape: fork } --> B@{ shape: f-circ }");
+    expect(diagnostics).toEqual([]);
+  });
+});
+
+/**
+ * An invisible edge, `A ~~~ B`. Measured on Mermaid 12.2.0: `~~~` is
+ * `type="arrow_open" stroke="invisible"`, with or without spaces, after a
+ * `:::` class, to an `&` group, after an edge id and with a `|label|`; each
+ * further `~` is one more rank (`~~~~` is `length=2`, `~~~~~~` is
+ * `length=4`). `A ~~ B`, `A ~~~> B`, `A <~~~ B` and `A o~~~ B` are errors.
+ */
+describe("an invisible edge", () => {
+  it.each([
+    ["A ~~~ B", [["A", "B", 1, null]]],
+    ["A~~~B", [["A", "B", 1, null]]],
+    ["A ~~~~ B", [["A", "B", 2, null]]],
+    ["A ~~~~~~ B", [["A", "B", 4, null]]],
+    ["A:::c~~~B", [["A", "B", 1, null]]],
+    ["A ~~~ B & C", [["A", "B", 1, null], ["A", "C", 1, null]]],
+    ["A e1@~~~ B", [["A", "B", 1, null]]],
+    ["A ~~~|x| B", [["A", "B", 1, "x"]]],
+    ["A ~~~ B --> C", [["A", "B", 1, null], ["B", "C", 1, null]]],
+  ])("reads %j as an invisible line with no ends", (written, expected) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(
+      document.edges.map((edge) => [edge.from, edge.to, edge.minLength, edge.label?.text ?? null]),
+    ).toEqual(expected);
+    expect(document.edges[0]).toMatchObject({ line: "invisible", fromEnd: "none", toEnd: "none" });
+  });
+
+  it.each(["A ~~ B", "A ~~~> B", "A <~~~ B", "A o~~~ B"])("refuses %j", (written) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((diagnostic) => diagnostic.severity)).toEqual(["error"]);
+  });
+});
+
+/**
+ * A node's `icon:` and the keys that shape an icon node: `form`, `pos` and
+ * `h`. Measured on Mermaid 12.2.0 (Chrome, a registered test pack): an
+ * `icon:` draws the node as an icon whatever its `shape:`, in the form
+ * `form` names (none, `square`, `circle`, `rounded`), its label below it or,
+ * with `pos: t`, above; `h` is the icon's size (48 when absent). An icon
+ * node given no label and no bracket text draws no label; `shape: icon` with
+ * no `icon:` is an empty 48px box with the id below it. `form`, `pos` and
+ * `h` on a node that is no icon change nothing.
+ */
+describe("an icon node's `@{ … }` keys", () => {
+  const nodeOf = (source: string, id = "A") => {
+    const { document, diagnostics } = parseOk(source);
+    return { node: document.nodes.find((node) => node.id === id)!, diagnostics };
+  };
+
+  it("draws a node with an `icon:` as an icon, reading its form, label position and size", () => {
+    const { node, diagnostics } = nodeOf(
+      'flowchart TB\n  A@{ shape: circle, icon: "fa:user", form: square, pos: t, h: 60, label: "User" }',
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(node.shape).toBe("icon");
+    expect(node.label.text).toBe("User");
+    expect(node.icon).toEqual({ name: "fa:user", form: "square", pos: "t", size: 60, line: 2, column: 4 });
+  });
+
+  it.each([
+    ["square", "square"],
+    ["circle", "circle"],
+    ["rounded", "rounded"],
+  ])("reads `form: %s`", (form, read) => {
+    expect(nodeOf(`flowchart TB\n  A@{ icon: "fa:user", form: ${form} }`).node.icon?.form).toBe(read);
+  });
+
+  it("defaults to no form, the label below and a 48px icon", () => {
+    const { node } = nodeOf('flowchart TB\n  A@{ icon: "fa:user", label: "x" }');
+
+    expect(node.icon).toEqual({ name: "fa:user", form: null, pos: "b", size: 48, line: 2, column: 4 });
+  });
+
+  it("draws no label for an icon node given none, and keeps a label written in brackets", () => {
+    expect(nodeOf('flowchart TB\n  A@{ icon: "fa:user" }').node.label.text).toBe("");
+    expect(nodeOf('flowchart TB\n  A[Text]@{ icon: "fa:user" }').node.label.text).toBe("Text");
+  });
+
+  it("draws `shape: icon` as an icon node with no icon, labelled with its id", () => {
+    const { node, diagnostics } = nodeOf("flowchart TB\n  A@{ shape: icon, h: 70 }");
+
+    expect(diagnostics).toEqual([]);
+    expect(node.shape).toBe("icon");
+    expect(node.label.text).toBe("A");
+    expect(node.icon).toEqual({ name: null, form: null, pos: "b", size: 70, line: 2, column: 4 });
+  });
+
+  it.each([
+    ['icon: "user"', 'An icon is named by its pack and its name, such as icon: "fa:user"'],
+    ["icon: 3", 'An icon is named by its pack and its name, such as icon: "fa:user"'],
+    ['icon: "fa:user", form: blob', 'There is no icon form "blob". Use square, circle or rounded'],
+    ['icon: "fa:user", pos: x', 'An icon\'s label goes above it ("pos: t") or below it ("pos: b"), not "x"'],
+    ['icon: "fa:user", h: 0', 'An icon\'s size is a number of pixels above 0, such as "h: 64"'],
+    ['icon: "fa:user", h: -4', 'An icon\'s size is a number of pixels above 0, such as "h: 64"'],
+    ['icon: "fa:user", h: big', 'An icon\'s size is a number of pixels above 0, such as "h: 64"'],
+  ])("refuses `%s` at the `@`", (written, message) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A@{ ${written} }`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message, line: 2, column: 4 }]);
+  });
+
+  it.each([
+    ["form: square", '"form" only shapes an icon node, and is ignored here. Remove it, or give the node an icon'],
+    [
+      "pos: t",
+      '"pos" only shapes an icon or image node, and is ignored here. Remove it, or give the node an icon or an image',
+    ],
+    ["h: 60", '"h" only shapes an icon or image node, and is ignored here. Remove it, or give the node an icon or an image'],
+  ])("warns that `%s` on a node that is no icon is ignored", (written, message) => {
+    const { node, diagnostics } = nodeOf(`flowchart TB\n  A@{ shape: circle, ${written} }`);
+
+    expect(node.shape).toBe("circle");
+    expect(node.icon).toBeUndefined();
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message,
+        line: 2,
+        column: 4,
+      },
+    ]);
+  });
+
+  it("warns that `form` on `shape: icon` with no `icon:` is ignored", () => {
+    const { diagnostics } = nodeOf("flowchart TB\n  A@{ shape: icon, form: square }");
+
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      '"form" only shapes an icon node, and is ignored here. Remove it, or give the node an icon',
+    ]);
+  });
+});
+
+describe("the shape table and the shape names", () => {
+  it("names every shape the table draws, in brackets or in a `@{ shape: … }` block — but an image, which only `img:` draws", () => {
+    // Mermaid 12.2.0 has no `shape:` name for an image node (measured:
+    // `shape: image` is "No such shape"); an `img:` is the one way to one.
+    const named = new Set<string>([...SHAPE_OF_NAME.values(), "image"]);
+    expect(Object.keys(SHAPES).filter((shape) => !named.has(shape))).toEqual([]);
+  });
+
+  it("refuses a style by name for the shapes the table keeps out of every author's paint, and only shapes it draws", () => {
+    // A shape whose every frame takes none of an author's declarations
+    // would silently ignore a `style` naming it, so the parser must refuse
+    // one; and every shape the parser refuses one for is a shape the table
+    // draws. A small circle is in the set while its frame takes an author's
+    // paint: `classDef default` reaches it (measured), a style by name does not.
+    // Only the box matters to a frame here; the rest of the node is unread.
+    const node = { x: 0, y: 0, width: 20, height: 20, label: plainLabel("") } as unknown as Parameters<(typeof SHAPES)[NodeShape]["frames"]>[0];
+    const unstyled = Object.entries(SHAPES)
+      .filter(([, spec]) => spec.frames(node).every((frame) => frame.authorStyle === false))
+      .map(([shape]) => shape);
+    for (const shape of unstyled) {
+      expect([shape, SHAPES_TAKING_NO_STYLE.has(shape as NodeShape)]).toEqual([shape, true]);
+    }
+    expect(unstyled).toContain("anchor");
+    for (const shape of SHAPES_TAKING_NO_STYLE) {
+      expect(Object.keys(SHAPES)).toContain(shape);
+    }
+  });
+
+  it("draws no text for exactly the shapes the parser refuses a label for", () => {
+    const withoutText = Object.entries(SHAPES)
+      .filter(([, spec]) => spec.drawsLabel === false)
+      .map(([shape]) => shape)
+      .sort();
+    expect(withoutText).toEqual([...SHAPES_DRAWN_WITHOUT_TEXT].sort());
+  });
+});
+
+/**
+ * A styling value holding a bracket, a `|` or a `->`. Measured on Mermaid
+ * 12.2.0: `fill:rgb(255,0,0)` ("got 'PS'"), `fill:a(b`, `fill:a)b`,
+ * `fill:a[b]`, `fill:a]b`, `fill:a|b` ("got 'PIPE'") and `fill:a->b`
+ * ("got 'MINUS'") are parse errors in `style`, `classDef` and `linkStyle`
+ * alike — in headless Chrome, `style A fill:rgb(255,0,0)` draws nothing at
+ * all, escaped commas or not, while `fill:#f00` paints the node.
+ */
+describe("a styling value holding a bracket, a pipe or a `->`", () => {
+  it.each([
+    ["style A fill:rgb(255,0,0)", "(", 19, "fill:rgb(255,0,0)", "Write the color as #ff0000"],
+    ["classDef c fill:rgba(0,128,255,0.5)", "(", 23, "fill:rgba(0,128,255,0.5)", "Write a color as a hex color or a name, such as #f00"],
+    ["linkStyle 0 stroke:rgb(0, 128, 255)", "(", 25, "stroke:rgb(0, 128, 255)", "Write the color as #0080ff"],
+    // Refused at its `(` now, before the `--` inside it.
+    ["style A stroke:var(--x)", "(", 21, "stroke:var(--x)", "Write a color as a hex color or a name, such as #f00"],
+    ["style A fill:a)b", ")", 17, "fill:a)b", "Leave it out"],
+    ["style A fill:a[b]", "[", 17, "fill:a[b]", "Leave it out"],
+    ["style A fill:a]b", "]", 17, "fill:a]b", "Leave it out"],
+    ["style A fill:a|b", "|", 17, "fill:a|b", "Leave it out"],
+    ["style A fill:a->b", "->", 17, "fill:a->b", "Leave it out"],
+  ])("refuses %j at it", (written, token, column, declarations, fix) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> B\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `A style declaration cannot hold "${token}": ${declarations}. ${fix}`,
+        line: 3,
+        column,
+      },
+    ]);
+  });
+});
+
+/**
+ * An `@` in the first word of an edge's `|label|`. Measured on Mermaid
+ * 12.2.0: `|a@b|`, `|@b|`, `|a@|`, `|a@ b|` and `|é@b|` are parse errors
+ * (the word read as an edge id, "got 'LINK_ID'"), while `|x a@b y|`,
+ * `|a @b|`, `| a@b|` and `|"a@b"|` are labels as written, and so is the
+ * other spelling, `A -- a@b --> B`.
+ */
+describe("an `@` in the first word of an edge's `|label|`", () => {
+  it.each([
+    ["A -->|a@b| B", 10, 'A -->|"a@b"| B'],
+    ["A -->|@b| B", 9, 'A -->|"@b"| B'],
+    ["A -->|a@ b| B", 10, 'A -->|"a@ b"| B'],
+  ])("refuses %j at the `@`, saying to quote the label", (written, column, fixed) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `An edge label without quotes cannot begin with a word holding "@". Put the whole label in quotes: ${fixed}`,
+        line: 2,
+        column,
+      },
+    ]);
+  });
+
+  it.each([
+    ["A -->|x a@b y| B", "x a@b y"],
+    ["A -->|a @b| B", "a @b"],
+    ["A -->| a@b| B", "a@b"],
+    ['A -->|"a@b"| B', "a@b"],
+    ["A -- a@b --> B", "a@b"],
+  ])("draws %j with the label as written", (written, label) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => edge.label?.text)).toEqual([label]);
+  });
+});
+
+/**
+ * A style aimed at a small circle or an anchor by name. Measured in Chrome:
+ * Mermaid 12.2.0 draws both in their own paint whatever `style A …`,
+ * `class A c` or `A:::c` says — the declaration silently does nothing — so
+ * Siren refuses it there. `classDef default` is not aimed at either: a
+ * small circle takes it and an anchor does not, as measured.
+ */
+describe("a style aimed at a shape drawn in its own paint", () => {
+  const refusal = (shape: string, id: string) =>
+    `The shape "${shape}" is drawn in its own paint, so a style for "${id}" would not change it. ` +
+    "Remove the style, or use a shape that takes one";
+
+  it.each([
+    ["style A fill:#f00", "small-circle", "sm-circ"],
+    ["class A c", "small-circle", "sm-circ"],
+    ["A:::c", "small-circle", "sm-circ"],
+    ["style A fill:#f00", "anchor", "anchor"],
+  ])("refuses `%s` on a %s, where it is written", (statement, shape, name) => {
+    const { document, diagnostics } = parseFlowchart(
+      `flowchart TB\n  A@{ shape: ${name} }\n  classDef c fill:#f00\n  ${statement}`,
+    );
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: refusal(shape, "A"), line: 4, column: 3 }]);
+  });
+
+  it("takes `classDef default` on a small circle and an anchor without a word", () => {
+    const { diagnostics } = parseOk("flowchart TB\n  A@{ shape: sm-circ } --> B@{ shape: anchor }\n  classDef default fill:#f00");
+    expect(diagnostics).toEqual([]);
+  });
+});
+
+/**
+ * A `|label|` opening with a quoted run and going on after it. Measured on
+ * Mermaid 12.2.0: `|"a" b|` is the label `a b`, `|"a"b|` is `ab` and
+ * `|"a" |` is `a` — the quotes come off the run and what follows is kept —
+ * while a quote after a space (`| "a" |`, `| "a"|`) is a parse error
+ * ("got 'STR'").
+ */
+describe("a `|label|` opening with a quoted run", () => {
+  it.each([
+    ['A -->|"a" b| B', "a b"],
+    ['A -->|"a"b| B', "ab"],
+    ['A -->|"a" | B', "a"],
+    ['A -->|"a{b" c| B', "a{b c"],
+  ])("draws %j as %j", (written, label) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => edge.label?.text)).toEqual([label]);
+  });
+
+  it.each([
+    ['A -->| "a" | B', 10],
+    ['A -->| "a"| B', 10],
+  ])("refuses %j at a quote written after a space", (written, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'An edge label can be quoted only as a whole. Put the whole label in quotes: A -->|"a"| B',
+        line: 2,
+        column,
+      },
+    ]);
+  });
+});
+
+/**
+ * An accessibility line holding a `;`. Measured on Mermaid 12.2.0:
+ * `accTitle: a --> b; C --> D` is the title `a --> b; C --> D`, drawing no
+ * edge C-D, `accDescr: c --> d; C --> D` the description likewise, and
+ * `accTitle: t;` the title `t;` — the line keeps everything after its `:`.
+ */
+describe("an accessibility line holding a `;`", () => {
+  it.each([
+    ["accTitle: a --> b; C --> D", "a --> b; C --> D", null],
+    ["accDescr: c --> d; C --> D", null, "c --> d; C --> D"],
+    ["accTitle: t;", "t;", null],
+    ["A --> B; accTitle: x; C --> D", "x; C --> D", null],
+  ])("keeps %j whole, drawing no edge from it", (written, accTitle, accDescr) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}\n  A --> B`);
+
+    expect(diagnostics).toEqual([]);
+    expect([document.accTitle, document.accDescr]).toEqual([accTitle, accDescr]);
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual(
+      written.startsWith("A --> B") ? [["A", "B"], ["A", "B"]] : [["A", "B"]],
+    );
+  });
+});
+
+/**
+ * A `<` in a `|label|` that opens no tag Siren draws. Measured on Mermaid
+ * 12.2.0 in headless Chrome: `A -->|a<b| B` draws the label `a`, the `<b`
+ * read as the start of a tag and dropped, and `A -->|a < b| B` draws
+ * `a < b`. Siren reads its labels the same way already; pinned here.
+ */
+describe("a `<` in an edge's `|label|`", () => {
+  it.each([
+    ["A -->|a<b| B", "a"],
+    ["A -->|a < b| B", "a < b"],
+  ])("draws %j as %j", (written, label) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => edge.label?.text)).toEqual([label]);
+  });
+});
+
+/**
+ * A `"` in a styling value. Measured on Mermaid 12.2.0:
+ * `style A font-family:"a b"` is a parse error ("got 'STR'"), in a list or
+ * alone, while `font-family:'a b'` and `font-family:a b` are values.
+ */
+describe("a styling value holding a double quote", () => {
+  it.each([
+    ['style A font-family:"a b"', 23, 'font-family:"a b"'],
+    ['classDef c fill:#f00,font-family:"x"', 36, 'fill:#f00,font-family:"x"'],
+  ])("refuses %j at the quote, saying to use single quotes", (written, column, declarations) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> B\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `A style declaration cannot hold """: ${declarations}. Write the quotes as single quotes`,
+        line: 3,
+        column,
+      },
+    ]);
+  });
+
+  it.each([
+    ["style A font-family:'a b'", "'a b'"],
+    ["style A font-family:a b", "a b"],
+  ])("reads %j as written", (written, value) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A --> B\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles[0]!.properties[0]!.value).toBe(value);
+  });
+});
+
+/**
+ * A bold run in a `|label|` written without its closing tag. Measured in
+ * headless Chrome on Mermaid 12.2.0: `A -->|a<b>c| B` draws `a` and then
+ * `c` in bold, the tag closed for it; Siren reads it the same way.
+ */
+describe("an unclosed bold tag in an edge's `|label|`", () => {
+  it("draws the text after it bold", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  A -->|a<b>c| B");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges[0]!.label!.rows.map((row) => row.map((run) => [run.text, run.bold]))).toEqual([
+      [
+        ["a", false],
+        ["c", true],
+      ],
+    ]);
+  });
+});
+
+/**
+ * A node's icon keys written over several `@{ … }` blocks, or beside
+ * brackets written elsewhere. Measured on Mermaid 12.2.0 (Chrome, a
+ * registered pack): each key is kept separately and the last value of each
+ * wins (`addVertex`), and a node with an `icon:` anywhere is an icon node
+ * whatever its `shape:` or brackets say (`getTypeFromVertex`) — so a `form`
+ * or `h` written before the `icon:` still shapes it.
+ */
+describe("an icon node's keys over several blocks", () => {
+  const nodeOf = (source: string) => {
+    const { document, diagnostics } = parseOk(source);
+    return { node: document.nodes.find((node) => node.id === "A")!, diagnostics };
+  };
+
+  it("takes a `form` or `h` written in a later block", () => {
+    const { node, diagnostics } = nodeOf('flowchart TB\n  A@{ icon: "t:sq" }\n  A@{ form: circle, h: 80 }');
+
+    expect(diagnostics).toEqual([]);
+    expect(node.shape).toBe("icon");
+    expect(node.icon).toEqual({ name: "t:sq", form: "circle", pos: "b", size: 80, line: 2, column: 4 });
+  });
+
+  it("takes a `form` or `h` written before the `icon:`", () => {
+    const { node, diagnostics } = nodeOf('flowchart TB\n  A@{ form: circle, h: 70 }\n  A@{ icon: "t:sq" }');
+
+    expect(diagnostics).toEqual([]);
+    expect(node.icon).toEqual({ name: "t:sq", form: "circle", pos: "b", size: 70, line: 3, column: 4 });
+  });
+
+  it("keeps the keys a later block leaves out", () => {
+    const { node } = nodeOf('flowchart TB\n  A@{ icon: "t:sq", h: 80, form: circle, pos: t }\n  A@{ icon: "t:big" }');
+
+    expect(node.icon).toEqual({ name: "t:big", form: "circle", pos: "t", size: 80, line: 3, column: 4 });
+  });
+
+  it("stays an icon node whatever a later `shape:` or brackets say", () => {
+    const shaped = nodeOf('flowchart TB\n  A@{ icon: "t:sq" }\n  A@{ shape: rect }').node;
+    const bracketed = nodeOf('flowchart TB\n  A@{ icon: "t:sq" }\n  A[Text]').node;
+
+    expect(shaped.shape).toBe("icon");
+    expect(bracketed.shape).toBe("icon");
+    expect(bracketed.label.text).toBe("Text");
+  });
+
+  it("gives `shape: icon` the icon a later block names", () => {
+    const { node } = nodeOf('flowchart TB\n  A@{ shape: icon, h: 70 }\n  A@{ icon: "t:sq", form: square }');
+
+    expect(node.label.text).toBe("");
+    expect(node.icon).toEqual({ name: "t:sq", form: "square", pos: "b", size: 70, line: 3, column: 4 });
+  });
+
+  it("warns about a key for a node that never becomes an icon, where the key was written", () => {
+    const { node, diagnostics } = nodeOf("flowchart TB\n  A@{ form: square }\n  A@{ shape: circle }");
+
+    expect(node.shape).toBe("circle");
+    expect(node.icon).toBeUndefined();
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: '"form" only shapes an icon node, and is ignored here. Remove it, or give the node an icon',
+        line: 2,
+        column: 4,
+      },
+    ]);
+  });
+});
+
+/**
+ * A node's `img:`: only a `data:image/…` URL, its natural size read off the
+ * data, and the keys that size an image node — `w`, `h`, `constraint` and
+ * `pos`. Measured on Mermaid 12.2.0 (Chrome): an `img:` draws the node as an
+ * image whatever its `shape:` or `icon:` say (`getTypeFromVertex`), the keys
+ * merged block by block like an icon's; an image node given no label draws
+ * none. `w` sizes an icon too, which is `max(w, h)` square.
+ */
+describe("an image node's `@{ … }` keys", () => {
+  /** A 40 x 20 PNG: its signature and `IHDR` chunk. */
+  const PNG = `data:image/png;base64,${btoa(
+    String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 40, 0, 0, 0, 20, 8, 6, 0, 0, 0),
+  )}`;
+  const nodeOf = (source: string) => {
+    const { document, diagnostics } = parseOk(source);
+    return { node: document.nodes.find((node) => node.id === "A")!, diagnostics };
+  };
+
+  it("draws a node with an `img:` as an image of the data's natural size, with no label when it has none", () => {
+    const { node, diagnostics } = nodeOf(`flowchart TB\n  A@{ shape: circle, img: "${PNG}" }`);
+
+    expect(diagnostics).toEqual([]);
+    expect(node.shape).toBe("image");
+    expect(node.label.text).toBe("");
+    expect(node.image).toEqual({
+      src: PNG,
+      naturalWidth: 40,
+      naturalHeight: 20,
+      w: null,
+      h: null,
+      constraint: false,
+      pos: "b",
+      line: 2,
+      column: 4,
+    });
+  });
+
+  it("reads `w`, `h`, `constraint` and `pos`, from this block or another", () => {
+    const { node, diagnostics } = nodeOf(
+      `flowchart TB\n  A@{ img: "${PNG}", label: "Pic", w: 100 }\n  A@{ h: 50, constraint: on, pos: t }`,
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(node.label.text).toBe("Pic");
+    expect(node.image).toMatchObject({ w: 100, h: 50, constraint: true, pos: "t" });
+  });
+
+  it("reads `constraint: off` as no constraint", () => {
+    expect(nodeOf(`flowchart TB\n  A@{ img: "${PNG}", constraint: off }`).node.image?.constraint).toBe(false);
+  });
+
+  it.each([
+    [
+      'img: "https://example.com/a.png"',
+      'Siren never fetches an image while drawing, so "https://example.com/a.png" cannot be drawn. Embed the image as a data URL, such as img: "data:image/png;base64,…"',
+    ],
+    ['img: "data:image/png;base64,R0lGODlh"', "The image's data is not a PNG image, so its size cannot be read. Check the data, or the type its data URL names"],
+    ["img: 3", 'An image is a data URL, such as img: "data:image/png;base64,…"'],
+    [`img: "${PNG}", icon: "fa:user"`, "A node with an image draws the image, so its icon would be dropped. Remove the icon, or the image"],
+    [`img: "${PNG}", w: 0`, 'An image\'s width is a number of pixels above 0, such as "w: 64"'],
+    [`img: "${PNG}", h: tall`, 'An image\'s height is a number of pixels above 0, such as "h: 64"'],
+    [`img: "${PNG}", constraint: yes`, 'An image\'s "constraint" is "on" or "off", not "yes"'],
+    [`img: "${PNG}", pos: x`, 'An image\'s label goes above it ("pos: t") or below it ("pos: b"), not "x"'],
+  ])("refuses `%s` at the `@`", (written, message) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A@{ ${written} }`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message, line: 2, column: 4 }]);
+  });
+
+  it("sizes an icon by the larger of `w` and `h`", () => {
+    expect(nodeOf('flowchart TB\n  A@{ icon: "fa:user", w: 80 }').node.icon?.size).toBe(80);
+    expect(nodeOf('flowchart TB\n  A@{ icon: "fa:user", w: 80, h: 30 }').node.icon?.size).toBe(80);
+    expect(nodeOf('flowchart TB\n  A@{ icon: "fa:user", w: 30, h: 70 }').node.icon?.size).toBe(70);
+  });
+
+  it.each([
+    ['icon: "fa:user", constraint: on', '"constraint" only shapes an image node, and is ignored here. Remove it, or give the node an image'],
+    [`img: "${PNG}", form: square`, '"form" only shapes an icon node, and is ignored here. Remove it, or give the node an icon'],
+    ["shape: circle, w: 300", '"w" only shapes an icon or image node, and is ignored here. Remove it, or give the node an icon or an image'],
+  ])("warns that `%s` is ignored", (written, message) => {
+    expect(nodeOf(`flowchart TB\n  A@{ ${written} }`).diagnostics).toEqual([
+      { severity: "warning", message, line: 2, column: 4 },
+    ]);
+  });
+});

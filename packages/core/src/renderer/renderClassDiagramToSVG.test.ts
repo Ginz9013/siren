@@ -359,6 +359,43 @@ describe("renderClassDiagramToSVG", () => {
     expect(members[2].getAttribute("y")).toBe("104");
   });
 
+  it("draws a static member's whole line underlined and an abstract one's in italics, beside the class's own text style", () => {
+    // Measured (Mermaid 12.2.0, Chrome): the member's label carries
+    // `text-decoration:underline` for `$` and `font-style:italic` for `*`,
+    // on the whole line, visibility and return type included. A class's
+    // text style holds only `fill`, so the two sit side by side.
+    const members = (style: { property: string; value: string }[]) =>
+      Array.from(
+        renderClassDiagramToSVG(
+          buildDiagram([
+            buildClass({
+              height: 120,
+              attributes: {
+                dividerY: 50,
+                members: [
+                  { text: "+x", x: 18, y: 64, classifier: "$" },
+                  { text: "+y", x: 18, y: 82, classifier: null },
+                ],
+              },
+              methods: { dividerY: 90, members: [{ text: "+foo() : bool", x: 18, y: 104, classifier: "*" }] },
+              style: { frame: [], text: style },
+            }),
+          ]),
+        ).querySelectorAll("text.siren-member"),
+      ).map((text) => [text.textContent, text.getAttribute("style")]);
+
+    expect(members([])).toEqual([
+      ["+x", "text-decoration:underline"],
+      ["+y", null],
+      ["+foo() : bool", "font-style:italic"],
+    ]);
+    expect(members([{ property: "fill", value: "#fff" }])).toEqual([
+      ["+x", "fill:#fff;text-decoration:underline"],
+      ["+y", "fill:#fff"],
+      ["+foo() : bool", "fill:#fff;font-style:italic"],
+    ]);
+  });
+
   it("centers the class name above the first divider when the class has compartments", () => {
     const svg = renderClassDiagramToSVG(buildDiagram([buildClass(COMPARTMENTED_CLASS)]));
 

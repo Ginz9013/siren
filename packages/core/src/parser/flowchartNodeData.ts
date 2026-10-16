@@ -1,5 +1,7 @@
 import { JSON_SCHEMA, load, YAMLException } from "js-yaml";
-import type { NodeShape } from "../contracts";
+import type { NodeIcon, NodeImage, NodeShape } from "../contracts";
+import { readImageData } from "../image/imageData";
+import { DEFAULT_ICON_SIZE, SHAPES_DRAWN_WITHOUT_TEXT, SHAPES_TAKING_NO_STYLE } from "../nodeShapeTraits";
 
 /**
  * A flowchart node's `@{ … }` data block — `A@{ shape: circle, label: "x" }`
@@ -8,19 +10,20 @@ import type { NodeShape } from "../contracts";
  * that it reads as a flow mapping (`FlowDB.addVertex`, measured with
  * `pnpm --filter siren-core probe`).
  *
- * Only what Siren can draw is read here: the shape names that are one of
- * Siren's fourteen node shapes, and a label.
+ * Only what Siren can draw is read here: the shape names of the shapes
+ * Siren draws, a label, an icon with its form, label position and size, and
+ * an image with its size.
  */
 
 /**
- * Every `shape:` name that draws one of Siren's fourteen node shapes: each
- * shape's short name and every alias Mermaid 12.2.0's `shapesDefs` lists for
+ * Every `shape:` name that draws one of the fourteen shapes Mermaid also
+ * spells with brackets: each shape's short name and every alias Mermaid 12.2.0's `shapesDefs` lists for
  * the handler its bracket spelling draws, plus the one lowercase internal
  * alias it also accepts (`doublecircle`). Case matters: Mermaid refuses any
  * name with an upper-case letter or a `_` (measured). Each shape's first name
  * is its short name.
  */
-const SHAPE_NAMES: ReadonlyArray<readonly [NodeShape, readonly [string, ...string[]]]> = [
+const BRACKET_SHAPE_NAMES: ReadonlyArray<readonly [NodeShape, readonly [string, ...string[]]]> = [
   ["rect", ["rect", "proc", "process", "rectangle"]],
   ["round", ["rounded", "event"]],
   ["stadium", ["stadium", "terminal", "pill"]],
@@ -37,6 +40,69 @@ const SHAPE_NAMES: ReadonlyArray<readonly [NodeShape, readonly [string, ...strin
   ["asymmetric", ["odd"]],
 ];
 
+/**
+ * Every `shape:` name of the shapes Mermaid 12.2.0 names only in a `@{ … }`
+ * block and Siren draws from its shape table (`layout/shapes/`): the short
+ * name, every alias `shapesDefs`
+ * lists for the shape's handler, and the undocumented lowercase names its
+ * shape map also accepts. Measured: every alias draws what its short name
+ * draws. A shape added to the table adds its row here.
+ */
+const TABLE_SHAPE_NAMES: ReadonlyArray<readonly [NodeShape, readonly [string, ...string[]]]> = [
+  ["notched-rectangle", ["notch-rect", "card", "notched-rectangle"]],
+  ["folder", ["folder", "directory"]],
+  ["notched-pentagon", ["notch-pent", "loop-limit", "notched-pentagon"]],
+  ["sloped-rectangle", ["sl-rect", "manual-input", "sloped-rectangle"]],
+  ["triangle", ["tri", "extract", "triangle"]],
+  ["flipped-triangle", ["flip-tri", "manual-file", "flipped-triangle"]],
+  ["lined-rectangle", ["lin-rect", "lined-rectangle", "lined-process", "lin-proc", "shaded-process"]],
+  ["divided-rectangle", ["div-rect", "div-proc", "divided-rectangle", "divided-process"]],
+  ["window-pane", ["win-pane", "internal-storage", "window-pane"]],
+  ["stacked-rectangle", ["st-rect", "procs", "processes", "stacked-rectangle"]],
+  ["tagged-rectangle", ["tag-rect", "tagged-rectangle", "tag-proc", "tagged-process"]],
+  ["text", ["text"]],
+  ["composite", ["composite"]],
+  ["note", ["note"]],
+  ["data-store", ["datastore", "data-store"]],
+  ["state", ["state"]],
+  // The shapes drawn at a fixed size, with no text.
+  ["fork", ["fork", "join"]],
+  ["hourglass", ["hourglass", "collate"]],
+  ["bolt", ["bolt", "com-link", "lightning-bolt"]],
+  ["small-circle", ["sm-circ", "start", "small-circle"]],
+  ["framed-circle", ["fr-circ", "stop", "framed-circle"]],
+  ["filled-circle", ["f-circ", "junction", "filled-circle"]],
+  ["anchor", ["anchor"]],
+  ["crossed-circle", ["cross-circ", "summary", "crossed-circle"]],
+  ["choice", ["choice"]],
+  // The shapes with a curved outline.
+  ["half-rounded-rectangle", ["delay", "half-rounded-rectangle"]],
+  ["curved-trapezoid", ["curv-trap", "curved-trapezoid", "display"]],
+  ["horizontal-cylinder", ["h-cyl", "das", "horizontal-cylinder"]],
+  ["lined-cylinder", ["lin-cyl", "disk", "lined-cylinder"]],
+  ["bow-tie-rectangle", ["bow-rect", "stored-data", "bow-tie-rectangle"]],
+  ["document", ["doc", "document"]],
+  ["lined-document", ["lin-doc", "lined-document"]],
+  ["tagged-document", ["tag-doc", "tagged-document"]],
+  ["stacked-document", ["docs", "documents", "st-doc", "stacked-document"]],
+  ["flag", ["flag", "paper-tape"]],
+  ["brace-left", ["brace", "comment", "brace-l"]],
+  ["brace-right", ["brace-r"]],
+  ["braces", ["braces"]],
+  // The shapes drawn as a figure.
+  ["bucket", ["bucket"]],
+  ["person", ["person"]],
+  ["console", ["console"]],
+  ["browser", ["browser"]],
+  ["cloud", ["cloud"]],
+  ["bang", ["bang"]],
+  // An icon node's shape, which `icon:` also draws: Mermaid's shape map
+  // accepts the name, undocumented, and draws an empty icon box.
+  ["icon", ["icon"]],
+];
+
+const SHAPE_NAMES = [...BRACKET_SHAPE_NAMES, ...TABLE_SHAPE_NAMES];
+
 /** Each name in `SHAPE_NAMES`, and the shape it draws. */
 export const NODE_DATA_SHAPES: ReadonlyMap<string, NodeShape> = new Map(
   SHAPE_NAMES.flatMap(([shape, names]) => names.map((name) => [name, shape] as const)),
@@ -44,35 +110,37 @@ export const NODE_DATA_SHAPES: ReadonlyMap<string, NodeShape> = new Map(
 
 /**
  * The shape names Mermaid 12.2.0 draws and Siren does not yet: every name of
- * the 39 shapes `shapesDefs` documents beyond the fourteen above, and the
- * six undocumented lowercase names its shape map also accepts (`state`,
- * `choice`, `note`, `composite`, `icon`, `anchor`; measured). Told apart
- * from a name that is no shape at all only so the message can say which.
+ * the shapes `shapesDefs` documents, and of the undocumented ones its shape
+ * map accepts, that neither list above holds — none, now. Told apart from a
+ * name that is no shape at all only so the message can say which.
  */
-const UNDRAWN_SHAPE_NAMES: ReadonlySet<string> = new Set([
-  ...["datastore", "data-store", "folder", "directory", "bucket", "console", "browser", "person", "bang"],
-  ...["cloud", "text", "notch-rect", "card", "notched-rectangle", "lin-rect", "lined-rectangle"],
-  ...["lined-process", "lin-proc", "shaded-process", "sm-circ", "start", "small-circle", "fr-circ"],
-  ...["stop", "framed-circle", "fork", "join", "hourglass", "collate", "brace", "comment", "brace-l"],
-  ...["brace-r", "braces", "bolt", "com-link", "lightning-bolt", "doc", "document", "delay"],
-  ...["half-rounded-rectangle", "h-cyl", "das", "horizontal-cylinder", "lin-cyl", "disk"],
-  ...["lined-cylinder", "curv-trap", "curved-trapezoid", "display", "div-rect", "div-proc"],
-  ...["divided-rectangle", "divided-process", "tri", "extract", "triangle", "win-pane"],
-  ...["internal-storage", "window-pane", "f-circ", "junction", "filled-circle", "notch-pent"],
-  ...["loop-limit", "notched-pentagon", "flip-tri", "manual-file", "flipped-triangle", "sl-rect"],
-  ...["manual-input", "sloped-rectangle", "docs", "documents", "st-doc", "stacked-document"],
-  ...["st-rect", "procs", "processes", "stacked-rectangle", "bow-rect", "stored-data"],
-  ...["bow-tie-rectangle", "cross-circ", "summary", "crossed-circle", "tag-doc", "tagged-document"],
-  ...["tag-rect", "tagged-rectangle", "tag-proc", "tagged-process", "flag", "paper-tape", "lin-doc"],
-  ...["lined-document"],
-  ...["state", "choice", "note", "composite", "icon", "anchor"],
-]);
+const UNDRAWN_SHAPE_NAMES: ReadonlySet<string> = new Set<string>([]);
 
-/** One short name per shape Siren draws: what a refused name is told to choose from. */
-const SHAPE_CHOICES = SHAPE_NAMES.map(([, [shortName]]) => shortName).join(", ");
+/**
+ * Every name in each of the three lists, for the test that keeps them
+ * disjoint: a name in two of them would be drawn by whichever list is read
+ * first and described wrongly by the other.
+ */
+export const SHAPE_NAME_LISTS: {
+  readonly bracket: readonly string[];
+  readonly table: readonly string[];
+  readonly undrawn: readonly string[];
+} = {
+  bracket: BRACKET_SHAPE_NAMES.flatMap(([, names]) => names),
+  table: TABLE_SHAPE_NAMES.flatMap(([, names]) => names),
+  undrawn: [...UNDRAWN_SHAPE_NAMES],
+};
 
-/** Something a block says that is not drawn as written, worded for the author. */
-export interface NodeDataProblem {
+/**
+ * The examples a refused name is pointed to, introduced as examples ("such
+ * as"): one short name for each of the fourteen shapes Mermaid also spells
+ * with brackets. Not every shape Siren draws — a list of every one would
+ * bury the answer — and a list that stays the same as the shape table grows.
+ */
+const SHAPE_CHOICES = BRACKET_SHAPE_NAMES.map(([, [shortName]]) => shortName).join(", ");
+
+/** Something an `@{ … }` block says that is not drawn as written, worded for the author. */
+export interface DataBlockProblem {
   severity: "error" | "warning";
   message: string;
   /**
@@ -84,7 +152,7 @@ export interface NodeDataProblem {
 
 /** What reading one `@{ … }` block found. */
 export interface NodeData {
-  problems: NodeDataProblem[];
+  problems: DataBlockProblem[];
   /** The shape it names, or `null` when it names none. */
   shape: NodeShape | null;
   /**
@@ -92,18 +160,39 @@ export interface NodeData {
    * is a Markdown label; `null` when it gives none.
    */
   label: { text: string; markdown: boolean } | null;
+  /**
+   * The icon and image keys it writes, as written: what they draw is
+   * settled once every block for the node is read (`settleNodeMedia`),
+   * since Mermaid merges them key by key.
+   */
+  mediaKeys: ReadonlyMap<MediaKey, unknown>;
 }
 
 /** The keys this reader draws. */
-const READ_KEYS: ReadonlySet<string> = new Set(["shape", "label", "labelType"]);
+const READ_KEYS: ReadonlySet<string> = new Set([
+  "shape",
+  "label",
+  "labelType",
+  "icon",
+  "img",
+  "form",
+  "pos",
+  "h",
+  "w",
+  "constraint",
+]);
 
-/**
- * The keys that change what Mermaid 12.2.0 draws for a node and that Siren
- * does not draw yet: an icon or an image node, its form, its label's
- * position and its size (`FlowDB.addVertex`). Any other key is read by
- * Mermaid and ignored for a node (`A@{ foo: 1 }`, measured).
- */
-const UNSUPPORTED_KEYS: ReadonlySet<string> = new Set(["icon", "img", "form", "pos", "w", "h", "constraint"]);
+/** The keys that make and shape an icon or image node. */
+const MEDIA_KEYS = ["icon", "img", "form", "pos", "h", "w", "constraint"] as const;
+
+/** One of the keys that make and shape an icon or image node. */
+export type MediaKey = (typeof MEDIA_KEYS)[number];
+
+/** The forms an icon is drawn in, beside none (Mermaid's `getTypeFromVertex`). */
+const ICON_FORMS: ReadonlySet<unknown> = new Set(["square", "circle", "rounded"]);
+
+/** An icon's name: its pack's prefix and its own name, `prefix:name`. */
+const ICON_NAME = /^[^\s:]+:[^\s:]+$/;
 
 /**
  * The `labelType` values that make a block's label an ordinary one rather
@@ -114,12 +203,17 @@ const UNSUPPORTED_KEYS: ReadonlySet<string> = new Set(["icon", "img", "form", "p
 const PLAIN_LABEL_TYPES: ReadonlySet<unknown> = new Set(["text", "string"]);
 
 /**
- * Reads the text between a node's `@{` and its `}`.
- *
- * A key Mermaid tests for truth is read only when its value is truthy, as
- * Mermaid reads it: `label: ""` and `shape:` (a null) say nothing.
+ * The text between an `@{` and its `}` — a node's block or an edge's —
+ * loaded as Mermaid 12.2.0 loads it: YAML under the JSON schema, a block on
+ * one line wrapped in `{ … }` first so that it reads as a flow mapping
+ * (`FlowDB.addVertex`, measured). Its key/value pairs, or the problem that
+ * stopped it; `example` is a pair worth writing in the block at hand, for
+ * the message about a block that is not pairs.
  */
-export function readNodeData(written: string): NodeData {
+export function loadDataBlock(
+  written: string,
+  example: string,
+): { doc: Record<string, unknown> } | { problem: DataBlockProblem } {
   // Mermaid's lexer turns a line break inside a quoted string, and the
   // indentation after it, into `<br/>` before the YAML is read (measured,
   // `label: "a⏎   b"` is `a<br/>b`); a block holding a line break anywhere
@@ -127,10 +221,8 @@ export function readNodeData(written: string): NodeData {
   const content = written.replace(/"[^"]*"?/g, (string) => string.replace(/\n\s*/g, "<br/>"));
   const flowMapping = !content.includes("\n");
   const yaml = flowMapping ? `{\n${content}\n}` : `${content}\n`;
-  const refused = (message: string, offset?: number): NodeData => ({
-    problems: [{ severity: "error", message, ...(offset === undefined ? {} : { offset }) }],
-    shape: null,
-    label: null,
+  const refused = (message: string, offset?: number) => ({
+    problem: { severity: "error" as const, message, ...(offset === undefined ? {} : { offset }) },
   });
   let loaded: unknown;
   try {
@@ -150,17 +242,26 @@ export function readNodeData(written: string): NodeData {
     throw error;
   }
   if (loaded !== null && loaded !== undefined && (typeof loaded !== "object" || Array.isArray(loaded))) {
-    return refused('Write the "@{ … }" block as "key: value" pairs, such as "shape: circle"');
+    return refused(`Write the "@{ … }" block as "key: value" pairs, such as "${example}"`);
   }
-  const doc = (loaded ?? {}) as Record<string, unknown>;
-  const problems: NodeDataProblem[] = [];
+  return { doc: (loaded ?? {}) as Record<string, unknown> };
+}
+
+/**
+ * Reads the text between a node's `@{` and its `}`.
+ *
+ * A key Mermaid tests for truth is read only when its value is truthy, as
+ * Mermaid reads it: `label: ""` and `shape:` (a null) say nothing.
+ */
+export function readNodeData(written: string): NodeData {
+  const loaded = loadDataBlock(written, "shape: circle");
+  if ("problem" in loaded) {
+    return { problems: [loaded.problem], shape: null, label: null, mediaKeys: new Map() };
+  }
+  const { doc } = loaded;
+  const problems: DataBlockProblem[] = [];
   for (const key of Object.keys(doc)) {
-    if (UNSUPPORTED_KEYS.has(key)) {
-      problems.push({
-        severity: "error",
-        message: `Siren does not support "${key}" in a node's "@{ … }" block yet. Leave it out`,
-      });
-    } else if (!READ_KEYS.has(key)) {
+    if (!READ_KEYS.has(key)) {
       problems.push({
         severity: "warning",
         message: `"${key}" is not a key of a node's "@{ … }" block, and is ignored. Remove it`,
@@ -174,7 +275,157 @@ export function readNodeData(written: string): NodeData {
   } else if (doc.label) {
     label = { text: String(doc.label), markdown: !PLAIN_LABEL_TYPES.has(doc.labelType) };
   }
-  return { problems, shape, label };
+  // Each icon and image key as written, read only once every block for the
+  // node is: a key Mermaid tests for truth is kept only when its value is
+  // truthy, and `h` and `w` whenever they are written, so that `h: 0` is
+  // refused.
+  const mediaKeys = new Map<MediaKey, unknown>();
+  for (const key of MEDIA_KEYS) {
+    const value = doc[key];
+    if (key === "h" || key === "w" ? value !== undefined && value !== null : Boolean(value)) {
+      mediaKeys.set(key, value);
+    }
+  }
+  return { problems, shape, label, mediaKeys };
+}
+
+/**
+ * What each key that shapes an icon or image node shapes, worded for the
+ * warning about one written where it shapes nothing: `form` an icon with an
+ * `icon:`, `constraint` an image, and `pos`, `h` and `w` either. `icon` and
+ * `img` make the node what it is, so they shape it wherever written.
+ */
+const KEY_REACH: Partial<
+  Record<MediaKey, { node: string; given: string; shapes: (kind: "icon" | "image" | null, named: boolean) => boolean }>
+> = {
+  form: { node: "an icon", given: "an icon", shapes: (kind, named) => kind === "icon" && named },
+  constraint: { node: "an image", given: "an image", shapes: (kind) => kind === "image" },
+  pos: { node: "an icon or image", given: "an icon or an image", shapes: (kind) => kind !== null },
+  h: { node: "an icon or image", given: "an icon or an image", shapes: (kind) => kind !== null },
+  w: { node: "an icon or image", given: "an icon or an image", shapes: (kind) => kind !== null },
+};
+
+/** Where a key was written, and a problem with what a node's media keys say. */
+type SettledProblem<At> = { severity: "error" | "warning"; message: string; at: At };
+
+/**
+ * Settles what a node's icon and image keys, written over every block for
+ * it, draw — as Mermaid 12.2.0 reads them: each key keeps the last value
+ * written for it (`addVertex`), and a node with an `img:` is an image node,
+ * else one with an `icon:` an icon node, whatever its `shape:` or brackets
+ * say (`getTypeFromVertex`), so a key written before the `img:` or `icon:`
+ * still shapes it. `shape: icon` with no `icon:` is an icon node drawing no
+ * icon, which `pos`, `h` and `w` shape and `form` does not.
+ *
+ * A value Mermaid would draw silently wrong is refused: a form it does not
+ * know falls back to none, a `pos` it does not know to below, a
+ * `constraint` it does not know to off, and an `h` or `w` that is no
+ * positive number breaks the size; so is an image Siren cannot draw
+ * (`readImageData`), and an `icon:` beside an `img:`, which Mermaid drops.
+ * A key for a node it does not shape is warned about, since Mermaid ignores
+ * it. Each problem comes back with where its key was written (`at`).
+ */
+export function settleNodeMedia<At>(
+  shape: NodeShape,
+  written: ReadonlyMap<MediaKey, { value: unknown; at: At }>,
+): {
+  shape: NodeShape;
+  icon?: Omit<NodeIcon, "line" | "column"> & { at?: At };
+  image?: Omit<NodeImage, "line" | "column"> & { at: At };
+  problems: SettledProblem<At>[];
+} {
+  const problems: SettledProblem<At>[] = [];
+  const img = written.get("img");
+  const named = written.get("icon");
+  const kind = img !== undefined ? "image" : named !== undefined || shape === "icon" ? "icon" : null;
+  for (const [key, { at }] of written) {
+    const reach = KEY_REACH[key];
+    if (reach !== undefined && !reach.shapes(kind, named !== undefined)) {
+      problems.push({
+        severity: "warning",
+        message: `"${key}" only shapes ${reach.node} node, and is ignored here. Remove it, or give the node ${reach.given}`,
+        at,
+      });
+    }
+  }
+  if (kind === null) {
+    return { shape, problems };
+  }
+  const refuse = (key: MediaKey, message: string) => problems.push({ severity: "error", message, at: written.get(key)!.at });
+  const noun = kind === "image" ? "An image" : "An icon";
+  const pos = written.get("pos")?.value;
+  if (pos !== undefined && pos !== "t" && pos !== "b") {
+    refuse("pos", `${noun}'s label goes above it ("pos: t") or below it ("pos: b"), not "${String(pos)}"`);
+  }
+  /** A `w` or `h` as written, `null` when absent, refused unless a positive number. */
+  const length = (key: "w" | "h", message: string): number | null => {
+    const value = written.get(key);
+    if (value === undefined) {
+      return null;
+    }
+    const pixels = Number(value.value);
+    if (!(pixels > 0) || !Number.isFinite(pixels)) {
+      refuse(key, message);
+    }
+    return pixels;
+  };
+  if (kind === "image") {
+    if (named !== undefined) {
+      // Mermaid draws the image and drops the icon without a word.
+      refuse("icon", "A node with an image draws the image, so its icon would be dropped. Remove the icon, or the image");
+    }
+    const w = length("w", 'An image\'s width is a number of pixels above 0, such as "w: 64"');
+    const h = length("h", 'An image\'s height is a number of pixels above 0, such as "h: 64"');
+    const constraint = written.get("constraint")?.value;
+    if (constraint !== undefined && constraint !== "on" && constraint !== "off") {
+      refuse("constraint", `An image's "constraint" is "on" or "off", not "${String(constraint)}"`);
+    }
+    const read =
+      typeof img!.value === "string"
+        ? readImageData(img!.value)
+        : { problem: 'An image is a data URL, such as img: "data:image/png;base64,…"' };
+    if ("problem" in read) {
+      refuse("img", read.problem);
+      return { shape: "image", problems };
+    }
+    return {
+      shape: "image",
+      image: {
+        src: img!.value as string,
+        naturalWidth: read.image.width,
+        naturalHeight: read.image.height,
+        w,
+        h,
+        constraint: constraint === "on",
+        pos: pos === "t" ? "t" : "b",
+        at: img!.at,
+      },
+      problems,
+    };
+  }
+  if (named !== undefined && (typeof named.value !== "string" || !ICON_NAME.test(named.value))) {
+    refuse("icon", 'An icon is named by its pack and its name, such as icon: "fa:user"');
+  }
+  const form = named === undefined ? undefined : written.get("form")?.value;
+  if (form !== undefined && !ICON_FORMS.has(form)) {
+    refuse("form", `There is no icon form "${String(form)}". Use square, circle or rounded`);
+  }
+  // Mermaid's icon is `max(h, w)` square, each 48 when not written.
+  const h = length("h", 'An icon\'s size is a number of pixels above 0, such as "h: 64"');
+  const w = length("w", 'An icon\'s size is a number of pixels above 0, such as "w: 64"');
+  return {
+    shape: "icon",
+    icon: {
+      name: named !== undefined && typeof named.value === "string" ? named.value : null,
+      form: form === undefined || !ICON_FORMS.has(form) ? null : (form as NonNullable<NodeIcon["form"]>),
+      pos: pos === "t" ? "t" : "b",
+      size: Math.max(h ?? DEFAULT_ICON_SIZE, w ?? DEFAULT_ICON_SIZE),
+      // Where the `icon:` stands, for a problem with the icon it names;
+      // else where the first key shaping the node does.
+      ...(named !== undefined ? { at: named.at } : written.size > 0 ? { at: [...written.values()][0]!.at } : {}),
+    },
+    problems,
+  };
 }
 
 /**
@@ -182,7 +433,7 @@ export function readNodeData(written: string): NodeData {
  * The checks are Mermaid 12.2.0's, in its order: a name with an upper-case
  * letter or a `_` is refused before it is looked up (`FlowDB.addVertex`).
  */
-function readShape(value: unknown, problems: NodeDataProblem[]): NodeShape | null {
+function readShape(value: unknown, problems: DataBlockProblem[]): NodeShape | null {
   if (typeof value !== "string") {
     problems.push({ severity: "error", message: 'A shape is a name, such as "shape: circle"' });
     return null;
@@ -196,17 +447,51 @@ function readShape(value: unknown, problems: NodeDataProblem[]): NodeShape | nul
     const rule = `There is no shape "${value}". Shape names are lower-case, with "-" between words`;
     problems.push({
       severity: "error",
-      message: NODE_DATA_SHAPES.has(spelled) ? `${rule}: ${spelled}` : `${rule}. Use one of: ${SHAPE_CHOICES}`,
+      message: NODE_DATA_SHAPES.has(spelled) ? `${rule}: ${spelled}` : `${rule}. Use a shape such as: ${SHAPE_CHOICES}`,
     });
   } else if (UNDRAWN_SHAPE_NAMES.has(value)) {
     problems.push({
       severity: "error",
-      message: `Siren does not draw the shape "${value}" yet. Use one of: ${SHAPE_CHOICES}`,
+      message: `Siren does not draw the shape "${value}" yet. Use a shape such as: ${SHAPE_CHOICES}`,
     });
   } else {
-    problems.push({ severity: "error", message: `There is no shape "${value}". Use one of: ${SHAPE_CHOICES}` });
+    problems.push({ severity: "error", message: `There is no shape "${value}". Use a shape such as: ${SHAPE_CHOICES}` });
   }
   return null;
+}
+
+/**
+ * Why a label written for a node of `shape` is refused, or `null` when the
+ * shape draws text. A shape whose shape-table record draws no label (a
+ * fork, a small circle) would drop it: Mermaid 12.2.0 empties the label of
+ * each such shape before drawing it, so the author's text vanishes with no
+ * word said (measured).
+ */
+export function unshownLabelMessage(shape: NodeShape, label: string): string | null {
+  // An empty label shows nothing whatever the shape, so there is nothing to lose.
+  if (!SHAPES_DRAWN_WITHOUT_TEXT.has(shape) || label.trim() === "") {
+    return null;
+  }
+  return (
+    `The shape "${shape}" draws no text, so the label "${label}" would not be shown. ` +
+    "Remove the label, or use a shape that draws text"
+  );
+}
+
+/**
+ * Why a `style`, `class` or `:::` naming a node of `shape` is refused, or
+ * `null` when the shape takes one. A small circle and an anchor are drawn in
+ * their own paint whatever is declared for them by name (measured), so the
+ * declaration would silently do nothing.
+ */
+export function unchangedStyleMessage(shape: NodeShape, id: string): string | null {
+  if (!SHAPES_TAKING_NO_STYLE.has(shape)) {
+    return null;
+  }
+  return (
+    `The shape "${shape}" is drawn in its own paint, so a style for "${id}" would not change it. ` +
+    "Remove the style, or use a shape that takes one"
+  );
 }
 
 /** Where one `@{ … }` block stands: its `@`, and past its `}` (`null` when nothing closes it). */

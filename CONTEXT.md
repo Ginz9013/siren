@@ -376,8 +376,50 @@ the exception, and it is stated under **Design token**.
 Mermaid's `A@{ shape: cyl }` **node data** names the same fourteen shapes by 45 names (each shape's
 short name and its aliases, `NODE_DATA_SHAPES` in `flowchartNodeData.ts`): the brackets and the
 block are two spellings of one shape, and a block on a node written before changes its shape and
-keeps its text. Its other names — about forty shapes Siren has no geometry for — are refused as not
-drawn yet, never drawn as one of the fourteen.
+keeps its text. Its other names are refused as not drawn yet, never drawn as one of the fourteen —
+except the shapes the **shape table** draws.
+
+The **shape table** (`layout/shapes/`, nook `01M51XAC4N`) is where every shape
+lives: one record per member of `NodeShape`, saying how much box a padded label needs (`box`),
+where the label goes in it (`labelRect`) and which elements draw the outline (`frames`). `layoutGraph`
+sizes a node and reports its label's offset (`PositionedNode.labelOffset`) from it, and
+`renderToSVG` draws the frames from it; neither names a shape. The fourteen bracket shapes are its
+first records. The rest are the shapes Mermaid names only in a `@{ … }` block — `notch-rect`,
+`notch-pent`, `sl-rect`, `tri`, `flip-tri`, `folder`, `lin-rect`, `div-rect`, `win-pane`,
+`st-rect`, `tag-rect`, `text`, `datastore`, and the undocumented `note`, `composite` and `state` —
+each sized by Mermaid's formula for it (ADR-0004: its kind is the contract, not its exact path). A
+shape is added by a record in its group's file and its names in `flowchartNodeData.ts`. A record may say it
+**draws no label** (`drawsLabel: false`, the fork, the small circles, `choice`, `anchor`): its box
+is a constant, the renderer leaves the text out, and a label the author writes for it is refused
+where it was written, since Mermaid drops it without a word. Which shapes draw no label, and which
+take no style by name (`sm-circ`, `anchor`: Mermaid draws them in their own paint whatever `style`,
+`class` or `:::` says, so the parser refuses one), is kept in `nodeShapeTraits.ts`, which the parser
+and the shape table both read, so that neither reads the other; tests keep the two sets and the
+records in step. Its box is sized for the direction of
+the nearest enclosing subgraph that names one, or the graph's — a fork stands upright in a
+left-to-right flow. A frame
+may wear a **paint** beside `siren-node-frame` — hollow, ink (the stroke colour), bare (no paint)
+or note — a class rather than an inline declaration, so a highlight still outlines it and an
+author's `style` still wins.
+The shapes with a **curved outline** (`curvedShapes.ts`, nook `01M51XACHP`) are
+records too — `delay`, `curv-trap`, `h-cyl`, `lin-cyl`, `bow-rect`, `doc`, `lin-doc`, `tag-doc`,
+`docs`, `flag`, `brace`, `brace-r` and `braces`. A round end, a cylinder's end and a brace's curl
+are SVG arcs; a **wavy edge** is Mermaid's sine wave, sampled at its 51 points. A brace is an open
+path painted hollow. Each handler pads its text by its own multiple of the node padding (a cylinder
+on its side by half of it, a flag and a brace once, a document stack three times in height), so a
+record recovers the text — the padded label less the node padding `layoutGraph` measured, Siren's
+own — and pads it by that rule: the shape then stands to a rectangle as Mermaid's does in the
+**classic look**, the one the table follows (the parity report compares with it under
+`--look classic`; Mermaid's default `neo` look pads every shape differently).
+
+The **figures** (`compositeShapes.ts`, nook `01M51XACRX`) — `bucket`, `person`,
+`console`, `browser`, `cloud`, `bang` — are drawn in more than one element: a body plus its
+decorations (a rim, a head, a prompt, a bar's dots and address bar), each a frame, so a highlight
+reaches all of them. An author's `style` reaches those Mermaid paints with it (a body, a head, a
+rim) and not those it keeps in the border colour (a browser's bar line, dots and address bar, a
+console's prompt), which say `authorStyle: false` and wear a paint (hollow or ink) rather than a
+colour of their own. A cloud and a bang pad their text with the node padding as their handlers do. A cloud's and a bang's box is the extent of
+Mermaid's arcs rather than the `w x h` they join, and their label is centred on that `w x h`.
 
 **A node's label is a Label** (below), like every flowchart label: an edge's and a subgraph
 title's too. `SirenNode`/`GraphNode`/`PositionedNode` carry it as `label`, and `PositionedNode` adds
@@ -516,15 +558,40 @@ _Avoid_: word wrap, line wrap, auto-wrap (say "wrap"); line (for a wrapped row �
 A directed connector between two flowchart nodes, written `A --> B`. Its id is `${from}-${to}`,
 then `#2` for a repeat pair — the convention a class diagram's **relationship** copies verbatim.
 
+**An edge may carry an id of its own**, written before its arrow — `A e1@--> B` — and then that is
+its id, in place of `${from}-${to}`: it is what `data-siren-id` wears and what a `timeline:` names.
+A pair's repeats are still counted across every edge between it, named or not, so `A e1@--> B`
+then `A --> B` is `e1` and `A-B#2`: naming one edge never renumbers another (Mermaid 12.2.0 counts
+the same way, measured). An edge id is spelled in a node id's alphabet and names exactly one thing,
+so one that a node or another edge already holds, one on an arrow joining a group, and one outside
+that alphabet are refused. `e1@{ … }` written below the edge is the edge's data, not a node's:
+`animate`/`animation` march its dashes (a drawing of its own, independent of the timeline, stopped
+under `prefers-reduced-motion`), and `curve` picks its **Curve** on the terms `linkStyle … interpolate`
+does, the later of the two winning. `class e1 c` paints the edge with a `classDef`, beneath any
+`linkStyle`. Two class statements stay refused, each a picture Siren cannot draw the way Mermaid
+does: a class that would animate the edge (Mermaid runs keyframes of its own stylesheet, which
+Siren's does not carry — write `e1@{ animate: true }`), and a `class e1 c` written above its
+edge (Mermaid applies it to nothing, while Siren styles a whole document at once). A timeline's
+enter and exit effects on an animated edge run beside its march, never in place of it.
+Two ids the author did not write can still meet — the node `A-B` and the edge `A --> B` — and a
+document like that is drawn; only a `timeline:` action naming such a shared id is refused, since it
+cannot say which of the two it means (nook `01M51XADJK`).
+
 **The token joining the two endpoints decomposes into three axes rather than naming one of
 seventeen arrows** — the third time this codebase has made that call, after a sequence
 **message**'s `{ line, head }` and a **relationship**'s `fromEnd`/`toEnd`. A **line**
 (`solid` `--`, `thick` `==`, `dotted` `-.-`, whose opening dash is decoration so `.-` is the same
-body), an **end** on each side (`none`, `arrow` `>`, `circle` `o`, `cross` `x`), and a **length**.
+body, and `invisible` `~~~`), an **end** on each side (`none`, `arrow` `>`, `circle` `o`, `cross` `x`), and a **length**.
 So `A <-.-> B` is not an eighteenth arrow: it is a dotted line with an arrow at each end. A single
 end marker always lands on the *to*-end, measured; only the doubled spellings `<-->`, `o--o` and
 `x--x` decorate the from-end. All four fields are required on `GraphEdge`, so a plain arrow is one
 state rather than the absence of one — the rule `GraphNode.shape` already follows.
+
+**An invisible edge, `A ~~~ B`, is drawn with the fourth line**, `invisible`: it is laid out and
+drawn as a path like any edge, but themed with no width and given no end marker, so only its label
+shows. It is still an edge in every other sense — it has an id, a timeline can name it, and
+`linkStyle` counts it and can paint it visible. A `highlight … outline` leaves it invisible: an
+author shows one with `linkStyle`, never with a timeline step.
 
 **The length is the axis that is not about drawing.** `A ----> B` counts its dashes and reaches
 layout as `minLength`, so its target sits three ranks away instead of one and the drawn diagram
@@ -556,7 +623,8 @@ arrowhead minted for that colour, and `color` paints the label. The second half 
 not chosen** — Mermaid writes `fill` onto the label's own `<text>` — so dropping it, which is what
 happened while an edge had no text, was a silent mis-render.
 
-The line style is emitted as a **CSS class** (`siren-edge-dotted`, `siren-edge-thick`) and never
+The line style is emitted as a **CSS class** (`siren-edge-dotted`, `siren-edge-thick`,
+`siren-edge-invisible`) and never
 as an inline declaration, on the single `<path>` an edge is drawn as. Inline, it would have
 outranked the theme, an author's `linkStyle` and a `timeline:` block's `highlight X outline`
 alike — on the one element all three already land on.
@@ -834,6 +902,9 @@ boxes, so say "the apply-directive" for it), node, entity, box
 One attribute or method line inside a class, carrying an optional visibility marker (`+` public,
 `-` private, `#` protected, `~` package), an optional classifier (`*` abstract, `$` static), a
 name, an optional type, and — for methods — a parameter list and an optional return type.
+The classifier is drawn as a style on the whole line — `*` italic, `$` underlined — never as a
+character of it; an attribute's is its last character, a method's stands right after its `)` or
+last.
 Drawn as the author spelled it, its entity codes and character references decoded (`+#lt; x` draws
 `+< x`, `+&lt x` too): a member is **not** a Label, because Mermaid escapes its `<` and `>` in both
 label modes, so no tag in it is read — the one change made first, as Mermaid makes it, is
@@ -841,7 +912,12 @@ respelling `<br/>`, `<br />` and `<BR>` as `<br>`, which is then drawn as those 
 method's return type is drawn after ` : ` (`+swim() bool` draws `+swim() : bool`), as Mermaid
 draws it. A `#` opening an entity code is the code's, not the protected marker (`#lt; x` has no
 visibility). Attributes and methods draw in two separate
-compartments, in declaration order within each, with a divider above every populated one.
+compartments, in declaration order within each, with a divider above every populated one; a
+member written twice, in one declaration or across several, is drawn twice. A space written
+after the visibility marker is drawn as one (`+ x`), and a line that draws no text (`$`) takes no
+height; a compartment of nothing but such lines is no compartment, so a class whose only members
+are `$` or `*` is drawn like one with none, no divider at all — a known departure: Mermaid draws
+every class with both dividers, and that one 12px shorter than an empty class.
 _Avoid_: field, property (that is a CSS declaration's property in an author style), attribute
 (alone — that is one of the two kinds of member, and it is also an SVG attribute; say "attribute
 member" when the kind matters)
@@ -1302,3 +1378,20 @@ _Avoid_: link (one of several spellings, not a fourth kind of interaction), hand
 (that is the callback-name field of one, not the whole thing), hotspot, target (alone, for
 `linkTarget` — this entry's own `targetId` already uses "target" for the authored thing an
 interaction is attached to, a different concept)
+
+**Icon pack**:
+A set of icons a caller hands `render()` through its `iconPacks` option, as Iconify JSON — a
+`prefix` and its `icons`, each an SVG body. A flowchart **icon node**
+(`A@{ icon: "prefix:name", form, pos, h }`, and `shape: icon`) draws an icon from one. Packs are
+data, never loaded or fetched, so an icon no registered pack holds is an error rather than the
+`?` Mermaid draws. An icon's body is read through an allowlist into figure data and drawn
+element by element: no markup from a pack reaches a parser in the page.
+_Avoid_: icon set, icon library, icon font
+
+**Image node**:
+A flowchart node drawn as an image (`A@{ img: "data:image/…", w, h, constraint, pos }`). Its image
+is a `data:` URL the document holds — never one Siren fetches, since it draws without touching the
+network — of a PNG, GIF, JPEG, WebP or SVG, whose natural size is read off the data's own header.
+An image node draws no icon: Mermaid draws a node given both an `img:` and an `icon:` as the image
+and drops the icon without a word, so Siren refuses the pair, saying the icon would be dropped.
+_Avoid_: picture node, image shape (there is no `shape:` name for it)

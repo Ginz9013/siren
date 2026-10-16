@@ -1,0 +1,13 @@
+flowchart TB
+  A@{ shape: delay, label: "Delay" } --> B@{ shape: curv-trap, label: "Display" }
+  B --> C@{ shape: h-cyl, label: "Direct access" }
+  C --> D@{ shape: lin-cyl, label: "Disk storage" }
+  A --> E@{ shape: bow-rect, label: "Stored data" }
+  E --> F@{ shape: doc, label: "Document" }
+  F --> G@{ shape: lin-doc, label: "Lined document" }
+  G --> H@{ shape: tag-doc, label: "Tagged document" }
+  D --> I@{ shape: docs, label: "Stacked documents" }
+  I --> J@{ shape: flag, label: "Paper tape" }
+  H --> K@{ shape: brace, label: "A comment" }
+  J --> L@{ shape: brace-r, label: "Right comment" }
+  K --> M@{ shape: braces, label: "Both sides" }

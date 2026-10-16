@@ -26,6 +26,60 @@ import { lineHops } from "./lineHops";
  */
 export { LayoutEngineError };
 
+/**
+ * The sentence for an `UnroutableMemberEdgeError`, in whatever names the
+ * caller has for its parts: the cause, then the two ways out.
+ */
+export function unroutableMemberEdgeMessage(names: {
+  edge: string;
+  cluster: string;
+  member: string;
+  directedCluster: string;
+  direction: Direction;
+}): string {
+  return (
+    `The edge "${names.edge}" between "${names.cluster}" and "${names.member}", which is inside it, cannot be ` +
+    `drawn within "${names.directedCluster}", which lays out its members with direction ${names.direction}. ` +
+    `Remove the direction from "${names.directedCluster}", or connect "${names.cluster}" to something outside it.`
+  );
+}
+
+/**
+ * The one graph the layout core knows ELK cannot lay out, refused before ELK
+ * is asked: an edge between a cluster and something inside it — `B --> F`,
+ * `F --> B`, `B --> C` with `C` inside `B` — where a cluster above that one
+ * keeps its direction, and so is laid out in a pass of its own. ELK cannot
+ * find the edge's end there ("could not be found"), and Mermaid 12.2.0 fails
+ * on the same graphs (measured, headless Chrome). Carries the parts by the
+ * caller's ids, so a caller that knows the author's words can say it in
+ * them; the message is the same sentence in the core's ids.
+ */
+export class UnroutableMemberEdgeError extends LayoutEngineError {
+  constructor(
+    readonly edgeId: string,
+    /** The cluster at one end of the edge. */
+    readonly clusterId: string,
+    /** The other end, inside `clusterId`. */
+    readonly memberId: string,
+    /** The nearest cluster above `clusterId` that keeps its direction. */
+    readonly directedClusterId: string,
+    readonly direction: Direction,
+  ) {
+    const message = unroutableMemberEdgeMessage({
+      edge: edgeId,
+      cluster: clusterId,
+      member: memberId,
+      directedCluster: directedClusterId,
+      direction,
+    });
+    super(message);
+    this.name = "UnroutableMemberEdgeError";
+    // Said plainly, as it stands: not the engine's words, which the parent
+    // class wraps its message in.
+    this.message = message;
+  }
+}
+
 /** A box to place. Sizes are given by the caller; this module never measures. */
 export interface DirectedGraphNode {
   id: string;
@@ -300,6 +354,15 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
       const elkNode = elkNodeById.get(node.id)!;
       // Rotated only inside the root's own `INCLUDE_CHILDREN` pass; see `clusterShape`.
       Object.assign(elkNode, clusterShape(node.cluster, hasMembers.has(node.id), vertical && !inOwnPass(node)));
+      if (voided.has(node.id)) {
+        // Mermaid's `setIncludeChildrenPolicy`: a cluster an edge crosses on
+        // its way to the two ends' common ancestor is laid out in the same
+        // pass as that ancestor, said in so many words. Left unsaid, it
+        // inherits the hierarchy handling of the nearest cluster above that
+        // keeps a direction — a pass of its own — and ELK, laying it out
+        // apart, routes no edge across its frame (no sections at all).
+        elkNode.layoutOptions = { ...elkNode.layoutOptions, "elk.hierarchyHandling": "INCLUDE_CHILDREN" };
+      }
       if (ownPass(node)) {
         // Mermaid's `buildSubgraphLayoutOptions` for a subgraph with a `dir`:
         // laid out on its own, in its own direction, then placed in its
@@ -313,6 +376,8 @@ export function layoutDirectedGraph(input: DirectedGraphInput): DirectedGraphRes
       }
     }
   }
+
+  refuseUnroutableMemberEdges(input, nodeById, ownPass, voided);
 
   holdStraightEnds(input, nodeById, elkNodeById, rootOptions);
 
@@ -484,6 +549,49 @@ function extentHoldingTerminalLabels(
 }
 
 /** The id of the cluster a node sits in, or `undefined` at the diagram's top level (or for an id not given). */
+/**
+ * Throws `UnroutableMemberEdgeError` for the first edge between a cluster and
+ * something inside it whose cluster's parent is laid out apart — the graph
+ * ELK cannot lay out.
+ *
+ * The parent is laid out apart when the nearest cluster from it upwards that
+ * says how is one keeping its direction (`ownPass`, a pass of its own) rather
+ * than one an edge has voided (`voided`, laid out with its own parent); the
+ * diagram itself lays out everything together. Measured in headless Chrome
+ * against Mermaid 12.2.0, which fails on the same graphs: `A`
+ * (`direction LR`) holding `M` holding `B` (holding `F`) with `B --> F`
+ * fails, and draws once `G --> B` from beside `B` inside `M` voids `M`.
+ */
+function refuseUnroutableMemberEdges(
+  input: DirectedGraphInput,
+  nodeById: ReadonlyMap<string, DirectedGraphNode>,
+  ownPass: (node: DirectedGraphNode) => boolean,
+  voided: ReadonlySet<string>,
+): void {
+  const parentOf = parentLookup(nodeById);
+  const isInside = (id: string, clusterId: string): boolean => {
+    for (let at = parentOf(id); at !== undefined; at = parentOf(at)) {
+      if (at === clusterId) return true;
+    }
+    return false;
+  };
+  for (const edge of input.edges) {
+    for (const [clusterId, memberId] of [
+      [edge.from, edge.to],
+      [edge.to, edge.from],
+    ] as const) {
+      if (nodeById.get(clusterId)?.cluster === undefined || !isInside(memberId, clusterId)) continue;
+      for (let above = parentOf(clusterId); above !== undefined; above = parentOf(above)) {
+        if (voided.has(above)) break;
+        const holder = nodeById.get(above)!;
+        if (ownPass(holder)) {
+          throw new UnroutableMemberEdgeError(edge.id, clusterId, memberId, above, holder.cluster!.direction!);
+        }
+      }
+    }
+  }
+}
+
 function parentLookup(nodeById: ReadonlyMap<string, DirectedGraphNode>): (id: string) => string | undefined {
   return (id) => nodeById.get(id)?.parentId;
 }

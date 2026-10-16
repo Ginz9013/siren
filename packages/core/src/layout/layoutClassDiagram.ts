@@ -1,6 +1,7 @@
 import type {
   Direction,
   ClassMember,
+  ClassMemberClassifier,
   ClassModel,
   LayoutOptions,
   Point,
@@ -52,8 +53,10 @@ const MULTIPLICITY_MARKER_CLEARANCE = 6;
 /**
  * The text a member is drawn as, rebuilt from the parts the parser kept:
  * `+int age` for an attribute, `+swim() : bool` for a method. The classifier
- * goes last, as Mermaid writes it (`-id$`, `#quack(int times)*`), so one
- * rule covers both member kinds whether or not a return type follows.
+ * is no part of it: Mermaid 12.2.0 draws `-id$` as `-id` underlined and
+ * `#quack(int times)*` as `#quack(int times)` in italics (measured, Chrome),
+ * so it travels beside the text as a style on the whole line, and the line
+ * is measured without it.
  *
  * A method's return type follows ` : ` — one space either side, however
  * many the author wrote before it: measured on Mermaid 12.2.0 (Chrome), in a
@@ -71,16 +74,16 @@ const MULTIPLICITY_MARKER_CLEARANCE = 6;
  * through `textContent`, so no tag in it is read.
  */
 function memberText(member: ClassMember): string {
-  const visibility = member.visibility ?? "";
-  const classifier = member.classifier ?? "";
+  // `+ x` keeps one space after its marker, as Mermaid 12.2.0 draws it.
+  const visibility = `${member.visibility ?? ""}${member.spaceAfterVisibility === true ? " " : ""}`;
   if (member.memberKind === "method") {
     const returnType =
       member.returnType === null ? "" : ` : ${angleBrackets(member.returnType)}`;
     const parameters = angleBrackets(member.parameters ?? "");
-    return htmlText(`${visibility}${member.name}(${parameters})${returnType}${classifier}`, "text");
+    return htmlText(`${visibility}${member.name}(${parameters})${returnType}`, "text");
   }
   const type = member.type === null ? "" : `${angleBrackets(member.type)} `;
-  return htmlText(`${visibility}${type}${member.name}${classifier}`, "text");
+  return htmlText(`${visibility}${type}${member.name}`, "text");
 }
 
 /**
@@ -200,7 +203,7 @@ function classLabel(cls: ResolvedClass): Label {
  */
 interface CompartmentPlan {
   dividerY: number;
-  members: { text: string; y: number }[];
+  members: { text: string; classifier: ClassMemberClassifier | null; y: number }[];
 }
 
 /**
@@ -254,16 +257,28 @@ function planClassBox(
    * with no attributes (or no methods) ends up with no divider drawn.
    */
   function planCompartment(members: ClassMember[]): CompartmentPlan | null {
-    if (members.length === 0) return null;
+    // A compartment whose every line draws no text (`$`, `*`) takes no
+    // room at all, its padding and divider included: Mermaid 12.2.0 draws
+    // `$` ⏎ `+f()` exactly as `+f()` alone (measured, Chrome).
+    //
+    // A known departure follows from it: a class whose only members draw
+    // no text is drawn as a class with none, no divider at all. Mermaid
+    // draws every class with both dividers, and a `$`-only or `*`-only
+    // block 12px shorter than an empty one (69 against 81, measured,
+    // Chrome); Siren keeps its own rule, a divider above every compartment
+    // that draws something, rather than Mermaid's for that one case.
+    if (members.every((member) => memberText(member) === "")) return null;
     const dividerY = bottom;
     bottom += CLASS_PADDING_Y;
     const planned = members.map((member) => {
       const text = memberText(member);
-      const measured = measure(text);
+      // A line that draws no text (`$`, `*`) takes no room: Mermaid 12.2.0
+      // sizes its label 0 by 0, and the next line moves up (measured, Chrome).
+      const measured = text === "" ? { width: 0, height: 0 } : measure(text);
       widths.push(measured.width);
       const y = bottom + measured.height / 2;
       bottom += measured.height;
-      return { text, y };
+      return { text, classifier: member.classifier, y };
     });
     bottom += CLASS_PADDING_Y;
     return { dividerY, members: planned };
@@ -607,6 +622,7 @@ export function layoutClassDiagram(
               text: member.text,
               x: box.x + CLASS_PADDING_X,
               y: box.y + member.y,
+              classifier: member.classifier,
             })),
           };
 

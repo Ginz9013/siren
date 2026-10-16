@@ -8,6 +8,13 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- `BoardOptions.iconPacks`, passed through to `render()`'s `iconPacks`: Iconify JSON icon packs,
+  handed over as data, that a flowchart node's `@{ icon: "prefix:name" }` is drawn from. Nothing is
+  fetched at render time; an icon's body is read through an allowlist that keeps shapes, colours
+  and local references only.
+
 ### Fixed
 
 - `BoardOptions.onClick` delivers `click X call fn()` interactions, as `render()`'s `onClick` does.

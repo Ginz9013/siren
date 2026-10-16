@@ -1888,8 +1888,103 @@ const SILENTLY_WRONG = 0;
  * no row to say so. No `supported` row moved: none used such a name.
  * `fc-class-name-punctuation`, new beside them, is `supported`.
  * `silently-wrong` does not move.
+ *
+ * **60 → 65: case (2), five refusals written down for the first time.**
+ * `01M51XADJKSGRYG5CM1GG0T91R` read a flowchart edge's own id
+ * (`fc-edge-id-timeline`, `supported`) and refused the five ways of writing
+ * one that Mermaid 12.2.0 draws other than as written (ADR-0001) or that
+ * leave Siren's id space: an id on an arrow joining a group
+ * (`fc-edge-id-group`), one a node holds (`fc-edge-id-names-a-node`), one
+ * another edge holds (`fc-edge-id-repeated`), a block on it written above
+ * the edge (`fc-edge-id-data-before-edge`), and one outside the id alphabet
+ * (`fc-edge-id-alphabet`). Siren refused every edge id before, with
+ * `fc-edge-id` the one row to say so. No `supported` row moved.
+ * `silently-wrong` does not move.
+ *
+ * **65 → 69: case (2), four refusals written down for the first time.**
+ * `01M51XADJKSGRYG5CM1GG0T91R`'s follow-up refused an edge id that names a
+ * subgraph (`fc-edge-id-names-a-subgraph`), and a `click`, `style` or
+ * `class` naming an edge id (`fc-edge-id-click`, `fc-edge-id-style`,
+ * `fc-edge-id-class`). Siren drew the subgraph case, the `style` and the
+ * `class` without a word, and refused the click as naming nothing. No
+ * `supported` row moved. `silently-wrong` does not move.
+ *
+ * **69 → 70: case (2), a refusal written down for the first time.**
+ * `01M51XAENDSMY3Y9QDXW1674GP` refused a class diagram's `direction td`
+ * and `direction TD x` as `direction TD` is: Mermaid 12.2.0 sets no
+ * direction for either and keeps the one before (measured, Chrome), refused
+ * under ADR-0001. Siren refused both before as unrecognized lines, with no
+ * row to say so: `cls-direction-td-spelling` writes it down. No `supported`
+ * row moved: `cls-member-punctuation`, `cls-member-markers-only`,
+ * `cls-member-repeated` and `cls-method-last-paren`, new beside it, are
+ * `supported`. `silently-wrong` does not move.
+ *
+ * **70 → 71: case (2), a refusal written down for the first time.**
+ * `01M51XACB6WMSE98954326VAZ7` drew the shapes Mermaid 12.2.0 draws with no
+ * text (`fc-node-shape-data-labelless`, `fc-node-shape-data-labelless-lr`,
+ * `supported`) and refused a label written for one
+ * (`fc-node-shape-data-labelless-label`): Mermaid empties it and draws the
+ * bare shape (measured, Chrome), refused under ADR-0001. Siren refused every
+ * one of these shapes before, as not drawn yet. No `supported` row moved.
+ * `silently-wrong` does not move.
+ *
+ * **71 → 72: case (2), a refusal written down for the first time.**
+ * `01M51Z1XFFERJ5P7G4WATQMJ74` refused a class diagram's `direction` whose
+ * value sets nothing — `direction lr`, `direction XX`, a bare `direction` —
+ * as `direction TD` is: Mermaid 12.2.0 keeps the direction before
+ * (measured, Chrome), refused under ADR-0001, naming the one to write.
+ * Siren refused each before as an unrecognized line, with no row to say so:
+ * `cls-direction-value-case` writes it down. No `supported` row moved:
+ * `cls-member-visibility-space`, `cls-method-nameless` and
+ * `cls-member-empty-line`, new beside it, are `supported`.
+ * `silently-wrong` does not move.
+ *
+ * **72 → 70: two rows supported.** The edge-data work drew a
+ * flowchart edge's `@{ animate: true }` (`fc-edge-id`) and applied a
+ * `classDef` to an edge id (`fc-edge-id-class`), each refused before.
+ * `fc-edge-data-animation-and-curve`, new beside them, is `supported`.
+ * `silently-wrong` does not move.
+ *
+ * **70 → 71: case (2), a refusal written down for the first time.** A
+ * `style`, `class` or `:::` naming a small circle or an anchor, which
+ * Mermaid 12.2.0 draws in their own paint whatever the declaration says
+ * (measured, Chrome), refused under ADR-0001
+ * (`fc-node-shape-data-own-paint-style`). Siren drew it before, with the
+ * declaration applied, and no row said so. No `supported` row moved.
+ * `silently-wrong` does not move.
+ *
+ * **71 → 73: one row falls, three refusals written down for the first
+ * time.** `01M51XACZJ` drew icon nodes from packs the
+ * caller registers: `fc-node-shape-data-undrawn` (`shape: icon`) moved from
+ * `rejected` to `supported` (71 → 70). It refused an icon `form`, a `pos`
+ * and an `h` Mermaid 12.2.0 draws silently wrong (`fc-node-icon-form-unknown`,
+ * `fc-node-icon-pos-unknown`, `fc-node-icon-size-invalid`; measured, Chrome),
+ * under ADR-0001 (70 → 73). Siren refused every icon key before, as not
+ * supported yet, with `fc-node-shape-data-icon` the one row to say so; that
+ * row stays `rejected`, now for an icon whose pack is not registered. No
+ * `supported` row moved. `silently-wrong` does not move.
+ *
+ * **73 → 75: case (2), two refusals written down for the first time.** A
+ * class applied to a flowchart edge that would animate it
+ * (`fc-edge-class-animation`), which Mermaid 12.2.0 animates with keyframes
+ * of its own, and a `class e1 c` written above its edge
+ * (`fc-edge-class-above-edge`), which Mermaid applies to nothing: both
+ * measured in headless Chrome, both refused under ADR-0001 since the edge
+ * work, with no row to say so. No `supported` row moved. `silently-wrong`
+ * does not move.
+ *
+ * **75 → 78: case (2), three refusals written down for the first time.**
+ * `01M51XAD64` drew an image node from a data URL
+ * (`fc-node-image-data-url`, `supported`) and refused an image at a URL
+ * (`fc-node-image-url`), which Mermaid 12.2.0 loads and Siren never fetches
+ * — a deliberate departure — and, under ADR-0001, a `constraint` Mermaid
+ * draws silently unconstrained (`fc-node-image-constraint-unknown`) and an
+ * `icon:` beside an `img:`, which Mermaid drops (`fc-node-image-and-icon`;
+ * measured, Chrome). Siren refused every `img:` before, as not supported
+ * yet, with no row to say so. No `supported` row moved. `silently-wrong`
+ * does not move.
  */
-const REJECTED = 60;
+const REJECTED = 78;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

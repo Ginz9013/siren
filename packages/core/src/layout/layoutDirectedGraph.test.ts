@@ -4,6 +4,7 @@ import type { Direction, Point } from "../contracts";
 import {
   LAYOUT_MARGIN,
   layoutDirectedGraph,
+  UnroutableMemberEdgeError,
   type DirectedGraphInput,
   type DirectedGraphNodeBox,
 } from "./layoutDirectedGraph";
@@ -1173,4 +1174,196 @@ describe("layoutDirectedGraph's terminal labels", () => {
       for (const point of points) expect(inside({ ...point, width: 0, height: 0 }, LAYOUT_MARGIN)).toBe(true);
     },
   );
+});
+
+describe("layoutDirectedGraph routes an edge between clusters nested inside a cluster that keeps its direction", () => {
+  /**
+   * A TB diagram: `A` declares LR and holds `B`, which holds `F` and the
+   * cluster `C`, which holds `G`; the one edge runs `F --> G`. Measured in
+   * headless Chrome against Mermaid 12.2.0: `F` and `C` (holding `G`) sit
+   * side by side, `G` to the right of `F`, and the edge runs straight from
+   * one to the other — `A` keeps its direction, since the edge's ends share
+   * no parent but their common ancestor is `B`, below it.
+   */
+  const nested = (): DirectedGraphInput => ({
+    direction: "TB",
+    nodes: [
+      { id: "A", width: 0, height: 0, cluster: { padding: 8, title: { width: 10, height: 20 }, direction: "LR" } },
+      { id: "B", width: 0, height: 0, parentId: "A", cluster: { padding: 8, title: { width: 10, height: 20 } } },
+      { id: "F", width: 60, height: 40, parentId: "B" },
+      { id: "C", width: 0, height: 0, parentId: "B", cluster: { padding: 8, title: { width: 10, height: 20 } } },
+      { id: "G", width: 60, height: 40, parentId: "C" },
+    ],
+    edges: [{ id: "F-G", from: "F", to: "G" }],
+  });
+
+  it("lays it out in the kept direction and routes the edge from one box to the other", () => {
+    const result = layoutDirectedGraph(nested());
+    const boxes = Object.fromEntries(result.nodes.map((box) => [box.id, box]));
+    expect(centre(boxes.G!).x).toBeGreaterThan(centre(boxes.F!).x);
+    const route = result.edges.find((edge) => edge.id === "F-G")!.points;
+    expect(route.length).toBeGreaterThanOrEqual(2);
+    expect(onOutline(route[0]!, boxes.F!)).toBe(true);
+    expect(onOutline(route[route.length - 1]!, boxes.G!)).toBe(true);
+  });
+});
+
+describe("layoutDirectedGraph over nested clusters, directions and edges across levels", () => {
+  /** A small deterministic generator (mulberry32), so a failing case can be named by its seed. */
+  const random = (seed: number) => () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const DIRECTIONS = ["TB", "BT", "LR", "RL"] as const;
+
+  /**
+   * Up to six clusters nested to any depth (each inside the diagram or an
+   * earlier cluster), each with or without a direction of its own, one or
+   * two boxes in each and a box or two outside them all, and up to five
+   * edges between any two of those boxes and clusters.
+   */
+  const caseFor = (seed: number): DirectedGraphInput => {
+    const next = random(seed);
+    const pick = <T,>(items: readonly T[]): T => items[Math.floor(next() * items.length)]!;
+    const nodes: DirectedGraphInput["nodes"][number][] = [];
+    const clusters: string[] = [];
+    const clusterCount = 1 + Math.floor(next() * 6);
+    for (let i = 0; i < clusterCount; i++) {
+      const id = `K${i}`;
+      const parentId = i === 0 || next() < 0.2 ? undefined : pick(clusters);
+      const direction = next() < 0.5 ? pick(DIRECTIONS) : undefined;
+      nodes.push({
+        id,
+        width: 0,
+        height: 0,
+        ...(parentId === undefined ? {} : { parentId }),
+        cluster: { padding: 8, title: { width: 10, height: 20 }, ...(direction === undefined ? {} : { direction }) },
+      });
+      clusters.push(id);
+    }
+    let boxCount = 0;
+    const box = (parentId?: string) =>
+      nodes.push({ id: `N${boxCount++}`, width: 40, height: 30, ...(parentId === undefined ? {} : { parentId }) });
+    for (const cluster of clusters) {
+      box(cluster);
+      if (next() < 0.4) box(cluster);
+    }
+    box();
+    if (next() < 0.5) box();
+    const ids = nodes.map((node) => node.id);
+    const edgeCount = 1 + Math.floor(next() * 5);
+    const edges: DirectedGraphInput["edges"][number][] = [];
+    for (let i = 0; i < edgeCount; i++) {
+      const from = pick(ids);
+      const to = pick(ids.filter((id) => id !== from));
+      edges.push({ id: `e${i}`, from, to });
+    }
+    return { direction: pick(DIRECTIONS), nodes, edges };
+  };
+
+  it("lays every case out, routing every edge, or refuses an edge from a cluster to its own member — never another throw", () => {
+    const failures: string[] = [];
+    for (let seed = 1; seed <= 400; seed++) {
+      const input = caseFor(seed);
+      try {
+        const result = layoutDirectedGraph(input);
+        for (const edge of result.edges) {
+          if (edge.points.length < 2) failures.push(`seed ${seed}: edge ${edge.id} has ${edge.points.length} points`);
+        }
+      } catch (error) {
+        // One refusal is expected: an edge from a cluster to its own member
+        // inside a cluster that keeps a direction, which Mermaid 12.2.0
+        // cannot draw either (measured, Chrome), refused before ELK is asked
+        // and reported to the author as an error. Anything else thrown — the
+        // engine's own refusal, Siren's own error, a TypeError — is a defect.
+        if (error instanceof UnroutableMemberEdgeError) continue;
+        failures.push(`seed ${seed}: ${String(error)} ${JSON.stringify(input)}`);
+      }
+    }
+    expect(failures).toEqual([]);
+  }, 120_000);
+});
+
+describe("layoutDirectedGraph refuses an edge from a cluster to its own member inside a cluster that keeps its direction", () => {
+  /**
+   * Measured in headless Chrome against Mermaid 12.2.0, which fails on each
+   * the same way ELK does (the edge's end "could not be found"): `A` keeps
+   * `direction LR` and holds `B`, which holds `F`, with `B --> F`, `F --> B`
+   * or `B --> C` where `C` sits inside `B`; also with `B` itself declaring a
+   * direction, and with a cluster holding a direction of its own between
+   * `A` and `B`. It draws `A --> F` (the edge's cluster keeps the direction
+   * itself), `B --> F` with no direction above `B`, `B --> G` where `G` is
+   * not inside `B`, and `B --> F` once another edge leaving `A` takes its
+   * direction away.
+   */
+  const cluster = (id: string, parentId?: string, direction?: Direction) => ({
+    id,
+    width: 0,
+    height: 0,
+    ...(parentId === undefined ? {} : { parentId }),
+    cluster: { padding: 8, title: { width: 10, height: 20 }, ...(direction === undefined ? {} : { direction }) },
+  });
+  const box = (id: string, parentId?: string) => ({ id, width: 40, height: 30, ...(parentId === undefined ? {} : { parentId }) });
+  const nodes = [cluster("A", undefined, "LR"), cluster("B", "A"), box("F", "B"), cluster("C", "B"), box("G", "C")];
+  const thrown = (input: DirectedGraphInput): unknown => {
+    try {
+      layoutDirectedGraph(input);
+      return null;
+    } catch (error) {
+      return error;
+    }
+  };
+
+  it.each([
+    ["B --> F", "B", "F", "B"],
+    ["F --> B", "F", "B", "B"],
+    ["B --> C", "B", "C", "B"],
+    ["B --> G", "B", "G", "B"],
+  ])("refuses %s, naming the edge, its cluster, the member and the cluster whose direction holds", (_, from, to, holder) => {
+    const error = thrown({ direction: "TB", nodes, edges: [{ id: "e", from, to }] });
+    expect(error).toBeInstanceOf(UnroutableMemberEdgeError);
+    expect(error).toBeInstanceOf(LayoutEngineError);
+    const refused = error as UnroutableMemberEdgeError;
+    expect([refused.edgeId, refused.clusterId, refused.memberId, refused.directedClusterId, refused.direction]).toEqual([
+      "e",
+      holder,
+      holder === from ? to : from,
+      "A",
+      "LR",
+    ]);
+  });
+
+  it("lays out the same edges where no cluster above the edge's cluster keeps a direction", () => {
+    for (const edges of [
+      [{ id: "e", from: "A", to: "F" }],
+      [{ id: "e", from: "B", to: "F" }, { id: "x", from: "X", to: "F" }],
+    ]) {
+      expect(thrown({ direction: "TB", nodes: [...nodes, box("X")], edges })).toBeNull();
+    }
+    const undirected = nodes.map((node) => (node.id === "A" ? cluster("A") : node));
+    expect(thrown({ direction: "TB", nodes: undirected, edges: [{ id: "e", from: "B", to: "F" }] })).toBeNull();
+  });
+
+  it("decides by the cluster just above the edge's cluster: refused when it is laid out apart, drawn when an edge has drawn it into its parent's pass", () => {
+    // Measured (Chrome): `A` (`direction LR`) holding `M` holding `B`
+    // (holding `F`), with `B --> F`, fails as above — `M` keeps no direction
+    // but is laid out apart with `A`. Add `C` (holding `G`) inside `M` and
+    // `G --> B`, which pulls `M` into one pass with what it holds, and
+    // Mermaid 12.2.0 draws `B --> F` beside it.
+    const layered = [cluster("A", undefined, "LR"), cluster("M", "A"), cluster("B", "M"), box("F", "B"), cluster("C", "M"), box("G", "C")];
+    const plain = thrown({ direction: "TB", nodes: layered, edges: [{ id: "e", from: "B", to: "F" }] });
+    expect((plain as UnroutableMemberEdgeError).directedClusterId).toBe("A");
+    expect(
+      thrown({
+        direction: "TB",
+        nodes: layered,
+        edges: [
+          { id: "g", from: "G", to: "B" },
+          { id: "e", from: "B", to: "F" },
+        ],
+      }),
+    ).toBeNull();
+  });
 });

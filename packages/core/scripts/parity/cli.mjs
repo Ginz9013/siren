@@ -6,21 +6,33 @@
 
 import { compareLayouts, compareSizes, measureEdges, WORST_COUNT } from "./metrics.mjs";
 
+/** The looks Mermaid draws a flowchart in, as `--look` names them. */
+const LOOKS = ["classic", "neo"];
+
 /**
- * `parity [file…] [--json]`. No files means every fixture.
+ * `parity [file…] [--json] [--look classic|neo]`. No files means every
+ * fixture; no `--look` means Mermaid's own default look (`neo` in 12.2.0).
  *
  * @param {string[]} argv the arguments after the script name
- * @returns {{ files: string[], json: boolean }}
+ * @returns {{ files: string[], json: boolean, look?: "classic" | "neo" }}
  */
 export function parseArgs(argv) {
+  const usage = "Usage: parity [file…] [--json] [--look classic|neo]";
   const files = [];
   let json = false;
-  for (const arg of argv) {
+  let look;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
     if (arg === "--json") json = true;
-    else if (arg.startsWith("--")) throw new Error(`Unknown option ${arg}. Usage: parity [file…] [--json]`);
+    else if (arg === "--look" || arg.startsWith("--look=")) {
+      const value = arg === "--look" ? argv[++i] : arg.slice("--look=".length);
+      if (value === undefined) throw new Error(`--look needs a look, classic or neo. ${usage}`);
+      if (!LOOKS.includes(value)) throw new Error(`Unknown look ${value}: use classic or neo. ${usage}`);
+      look = value;
+    } else if (arg.startsWith("--")) throw new Error(`Unknown option ${arg}. ${usage}`);
     else files.push(arg);
   }
-  return { files, json };
+  return look === undefined ? { files, json } : { files, json, look };
 }
 
 /**

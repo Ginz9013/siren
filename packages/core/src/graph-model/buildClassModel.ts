@@ -105,14 +105,12 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
 }
 
 /**
- * One class under construction, plus the set of member line texts it has
- * already taken — the bookkeeping the union in `addMembers` needs, kept
- * beside the class rather than inside it because it is not part of the
- * model this stage returns.
+ * One class under construction, plus the bookkeeping kept beside it
+ * rather than inside it because it is not part of the model this stage
+ * returns.
  */
 interface ClassAccumulator {
   resolved: ResolvedClass;
-  memberKeys: Set<string>;
   /** The line the class was first named on, when the declaration says. */
   firstLine?: number;
   /** The line its kept annotation was written on, when the declaration says. */
@@ -122,7 +120,6 @@ interface ClassAccumulator {
 function emptyClass(id: string, firstLine?: number): ClassAccumulator {
   return {
     resolved: { id, generic: null, annotation: null, label: null, members: [], namespaceId: null },
-    memberKeys: new Set<string>(),
     firstLine,
   };
 }
@@ -202,8 +199,8 @@ function genericAfterFirstNaming(declaration: ClassDecl, existing: ClassAccumula
  * implicit (named by a relationship) or explicit (`class X`, `class X { ...
  * }`, `X : member`) — so a class written about on four lines arrives here
  * four times. Reconciling those is this stage's work: a class keeps the
- * position of its first mention, and its members are the union of every
- * declaration's, in declaration order.
+ * position of its first mention, and its members are every declaration's,
+ * in declaration order, repeats included.
  */
 function resolveClasses(
   document: ClassDocument,
@@ -227,7 +224,7 @@ function resolveClasses(
     addMembers(existing, declaration.members);
 
     // An annotation and a generic are single-valued, so they cannot be
-    // unioned the way members are: the first one written is kept, as
+    // gathered the way members are: the first one written is kept, as
     // Mermaid 12.2.0 keeps it, dropping any other with no diagnostic
     // (measured, Chrome: `<<interface>> A` then `<<service>> A`, or both in
     // one block, draws only «interface») — a picture other than the one
@@ -398,59 +395,13 @@ function claimMembers(
 }
 
 /**
- * Adds one declaration's members to a class as a **union**: a member whose
- * rendered line text the class already carries is dropped, so `Animal :
- * +int age` written on two lines yields one line, not two. The first copy
- * is the one kept, along with its source position.
- *
- * The identity of a member is its authored line text — `+int age`,
- * `+swim() bool` (`memberLineText`) — which tracks what a reader sees
- * repeated.
- * Two members differing in visibility, type, parameters, return type or
- * classifier draw differently and are therefore different members, even
- * when they share a name; Mermaid lets a class carry both, and so does
- * this.
+ * Adds one declaration's members to a class, every one of them, in the
+ * order written: Mermaid 12.2.0 draws a member written twice twice —
+ * `A : +x` on two lines, `+x` twice in one block, or `class A { +x }`
+ * declared twice (measured, Chrome) — so a repeat is kept, not merged.
  */
 function addMembers(target: ClassAccumulator, members: ClassMember[]): void {
-  for (const member of members) {
-    const key = memberLineText(member);
-    if (target.memberKeys.has(key)) continue;
-    target.memberKeys.add(key);
-    target.resolved.members.push(member);
-  }
-}
-
-/**
- * The text a member is drawn as, rebuilt from the parts the parser kept —
- * the union key above. Deliberately duplicated from the layout stage's own
- * copy rather than shared: the model must not depend on layout (the
- * dependency runs the other way), and this stage needs the rule before any
- * measuring exists.
- *
- * The two spellings have since diverged on purpose, and must not be
- * "fixed" to match. This composes the **authored** spelling; layout
- * composes the **drawn** one, which converts a generic's `~T~` into the
- * `<T>` Mermaid draws. That is fine — a union key only has to be
- * consistent with itself, and it is computed at one stage from one source.
- *
- * The one visible consequence: a class declaring both `+List~int~ items`
- * and `+List<int> items` keeps two members here, because they are two
- * keys, and layout then draws the same line twice. The same holds for an
- * entity code, which layout decodes: `+#lt; x` and `+< x` are two keys,
- * both drawn `+< x` — as Mermaid 12.2.0 draws both (measured). Collapsing
- * that would mean keying on the drawn spelling, which means composing the
- * line once in this stage and carrying it on the contract for layout to
- * draw.
- */
-function memberLineText(member: ClassMember): string {
-  const visibility = member.visibility ?? "";
-  const classifier = member.classifier ?? "";
-  if (member.memberKind === "method") {
-    const returnType = member.returnType === null ? "" : ` ${member.returnType}`;
-    return `${visibility}${member.name}(${member.parameters ?? ""})${returnType}${classifier}`;
-  }
-  const type = member.type === null ? "" : `${member.type} `;
-  return `${visibility}${type}${member.name}${classifier}`;
+  target.resolved.members.push(...members);
 }
 
 /**

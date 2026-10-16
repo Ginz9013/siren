@@ -282,3 +282,18 @@ test("--json carries the per-diagram array under diagrams and the totals beside 
   assert.deepEqual(report.totals, corpusTotals(diagrams));
   assert.equal(report.totals.failed.siren, 1);
 });
+
+test("--look picks the look Mermaid draws in, classic or neo; absent, Mermaid's default", () => {
+  assert.deepEqual(parseArgs(["--look", "classic", "a.mmd"]), { files: ["a.mmd"], json: false, look: "classic" });
+  assert.deepEqual(parseArgs(["--look=neo"]), { files: [], json: false, look: "neo" });
+  assert.throws(() => parseArgs(["--look", "fancy"]), /fancy/);
+  assert.throws(() => parseArgs(["--look"]), /--look/);
+});
+
+import { buildPage } from "./page.mjs";
+
+test("the page asks Mermaid for the look it was given, and for none when given none", () => {
+  const input = { mermaidUrl: "m.js", sirenUrl: "s.js", idsUrl: "i.js", metricsUrl: "x.js", diagrams: [] };
+  assert.match(buildPage({ ...input, look: "classic" }), /const MERMAID_LOOK = "classic";/);
+  assert.match(buildPage(input), /const MERMAID_LOOK = null;/);
+});

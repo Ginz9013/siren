@@ -51,6 +51,18 @@ const TAUGHT_DIRECTIONS = [...CANONICAL_DIRECTION]
   .map(([spelling]) => spelling);
 
 /**
+ * The class-diagram `direction` statements a diagnostic names, in the order
+ * it names them — derived from `TAUGHT_DIRECTIONS`, so a message cannot name
+ * a direction the parser does not accept.
+ */
+const CLASS_DIRECTION_STATEMENTS: readonly string[] = TAUGHT_DIRECTIONS.map((direction) => `direction ${direction}`);
+
+/** The class-diagram `direction` statements to write, as a diagnostic names a choice (`quoteList`), each a code span. */
+export function classDirectionChoices(): string {
+  return quoteList(CLASS_DIRECTION_STATEMENTS, "`");
+}
+
+/**
  * The flowchart headers a diagnostic names — both keywords, every taught
  * direction, derived from the two lists the regex is derived from so the
  * message cannot name a set the parser does not accept.
@@ -141,15 +153,17 @@ const EVERY_KIND = Object.keys(DIAGRAM_HEADERS) as DiagramKind[];
 
 /**
  * Quotes a list of spellings the way every diagnostic in this parser names a
- * set the author could have written: `"a"`, `"a" or "b"`, `"a", "b", or "c"`.
+ * set the author could have written: `"a"`, `"a" or "b"`, `"a", "b", or "c"`
+ * — each between `mark`s, double quotes unless a caller names statements as
+ * code spans.
  *
  * The two-item form drops the comma because a two-item list reads as a
  * choice rather than an enumeration — which is what the class diagram's
  * message said by hand before this function existed, and it stays true now
  * that the same code prints the flowchart's eight.
  */
-function quoteList(spellings: readonly string[]): string {
-  const quoted = spellings.map((spelling) => `"${spelling}"`);
+function quoteList(spellings: readonly string[], mark = '"'): string {
+  const quoted = spellings.map((spelling) => `${mark}${spelling}${mark}`);
   if (quoted.length <= 1) {
     return quoted.join("");
   }
@@ -226,6 +240,29 @@ const CLASS_DIRECTION_TD_RE = /^direction\s+TD(?=\s*(?:%%|$))/;
  */
 export function isClassDirectionTD(line: string): boolean {
   return CLASS_DIRECTION_TD_RE.test(line);
+}
+
+const CLASS_DIRECTION_MISSPELLING_RE = /^direction(?:\s+(\w+)(?:\s+\w+)*)?$/;
+
+/**
+ * A class diagram's `direction` statement that sets no direction — a value
+ * in the wrong case (`direction lr`, `direction Td`), one with words after
+ * it (`direction TD x`), one no rule names (`direction XX`), or none at all
+ * — as written (`written`, the line with any `%%` comment already left off
+ * by the caller, which knows the diagram's quoting rule), and the direction its first
+ * word names in capitals (`TD` naming `TB`), or `null` for none. `null`
+ * altogether for any other line. Measured on Mermaid 12.2.0, none sets a
+ * direction: each keeps the one before it, with no diagnostic (`direction
+ * td %% x` is a parse error). One with a `;` (`direction TD;`, a lexical
+ * error) or other punctuation is no such statement. A line that also holds a
+ * direction the class lexer applies (`direction lr direction LR`) is not
+ * one either; the caller asks about that first, and reads `direction LR`
+ * and `direction TD` themselves before asking.
+ */
+export function classDirectionMisspelling(written: string): { written: string; value: Direction | null } | null {
+  const match = CLASS_DIRECTION_MISSPELLING_RE.exec(written);
+  if (match === null) return null;
+  return { written, value: match[1] === undefined ? null : (CANONICAL_DIRECTION.get(match[1].toUpperCase()) ?? null) };
 }
 
 /**

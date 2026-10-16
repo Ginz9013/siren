@@ -61,9 +61,23 @@ const EFFECTS_BY_KIND: Readonly<
   unhighlight: null,
 };
 
+/** Whether `word` is one of the timeline verbs (`enter`, `exit`, `highlight`, `unhighlight`). */
+export function isTimelineVerb(word: string): boolean {
+  return Object.hasOwn(EFFECTS_BY_KIND, word);
+}
+
 /** Whether `line` (already trimmed) opens a timeline block, named or not. */
 export function isTimelineHeader(line: string): boolean {
   return TIMELINE_HEADER_RE.test(line);
+}
+
+/**
+ * The refusal for an action that is not `verb target [effect]`. Exported so
+ * `parseSiren`, which alone knows when a comment cut the target off, can
+ * recognize this refusal and say why instead.
+ */
+export function unrecognizedActionMessage(action: string): string {
+  return `Unrecognized timeline action: "${action}"`;
 }
 
 /** The name a header line declares, or `null` for the unnamed `timeline:`. */
@@ -115,7 +129,7 @@ function parseTimelineLine(
     if (actionMatch === null) {
       diagnostics.push({
         severity: "error",
-        message: `Unrecognized timeline action: "${action}"`,
+        message: unrecognizedActionMessage(action),
         line: lineNumber,
         column,
       });

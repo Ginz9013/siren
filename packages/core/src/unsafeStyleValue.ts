@@ -28,16 +28,36 @@ export type UnsafeStyleValue =
  * refused, not sanitized, so being broader than the CSS grammar costs a
  * refusal of an unusable value and nothing else.
  *
- * A deliberately short list. It is not "every way CSS can fetch" — the
- * board named these two — so a future value-bearing sink (`image-set(`,
- * `-moz-binding`) belongs here, and this is the one place to add it. Note
- * that these patterns match *text*: an author can spell any of them with a
- * CSS escape, which is why `unsafeStyleValue` refuses a value carrying a
- * backslash before it can reach one of these names in disguise.
+ * Beside them, every other function an image value is written with, each
+ * of which can name a resource to fetch: `image-set(` (measured: a `mask:
+ * image-set('…' 1x)` made headless Chrome request the image), `cross-fade(`,
+ * `image(`, `element(` and `src(`. Each is matched with or without a vendor
+ * prefix (`-webkit-image-set(`, `-moz-element(`), and only as a whole name,
+ * so `my-image(` is not `image(`.
+ *
+ * Still not "every way CSS can fetch", so a future value-bearing sink
+ * belongs here, and this is the one place to add it. Note that these
+ * patterns match *text*: an author can spell any of them with a CSS escape,
+ * which is why `unsafeStyleValue` refuses a value carrying a backslash
+ * before it can reach one of these names in disguise, and a comment
+ * between a name and its paren, which is why comments are read out of the
+ * value first.
  */
+const fetching = (name: string, why = "can fetch a remote resource") => ({
+  pattern: new RegExp(`(?<![a-z0-9_-])(?:-[a-z]+-)?${name}\\s*\\(`, "i"),
+  name: `${name}(`,
+  why,
+});
 const REJECTED_VALUE_FUNCTIONS: { pattern: RegExp; name: string; why: string }[] = [
+  // These two anywhere in the value, as they always were: a broader match
+  // than the grammar costs only the refusal of a value nobody can use.
   { pattern: /url\s*\(/i, name: "url(", why: "can fetch a remote resource" },
   { pattern: /expression\s*\(/i, name: "expression(", why: "can execute script" },
+  fetching("image-set"),
+  fetching("cross-fade"),
+  fetching("image"),
+  fetching("element"),
+  fetching("src"),
 ];
 
 /**
@@ -45,8 +65,15 @@ const REJECTED_VALUE_FUNCTIONS: { pattern: RegExp; name: string; why: string }[]
  * may.
  */
 export function unsafeStyleValue(value: string): UnsafeStyleValue | null {
+  // A comment is nothing to CSS, so it is read out before the names are
+  // looked for: `image-set/**/(` is `image-set(`. One never closed runs to
+  // the end of the value, and is refused rather than guessed at.
+  const uncommented = value.replace(/\/\*[\s\S]*?\*\//g, "");
+  if (uncommented.includes("/*")) {
+    return { kind: "function", name: "/*", why: "opens a comment that is never closed" };
+  }
   for (const { pattern, name, why } of REJECTED_VALUE_FUNCTIONS) {
-    if (pattern.test(value)) {
+    if (pattern.test(uncommented)) {
       return { kind: "function", name, why };
     }
   }

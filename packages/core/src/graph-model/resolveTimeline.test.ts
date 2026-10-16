@@ -385,3 +385,39 @@ describe("resolveTimelineBlocks", () => {
     });
   });
 });
+
+/**
+ * An action naming an id two drawn things answer to — a flowchart node
+ * `A-B` and the edge `A --> B`, both `data-siren-id="A-B"`
+ * (01M51XADJKSGRYG5CM1GG0T91R). Such a document is drawn; only a timeline
+ * naming the id cannot say which of the two it means.
+ */
+describe("resolveTimeline with an id more than one target holds", () => {
+  it("drops an action naming that id with an error, and keeps the rest", () => {
+    const diagnostics: Diagnostic[] = [];
+
+    const resolved = resolveTimeline(
+      {
+        entries: [
+          { kind: "enter", step: 1, targetId: "A", effect: "fade" },
+          { kind: "enter", step: 2, targetId: "A-B", effect: "fade", line: 6, column: 3 },
+        ],
+      },
+      new Set(["A", "B", "A-B"]),
+      diagnostics,
+      { ambiguousTargetIds: new Set(["A-B"]) },
+    );
+
+    expect(resolved.entries).toEqual([{ kind: "enter", step: 1, targetId: "A", effect: "fade" }]);
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'timeline: "A-B" is the id of more than one thing in the diagram, so this action cannot tell which it means. ' +
+          "Give one of them another id",
+        line: 6,
+        column: 3,
+      },
+    ]);
+  });
+});

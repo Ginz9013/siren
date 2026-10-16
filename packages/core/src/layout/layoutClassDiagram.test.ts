@@ -417,7 +417,7 @@ describe("layoutClassDiagram", () => {
   });
 
   describe("member text", () => {
-    it("rebuilds each member line from the parts the model kept, classifier last", () => {
+    it("rebuilds each member line from the parts the model kept, its classifier left out of the text", () => {
       const diagram = layoutClassDiagram(
         classModel({
           classes: [
@@ -445,12 +445,115 @@ describe("layoutClassDiagram", () => {
       const duck = classById(diagram, "Duck");
       expect(duck.attributes!.members.map((m) => m.text)).toEqual([
         "+String beakColor",
-        "-id$",
+        "-id",
       ]);
       expect(duck.methods!.members.map((m) => m.text)).toEqual([
         "+swim() : bool",
-        "#quack(int times)*",
+        "#quack(int times)",
       ]);
+    });
+
+    it("gives a member line that draws no text no height, so the next line moves up", () => {
+      // Measured (Mermaid 12.2.0, Chrome): in `+x` ⏎ `$` ⏎ `+y` the `$`
+      // line's label is 0 high and `+y` sits right under `+x`; the same for
+      // `*`. Either is an attribute, wherever it is written.
+      const layout = (members: ClassMember[]) =>
+        classById(layoutClassDiagram(classModel({ classes: [cls("A", members)] }), { measureText: fakeMeasurer }), "A");
+      const x = attribute({ visibility: "+", name: "x" });
+      const y = attribute({ visibility: "+", name: "y" });
+      const f = method({ visibility: "+", name: "f" });
+      const g = method({ visibility: "+", name: "g" });
+      const without = layout([x, y, f, g]);
+      const withEmpty = layout([
+        x,
+        attribute({ name: "", classifier: "$" }),
+        y,
+        attribute({ name: "", classifier: "*" }),
+        f,
+        g,
+      ]);
+      expect(withEmpty.height).toBe(without.height);
+      const ys = (box: typeof without) =>
+        [...box.attributes!.members, ...box.methods!.members].filter((m) => m.text !== "").map((m) => [m.text, m.y]);
+      expect(ys(withEmpty)).toEqual(ys(without));
+    });
+
+    it("lays out a compartment whose every line draws no text as no compartment at all", () => {
+      // Measured (Mermaid 12.2.0, Chrome): `class A {` ⏎ `$` ⏎ `+f()` ⏎ `}`
+      // is exactly as tall as `class A {` ⏎ `+f()` ⏎ `}`, its dividers where
+      // that one's are — the `$` adds no room, not even the padding of a
+      // compartment of its own.
+      const layout = (members: ClassMember[]) =>
+        classById(layoutClassDiagram(classModel({ classes: [cls("A", members)] }), { measureText: fakeMeasurer }), "A");
+      const empty = attribute({ name: "", classifier: "$" });
+      const f = method({ visibility: "+", name: "f" });
+      const summary = (box: ReturnType<typeof layout>) => [
+        box.height,
+        box.attributes?.dividerY ?? null,
+        box.methods?.dividerY ?? null,
+      ];
+      expect(summary(layout([empty, f]))).toEqual(summary(layout([f])));
+    });
+
+    it("lays out a class whose only members draw no text as a class with none, by Siren's own divider rule", () => {
+      // Not Mermaid's: Mermaid 12.2.0 draws every class with both dividers,
+      // and a `$`-only block 12px shorter than an empty one (69 against 81,
+      // measured, Chrome). Siren draws a divider only above a compartment
+      // that draws something, so such a class is drawn as one with no
+      // members — a departure kept on purpose.
+      const layout = (members: ClassMember[]) =>
+        classById(layoutClassDiagram(classModel({ classes: [cls("A", members)] }), { measureText: fakeMeasurer }), "A");
+      const summary = (box: ReturnType<typeof layout>) => [box.height, box.attributes, box.methods];
+      expect(
+        summary(layout([attribute({ name: "", classifier: "$" }), attribute({ name: "", classifier: "*" })])),
+      ).toEqual(summary(layout([])));
+    });
+
+    it("draws one space after the visibility marker when the member wrote one", () => {
+      // Measured (Mermaid 12.2.0, Chrome): `+ x` draws `+ x`, `- int x`
+      // `- int x` and `+ foo() bool` `+ foo() : bool`.
+      const box = classById(
+        layoutClassDiagram(
+          classModel({
+            classes: [
+              cls("A", [
+                attribute({ visibility: "+", name: "x", spaceAfterVisibility: true }),
+                attribute({ visibility: "-", type: "int", name: "x", spaceAfterVisibility: true }),
+                method({ visibility: "+", name: "foo", returnType: "bool", spaceAfterVisibility: true }),
+              ]),
+            ],
+          }),
+          { measureText: fakeMeasurer },
+        ),
+        "A",
+      );
+      expect([...box.attributes!.members, ...box.methods!.members].map((m) => m.text)).toEqual([
+        "+ x",
+        "- int x",
+        "+ foo() : bool",
+      ]);
+    });
+
+    it("carries each member's classifier beside its text, and measures the line without it", () => {
+      // Measured (Mermaid 12.2.0, Chrome): `+x$` draws `+x` underlined and
+      // `+foo()* bool` draws `+foo() : bool` in italics — the classifier is
+      // a style on the whole line, never a character of it, so the line is
+      // as wide as the same member without one.
+      const layout = (members: ClassMember[]) =>
+        classById(layoutClassDiagram(classModel({ classes: [cls("A", members)] }), { measureText: fakeMeasurer }), "A");
+      const box = layout([
+        attribute({ visibility: "+", name: "x", classifier: "$" }),
+        attribute({ visibility: "+", name: "y" }),
+        method({ visibility: "+", name: "foo", parameters: "", returnType: "bool", classifier: "*" }),
+      ]);
+      expect([...box.attributes!.members, ...box.methods!.members].map((m) => [m.text, m.classifier])).toEqual([
+        ["+x", "$"],
+        ["+y", null],
+        ["+foo() : bool", "*"],
+      ]);
+      expect(layout([method({ visibility: "+", name: "foolong", parameters: "", classifier: "$" })]).width).toBe(
+        layout([method({ visibility: "+", name: "foolong", parameters: "" })]).width,
+      );
     });
 
     it("draws a method's return type after ` : `, and sizes the box from that text", () => {
@@ -613,13 +716,13 @@ describe("layoutClassDiagram", () => {
       ).toEqual(["+List<<> x", "+List<int<> x", "+foo(Map<♥> m)"]);
     });
 
-    it("decodes an entity code beside a classifier, which stays last", () => {
+    it("decodes an entity code beside a classifier, which is no part of the text", () => {
       expect(
         drawn(
           attribute({ visibility: "+", type: "int", name: "#lt;", classifier: "$" }),
           method({ visibility: "+", name: "foo", parameters: "#lt;", classifier: "*" }),
         ),
-      ).toEqual(["+int <$", "+foo(<)*"]);
+      ).toEqual(["+int <", "+foo(<)"]);
     });
   });
 

@@ -44,14 +44,52 @@ export function buildFlowchartModel(
   // id it names it by is minted here.
   const { subgraphs, idByName } = resolveSubgraphs(document, nodes);
   const edges = assignEdgeIds(document, idByName);
+  reportAuthoredEdgeIdClashes(document, nodes, idByName, edges, diagnostics);
 
   // Every styling statement a flowchart can write except one — `style`,
   // `classDef`, and the apply-directive in both its `class` and its `:::`
   // spelling — names a node. `linkStyle` is the exception, and it is
   // resolved separately below.
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  // An id the author gave an edge, named by one of those node statements,
+  // is the edge's: Mermaid 12.2.0 draws `class e1 c` as the edge painted
+  // with `c`, and `style e1 …` as nothing at all (measured), so the class is
+  // applied below and the `style` refused.
+  const idLineByEdgeId = new Map(
+    document.edges.flatMap((edge) => (edge.id === undefined ? [] : [[edge.id, edge.idLine ?? 0] as const])),
+  );
+  const edgeClasses: StyleDecl[] = [];
+  const nodeStyles = document.styles.map((declaration) => {
+    if (declaration.styleKind === "classDef") {
+      return declaration;
+    }
+    const onEdges = declaration.targetIds.filter((id) => !nodeById.has(id) && idLineByEdgeId.has(id));
+    for (const id of onEdges) {
+      if (declaration.styleKind === "style") {
+        diagnostics.push({
+          severity: "error",
+          message: `"${id}" is an edge, and style reaches only a node. Style an edge with linkStyle and its number`,
+          line: declaration.line,
+          column: declaration.column,
+        });
+      } else if ((declaration.line ?? 0) < idLineByEdgeId.get(id)!) {
+        // Mermaid applies a class to an edge only once the edge exists.
+        diagnostics.push({
+          severity: "error",
+          message: `The class statement names the edge "${id}" above the line it is written on, so it reaches nothing. Move it below the edge`,
+          line: declaration.line,
+          column: declaration.column,
+        });
+      } else {
+        edgeClasses.push({ ...declaration, targetIds: [id] });
+      }
+    }
+    return onEdges.length === 0
+      ? declaration
+      : { ...declaration, targetIds: declaration.targetIds.filter((id) => !onEdges.includes(id)) };
+  });
   for (const { targetId, style } of resolveStyles(
-    withImplicitDefaultClass(document.styles, [...nodeById.keys()]),
+    withImplicitDefaultClass(nodeStyles, [...nodeById.keys()]),
     new Set(nodeById.keys()),
     diagnostics,
   )) {
@@ -70,11 +108,22 @@ export function buildFlowchartModel(
   // `resolveInteractions` reads a flowchart's `click` statements without
   // knowing the kind it was handed. A node with no interaction of its own
   // keeps the `null` it was built with.
-  for (const interaction of resolveInteractions(
-    document.interactions,
-    new Set(nodeById.keys()),
-    diagnostics,
-  )) {
+  // An id the author gave an edge is no node, so a click naming it is told
+  // that, rather than that it names nothing: Mermaid 12.2.0 makes nothing
+  // clickable for `click e1 …` after `A e1@--> B` (measured).
+  const nodeInteractions = document.interactions.filter((interaction) => {
+    if (nodeById.has(interaction.targetId) || !idLineByEdgeId.has(interaction.targetId)) {
+      return true;
+    }
+    diagnostics.push({
+      severity: "error",
+      message: `"${interaction.targetId}" is an edge, and a click reaches only a node. Leave the click out, or name a node`,
+      line: interaction.line,
+      column: interaction.column,
+    });
+    return false;
+  });
+  for (const interaction of resolveInteractions(nodeInteractions, new Set(nodeById.keys()), diagnostics)) {
     nodeById.get(interaction.targetId)!.interaction = interaction;
   }
 
@@ -99,8 +148,51 @@ export function buildFlowchartModel(
   // means two `linkStyle default` statements still settle between
   // themselves by ADR-0008's last-declaration-wins, because they are one
   // tier and not one tier each.
+  // A class applied to an edge is the tier beneath both: Mermaid writes its
+  // declarations first and the `linkStyle`'s after them (measured, a
+  // `linkStyle` written above the `class` still wins). A class that would
+  // animate the edge is refused: Mermaid animates it with keyframes of its
+  // own, which this stylesheet does not carry, and the edge's own
+  // `e1@{ animate: true }` says the same thing.
+  const classDefs = document.styles.filter((declaration) => declaration.styleKind === "classDef");
+  // The class definitions were read once already, for the nodes above, so
+  // what reading them again finds is not reported a second time.
+  const edgeClassDiagnostics: Diagnostic[] = [];
+  const resolvedEdgeClasses = resolveStyles([...classDefs, ...edgeClasses], edgeIds, edgeClassDiagnostics);
+  const reported = new Set(diagnostics.map((diagnostic) => JSON.stringify(diagnostic)));
+  diagnostics.push(...edgeClassDiagnostics.filter((diagnostic) => !reported.has(JSON.stringify(diagnostic))));
+  // The class whose definition animates, per class name.
+  const animatingClasses = new Set(
+    classDefs.flatMap(({ name, properties }) =>
+      name !== null && properties.some(({ property }) => property === "animation") ? [name] : [],
+    ),
+  );
+  for (const { targetId, style } of resolvedEdgeClasses) {
+    const animating = style.frame.some(({ property }) => property === "animation");
+    if (animating) {
+      // The statement that applied an animating class to this edge — the
+      // last, as the one whose `animation` was kept.
+      const applied = [...edgeClasses]
+        .reverse()
+        .find(
+          (declaration) =>
+            declaration.targetIds.includes(targetId) && declaration.name !== null && animatingClasses.has(declaration.name),
+        )!;
+      diagnostics.push({
+        severity: "error",
+        message: `A class cannot animate the edge "${targetId}". Write ${targetId}@{ animate: true } below the edge instead`,
+        line: applied.line,
+        column: applied.column,
+      });
+    }
+    edgeById.get(targetId)!.style = {
+      ...style,
+      frame: style.frame.filter(({ property }) => property !== "animation"),
+    };
+  }
   for (const { targetId, style } of resolveStyles(fallback, edgeIds, diagnostics)) {
-    edgeById.get(targetId)!.style = style;
+    const edge = edgeById.get(targetId)!;
+    edge.style = overriding(edge.style, style);
   }
   for (const { targetId, style } of resolveStyles(specific, edgeIds, diagnostics)) {
     const edge = edgeById.get(targetId)!;
@@ -115,23 +207,35 @@ export function buildFlowchartModel(
     edgeById.get(targetId)!.curve = curve;
   }
 
+  // What an edge's own `e1@{ … }` data says: its animation, and its curve
+  // on the terms `GraphEdge.curve` states against `linkStyle`.
+  applyEdgeData(document, edges, addressed, diagnostics);
+
   // A subgraph is a timeline target on the same terms as a node and an edge:
   // it is a drawn thing with an id, and board 2's rule is that a diagram kind
   // gains animation by tagging what it draws with the ids the timeline uses.
   // A class diagram's namespace has been addressable this way since the class
   // board, and a frame nobody could name would be a decision by omission
   // rather than a feature that was not reached.
-  const validTargetIds = new Set<string>([
-    ...nodes.map((n) => n.id),
-    ...edges.map((e) => e.id),
-    ...subgraphs.map((s) => s.id),
-  ]);
+  const targetIds = [...nodes.map((n) => n.id), ...edges.map((e) => e.id), ...subgraphs.map((s) => s.id)];
+  const validTargetIds = new Set<string>();
+  // An id two drawn things answer to — the node `A-B` and the edge
+  // `A --> B` — which a timeline cannot name. An edge id the author wrote
+  // never lands here: one that clashes is refused above.
+  const ambiguousTargetIds = new Set<string>();
+  for (const id of targetIds) {
+    if (validTargetIds.has(id)) {
+      ambiguousTargetIds.add(id);
+    }
+    validTargetIds.add(id);
+  }
 
   const timelines = resolveTimelineBlocks(
     document,
     validTargetIds,
     { connectors: edges, noun: "edge" },
     diagnostics,
+    { ambiguousTargetIds },
   );
 
   const graph: GraphModel = {
@@ -210,6 +314,8 @@ function resolveNodes(document: FlowchartDocument): GraphNode[] {
         id: node.id,
         label: node.label,
         shape: node.shape,
+        ...(node.icon === undefined ? {} : { icon: node.icon }),
+        ...(node.image === undefined ? {} : { image: node.image }),
         style: unstyled(),
         // Filled in by `resolveSubgraphs`, once the blocks have ids to point
         // at. `null` here rather than left out, so a node nobody grouped is
@@ -230,6 +336,12 @@ function resolveNodes(document: FlowchartDocument): GraphNode[] {
     // diamond, each with no diagnostic.
     existing.label = node.label;
     existing.shape = node.shape;
+    if (node.icon !== undefined) {
+      existing.icon = node.icon;
+    }
+    if (node.image !== undefined) {
+      existing.image = node.image;
+    }
   }
 
   return [...nodesById.values()];
@@ -328,8 +440,12 @@ function assignEdgeIds(
     const occurrence = (seenPairCounts.get(pairKey) ?? 0) + 1;
     seenPairCounts.set(pairKey, occurrence);
 
+    // An id the author gave the edge itself (`A e1@--> B`) replaces the
+    // derived one, and still counts as a repeat of its pair: Mermaid 12.2.0
+    // numbers a pair's edges across all of them, named or not (measured), so
+    // naming one edge never renumbers another.
     const baseId = `${edge.from}-${edge.to}`;
-    const id = occurrence === 1 ? baseId : `${baseId}#${occurrence}`;
+    const id = edge.id ?? (occurrence === 1 ? baseId : `${baseId}#${occurrence}`);
 
     // The arrow travels with the edge, from the token the parser read: a
     // spelling is decomposed once, and this stage has no business
@@ -346,6 +462,75 @@ function assignEdgeIds(
       label: edge.label,
       style: unstyled(),
     };
+  });
+}
+
+/**
+ * Refuses an id the author gave an edge (`A e1@--> B`) that something else
+ * already answers to, at the id: a timeline action or a `data-siren-id`
+ * lookup naming it would otherwise reach two things. Measured on Mermaid
+ * 12.2.0, such a document is drawn wrong rather than refused — after `A
+ * e1@--> B`, a line `e1` draws no node at all.
+ */
+function reportAuthoredEdgeIdClashes(
+  document: FlowchartDocument,
+  nodes: readonly GraphNode[],
+  subgraphIdByName: ReadonlyMap<string, string>,
+  edges: readonly GraphEdge[],
+  diagnostics: Diagnostic[],
+): void {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const written = document.edges;
+  const indicesById = new Map<string, number[]>();
+  edges.forEach(({ id }, index) => {
+    const indices = indicesById.get(id);
+    if (indices === undefined) {
+      indicesById.set(id, [index]);
+    } else {
+      indices.push(index);
+    }
+  });
+  written.forEach((edge, index) => {
+    if (edge.id === undefined) {
+      return;
+    }
+    if (nodeIds.has(edge.id)) {
+      diagnostics.push({
+        severity: "error",
+        message: `The edge id "${edge.id}" is already the id of the node "${edge.id}". Give the edge another id`,
+        line: edge.idLine,
+        column: edge.idColumn,
+      });
+      return;
+    }
+    // A subgraph's name is what an edge endpoint addresses its frame by, so
+    // an edge answering to it too would leave `C --> S` meaning two things.
+    if (subgraphIdByName.has(edge.id)) {
+      diagnostics.push({
+        severity: "error",
+        message: `The edge id "${edge.id}" is already the name of the subgraph "${edge.id}". Give the edge another id`,
+        line: edge.idLine,
+        column: edge.idColumn,
+      });
+      return;
+    }
+    // The edge that holds the id first: any edge whose id was derived from
+    // its ends (`C-D`, `C-D#2`), or one named the same way earlier — so two
+    // edges given one id are reported once, at the second.
+    const holder = (indicesById.get(edge.id) ?? []).find(
+      (at) => at !== index && (written[at]!.id === undefined || at < index),
+    );
+    if (holder !== undefined) {
+      const { from, to } = written[holder]!;
+      diagnostics.push({
+        severity: "error",
+        message:
+          `The edge id "${edge.id}" of ${edge.from} --> ${edge.to} is already the id of the edge ${from} --> ${to}. ` +
+          "Give the edge another id",
+        line: edge.idLine,
+        column: edge.idColumn,
+      });
+    }
   });
 }
 
@@ -484,6 +669,66 @@ function resolveCurves(
     }
   }
   return curves;
+}
+
+/**
+ * Lays each edge's `e1@{ … }` data onto the edge it was written for, which
+ * `assignEdgeIds` built in the same order.
+ *
+ * The animation is Mermaid 12.2.0's reading: `animation` names the speed
+ * whatever `animate` says, and `animate` alone, tested for truth, is
+ * `fast`. The curve is the one a `linkStyle N interpolate` written later
+ * does not take back: Mermaid sets an edge's one curve as each is read, so
+ * the later of the two wins, and either beats `linkStyle default`.
+ */
+function applyEdgeData(
+  document: FlowchartDocument,
+  edges: readonly GraphEdge[],
+  addressed: readonly AddressedLinkStyle[],
+  diagnostics: Diagnostic[],
+): void {
+  // Where the last `linkStyle N interpolate` naming each edge was written.
+  const interpolatedAt = new Map<string, number>();
+  for (const { linkStyle, tier, targetIds } of addressed) {
+    if (tier === "specific" && linkStyle.interpolate !== undefined) {
+      for (const id of targetIds) {
+        interpolatedAt.set(id, linkStyle.line ?? 0);
+      }
+    }
+  }
+  document.edges.forEach(({ data }, index) => {
+    if (data === undefined) {
+      return;
+    }
+    const edge = edges[index]!;
+    const animation = data.animation ?? (data.animate === true ? "fast" : undefined);
+    if (animation !== undefined) {
+      edge.animation = animation;
+      // The march's dash beats an author's (Mermaid writes it
+      // `!important`, measured), so none is handed on to be drawn.
+      edge.style = {
+        ...edge.style,
+        frame: edge.style.frame.filter(({ property }) => property !== "stroke-dasharray"),
+      };
+    }
+    if (data.curve === undefined) {
+      return;
+    }
+    if (isMermaidOnlyCurve(data.curve) || !isCurve(data.curve)) {
+      diagnostics.push({
+        severity: "error",
+        message: isMermaidOnlyCurve(data.curve)
+          ? `The curve "${data.curve}" is one Siren does not draw yet. ${CURVES_SIREN_DRAWS}`
+          : `There is no curve "${data.curve}". ${CURVES_SIREN_DRAWS}`,
+        line: data.line,
+        column: data.column,
+      });
+      return;
+    }
+    if ((interpolatedAt.get(edge.id) ?? -1) < data.line) {
+      edge.curve = data.curve;
+    }
+  });
 }
 
 /** The fix both curve diagnostics end on: the names an `interpolate` can take. */

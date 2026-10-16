@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render } from "../index";
 import { BASE_FONT_SIZE_PX } from "../label/label";
+import { FRAME_PAINT } from "../layout/shapes/shape";
 
 /**
  * `default.css`'s own text — the artifact these tests are about.
@@ -453,6 +454,7 @@ M --x N[Cross end]
 N <--> O[Both ends]
 O -->|pipe label| P[Labelled]
 P -- inline label --> Q[Labelled too]
+Q ~~~ U[Invisibly linked]
 subgraph Outer
   subgraph Inner
     R[Grouped] --> S[Grouped too]
@@ -1783,5 +1785,162 @@ describe("default theme's paint for a connector label's background", () => {
     expect(shadowOf(group)).toBe("");
     expect(shadowOf(group.querySelector("rect.siren-connector-label-background")!)).toBe("");
     expect(shadowOf(group.querySelector(textSelector)!)).not.toBe("");
+  });
+});
+
+/**
+ * The paints a shape-table frame can wear beside `siren-node-frame`. Each is a class rather than an inline
+ * declaration, so the highlight rules — which select more classes — still
+ * outline the frame, and an author's inline `style` still wins.
+ */
+describe("default theme's paint for a node's shape-table frames", () => {
+  /** The first frame `id` draws in `source`, themed. */
+  const frameOf = (source: string, id: string) => {
+    const svg = renderThemedSVG(source);
+    const group = svg.querySelector(`g.siren-node[data-siren-id="${id}"]`)!;
+    return { group, frame: group.querySelector(".siren-node-frame")! };
+  };
+
+  it("leaves a text block's frame without fill or stroke, but outlines it when highlighted", () => {
+    const { group, frame } = frameOf('flowchart TB\n  A@{ shape: text, label: "Words" }', "A");
+    expect(getComputedStyle(frame).fill).toBe("none");
+    expect(getComputedStyle(frame).stroke).toBe("none");
+
+    group.classList.add("siren-highlight-outline");
+    expect(getComputedStyle(frame).stroke).toContain("--siren-highlight-color");
+    group.classList.remove("siren-highlight-outline");
+
+    frame.setAttribute("style", "stroke: rgb(204, 0, 0)");
+    expect(getComputedStyle(frame).stroke).toBe("rgb(204, 0, 0)");
+  });
+
+  it("paints a composite's frame as a subgraph's frame is painted: stroked like a node, never filled", () => {
+    const { frame } = frameOf('flowchart TB\n  A@{ shape: composite, label: "Group" }', "A");
+    expect(getComputedStyle(frame).fill).toBe("none");
+    expect(getComputedStyle(frame).stroke).toBe("var(--siren-node-stroke)");
+    expect(themeRules).toMatch(/\.siren-subgraph-frame\s*\{[^}]*fill:\s*none/);
+  });
+
+  it("paints a note node as the class and state diagrams paint a note", () => {
+    // Mermaid 12.2.0 asks for its note colours on a flowchart `note` and
+    // then paints it with the node's (measured in Chrome: its stylesheet's
+    // node rule outranks the colours it set); Siren's notes already take
+    // the node surface, so a flowchart note takes the same paint as a
+    // class diagram's — through a class of its own a theme can repaint.
+    const { frame } = frameOf('flowchart TB\n  A@{ shape: note, label: "Remember" }', "A");
+    expect(getComputedStyle(frame).fill).toBe("var(--siren-node-fill)");
+    expect(getComputedStyle(frame).stroke).toBe("var(--siren-node-stroke)");
+    expect(themeRules).toMatch(/\.siren-node-frame\.siren-node-note\s*\{/);
+  });
+
+  it("gives each paint a frame can name a rule: none unfilled, line filled with the line colour", () => {
+    // No shape in the table wears the line paint yet; it is the filled
+    // figure of a shape drawn in its line colour alone (a fork bar, a filled
+    // dot), and a frame wearing it must not be left to the node fill.
+    const { frame } = frameOf("flowchart TB\n  A[x]", "A");
+    frame.setAttribute("class", ["siren-node-frame", ...FRAME_PAINT.line].join(" "));
+    expect(getComputedStyle(frame).fill).toBe("var(--siren-node-stroke)");
+    frame.setAttribute("class", ["siren-node-frame", ...FRAME_PAINT.none].join(" "));
+    expect(getComputedStyle(frame).fill).toBe("none");
+    frame.setAttribute("class", ["siren-node-frame", ...FRAME_PAINT.node].join(" "));
+    expect(getComputedStyle(frame).fill).toBe("var(--siren-node-fill)");
+  });
+
+  it("fills a filled circle with the line colour, and lets an author's fill repaint it as Mermaid does", () => {
+    // Mermaid 12.2.0 draws `f-circ` in its line colour and, under
+    // `style A fill:#f00`, red (measured in Chrome): the author's fill wins
+    // over the shape's own paint, as it does on every other frame.
+    const plain = frameOf("flowchart TB\n  A@{ shape: f-circ }", "A").frame;
+    expect(getComputedStyle(plain).fill).toBe("var(--siren-node-stroke)");
+    const styled = frameOf("flowchart TB\n  A@{ shape: f-circ }\n  style A fill:#f00", "A").frame;
+    expect(getComputedStyle(styled).fill).toBe("#f00");
+  });
+});
+
+describe("default theme's invisible edge", () => {
+  it("draws an invisible edge with no width, and keeps it so under an outline highlight", () => {
+    // A timeline's `highlight … outline` does not make an invisible edge
+    // visible: an author shows one with `linkStyle`, which is inline and
+    // wins over every rule here.
+    const svg = renderThemedSVG(EVERY_FLOWCHART_FEATURE);
+    const path = svg.querySelector('path.siren-edge[data-siren-id="Q-U"]')!;
+
+    expect(path.classList.contains("siren-edge-invisible")).toBe(true);
+    expect(getComputedStyle(path).strokeWidth).toBe("0");
+    path.classList.add("siren-highlight-outline");
+    const highlighted = getComputedStyle(path).strokeWidth;
+    path.classList.remove("siren-highlight-outline");
+    expect(highlighted).toBe("0");
+
+    // jsdom's cascade is not specificity-aware (see above), so the cascade
+    // alone cannot show that a browser agrees: `.siren-edge.siren-highlight-outline`
+    // outranks a one-class `.siren-edge-invisible` there. The rule that keeps
+    // the edge invisible has to outrank it by itself.
+    expect(themeRules).toMatch(
+      /\.siren-edge\.siren-edge-invisible\.siren-highlight-outline\s*\{[^}]*stroke-width:\s*0;/,
+    );
+  });
+});
+
+describe("default theme's animated edge", () => {
+  /** The declarations of the one rule whose selector is exactly `selector`. */
+  const ruleBody = (selector: string): string => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return themeRules.match(new RegExp(`(?:^|[}\\s])${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+  };
+
+  it.each([
+    ["fast", "20s"],
+    ["slow", "50s"],
+  ])("marches a %s edge's dashes once every %s, as Mermaid draws it", (speed, duration) => {
+    // Mermaid 12.2.0's own rule, measured in headless Chrome:
+    // `stroke-dasharray: 9,5 !important; stroke-dashoffset: 900;
+    // animation: dash 20s linear infinite; stroke-linecap: round`, its
+    // `dash` keyframes taking the offset to 0. The dash is `!important`
+    // there, so it beats a dotted line and a `linkStyle` dash alike; this
+    // theme writes no `!important`, so it beats a line's class by
+    // specificity, and the model leaves an animated edge no author dash.
+    const body = ruleBody(".siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow)");
+
+    expect(body).toMatch(/stroke-dasharray:\s*var\(--siren-edge-march-dash\);/);
+    expect(body).toMatch(/stroke-dashoffset:\s*var\(--siren-edge-march-offset\);/);
+    expect(body).toMatch(/animation:\s*var\(--siren-edge-march\);/);
+    expect(body).toMatch(/stroke-linecap:\s*round;/);
+    expect(ruleBody(`.siren-edge-animation-${speed}`)).toMatch(
+      new RegExp(`--siren-edge-march:\\s*siren-edge-march\\s+var\\(--siren-edge-march-${speed}-duration\\)\\s+linear\\s+infinite;`),
+    );
+    expect(themeRules).toMatch(new RegExp(`--siren-edge-march-${speed}-duration:\\s*${duration};`));
+    expect(themeRules).toMatch(/--siren-edge-march-dash:\s*9 5;/);
+    expect(themeRules).toMatch(/--siren-edge-march-offset:\s*900;/);
+    expect(defaultThemeCss).toMatch(/@keyframes siren-edge-march\s*\{\s*to\s*\{\s*stroke-dashoffset:\s*0;\s*\}\s*\}/);
+  });
+
+  it("stops the march for a reader who asked for reduced motion", () => {
+    expect(defaultThemeCss).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.siren-edge:is\(\.siren-edge-animation-fast, \.siren-edge-animation-slow\)\s*\{\s*--siren-edge-march:\s*none;\s*\}\s*\}/,
+    );
+  });
+});
+
+describe("default theme's animated edge under a timeline", () => {
+  it.each([
+    ["fast", "siren-exit-fade", "siren-fade-out"],
+    ["slow", "siren-exit-slide-left", "siren-slide-out-left"],
+    ["fast", "siren-enter-slide-top", "siren-slide-in-top"],
+    ["slow", "siren-exit-slide-bottom", "siren-slide-out-bottom"],
+  ])("runs a %s edge's timeline effect %s, still marching beside it", (speed, effect, keyframes) => {
+    // An `exit e1 fade` must take the edge away: the march is an animation
+    // of its own, and an edge carries one `animation` shorthand, so the
+    // effect's keyframes and the march are run together rather than the
+    // march's rule taking the property from the effect.
+    const svg = renderThemedSVG(`flowchart LR\nA e1@--> B\ne1@{ animation: ${speed} }`);
+    const path = svg.querySelector('path.siren-edge[data-siren-id="e1"]')!;
+
+    path.classList.add(effect);
+    const animation = getComputedStyle(path).animation;
+    path.classList.remove(effect);
+
+    expect(animation).toContain(keyframes);
+    expect(animation).toContain("siren-edge-march");
   });
 });

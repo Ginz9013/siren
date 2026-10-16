@@ -116,6 +116,15 @@
   --siren-slide-duration: 500ms;
   --siren-slide-distance: 60px;
   --siren-highlight-duration: 300ms;
+  /* An animated edge's march (`e1@{ animate: true }`), as Mermaid 12.2.0
+     draws it: a 9,5 dash walked from 900 to 0 every 20s, or 50s slow. */
+  --siren-edge-march-dash: 9 5;
+  --siren-edge-march-offset: 900;
+  --siren-edge-march-fast-duration: 20s;
+  --siren-edge-march-slow-duration: 50s;
+  /* The march an animated edge runs, which its speed class names; none
+     until one does. */
+  --siren-edge-march: none;
 }
 
 /*
@@ -139,6 +148,45 @@
   stroke: var(--siren-node-stroke);
   stroke-width: var(--siren-stroke-width);
   rx: var(--siren-node-border-radius);
+}
+
+/*
+ * The paints a flowchart node's frame can wear beside `.siren-node-frame`,
+ * which its shape names in the shape table (`layout/shapes/`): two classes
+ * each, so they beat the frame's own rule and lose to the highlight rules
+ * (three) and to an author's inline `style`. Written here, ahead of the
+ * highlight rules, so that the order agrees with the specificity.
+ *
+ * `siren-node-bare` is a text block's frame: drawn, but neither filled nor
+ * stroked, so the label alone shows.
+ */
+.siren-node-frame.siren-node-bare {
+  fill: none;
+  stroke: none;
+}
+
+/* `siren-node-hollow` is a frame drawn unfilled: a composite node, which is
+   a group's frame standing alone and so takes `.siren-subgraph-frame`'s
+   paint. */
+.siren-node-frame.siren-node-hollow {
+  fill: none;
+}
+
+/* `siren-node-ink` is a frame filled with the colour the node's lines are
+   drawn in: a figure a shape draws solid, such as a bar or a dot. */
+.siren-node-frame.siren-node-ink {
+  fill: var(--siren-node-stroke);
+}
+
+/* `siren-node-note` is a note node's frame, painted with the node's own fill
+   and stroke tokens — the paint `.siren-note-frame` gives a class or state
+   diagram's note. Mermaid 12.2.0 asks for its note colours here and then
+   paints the node's (measured), and a note token of its own would stay light
+   under a theme that redeclares the palette on a container. A theme repaints
+   a note node through this class. */
+.siren-node-frame.siren-node-note {
+  fill: var(--siren-node-fill);
+  stroke: var(--siren-node-stroke);
 }
 
 /*
@@ -220,7 +268,7 @@
 }
 
 /*
- * The two lines an edge can be drawn with that the base rule above is not.
+ * The three lines an edge can be drawn with that the base rule above is not.
  * A solid edge has no class of its own: the rule above *is* the solid line,
  * so `A --> B` and `.siren-edge` stay one thing.
  *
@@ -238,6 +286,13 @@
  * that); and an author's own `linkStyle 0 stroke-width:6px` beats all of
  * them for the property it names, while leaving the ones it does not — a
  * recoloured dotted edge stays dotted.
+ *
+ * The invisible line (`A ~~~ B`) is the one exception to that order: it is
+ * drawn with no width, as Mermaid 12.2.0 draws it (its own stylesheet's
+ * `.edge-thickness-invisible { stroke-width: 0 }`), its label a sibling that
+ * stays drawn, and a highlight leaves it so — see the rule after
+ * `.siren-edge.siren-highlight-outline`. An author shows one with
+ * `linkStyle N stroke-width:4px`, which is inline and wins.
  */
 .siren-edge-dotted {
   stroke-dasharray: var(--siren-edge-dash);
@@ -245,6 +300,53 @@
 
 .siren-edge-thick {
   stroke-width: var(--siren-edge-thick-stroke-width);
+}
+
+.siren-edge-invisible {
+  stroke-width: 0;
+}
+
+/*
+ * An animated edge (`e1@{ animate: true }`, `animation: fast|slow`): its
+ * dashes march along it, as Mermaid 12.2.0 draws one (its stylesheet's
+ * `.edge-animation-fast`/`-slow`, measured in headless Chrome) — the
+ * `--siren-edge-march-*` tokens' dash, beating a dotted line's and an
+ * author's `linkStyle` dash alike, walked from its offset to 0. Mermaid
+ * wins those with `!important`; here two classes outrank a line's one, and
+ * the model leaves an animated edge no author dash to beat.
+ *
+ * The speed only names the march (`--siren-edge-march`), and the one rule
+ * after it runs it. A drawing of its own, independent of the timeline: an
+ * edge runs one `animation` shorthand, so a timeline effect's keyframes on
+ * an animated edge are run beside the march (the rules after the exit
+ * effects below) rather than one taking the property from the other. Under
+ * `prefers-reduced-motion` the march is `none` and the effects still run.
+ */
+@keyframes siren-edge-march {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.siren-edge-animation-fast {
+  --siren-edge-march: siren-edge-march var(--siren-edge-march-fast-duration) linear infinite;
+}
+
+.siren-edge-animation-slow {
+  --siren-edge-march: siren-edge-march var(--siren-edge-march-slow-duration) linear infinite;
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow) {
+  stroke-dasharray: var(--siren-edge-march-dash);
+  stroke-dashoffset: var(--siren-edge-march-offset);
+  stroke-linecap: round;
+  animation: var(--siren-edge-march);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow) {
+    --siren-edge-march: none;
+  }
 }
 
 /*
@@ -1130,6 +1232,66 @@
 }
 
 /*
+ * A timeline effect on an animated edge, run beside its march: the effect
+ * rules above are one class each and the march's two, so without these the
+ * march would take the `animation` property and `exit e1 fade` would leave
+ * the edge on screen. Three classes each, exits after enters as above.
+ */
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-enter-slide-left {
+  animation:
+    siren-slide-in-left var(--siren-slide-duration) ease-out forwards,
+    var(--siren-edge-march);
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-enter-slide-right {
+  animation:
+    siren-slide-in-right var(--siren-slide-duration) ease-out forwards,
+    var(--siren-edge-march);
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-enter-slide-top {
+  animation:
+    siren-slide-in-top var(--siren-slide-duration) ease-out forwards,
+    var(--siren-edge-march);
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-enter-slide-bottom {
+  animation:
+    siren-slide-in-bottom var(--siren-slide-duration) ease-out forwards,
+    var(--siren-edge-march);
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-exit-fade {
+  animation:
+    siren-fade-out var(--siren-fade-duration) ease-in forwards,
+    var(--siren-edge-march);
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-exit-slide-left {
+  animation:
+    siren-slide-out-left var(--siren-slide-duration) ease-in forwards,
+    var(--siren-edge-march);
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-exit-slide-right {
+  animation:
+    siren-slide-out-right var(--siren-slide-duration) ease-in forwards,
+    var(--siren-edge-march);
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-exit-slide-top {
+  animation:
+    siren-slide-out-top var(--siren-slide-duration) ease-in forwards,
+    var(--siren-edge-march);
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-exit-slide-bottom {
+  animation:
+    siren-slide-out-bottom var(--siren-slide-duration) ease-in forwards,
+    var(--siren-edge-march);
+}
+
+/*
  * `siren-highlight-*`: added on top of an already-visible node/edge, so
  * (like exit) the "before" state is always the plain base rule — a direct
  * `transition` works cleanly (no competing animation is ever declared for
@@ -1156,6 +1318,12 @@
   transition:
     stroke var(--siren-highlight-duration) ease-out,
     stroke-width var(--siren-highlight-duration) ease-out;
+}
+
+/* An invisible edge stays invisible under an outline highlight: three
+   classes, so it outranks the rule above wherever it is written. */
+.siren-edge.siren-edge-invisible.siren-highlight-outline {
+  stroke-width: 0;
 }
 
 /*

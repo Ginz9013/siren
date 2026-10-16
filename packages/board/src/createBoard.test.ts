@@ -662,6 +662,22 @@ timeline:
     });
   });
 
+  describe("iconPacks", () => {
+    const PACK = { prefix: "t", width: 24, height: 24, icons: { sq: { body: '<path d="M0 0h24v24H0z"/>' } } };
+    const ICON_SOURCE = 'flowchart TD\n  A@{ icon: "t:sq", label: "User" }\n';
+
+    it("draws an icon from the board's packs, as render()'s iconPacks would, on every render", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { source: ICON_SOURCE, measureText: FAKE_MEASURER, iconPacks: [PACK] });
+      const glyphPaths = () =>
+        container.querySelectorAll('.siren-board-viewport g.siren-node[data-siren-id="A"] > g > path').length;
+
+      expect(glyphPaths()).toBe(1);
+      board.setFullDiagram(true);
+      expect(glyphPaths()).toBe(1);
+    });
+  });
+
   describe("full diagram", () => {
     /**
      * By step 2, A carries a highlight class and B an exit class — the two

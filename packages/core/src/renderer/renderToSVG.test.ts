@@ -1876,3 +1876,72 @@ describe("a flowchart's line hops", () => {
     expect(paths.flatMap(arcsOf)).toEqual([]);
   });
 });
+
+/**
+ * An invisible edge, `A ~~~ B`. Mermaid 12.2.0 lays the edge out like any
+ * other and draws its path with `stroke-width: 0` (its stylesheet's
+ * `.edge-thickness-invisible`) and no marker, its label still drawn; a `linkStyle`
+ * naming it (counted among the edges like any other) paints it visible.
+ */
+describe("an invisible edge drawn", () => {
+  /** `default.css`'s text, read off disk for the reason `theme/default.test.ts` gives. */
+  const defaultThemeCss = (
+    globalThis as unknown as {
+      process: {
+        getBuiltinModule(id: "node:fs"): { readFileSync(path: string, encoding: "utf8"): string };
+      };
+    }
+  ).process
+    .getBuiltinModule("node:fs")
+    .readFileSync(`${(import.meta as unknown as { dirname: string }).dirname}/../theme/default.css`, "utf8");
+
+  it("draws the path with the invisible line's class and no marker, and its label", () => {
+    const result = render("flowchart LR\nA ~~~|x| B", document.createElement("div"));
+    const path = result.svg!.querySelector('path.siren-edge[data-siren-id="A-B"]')!;
+
+    expect(result.diagnostics).toEqual([]);
+    expect(path.classList.contains("siren-edge-invisible")).toBe(true);
+    expect(path.getAttribute("marker-start")).toBeNull();
+    expect(path.getAttribute("marker-end")).toBeNull();
+    expect(result.svg!.querySelector("text.siren-edge-label")?.textContent).toBe("x");
+  });
+
+  it("is themed with no stroke width, which an author's linkStyle overrides inline", () => {
+    expect(defaultThemeCss).toMatch(/\.siren-edge-invisible\s*\{\s*stroke-width:\s*0;\s*\}/);
+
+    const result = render(
+      "flowchart LR\nA --> B\nB ~~~ C\nlinkStyle 1 stroke:#f00,stroke-width:4px",
+      document.createElement("div"),
+    );
+    const path = result.svg!.querySelector('path.siren-edge[data-siren-id="B-C"]')!;
+
+    expect(result.diagnostics).toEqual([]);
+    expect(path.getAttribute("style")).toBe("stroke:#f00;stroke-width:4px");
+  });
+});
+
+/**
+ * An edge its `e1@{ … }` data animates. Measured in headless Chrome on
+ * Mermaid 12.2.0: the path carries a class that marches its dashes —
+ * `animate: true` and `animation: fast` 20s a cycle, `animation: slow` 50s —
+ * and an edge with neither carries none.
+ */
+describe("an animated edge drawn", () => {
+  it.each([
+    ["animate: true", "siren-edge-animation-fast"],
+    ["animation: fast", "siren-edge-animation-fast"],
+    ["animation: slow", "siren-edge-animation-slow"],
+  ])("gives `%s` the class %s", (written, className) => {
+    const result = render(`flowchart LR\nA e1@--> B\ne1@{ ${written} }`, document.createElement("div"));
+    const path = result.svg!.querySelector('path.siren-edge[data-siren-id="e1"]')!;
+
+    expect(result.diagnostics).toEqual([]);
+    expect(path.getAttribute("class")).toBe(`siren-edge ${className}`);
+  });
+
+  it("gives an edge nothing animates no animation class", () => {
+    const result = render("flowchart LR\nA e1@--> B\ne1@{ animate: false }", document.createElement("div"));
+
+    expect(result.svg!.querySelector('path.siren-edge[data-siren-id="e1"]')!.getAttribute("class")).toBe("siren-edge");
+  });
+});
