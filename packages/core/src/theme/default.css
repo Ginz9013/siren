@@ -1587,3 +1587,14 @@
   stroke: var(--siren-highlight-color);
   transition: stroke var(--siren-highlight-duration) ease-out;
 }
+
+/*
+ * An invisible link (`A ~~~ B`): laid out like any edge and drawn with no
+ * width, as Mermaid 12.2.0 draws it (its own stylesheet's
+ * `.edge-thickness-invisible { stroke-width: 0 }`). Its label is a sibling
+ * and stays drawn; an author's `linkStyle N stroke-width:4px` is inline and
+ * wins, which is how Mermaid lets an author show one.
+ */
+.siren-edge-invisible {
+  stroke-width: 0;
+}

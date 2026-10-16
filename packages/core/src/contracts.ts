@@ -200,11 +200,12 @@ export interface SirenNode {
  * tokens compose from, and the flowchart's counterpart of
  * `SequenceArrowLine` and `ClassRelationshipLine`.
  *
- * `-.-` is `dotted` and `===` is `thick`; every other spelling is `solid`.
- * Measured in mermaid 11.17.2, which records exactly this axis as an edge's
- * `stroke`.
+ * `-.-` is `dotted`, `===` is `thick` and `~~~` is `invisible` — laid out
+ * like any edge and drawn with no line, its label still drawn; every other
+ * spelling is `solid`. Measured in mermaid 11.17.2 and 12.2.0, which record
+ * exactly this axis as an edge's `stroke`.
  */
-export type EdgeLine = "solid" | "dotted" | "thick";
+export type EdgeLine = "solid" | "dotted" | "thick" | "invisible";
 
 /**
  * What is drawn at one end of an edge — the other two axes, one per end,

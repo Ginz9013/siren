@@ -160,6 +160,12 @@ nothing (`direction lr`, `direction XX`), whose error now names the direction to
   author's `fill` repaints), `cross-circ` (`summary`, `crossed-circle`), and the undocumented
   `choice` (a 28px diamond) and `anchor` (a 2px dot). None of them draws a label. Each used to be
   refused as a shape not drawn yet.
+- A flowchart invisible link, `A ~~~ B` (nook `01M51XAE1J`): laid out like any edge and drawn with no
+  stroke width and no marker, as Mermaid 12.2.0 draws it, with or without spaces, to an `&` group,
+  after an edge id and in a chain. A `|label|` on it is drawn; it counts among the edges a
+  `linkStyle` numbers, and `linkStyle N stroke-width:4px` paints it visible. Each `~` past three
+  holds its target one rank further away (`~~~~` is two ranks), as Mermaid counts them. It used to
+  be refused as an unrecognized line; `A ~~ B`, `A ~~~> B` and a marker on either end stay refused.
 - A flowchart edge may be written with an id of its own (nook `01M51XADJK`): `A e1@--> B`, before
   any arrow spelling, before a label in either spelling (`A e1@-->|x| B`, `A e1@-- x --> B`) and on
   each link of a chain (`A e1@--> B e2@--> C`). The edge is drawn and stamped `data-siren-id="e1"`

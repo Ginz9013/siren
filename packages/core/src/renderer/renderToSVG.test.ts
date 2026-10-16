@@ -1876,3 +1876,46 @@ describe("a flowchart's line hops", () => {
     expect(paths.flatMap(arcsOf)).toEqual([]);
   });
 });
+
+/**
+ * An invisible link, `A ~~~ B`. Mermaid 12.2.0 lays the edge out like any
+ * other and draws its path with `stroke-width: 0` (its stylesheet's
+ * `.edge-thickness-invisible`) and no marker, its label still drawn; a `linkStyle`
+ * naming it (counted among the edges like any other) paints it visible.
+ */
+describe("an invisible link drawn", () => {
+  /** `default.css`'s text, read off disk for the reason `theme/default.test.ts` gives. */
+  const defaultThemeCss = (
+    globalThis as unknown as {
+      process: {
+        getBuiltinModule(id: "node:fs"): { readFileSync(path: string, encoding: "utf8"): string };
+      };
+    }
+  ).process
+    .getBuiltinModule("node:fs")
+    .readFileSync(`${(import.meta as unknown as { dirname: string }).dirname}/../theme/default.css`, "utf8");
+
+  it("draws the path with the invisible line's class and no marker, and its label", () => {
+    const result = render("flowchart LR\nA ~~~|x| B", document.createElement("div"));
+    const path = result.svg!.querySelector('path.siren-edge[data-siren-id="A-B"]')!;
+
+    expect(result.diagnostics).toEqual([]);
+    expect(path.classList.contains("siren-edge-invisible")).toBe(true);
+    expect(path.getAttribute("marker-start")).toBeNull();
+    expect(path.getAttribute("marker-end")).toBeNull();
+    expect(result.svg!.querySelector("text.siren-edge-label")?.textContent).toBe("x");
+  });
+
+  it("is themed with no stroke width, which an author's linkStyle overrides inline", () => {
+    expect(defaultThemeCss).toMatch(/\.siren-edge-invisible\s*\{\s*stroke-width:\s*0;\s*\}/);
+
+    const result = render(
+      "flowchart LR\nA --> B\nB ~~~ C\nlinkStyle 1 stroke:#f00,stroke-width:4px",
+      document.createElement("div"),
+    );
+    const path = result.svg!.querySelector('path.siren-edge[data-siren-id="B-C"]')!;
+
+    expect(result.diagnostics).toEqual([]);
+    expect(path.getAttribute("style")).toBe("stroke:#f00;stroke-width:4px");
+  });
+});

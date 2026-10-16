@@ -569,6 +569,11 @@ end marker always lands on the *to*-end, measured; only the doubled spellings `<
 `x--x` decorate the from-end. All four fields are required on `GraphEdge`, so a plain arrow is one
 state rather than the absence of one — the rule `GraphNode.shape` already follows.
 
+**An invisible link, `A ~~~ B`, is the fourth line**, `invisible`: it is laid out and drawn as a
+path like any edge, but themed with no width and given no end marker, so only its label shows.
+It is still an edge in every other sense — it has an id, a timeline can name it, and `linkStyle`
+counts it and can paint it visible.
+
 **The length is the axis that is not about drawing.** `A ----> B` counts its dashes and reaches
 layout as `minLength`, so its target sits three ranks away instead of one and the drawn diagram
 differs. Drawing every length alike would be a silent mis-render by the **compatibility corpus**'s

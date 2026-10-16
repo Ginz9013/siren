@@ -13178,6 +13178,38 @@ line2\`"]`,
       expectSame("edges", edges(result), ["A-B"]);
     },
   },
+  {
+    id: "fc-invisible-link",
+    kind: "flowchart",
+    source: `flowchart LR
+      A ~~~|x| B
+      B --> C
+      C ~~~ D
+      linkStyle 2 stroke:#f00,stroke-width:4px`,
+    status: "supported",
+    meaning:
+      "`~~~` is an invisible link: Mermaid 12.2.0 lays it out like any edge " +
+      "and draws its path with `stroke-width: 0` and no marker, its label " +
+      "`x` still drawn, and counts it among the edges a `linkStyle` numbers, " +
+      "so `linkStyle 2` paints C-D visible (measured with the probe, and its " +
+      "stylesheet's `.edge-thickness-invisible { stroke-width: 0 }`). " +
+      "Siren refused `~~~` as an unrecognized line (nook 01M51XAE1J).",
+    assert: (result) => {
+      expectSame("edges", edges(result), ["A-B", "B-C", "C-D"]);
+      expectSame(
+        "the invisible ones",
+        elements(result, "path.siren-edge.siren-edge-invisible").map(idOf),
+        ["A-B", "C-D"],
+      );
+      expectSame("A-B's label", edgeLabel(result, "A-B"), "x");
+      expectSame(
+        "C-D painted by linkStyle 2",
+        elements(result, 'path.siren-edge[data-siren-id="C-D"]')[0]?.getAttribute("style"),
+        "stroke:#f00;stroke-width:4px",
+      );
+      expectSame("B laid out right of A", nodeCenter(result, "B").x > nodeCenter(result, "A").x, true);
+    },
+  },
 
   // -------------------------------------------------------------------------
   // labels — the HTML tag vocabulary (ADR-0015), kept in `labelCorpus.ts`

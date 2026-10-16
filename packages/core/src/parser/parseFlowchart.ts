@@ -619,7 +619,7 @@ const RUN_OPENING_DOTTED_BODY = `(?:-|(?<=${NOT_AFTER_ID}[ox])|(?<!${ID_CHAR}))\
  * one context and not the other.
  */
 const plainArrow = (dottedBody: string) =>
-  String.raw`(${FROM_MARKER})?((?=[-=.]{2}[-=.>ox])(?:-{2,}|={2,})|${dottedBody})(${TO_MARKER})?`;
+  String.raw`(${FROM_MARKER})?((?=[-=.]{2}[-=.>ox])(?:-{2,}|={2,})|~{3,}|${dottedBody})(${TO_MARKER})?`;
 
 /** The plain arrow as it appears in a line, where it may not begin inside an id. */
 const PLAIN_ARROW = plainArrow(RUN_OPENING_DOTTED_BODY);
@@ -1005,8 +1005,15 @@ function readArrow(token: string): ArrowForm | null {
     return null;
   }
 
+  // An invisible link takes no marker at either end: Mermaid 12.2.0 refuses
+  // `A ~~~> B`, `A <~~~ B` and `A o~~~ B` (measured).
+  const invisible = body.startsWith("~");
+  if (invisible && (start !== undefined || end !== undefined)) {
+    return null;
+  }
   const dots = body.length - body.replace(/\./g, "").length;
-  const line: EdgeLine = dots > 0 ? "dotted" : body.startsWith("=") ? "thick" : "solid";
+  const line: EdgeLine =
+    dots > 0 ? "dotted" : body.startsWith("=") ? "thick" : invisible ? "invisible" : "solid";
   // Past the shortest spelling: `-->` (three characters, one of them the
   // marker) and `---` are both one rank, so an unmarked body is measured
   // against three characters and a marked one against two plus its marker.

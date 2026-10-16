@@ -2564,7 +2564,7 @@ describe("a flowchart class name Mermaid cannot style", () => {
 });
 
 describe("a run after `:::` that is no class name", () => {
-  it.each(["A:::c~~~B", "A --> B:::c==C", "B:::c--C", "A:::c:::c", "A:::c[x]", "A:::c|x|", 'A:::c"x"', "A:::c%%x", "A:::c->B"])(
+  it.each(["A --> B:::c==C", "B:::c--C", "A:::c:::c", "A:::c[x]", "A:::c|x|", 'A:::c"x"', "A:::c%%x", "A:::c->B"])(
     "does not blame the class name in `%s`, where the run goes on into other syntax",
     (written) => {
       const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
@@ -3266,5 +3266,41 @@ describe("a label written for a shape that draws no text", () => {
   it("draws a shape with no text written for it, labelled with nothing but its id", () => {
     const { diagnostics } = parseOk("flowchart TB\n  A@{ shape: fork } --> B@{ shape: f-circ }");
     expect(diagnostics).toEqual([]);
+  });
+});
+
+/**
+ * An invisible link, `A ~~~ B`. Measured on Mermaid 12.2.0: `~~~` is
+ * `type="arrow_open" stroke="invisible"`, with or without spaces, after a
+ * `:::` class, to an `&` group, after an edge id and with a `|label|`; each
+ * further `~` is one more rank (`~~~~` is `length=2`, `~~~~~~` is
+ * `length=4`). `A ~~ B`, `A ~~~> B`, `A <~~~ B` and `A o~~~ B` are errors.
+ */
+describe("an invisible link", () => {
+  it.each([
+    ["A ~~~ B", [["A", "B", 1, null]]],
+    ["A~~~B", [["A", "B", 1, null]]],
+    ["A ~~~~ B", [["A", "B", 2, null]]],
+    ["A ~~~~~~ B", [["A", "B", 4, null]]],
+    ["A:::c~~~B", [["A", "B", 1, null]]],
+    ["A ~~~ B & C", [["A", "B", 1, null], ["A", "C", 1, null]]],
+    ["A e1@~~~ B", [["A", "B", 1, null]]],
+    ["A ~~~|x| B", [["A", "B", 1, "x"]]],
+    ["A ~~~ B --> C", [["A", "B", 1, null], ["B", "C", 1, null]]],
+  ])("reads %j as an invisible line with no ends", (written, expected) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(
+      document.edges.map((edge) => [edge.from, edge.to, edge.minLength, edge.label?.text ?? null]),
+    ).toEqual(expected);
+    expect(document.edges[0]).toMatchObject({ line: "invisible", fromEnd: "none", toEnd: "none" });
+  });
+
+  it.each(["A ~~ B", "A ~~~> B", "A <~~~ B", "A o~~~ B"])("refuses %j", (written) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics.map((diagnostic) => diagnostic.severity)).toEqual(["error"]);
   });
 });

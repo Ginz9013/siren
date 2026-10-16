@@ -54,6 +54,9 @@ const EDGE_LINE_CLASS: Record<EdgeLine, string | null> = {
   solid: null,
   dotted: "siren-edge-dotted",
   thick: "siren-edge-thick",
+  // `A ~~~ B`: laid out and drawn as a path, so its label and an author's
+  // `linkStyle` still reach it, but themed with no width.
+  invisible: "siren-edge-invisible",
 };
 
 /**
