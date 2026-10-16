@@ -80,6 +80,11 @@ which is now refused (see **Changed**).
 Breaking for a class document with a `;` in an inline member (`A : +int x; y`, `A : +foo(a; b)`),
 which is now refused (see **Changed**).
 
+Breaking for a class document with `direction TB`, `BT`, `RL` or `LR` inside a top-level line
+other than a `direction` statement — in a class label or an inline member
+(`class A["direction LR"]`, `A : +direction LR`), a note, `accTitle` or `click` string — which is
+now refused (see **Changed**).
+
 ### Added
 
 - A dotted class namespace name (`namespace N.M { class A }`) is read as Mermaid 12.2.0 reads it
@@ -209,6 +214,16 @@ which is now refused (see **Changed**).
 
 ### Changed
 
+- **A class-diagram line holding a `direction` inside it is refused** (nook `01M51K83NB`):
+  Mermaid 12.2.0's lexer reads any top-level line containing `direction TB`, `BT`, `RL` or `LR`,
+  anywhere and glued or not (`xdirection LR`, `direction LRx`), as one direction statement, and
+  the rest of the line is lost with no diagnostic — a class declaration, a label, an inline
+  member, a relationship, a note, `accTitle`, a `click` url or tooltip. Each such line gets one
+  error at its `direction`, saying to write the direction on a line of its own or reword the text.
+  A class block's members, a namespace body and an `accDescr { }` block are untouched: Mermaid
+  draws a `direction LR` there as written. `direction LR %% note` still reads as a direction. A
+  label or inline member holding one used to be drawn; the other positions were refused as
+  unrecognized lines.
 - **A space in a class namespace name is refused once, saying how to write it** (nook
   `01M51DSEXR`): Mermaid 12.2.0 drops the space, drawing `namespace N M {` as the one frame `NM`.
   The error stands at the word after the space and offers `NM` or `N_M`; the block is still read,

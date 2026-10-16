@@ -4804,6 +4804,30 @@ line2\`"]`,
       "to refuse the line and its `}` each as an unrecognized line.",
   },
   {
+    id: "cls-direction-inside-line",
+    kind: "class",
+    source: `classDiagram
+      class Order["direction LR"]
+      Order : +direction LR
+      Order --> Item`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** Mermaid 12.2.0's " +
+      "class lexer reads any top-level line holding `direction TB`, `BT`, " +
+      "`RL` or `LR` — glued to the text around it or not, inside a quoted " +
+      "label, note, `accTitle` or `click` string too — as one direction " +
+      "statement, and the rest of the line is gone with no diagnostic " +
+      "(measured, Chrome: here the label and the member vanish and the " +
+      "diagram is laid out left to right). Siren refuses each such line " +
+      "(ADR-0001), with one error at its `direction` saying to write the " +
+      "direction on a line of its own or reword the text. A class block's " +
+      "members, a namespace body and an `accDescr { }` block are read in " +
+      "another lexer state, so a `direction LR` there is drawn as written, " +
+      "in both. Siren used to draw the label and the member, top to bottom, " +
+      "and refused `class A direction LR` and a relationship followed by one " +
+      "as unrecognized lines.",
+  },
+  {
     id: "cls-namespace-body-statement",
     kind: "class",
     source: `classDiagram

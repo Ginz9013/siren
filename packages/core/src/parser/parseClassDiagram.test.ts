@@ -2163,9 +2163,11 @@ describe("parseClassDiagram — the statements a namespace body refuses", () => 
     // Measured: `namespace N {` ⏎ `direction LR` ⏎ `}` is a parse error; the
     // one-line form is read by Mermaid's lexer as one `direction` statement
     // (`.*direction\s+LR[^\n]*`), drawing no frame for N — silently wrong
-    // (ADR-0001).
+    // (ADR-0001), and refused as any line holding a direction is.
     expect(refused("  namespace N {\n    direction LR\n  }")).toEqual([["error", outside("direction LR"), 3, 5]]);
-    expect(refused("namespace N { direction LR }")).toEqual([["error", outside("direction LR"), 2, 15]]);
+    expect(refused("namespace N { direction LR }")).toEqual([
+      ["error", expect.stringContaining("This line contains `direction LR`"), 2, 15],
+    ]);
   });
 });
 
@@ -2337,5 +2339,150 @@ describe("parseClassDiagram — a namespace name with a space in it", () => {
     const { document, diagnostics } = parseClassDiagram("classDiagram\n  namespace N . M {\n    class A\n  }");
     expect(diagnostics).toEqual([]);
     expect(document?.kind === "class" ? document.namespaces.map((n) => n.id) : null).toEqual(["N", "N.M"]);
+  });
+});
+
+describe("parseClassDiagram — a `direction` written inside another line", () => {
+  // Measured on Mermaid 12.2.0: its class lexer's first rules are
+  // `.*direction\s+(TB|BT|RL|LR)[^\n]*`, tried at the start of every line
+  // read at the top level, so any such line is one direction statement and
+  // whatever else it says is gone.
+  const swallowed = (value = "LR") =>
+    `This line contains \`direction ${value}\`, so the whole line would be read as a direction statement ` +
+    "and everything else on it would be lost. Write the direction on a line of its own, " +
+    `or reword the text so it does not contain \`direction ${value}\`.`;
+
+  it("refuses a class declaration followed by a direction, at the `direction`", () => {
+    // Measured: `class A direction LR` lays the diagram out left to right
+    // and declares no `A`.
+    const { document, diagnostics } = parseClassDiagram("classDiagram\n  class A direction LR\n  class B");
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: swallowed(), line: 2, column: 11 }]);
+  });
+
+  /** The diagnostics `statement`, written on line 3 under `class A`, draws. */
+  const refusedAt = (statement: string) => {
+    const { document, diagnostics } = parseClassDiagram(`classDiagram\n  class A\n  ${statement}\n  class B`);
+    return [statement, document, diagnostics];
+  };
+  /** One error at `direction` — its column on line 3 — saying the line is lost. */
+  const lost = (statement: string, value = "LR") => [
+    statement,
+    null,
+    [{ severity: "error", message: swallowed(value), line: 3, column: 3 + statement.indexOf("direction") }],
+  ];
+
+  it("refuses each direction value, wherever in the line, glued to the text around it or not", () => {
+    // Measured: each sets its direction; `xdirection LR`, `direction LRx`
+    // and `direction LR more text` are read as `direction LR` too.
+    for (const [statement, value] of [
+      ["class C direction TB", "TB"],
+      ["class C direction BT", "BT"],
+      ["class C direction RL", "RL"],
+      ["class C direction LR", "LR"],
+      ["class C direction \t LR", "LR"],
+      ["xdirection LR", "LR"],
+      ["direction LRx", "LR"],
+      ["direction LR more text", "LR"],
+    ]) {
+      expect(refusedAt(statement)).toEqual(lost(statement, value));
+    }
+  });
+
+  it("refuses a direction in a class label, an inline member or a generic, which it used to draw", () => {
+    // Measured: `class A["direction LR"]` and `A : +direction LR` lay the
+    // diagram out left to right and draw neither the label nor the member.
+    for (const statement of [
+      'class C["direction LR"]',
+      "A : +direction LR",
+      "A : +int direction LR",
+      "class C~direction LR~",
+      "<<direction LR>> A",
+    ]) {
+      expect(refusedAt(statement)).toEqual(lost(statement));
+    }
+  });
+
+  it("refuses a direction after a relationship or in its label, losing the relationship", () => {
+    // Measured: `C --> D direction LR` draws neither C nor D nor the arrow.
+    for (const statement of ["C --> D direction LR", "C --> D : direction LR", "direction LR C --> D"]) {
+      expect(refusedAt(statement)).toEqual(lost(statement));
+    }
+  });
+
+  it("refuses a direction in a note, an accessibility statement or an interaction's strings", () => {
+    for (const statement of [
+      'note "direction LR"',
+      'note "x" direction LR',
+      'note for A "direction LR"',
+      "accTitle: direction LR",
+      "accDescr: direction LR",
+      'click A href "https://example.com/direction LR"',
+      'click A href "https://example.com" "direction LR"',
+      'click A call f("direction LR")',
+      'link A "https://example.com" "direction LR"',
+      'callback A "f" "direction LR"',
+    ]) {
+      expect(refusedAt(statement)).toEqual(lost(statement));
+    }
+  });
+
+  it("refuses a direction in a style statement, or after a `%%` in the middle of a line", () => {
+    // Measured: a mid-line `%%` is no comment to the lexer's direction rule,
+    // so `class C %% direction LR` is a direction statement too.
+    for (const statement of [
+      "style A fill:#f00 direction LR",
+      "classDef c fill:#f00,direction LR",
+      'cssClass "A" direction LR',
+      "class C %% direction LR",
+      "A --> B %% direction LR",
+    ]) {
+      expect(refusedAt(statement)).toEqual(lost(statement));
+    }
+  });
+
+  it("refuses a direction on a namespace's line, or on a class block's opening line, once", () => {
+    // Measured: `namespace N { class C direction LR }` draws no frame; the
+    // block's own lines are still read, so its `}` is not refused as well.
+    for (const statement of ["namespace N { class C direction LR }", "class C { +x direction LR\n    +y\n  }"]) {
+      expect(refusedAt(statement)).toEqual(lost(statement));
+    }
+  });
+
+  it("reads a direction in a class block's members, a namespace body or an `accDescr { }` block as written", () => {
+    // Measured: each is read in a lexer state the direction rule is not
+    // part of — the member `+int direction LR` is drawn, the label
+    // `direction LR` is drawn in its frame, the description is kept, and
+    // the diagram stays top to bottom.
+    const parsed = (body: string) => {
+      const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+      expect([body, diagnostics]).toEqual([body, []]);
+      return document?.kind === "class" ? document : null;
+    };
+    const block = parsed("  class C {\n    +int direction LR\n    direction LR\n  }");
+    expect(block?.direction).toBe("TB");
+    expect(block?.classes[0].members.map(reconstruct)).toEqual(["+int direction LR", "direction LR"]);
+    const namespace = parsed('  namespace N {\n    class C["direction LR"]\n  }');
+    expect(namespace?.direction).toBe("TB");
+    expect(namespace?.classes[0].label).toEqual(plainLabel("direction LR"));
+    const description = parsed("  accDescr {\n    direction LR\n  }\n  class C");
+    expect([description?.direction, description?.accDescr]).toEqual(["TB", "direction LR"]);
+  });
+
+  it("leaves a `%%` comment line, and a direction value the rule does not name, to the rules they meet", () => {
+    // Measured: a line that starts with `%%` is removed before the lexer
+    // runs, as `parseSiren` removes it; `class C direction lr`, `class C direction TD` and `class C
+    // direction XX` are each one class, `Cdirectionlr` and so on — no
+    // direction is read — which Siren refuses as an unrecognized line.
+    const comment = parseSiren("classDiagram\n  %% direction LR\n  class C");
+    expect(comment.diagnostics).toEqual([]);
+    expect(comment.document?.kind === "class" ? comment.document.direction : null).toBe("TB");
+    for (const statement of ["class C direction lr", "class C direction TD", "class C direction XX", "Direction LR"]) {
+      expect(refusedAt(statement)).toEqual([
+        statement,
+        null,
+        [{ severity: "error", message: `Unrecognized classDiagram line: "${statement}"`, line: 3, column: 3 }],
+      ]);
+    }
   });
 });

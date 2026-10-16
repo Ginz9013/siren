@@ -263,6 +263,35 @@ function percentOutsideQuotes(line: string): number {
 }
 
 /**
+ * A direction anywhere in a line. Mermaid 12.2.0's class lexer opens with
+ * `.*direction\s+TB[^\n]*` and the same for `BT`, `RL` and `LR`, tried
+ * before every other rule wherever it starts reading a line at the top
+ * level: such a line is one direction statement, whatever else it says —
+ * a class declaration, a label, an inline member, a relationship, a note,
+ * `accTitle`, a `click` url, all gone (measured, Chrome: `class A direction
+ * LR`, `A --> B direction LR`, `class A["direction LR"]`, `A : +direction
+ * LR`, `note "direction LR"`, `xdirection LR` and `direction LRx` each lay
+ * the diagram out left to right and draw nothing else of their line). Case
+ * sensitive, and `TD` is no part of it: `class A direction TD` is the class
+ * `AdirectionTD`, as `class A direction lr` is `Adirectionlr`. A class
+ * block's or a namespace's body, and an `accDescr { }` block, is read in a
+ * lexer state these rules are not part of, so a member `+int direction LR`
+ * there is drawn as written.
+ */
+const DIRECTION_ANYWHERE_RE = /direction\s+(?:TB|BT|RL|LR)/;
+
+/**
+ * Whether `line` is a `direction` statement as this parser reads one: bare,
+ * or with a `%%` comment after it, which Mermaid reads as part of the
+ * statement wherever it stands.
+ */
+function isDirectionStatement(line: string): boolean {
+  if (matchClassDirection(line) !== null) return true;
+  const percent = percentOutsideQuotes(line);
+  return percent !== -1 && matchClassDirection(line.slice(0, percent).trimEnd()) !== null;
+}
+
+/**
  * `text` as a Markdown code span: fenced by one backtick more than the
  * longest run of them inside it, and padded with a space when it starts or
  * ends with one — so a quoted statement holding quotes or backticks reads
@@ -1634,6 +1663,36 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       timeline = blocks.timeline;
       namedTimelines = blocks.namedTimelines;
       break;
+    }
+
+    // A line Mermaid reads as one direction statement for the `direction`
+    // inside it (`DIRECTION_ANYWHERE_RE`) is refused there (ADR-0001): the
+    // rest of the line would vanish with no diagnostic. The statement is
+    // still read, so a block it opens is consumed rather than refused line
+    // by line, but its own problems on this line are dropped: the line has
+    // one, and this is it.
+    const swallowed = isDirectionStatement(line) ? null : DIRECTION_ANYWHERE_RE.exec(line);
+    if (swallowed !== null) {
+      const lineNumber = index + 1;
+      const written = swallowed[0].replace(/\s+/, " ");
+      const readFrom = diagnostics.length;
+      index = parseStatement(index, null).lastIndex;
+      diagnostics.splice(
+        readFrom,
+        diagnostics.length - readFrom,
+        {
+          severity: "error",
+          message:
+            `This line contains \`${written}\`, so the whole line would be read as a direction statement ` +
+            "and everything else on it would be lost. Write the direction on a line of its own, " +
+            `or reword the text so it does not contain \`${written}\`.`,
+          line: lineNumber,
+          column: rawLine.length - rawLine.trimStart().length + 1 + swallowed.index,
+        },
+        ...diagnostics.slice(readFrom).filter((diagnostic) => diagnostic.line !== lineNumber),
+      );
+      sawError = true;
+      continue;
     }
 
     index = parseStatement(index, null).lastIndex;
