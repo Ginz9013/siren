@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseFlowchart } from "./parseFlowchart";
 import { parseSiren } from "./parseSiren";
-import type { Diagnostic, DiagramParseResult, FlowchartDocument, SirenNode } from "../contracts";
+import type { Diagnostic, DiagramParseResult, FlowchartDocument, NodeShape, SirenNode } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
 
 /**
@@ -249,28 +249,372 @@ describe("a bracket character inside an unquoted node label", () => {
 });
 
 /**
- * The `@{ … }` node syntax, which Siren does not draw yet (its own board).
- * Measured on Mermaid 12.2.0: `A@{ shape: rect }`, `A[x]@{ shape: rect }`,
- * and `A@{ … }` at either end of an edge are all accepted.
+ * The `@{ … }` node data block. Measured on Mermaid 12.2.0 (`pnpm --filter
+ * siren-core probe`): each of these 45 names is accepted as `shape:` and
+ * drawn with the handler that its bracket spelling draws (Mermaid's own
+ * `shapesDefs` table), so each is one of Siren's fourteen shapes.
  */
+const NODE_DATA_SHAPES: ReadonlyArray<[string, NodeShape]> = [
+  ...(["rect", "proc", "process", "rectangle"] as const).map((name) => [name, "rect"] as [string, NodeShape]),
+  ...(["rounded", "event"] as const).map((name) => [name, "round"] as [string, NodeShape]),
+  ...(["stadium", "terminal", "pill"] as const).map((name) => [name, "stadium"] as [string, NodeShape]),
+  ...(["fr-rect", "subprocess", "subproc", "framed-rectangle", "subroutine"] as const).map(
+    (name) => [name, "subroutine"] as [string, NodeShape],
+  ),
+  ...(["cyl", "db", "database", "cylinder"] as const).map((name) => [name, "cylinder"] as [string, NodeShape]),
+  ...(["circle", "circ"] as const).map((name) => [name, "circle"] as [string, NodeShape]),
+  ...(["diam", "decision", "diamond", "question"] as const).map((name) => [name, "rhombus"] as [string, NodeShape]),
+  ...(["hex", "hexagon", "prepare"] as const).map((name) => [name, "hexagon"] as [string, NodeShape]),
+  ...(["lean-r", "lean-right", "in-out"] as const).map((name) => [name, "parallelogram"] as [string, NodeShape]),
+  ...(["lean-l", "lean-left", "out-in"] as const).map((name) => [name, "parallelogram-alt"] as [string, NodeShape]),
+  ...(["trap-b", "priority", "trapezoid-bottom", "trapezoid"] as const).map(
+    (name) => [name, "trapezoid"] as [string, NodeShape],
+  ),
+  ...(["trap-t", "manual", "trapezoid-top", "inv-trapezoid"] as const).map(
+    (name) => [name, "trapezoid-alt"] as [string, NodeShape],
+  ),
+  ...(["dbl-circ", "double-circle", "doublecircle"] as const).map((name) => [name, "double-circle"] as [string, NodeShape]),
+  ["odd", "asymmetric"],
+];
+
 describe("a node written with `@{ … }`", () => {
+  it("knows all 45 shape names", () => {
+    expect(NODE_DATA_SHAPES).toHaveLength(45);
+  });
+
+  it.each(NODE_DATA_SHAPES)("draws `shape: %s` as the %s shape, labelled with its id", (name, shape) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A@{ shape: ${name} }`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes).toEqual([{ id: "A", label: plainLabel("A"), shape, line: 2, column: 3 }]);
+  });
+});
+
+/**
+ * The `label:` of an `@{ … }` block. Measured on Mermaid 12.2.0: the label
+ * is a Markdown label unless `labelType` is `text` or `string` (`**b**` is
+ * bold in `A@{ label: "**b**" }` and literal in `A["**b**"]`), and its
+ * value is a YAML string, so `\"` is a quote.
+ */
+describe("the label of a node written with `@{ … }`", () => {
+  it("draws `label:` as the node's text, beside the shape", () => {
+    const { document, diagnostics } = parseOk('flowchart TB\n  A@{ shape: circle, label: "Start here" }');
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes).toEqual([
+      { id: "A", label: plainLabel("Start here"), shape: "circle", line: 2, column: 3 },
+    ]);
+  });
+
+  it("reads the label as Markdown, as a backtick-fenced bracket label is", () => {
+    const { document, diagnostics } = parseOk('flowchart TB\n  A@{ label: "**b** x" }');
+
+    expect(diagnostics).toEqual([]);
+    expect(markdownRows(document.nodes[0])).toEqual([
+      [
+        { text: "b", bold: true, italic: false },
+        { text: " x", bold: false, italic: false },
+      ],
+    ]);
+  });
+
+  it.each(["text", "string"])("reads it as written in brackets when `labelType` is %s", (labelType) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A@{ label: "**b**", labelType: ${labelType} }`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes[0]?.label).toEqual(plainLabel("**b**"));
+  });
+
+  it("breaks the label at a `<br>`, and reads a YAML-escaped quote as a quote", () => {
+    const { document, diagnostics } = parseOk(
+      'flowchart TB\n  A@{ label: "a<br>b" }\n  B@{ label: "say \\"hi\\"" }',
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.label.text)).toEqual(["a\nb", 'say "hi"']);
+  });
+
+  it("reports a problem in the label at the node's `@`", () => {
+    expect(positions('flowchart TB\n  Ab@{ label: "x⚠" }')).toEqual(["error 2:5"]);
+  });
+});
+
+/**
+ * Where an `@{ … }` block may be written, measured on Mermaid 12.2.0: at
+ * either end of an edge and in an `&` group, its text cut as a whole (an
+ * unquoted `(` or an arrow inside it is YAML, not a line's punctuation);
+ * after a bracket and after `:::name`; and on a node written before, whose
+ * text it keeps unless it gives a label of its own.
+ */
+describe("where a node's `@{ … }` block may be written", () => {
+  it("reads a block at either end of an edge and in a group, its text cut whole", () => {
+    const { document, diagnostics } = parseOk(
+      "flowchart TB\n  A@{ shape: circle, label: f(x } --> B@{ shape: hex, label: a --> b } & C",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label.text, node.shape])).toEqual([
+      ["A", "f(x", "circle"],
+      ["B", "a --> b", "hexagon"],
+      ["C", "C", "rect"],
+    ]);
+    expect(document.edges.map((edge) => [edge.from, edge.to])).toEqual([
+      ["A", "B"],
+      ["A", "C"],
+    ]);
+  });
+
+  it("changes the shape of a node written before and keeps its text", () => {
+    const { document, diagnostics } = parseOk(
+      "flowchart TB\n  A[hello] --> B\n  A@{ shape: circle }\n  B@{ shape: diam }\n  B@{ label: two }",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes).toEqual([
+      { id: "A", label: plainLabel("hello"), shape: "circle", line: 2, column: 3 },
+      { id: "B", label: plainLabel("two"), shape: "rhombus", line: 2, column: 3 },
+    ]);
+  });
+
+  it("reads a block after a bracket and after `:::name`", () => {
+    const { document, diagnostics } = parseOk(
+      "flowchart TB\n  A[t]@{ shape: circle }\n  B[t]:::hot@{ shape: hex } --> C:::hot@{ label: u }",
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label.text, node.shape])).toEqual([
+      ["A", "t", "circle"],
+      ["B", "t", "hexagon"],
+      ["C", "u", "rect"],
+    ]);
+    expect(document.styles.map((style) => [style.targetIds, style.name])).toEqual([
+      [["B"], "hot"],
+      [["C"], "hot"],
+    ]);
+  });
+});
+
+/**
+ * An `@{ … }` block written across lines. Measured on Mermaid 12.2.0: a
+ * block holding a line break is read as block YAML, and a line break
+ * inside a quoted string, with the indentation after it, is a `<br/>`.
+ */
+describe("a node's `@{ … }` block written across lines", () => {
+  it("reads a block of YAML lines, and the statements after it at their own lines", () => {
+    const { document, diagnostics } = parseOk(
+      'flowchart TB\n  A@{\n    shape: circle\n    label: "multi"\n  }\n  B --> C',
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes).toEqual([
+      { id: "A", label: plainLabel("multi"), shape: "circle", line: 2, column: 3 },
+      { id: "B", label: plainLabel("B"), shape: "rect", line: 6, column: 3 },
+      { id: "C", label: plainLabel("C"), shape: "rect", line: 6, column: 3 },
+    ]);
+  });
+
+  it("breaks a quoted label written across lines into rows", () => {
+    const { document, diagnostics } = parseOk('flowchart TB\n  A@{ shape: hex, label: "a\n      b" } --> B');
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label.text, node.shape])).toEqual([
+      ["A", "a\nb", "hexagon"],
+      ["B", "B", "rect"],
+    ]);
+  });
+
+  it("reports a problem in a block's label at its `@`, on the line the block opens", () => {
+    expect(positions('flowchart TB\n  A --> Bc@{\n    label: "x⚠"\n  }')).toEqual(["error 2:11"]);
+  });
+});
+
+/** The fourteen short names a refused `shape:` is told to choose from, in that order. */
+const SHAPE_CHOICES = "rect, rounded, stadium, fr-rect, cyl, circle, diam, hex, lean-r, lean-l, trap-b, trap-t, dbl-circ, odd";
+
+/**
+ * A `shape:` Siren does not draw. Measured on Mermaid 12.2.0: it draws
+ * `cloud`, `datastore` and the rest of its 39 documented shapes Siren has
+ * no geometry for, and the undocumented `state`, `choice`, `note`,
+ * `composite`, `icon` and `anchor`; it refuses `foo` ("No such shape"),
+ * and any name with an upper-case letter or a `_` ("Shape names should be
+ * lowercase"); `shape: 1` throws.
+ */
+describe("a `shape:` Siren does not draw", () => {
+  it.each(["cloud", "datastore", "data-store", "doc", "lin-cyl", "state", "choice", "note", "composite", "icon", "anchor"])(
+    "refuses `shape: %s` at the `@`, as a shape not drawn yet",
+    (name) => {
+      const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> Bc@{ shape: ${name} }`);
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message: `Siren does not draw the shape "${name}" yet. Use one of: ${SHAPE_CHOICES}`,
+          line: 2,
+          column: 11,
+        },
+      ]);
+    },
+  );
+
   it.each([
-    ["A@{ shape: rect }", "A", 4],
-    ["A[x]@{ shape: rect }", "A", 7],
-    ['A@{ shape: circle, label: "x" } --> B', "A", 4],
-    ["A --> B@{ shape: diam }", "B", 10],
-  ])("refuses %s at the `@`, saying to write the shape with brackets", (written, id, column) => {
-    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+    ["foo", `There is no shape "foo". Use one of: ${SHAPE_CHOICES}`],
+    ["Rect", 'There is no shape "Rect". Shape names are lower-case, with "-" between words: rect'],
+    ["lean_right", 'There is no shape "lean_right". Shape names are lower-case, with "-" between words: lean-right'],
+    [
+      "squareRect",
+      `There is no shape "squareRect". Shape names are lower-case, with "-" between words. Use one of: ${SHAPE_CHOICES}`,
+    ],
+    ["1", 'A shape is a name, such as "shape: circle"'],
+  ])("refuses `shape: %s` as no shape", (name, message) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A@{ shape: ${name} }`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message, line: 2, column: 4 }]);
+  });
+});
+
+/**
+ * The keys of an `@{ … }` block other than `shape`, `label` and
+ * `labelType`. Measured on Mermaid 12.2.0: `icon`, `img`, `form`, `pos`,
+ * `w`, `h` and `constraint` change what a node draws (an icon or image
+ * node, its size); any other key is read and ignored (`A@{ foo: 1 }` is a
+ * plain node). What is not YAML is refused ("missed comma between flow
+ * collection entries").
+ */
+describe("the other keys of a node's `@{ … }` block", () => {
+  it.each(["icon", "img", "form", "pos", "w", "h", "constraint"])("refuses `%s` at the `@`, as not supported yet", (key) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A@{ shape: circle, ${key}: x }`);
 
     expect(document).toBeNull();
     expect(diagnostics).toEqual([
       {
         severity: "error",
-        message:
-          `Siren does not support the "@{ … }" node syntax yet. ` +
-          `Write the shape with brackets instead, such as ${id}[text], ${id}((text)) or ${id}{text}`,
+        message: `Siren does not support "${key}" in a node's "@{ … }" block yet. Leave it out`,
         line: 2,
+        column: 4,
+      },
+    ]);
+  });
+
+  it("ignores a key it does not know, with a warning at the `@`", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  A@{ foo: 1, shape: hex }");
+
+    expect(document.nodes.map((node) => [node.id, node.shape])).toEqual([["A", "hexagon"]]);
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: `"foo" is not a key of a node's "@{ … }" block, and is ignored. Remove it`,
+        line: 2,
+        column: 4,
+      },
+    ]);
+  });
+
+  it.each([
+    ["A@{ shape: circle label: x }", "missed comma between flow collection entries"],
+    ["A@{ shape: [circle }", "missed comma between flow collection entries"],
+  ])("refuses %s, which is not YAML, at the `@`", (written, reason) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      { severity: "error", message: `The "@{ … }" block is not valid YAML (${reason})`, line: 2, column: 4 },
+    ]);
+  });
+
+  it.each([
+    ["A@{\n    - circle\n  }", 'Write the "@{ … }" block as "key: value" pairs, such as "shape: circle"'],
+    ["A@{ label: [a, b] }", 'A label is text, such as "label: Start"'],
+  ])("refuses %j, at the `@`", (written, message) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message, line: 2, column: 4 }]);
+  });
+});
+
+describe("a node written with `@{ … }`, in a whole document", () => {
+  it("is a node a timeline can name, its block read through the document's comments and tags", () => {
+    const { document, diagnostics } = parseOk(
+      'flowchart TB\n  %% a comment\n  A@{\n    shape: db\n    label: "<b>Store</b>"\n  } --> B@{ shape: circle }\ntimeline:\n  enter A fade\n  enter B fade',
+      parseSiren,
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => [node.id, node.label.text, node.shape])).toEqual([
+      ["A", "Store", "cylinder"],
+      ["B", "B", "circle"],
+    ]);
+    expect(document.timeline?.entries.map((entry) => [entry.step, entry.targetId])).toEqual([
+      [1, "A"],
+      [2, "B"],
+    ]);
+  });
+});
+
+/**
+ * An `@{ … }` block written where it cannot stand. Measured on Mermaid
+ * 12.2.0: `A[x] @{ … }` (a space before the `@`), `A@{ … }:::c`,
+ * `A@{ … } x` and `A@{ … }@{ … }` (two blocks, read as one: "missed comma")
+ * are refused; a block never closed reads to the end of the document; and
+ * a subgraph's id given a block draws nothing of it (`subgraph S@{ … }` is
+ * a parse error, and `S@{ … }` beside `subgraph S` is the frame's data).
+ */
+describe("an `@{ … }` block written where it cannot stand", () => {
+  it.each([
+    ["A[x] @{ shape: circle }", 'Write "@{" right after the node, with no space: A[x]@{ shape: circle }', 8],
+    ["A@{ shape: circle }:::c --> B", 'Write ":::c" before the "@{ … }" block: A:::c@{ shape: circle }', 22],
+    [
+      "A@{ shape: circle }@{ label: x }",
+      'A node takes one "@{ … }" block. Write all its keys in the first, separated by ","',
+      22,
+    ],
+    ["A@{ shape: circle } x", 'Nothing may follow a node\'s "@{ … }" block: "x"', 23],
+    ["B --> A@{ shape: circle }x", 'Nothing may follow a node\'s "@{ … }" block: "x"', 28],
+  ])("refuses %s", (written, message, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message, line: 2, column }]);
+  });
+
+  it("refuses a block never closed at its `@`, and reads nothing after it", () => {
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  A@{ shape: circle\n  B --> C");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      { severity: "error", message: 'The "@{" is never closed. End the block with "}"', line: 2, column: 4 },
+    ]);
+  });
+
+  it.each([
+    ["after the block", "flowchart TB\n  subgraph S\n    A\n  end\n  B --> S@{ shape: circle }", 5, 10],
+    ["before the block", "flowchart TB\n  S@{ shape: circle }\n  subgraph S\n    A\n  end", 2, 4],
+  ])("refuses a block on a subgraph's id written %s", (_, source, line, column) => {
+    const { document, diagnostics } = parseFlowchart(source);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: '"S" is a subgraph, and a subgraph takes no "@{ … }" block. Leave the block out',
+        line,
         column,
+      },
+    ]);
+  });
+
+  it("refuses a block on the line that opens a subgraph", () => {
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  subgraph S@{ shape: circle }\n    A\n  end");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'A subgraph takes no "@{ … }" block. Leave the block out: subgraph S',
+        line: 2,
+        column: 13,
       },
     ]);
   });
@@ -311,8 +655,6 @@ describe("an edge written with an id", () => {
 
     expect(diagnostics.map((d) => d.message)).toEqual([
       'Siren does not support edge ids ("e1@") yet. Leave the id out: A[x y@-z] --> B',
-      'Siren does not support the "@{ … }" node syntax yet. ' +
-        "Write the shape with brackets instead, such as y[text], y((text)) or y{text}",
     ]);
   });
 

@@ -1811,8 +1811,19 @@ const SILENTLY_WRONG = 0;
  * line, an error saying so: `cls-class-then-direction-value`. No
  * `supported` row moved: none wrote `direction TD` or text after an
  * `accDescr { }` block in a class diagram. `silently-wrong` does not move.
+ *
+ * **49 → 50: one row falls, and case (2), two refusals written down for the
+ * first time.** `01M51Q7F65QMNVZN545S28D4CN` read a flowchart
+ * node's `@{ … }` block for the 45 shape names that are one of Siren's
+ * fourteen shapes, and its `label`: `fc-node-shape-data`, refused until
+ * now, is `supported` (−1). The rest of the block is refused as before, now
+ * with a row each: `fc-node-shape-data-undrawn`, a shape Mermaid 12.2.0
+ * draws and Siren has no geometry for (`cloud`), and
+ * `fc-node-shape-data-icon`, a key Siren does not draw (`icon`) (+2). No
+ * `supported` row moved to `rejected`. `fc-node-shape-data-names`, new
+ * beside them, is `supported`. `silently-wrong` does not move.
  */
-const REJECTED = 49;
+const REJECTED = 50;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

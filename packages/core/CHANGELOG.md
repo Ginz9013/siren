@@ -100,6 +100,20 @@ for one with text after the `}` that closes an `accDescr { ... }` block on its l
 
 ### Added
 
+- A flowchart node's `@{ … }` data block is read as Mermaid 12.2.0 reads it, for what Siren can
+  draw (nook `01M51Q7F65`): `shape:` takes the 45 names that are one of the fourteen node shapes
+  (`rect`, `rounded`, `stadium`, `fr-rect`, `cyl`, `circle`, `diam`, `hex`, `lean-r`, `lean-l`,
+  `trap-b`, `trap-t`, `dbl-circ`, `odd` and their aliases, such as `db`, `decision` or
+  `subroutine`), and `label:` gives the node's text, read as a Markdown string unless
+  `labelType` is `text` or `string`. The block's text is YAML (a one-line block a flow mapping, a
+  block across lines block YAML, a line break inside a quoted string a `<br/>`), and it may be
+  written on a line of its own or at either end of an edge, after a bracket or a `:::name`
+  (`A[x]:::c@{ shape: circle }`), and on a node written before, whose text it keeps. A shape
+  Siren does not draw yet (`cloud`, `doc` and the rest), a name that is no shape (`foo`, `Rect`,
+  `lean_right`), the keys `icon`, `img`, `form`, `pos`, `w`, `h` and `constraint`, a block that is
+  not YAML, a space before the `@`, text after the `}`, a second block, a block never closed and a
+  block on a subgraph's id are each refused at the `@` or the text, saying what to write instead;
+  another key is ignored with a warning. Each used to be refused as `@{ … }` not supported yet.
 - A dotted class namespace name (`namespace N.M { class A }`) is read as Mermaid 12.2.0 reads it
   (nook `01M51B43T8`): the `M` inside N, drawn as the frame N around the frame M, the same picture
   as the nested spelling. An `N` no block opens is created, titled `N` and numbered before `N.M`;

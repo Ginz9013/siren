@@ -3255,12 +3255,64 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A@{ shape: circle, label: "x" } --> B`,
-    status: "rejected",
+    status: "supported",
     meaning:
       "Mermaid 12.2.0's `@{ … }` node data gives `A` the shape `circle` and " +
-      "the label `x` (measured). Siren does not read `@{ … }` yet (its own " +
-      "board): refused at the `@`, saying to write the shape with brackets " +
-      "(`A((x))`).",
+      "the label `x` (measured). Siren reads the block and draws the circle " +
+      "`A((x))` would.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[x]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+      expectSame("outline", nodeOutline(result, "A"), "circle");
+    },
+  },
+  {
+    id: "fc-node-shape-data-names",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ shape: cyl, label: "Store" } --> B@{ shape: diamond }
+      C@{
+        shape: hex
+        label: "Prepare"
+      }
+      B --> C@{ shape: lean-r }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws each `shape:` name with the handler its bracket " +
+      "spelling draws (`cyl` is `A[(x)]`, `diamond` is `A{x}`, `hex` is " +
+      "`A{{x}}`, `lean-r` is `A[/x/]`), reads a block written across lines " +
+      "as YAML, and changes a node's shape at a later block while keeping " +
+      "its text (measured). Siren draws the same four shapes.",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Store]", "B[B]", "C[Prepare]"]);
+      expectSame("edges", edges(result), ["A-B", "B-C"]);
+      expectSame("outline", nodeOutline(result, "A"), "tube with an elliptical top");
+      expectSame("outline", nodeOutline(result, "B"), "diamond");
+      expectSame("outline", nodeOutline(result, "C"), "parallelogram leaning right");
+    },
+  },
+  {
+    id: "fc-node-shape-data-undrawn",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ shape: cloud, label: "x" } --> B`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 draws `A` as a cloud (measured), one of the 39 shapes " +
+      "its `@{ … }` names that Siren has no geometry for. Refused at the " +
+      "`@`, saying the shape is not drawn yet and naming the fourteen it can " +
+      "draw.",
+  },
+  {
+    id: "fc-node-shape-data-icon",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ icon: "fa:user", label: "x" } --> B`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 draws `A` as an icon node labelled `x` (measured). " +
+      "Siren draws no icons: `icon`, `img`, `form`, `pos`, `w`, `h` and " +
+      "`constraint` are refused at the `@`, saying to leave the key out.",
   },
   {
     id: "fc-edge-id",
