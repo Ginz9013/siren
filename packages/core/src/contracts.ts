@@ -2147,6 +2147,7 @@ export interface ResolvedClassRelationship {
  * that opened it merged, assigned id, membership resolved.
  */
 export interface ResolvedClassNamespace {
+  /** The generated `namespace:N` id the timeline and the renderer address it by. */
   id: string;
   /**
    * The generated id of the namespace this one is written inside, or `null`
@@ -2162,8 +2163,9 @@ export interface ResolvedClassNamespace {
   label: Label;
   classIds: string[];
   /**
-   * The ids of the notes written in this namespace's blocks, drawn inside
-   * its frame. A note it lists is in `ClassModel.notes`.
+   * The ids of the notes written directly in this namespace's blocks (each
+   * block's `ClassNamespace.noteIndexes`), drawn inside its frame. A note it
+   * lists is in `ClassModel.notes`.
    */
   noteIds: string[];
 }
@@ -2333,7 +2335,10 @@ export interface PositionedClassRelationship {
   toInterfaceLabelAnchor: Point | null;
 }
 
-/** A namespace with a layout-assigned frame enclosing its member classes. */
+/**
+ * A namespace with a layout-assigned frame enclosing its member classes, its
+ * notes and the frames of the namespaces nested in it.
+ */
 export interface PositionedClassNamespace {
   id: string;
   /**

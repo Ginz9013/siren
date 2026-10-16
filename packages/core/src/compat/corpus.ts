@@ -938,27 +938,45 @@ function classBox(result: SirenRenderResult, id: string): Point {
   return { x: Number(frame.getAttribute("x")), y: Number(frame.getAttribute("y")) };
 }
 
+/** A drawn box: a `rect`'s position and size. */
+interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** The `x`, `y`, `width` and `height` a frame's `rect` was drawn with. */
+function frameRect(frame: Element): Rect {
+  const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(frame.getAttribute(name)));
+  return { x, y, width, height };
+}
+
+/**
+ * Whether `inner` lies wholly inside `outer`, every edge strictly within —
+ * what every "inside" helper below means, for a class, a note or a frame.
+ */
+function rectInside(inner: Rect, outer: Rect): boolean {
+  return (
+    inner.x > outer.x &&
+    inner.y > outer.y &&
+    inner.x + inner.width < outer.x + outer.width &&
+    inner.y + inner.height < outer.y + outer.height
+  );
+}
+
 /** The frame of the namespace `id` (its `data-siren-id`), as drawn. */
-function namespaceFrame(result: SirenRenderResult, id: string): { x: number; y: number; width: number; height: number } {
+function namespaceFrame(result: SirenRenderResult, id: string): Rect {
   const frame = svgOf(result).querySelector(`g.siren-namespace[data-siren-id="${id}"] rect.siren-namespace-frame`);
   if (frame === null) throw new Error(`no namespace "${id}" was drawn`);
   return frameRect(frame);
 }
 
-/** The `x`, `y`, `width` and `height` a frame's `rect` was drawn with. */
-function frameRect(frame: Element): { x: number; y: number; width: number; height: number } {
-  const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(frame.getAttribute(name)));
-  return { x, y, width, height };
-}
-
-/** Whether the class `id`'s box is drawn inside `frame`. */
-function classInsideFrame(
-  result: SirenRenderResult,
-  id: string,
-  frame: { x: number; y: number; width: number; height: number },
-): boolean {
-  const box = classBox(result, id);
-  return box.x >= frame.x && box.x <= frame.x + frame.width && box.y >= frame.y && box.y <= frame.y + frame.height;
+/** Whether the class `id`'s whole box is drawn inside `frame`. */
+function classInsideFrame(result: SirenRenderResult, id: string, frame: Rect): boolean {
+  const box = svgOf(result).querySelector(`g.siren-class[data-siren-id="${id}"] rect.siren-class-frame`);
+  if (box === null) throw new Error(`no class "${id}" was drawn`);
+  return rectInside(frameRect(box), frame);
 }
 
 /** Whether the class `id`'s box is drawn inside the frame of the namespace labelled `label`. */
@@ -979,20 +997,16 @@ function insideNamespaceId(result: SirenRenderResult, id: string, namespaceId: s
   return classInsideFrame(result, id, namespaceFrame(result, namespaceId));
 }
 
-/** Whether the note `id`'s box is drawn wholly inside the frame of the namespace `namespaceId`, by id. */
+/** Whether the note `id`'s box is drawn inside the frame of the namespace `namespaceId`, by id. */
 function noteInsideNamespaceId(result: SirenRenderResult, id: string, namespaceId: string): boolean {
   const rect = svgOf(result).querySelector(`g.siren-note[data-siren-id="${id}"] rect.siren-note-frame`);
   if (rect === null) throw new Error(`no note "${id}" was drawn`);
-  const a = frameRect(rect);
-  const b = namespaceFrame(result, namespaceId);
-  return a.x > b.x && a.y > b.y && a.x + a.width < b.x + b.width && a.y + a.height < b.y + b.height;
+  return rectInside(frameRect(rect), namespaceFrame(result, namespaceId));
 }
 
-/** Whether the namespace `inner`'s frame is drawn wholly inside the namespace `outer`'s, by id. */
+/** Whether the namespace `inner`'s frame is drawn inside the namespace `outer`'s, by id. */
 function namespaceInsideNamespace(result: SirenRenderResult, inner: string, outer: string): boolean {
-  const a = namespaceFrame(result, inner);
-  const b = namespaceFrame(result, outer);
-  return a.x > b.x && a.y > b.y && a.x + a.width < b.x + b.width && a.y + a.height < b.y + b.height;
+  return rectInside(namespaceFrame(result, inner), namespaceFrame(result, outer));
 }
 
 /** Every member line drawn inside the class `id`, in draw order. */

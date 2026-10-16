@@ -889,11 +889,11 @@ qualified name is the same namespace: its blocks merge into one frame holding al
 dotted name is the same nesting on one line: `namespace N.M {` is the `M` inside `N`, creating an
 `N` titled `N` if no block opens one and merging with one that does. A note written in a namespace
 is that namespace's (`ResolvedClassNamespace.noteIds`) and drawn inside its frame, so a namespace
-holding only a note is framed too. It may carry a bracketed `["label"]` after its name (`namespace
-Zoo["Big Zoo"] {`), drawn as the frame's title in place of the name — a **Label** in the `html`
-dialect; of a reopened namespace's labels, the last one written wins, and a dotted name's label
-titles its last part only. Addressable in a `timeline:` block under a generated id (`namespace:1`,
-`namespace:2`, … in the order the namespaces first open, outer before inner).
+holding only a note is framed too. A namespace may carry a bracketed `["label"]` after its name
+(`namespace Zoo["Big Zoo"] {`), drawn as the frame's title in place of the name — a **Label** in the
+`html` dialect; of a reopened namespace's labels, the last one written wins, and a dotted name's
+label titles its last part only. Addressable in a `timeline:` block under a generated id
+(`namespace:1`, `namespace:2`, … in the order the namespaces first open, outer before inner).
 _Avoid_: package, module, cluster (that is the word the layout core uses for the mechanism, not
 the authored construct), group, box
 
@@ -915,12 +915,12 @@ inside that namespace's frame, the innermost one around it, a `note for` a class
 included; a sequence diagram's note occupies its own rank on the timeline the same way a message
 does (measured against real Mermaid: it never overlaps the message before or after it) and draws no
 connector at all, unlike the class diagram's attached form. Addressable in a `timeline:` block under
-a generated id in both kinds (`note:1`, `note:2`, … in source order, which
-a dropped note does not renumber). A state diagram's note (`note right of S : ...`) is laid out the
-class diagram's way, a box joined to its state by a connector, after its state along the diagram's
-direction for `right of` and before it for `left of` — at its state's own level, so inside the
-composite its state is written in, where Mermaid 12 lays it out outside (decision
-`01M4VKTJ2A1DGXAMYVF16BK2W3`); it has no id of its own and is drawn in its state's group.
+a generated id in both kinds (`note:1`, `note:2`, … in source order, which a dropped note does not
+renumber). A state diagram's note (`note right of S : ...`) is laid out the class diagram's way, a
+box joined to its state by a connector, after its state along the diagram's direction for `right of`
+and before it for `left of` — at its state's own level, so inside the composite its state is written
+in, where Mermaid 12 lays it out outside (decision `01M4VKTJ2A1DGXAMYVF16BK2W3`); it has no id of
+its own and is drawn in its state's group.
 _Avoid_: annotation (that is the `<<interface>>` marker *inside* a class — a note is a box of its
 own), comment (that is a `%%` line, which is stripped before parsing and draws nothing; a line of
 nothing but `%%` is not a comment in a flowchart or ER diagram and is refused, ADR-0017), label,

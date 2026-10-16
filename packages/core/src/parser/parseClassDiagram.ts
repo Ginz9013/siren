@@ -887,23 +887,24 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         sawError = true;
         if (segments.length === 0) segments = [namespaceOpenMatch[1]];
       }
-      let parentId = outerNamespace?.id ?? null;
-      for (const segment of segments.slice(0, -1)) {
-        const id: string = parentId === null ? segment : `${parentId}.${segment}`;
-        namespaces.push({ id, name: segment, parentId, label: null, classIds: [], noteIndexes: [], line: lineNumber, column });
-        parentId = id;
-      }
-      const name = segments[segments.length - 1]!;
-      const namespace: ClassNamespace = {
-        id: parentId === null ? name : `${parentId}.${name}`,
-        name,
-        parentId,
+      /** The entry for `segment` inside the namespace `parent`, holding `members`. */
+      const blockEntry = (segment: string, parent: string | null, members: string[]): ClassNamespace => ({
+        id: parent === null ? segment : `${parent}.${segment}`,
+        name: segment,
+        parentId: parent,
         label: null,
-        classIds,
+        classIds: members,
         noteIndexes: [],
         line: lineNumber,
         column,
-      };
+      });
+      let parentId = outerNamespace?.id ?? null;
+      for (const segment of segments.slice(0, -1)) {
+        const ancestor = blockEntry(segment, parentId, []);
+        namespaces.push(ancestor);
+        parentId = ancestor.id;
+      }
+      const namespace = blockEntry(segments[segments.length - 1]!, parentId, classIds);
       namespaces.push(namespace);
       enclosingNamespace = namespace;
 

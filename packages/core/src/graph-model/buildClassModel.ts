@@ -55,14 +55,14 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
 
   const classesById = resolveClasses(document, diagnostics);
 
-  const namespaces = resolveNamespaces(document, classesById, diagnostics);
-
   const notes = resolveNotes(document, classesById, diagnostics);
-  // A note dropped for naming no class is in no namespace either.
-  const noteIds = new Set(notes.map((note) => note.id));
-  for (const namespace of namespaces) {
-    namespace.noteIds = namespace.noteIds.filter((id) => noteIds.has(id));
-  }
+
+  const namespaces = resolveNamespaces(
+    document,
+    classesById,
+    new Set(notes.map((note) => note.id)),
+    diagnostics,
+  );
 
   const classes = [...classesById.values()].map((accumulator) => accumulator.resolved);
 
@@ -249,6 +249,7 @@ function resolveClasses(
 function resolveNamespaces(
   document: ClassDocument,
   classesById: Map<string, ClassAccumulator>,
+  noteIds: ReadonlySet<string>,
   diagnostics: Diagnostic[],
 ): ResolvedClassNamespace[] {
   /** The namespace that claimed each class first, by its qualified name. */
@@ -282,8 +283,12 @@ function resolveNamespaces(
 
     claimMembers(block, namespace, claimedBy, classesById, diagnostics);
     // A note's id is its place among the document's notes, the id
-    // `resolveNotes` gives it; one it drops is taken off again there.
-    namespace.noteIds.push(...block.noteIndexes.map((index) => generatedId("note", index + 1)));
+    // `resolveNotes` gave it; one it dropped, for naming no class, is in no
+    // namespace either.
+    for (const index of block.noteIndexes) {
+      const noteId = generatedId("note", index + 1);
+      if (noteIds.has(noteId)) namespace.noteIds.push(noteId);
+    }
   }
 
   return [...byQualifiedName.values()];

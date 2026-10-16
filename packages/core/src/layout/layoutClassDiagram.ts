@@ -312,51 +312,50 @@ export function layoutClassDiagram(
 
   const knownClassIds = new Set(model.classes.map((cls) => cls.id));
 
-  // Membership is read from each namespace's own class list, filtered to the
-  // classes this model actually has. That one list drives both the cluster
-  // parentage and the frame, so the two cannot disagree. A namespace is
-  // framed when it encloses something — a member class, a note written in
-  // it, or a namespace inside it that is framed itself: Mermaid 12.2.0 draws
-  // the frame N around `N.M` for `namespace N { namespace M { class A } }`,
-  // and around the note of `namespace N { note "x" }` (measured). One with
-  // nothing to enclose is dropped entirely: the shared core lays a childless
-  // cluster out as an ordinary box, which would put a stray frame in the
-  // middle of the diagram.
-  const memberIdsByNamespace = new Map(
-    model.namespaces.map((ns) => [ns.id, ns.classIds.filter((id) => knownClassIds.has(id))] as const),
-  );
+  // Membership is read from each namespace's own class and note lists,
+  // filtered to the classes and notes this model actually has. Those lists
+  // drive both the cluster parentage and the frame, so the two cannot
+  // disagree. A namespace is framed when it encloses something — a member
+  // class, a note written in it, or a namespace inside it that is framed
+  // itself: Mermaid 12.2.0 draws the frame N around `N.M` for `namespace N {
+  // namespace M { class A } }`, and around the note of `namespace N { note
+  // "x" }` (measured). One with nothing to enclose is dropped entirely: the
+  // shared core lays a childless cluster out as an ordinary box, which would
+  // put a stray frame in the middle of the diagram.
   const knownNoteIds = new Set(model.notes.map((note) => note.id));
-  const noteIdsByNamespace = new Map(
-    model.namespaces.map((ns) => [ns.id, ns.noteIds.filter((id) => knownNoteIds.has(id))] as const),
+  const membersByNamespace = new Map(
+    model.namespaces.map(
+      (ns) =>
+        [
+          ns.id,
+          {
+            memberIds: ns.classIds.filter((id) => knownClassIds.has(id)),
+            noteIds: ns.noteIds.filter((id) => knownNoteIds.has(id)),
+          },
+        ] as const,
+    ),
   );
   const framedNamespaceIds = new Set<string>();
   // A child is listed after its parent, so walking the list backwards sees
   // every child before the namespace around it.
   for (const ns of [...model.namespaces].reverse()) {
-    const enclosesNothing =
-      memberIdsByNamespace.get(ns.id)!.length === 0 && noteIdsByNamespace.get(ns.id)!.length === 0;
-    if (!framedNamespaceIds.has(ns.id) && enclosesNothing) continue;
+    const { memberIds, noteIds } = membersByNamespace.get(ns.id)!;
+    if (!framedNamespaceIds.has(ns.id) && memberIds.length === 0 && noteIds.length === 0) continue;
     framedNamespaceIds.add(ns.id);
     if (ns.parentId !== null) framedNamespaceIds.add(ns.parentId);
   }
   const groups = model.namespaces
     .filter((ns) => framedNamespaceIds.has(ns.id))
-    .map((ns) => ({ ns, memberIds: memberIdsByNamespace.get(ns.id)! }));
+    .map((ns) => ({ ns, ...membersByNamespace.get(ns.id)! }));
 
-  const namespaceIdByClassId = new Map<string, string>();
-  for (const group of groups) {
-    for (const id of group.memberIds) {
-      namespaceIdByClassId.set(id, group.ns.id);
-    }
-  }
   // A note written in a namespace is drawn inside its frame, a `note for` a
   // class outside it too, its connector running out across the frame
   // (measured, Mermaid 12.2.0).
+  const namespaceIdByClassId = new Map<string, string>();
   const namespaceIdByNoteId = new Map<string, string>();
   for (const group of groups) {
-    for (const id of noteIdsByNamespace.get(group.ns.id)!) {
-      namespaceIdByNoteId.set(id, group.ns.id);
-    }
+    for (const id of group.memberIds) namespaceIdByClassId.set(id, group.ns.id);
+    for (const id of group.noteIds) namespaceIdByNoteId.set(id, group.ns.id);
   }
 
   // A note counts as attached only when the class it names is one this model
