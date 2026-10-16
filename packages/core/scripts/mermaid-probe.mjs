@@ -29,9 +29,12 @@
  *   character after the `%%` — a space will do — and leaves a bare `%%` to
  *   the diagram's grammar: a flowchart draws it as a node named `%%` (or
  *   refuses the document, above the header), an ER diagram refuses the
- *   document, and sequence, class and state diagrams read it as a comment
- *   after all. Siren refuses it too wherever Mermaid does not read it as a
- *   comment (ADR-0017), so write `%% text` or a blank line instead.
+ *   document, sequence and state diagrams read it as a comment after all,
+ *   and a class diagram reads it by where it stands — the member `%%` in a
+ *   class block, nothing between statements, a parse error in a
+ *   namespace's body. Siren reads it the same way, refusing it wherever
+ *   Mermaid does not draw or skip it (ADR-0017), so write `%% text` or a
+ *   blank line instead.
  * - Write a sequence `box` color in lower case (`box aqua Grp`). Under jsdom,
  *   which has no `window.CSS`, Mermaid's `parseBoxData` tests the color on a
  *   fresh `new Option().style` and compares it with what jsdom serializes it

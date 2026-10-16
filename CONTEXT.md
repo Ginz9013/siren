@@ -901,7 +901,9 @@ visibility). Attributes and methods draw in two separate
 compartments, in declaration order within each, with a divider above every populated one; a
 member written twice, in one declaration or across several, is drawn twice. A space written
 after the visibility marker is drawn as one (`+ x`), and a line that draws no text (`$`) takes no
-height.
+height; a compartment of nothing but such lines is no compartment, so a class whose only members
+are `$` or `*` is drawn like one with none, no divider at all — a known departure: Mermaid draws
+every class with both dividers, and that one 12px shorter than an empty class.
 _Avoid_: field, property (that is a CSS declaration's property in an author style), attribute
 (alone — that is one of the two kinds of member, and it is also an SVG attribute; say "attribute
 member" when the kind matters)

@@ -260,6 +260,13 @@ function planClassBox(
     // A compartment whose every line draws no text (`$`, `*`) takes no
     // room at all, its padding and divider included: Mermaid 12.2.0 draws
     // `$` ⏎ `+f()` exactly as `+f()` alone (measured, Chrome).
+    //
+    // A known departure follows from it: a class whose only members draw
+    // no text is drawn as a class with none, no divider at all. Mermaid
+    // draws every class with both dividers, and a `$`-only or `*`-only
+    // block 12px shorter than an empty one (69 against 81, measured,
+    // Chrome); Siren keeps its own rule, a divider above every compartment
+    // that draws something, rather than Mermaid's for that one case.
     if (members.every((member) => memberText(member) === "")) return null;
     const dividerY = bottom;
     bottom += CLASS_PADDING_Y;

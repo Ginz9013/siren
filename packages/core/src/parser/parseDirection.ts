@@ -55,9 +55,12 @@ const TAUGHT_DIRECTIONS = [...CANONICAL_DIRECTION]
  * it names them — derived from `TAUGHT_DIRECTIONS`, so a message cannot name
  * a direction the parser does not accept.
  */
-export const CLASS_DIRECTION_STATEMENTS: readonly string[] = TAUGHT_DIRECTIONS.map(
-  (direction) => `direction ${direction}`,
-);
+const CLASS_DIRECTION_STATEMENTS: readonly string[] = TAUGHT_DIRECTIONS.map((direction) => `direction ${direction}`);
+
+/** The class-diagram `direction` statements to write, as a diagnostic names a choice (`quoteList`), each a code span. */
+export function classDirectionChoices(): string {
+  return quoteList(CLASS_DIRECTION_STATEMENTS, "`");
+}
 
 /**
  * The flowchart headers a diagnostic names — both keywords, every taught
@@ -150,15 +153,17 @@ const EVERY_KIND = Object.keys(DIAGRAM_HEADERS) as DiagramKind[];
 
 /**
  * Quotes a list of spellings the way every diagnostic in this parser names a
- * set the author could have written: `"a"`, `"a" or "b"`, `"a", "b", or "c"`.
+ * set the author could have written: `"a"`, `"a" or "b"`, `"a", "b", or "c"`
+ * — each between `mark`s, double quotes unless a caller names statements as
+ * code spans.
  *
  * The two-item form drops the comma because a two-item list reads as a
  * choice rather than an enumeration — which is what the class diagram's
  * message said by hand before this function existed, and it stays true now
  * that the same code prints the flowchart's eight.
  */
-function quoteList(spellings: readonly string[]): string {
-  const quoted = spellings.map((spelling) => `"${spelling}"`);
+function quoteList(spellings: readonly string[], mark = '"'): string {
+  const quoted = spellings.map((spelling) => `${mark}${spelling}${mark}`);
   if (quoted.length <= 1) {
     return quoted.join("");
   }

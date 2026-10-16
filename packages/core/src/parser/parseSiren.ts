@@ -6,6 +6,7 @@ import {
   readDirectives,
   readFrontmatter,
 } from "./documentConfig";
+import { bareCommentError, isBareCommentLine } from "./bareCommentLine";
 import { parseClassDiagram } from "./parseClassDiagram";
 import { parseErDiagram } from "./parseErDiagram";
 import { type DiagramKind, listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
@@ -70,7 +71,7 @@ const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = 
  * `cleanupComments` removes `^\s*%%(?!{)[^\n]+\n?`, so a whole-line
  * comment needs at least one character — a space will do — after its
  * `%%`; a bare `%%` is left to the diagram's grammar. What that grammar
- * makes of it differs by kind (`bareCommentMessage`), so the line is still
+ * makes of it differs by kind (`BARE_COMMENT_OUTCOME`), so the line is still
  * blanked here and the kind decides, once the header is known, whether the
  * document is refused for it (ADR-0017).
  *
@@ -120,7 +121,7 @@ function asMermaidReads(source: string): {
   const directives = readDirectives(frontmatter.source);
   const linesAsWritten = directives.source.split("\n");
   const bareCommentLines = linesAsWritten.flatMap((line, index) =>
-    line.trimStart() === "%%" ? [{ line: index + 1, column: line.length - 1 }] : [],
+    isBareCommentLine(line) ? [{ line: index + 1, column: line.length - 1 }] : [],
   );
   const wholeLinesBlanked = linesAsWritten.map((line) =>
     line.trimStart().startsWith("%%") ? "" : line,
@@ -298,54 +299,45 @@ interface BareCommentLine {
   column: number;
 }
 
-// The cause and the fix, and nothing about another tool: an author reads
-// what is wrong with the line and how to write it.
-const BARE_COMMENT_IS_NOT = 'A line that is nothing but "%%" is not a comment: a comment needs text after its "%%"';
-const BARE_COMMENT_HINT = ' Write "%% text", or leave the line blank.';
-const BARE_COMMENT_DRAWN = `${BARE_COMMENT_IS_NOT}, so this line is a node named "%%".${BARE_COMMENT_HINT}`;
-const BARE_COMMENT_REFUSED = `${BARE_COMMENT_IS_NOT}.${BARE_COMMENT_HINT}`;
+const BARE_COMMENT_DRAWN = bareCommentError({ drawnAs: 'so this line is a node named "%%"' });
+const BARE_COMMENT_REFUSED = bareCommentError();
 
 /**
- * What Mermaid makes of a bare `%%` line in each kind, as the refusal to
- * give for it (measured on 12.2.0), given whether the line stands below the
- * kind's header. `null` where the kind's grammar reads the line as a
- * comment after all (sequence, class and state: their lexers have a `%%`
- * rule of their own), so it means here what it means there — save that a
- * class diagram's parser is handed the line to decide by where it stands
- * (`BARE_COMMENT_HANDED_TO_KIND`). A flowchart
- * draws the line as a node below its header and refuses the document above
- * it; an ER diagram refuses it anywhere. A record rather than a switch, as
+ * What a kind makes of a bare `%%` line: refused with this message, read as
+ * a comment, or handed to the kind's own parser, which reads it by where it
+ * stands.
+ */
+type BareCommentOutcome = { refused: string } | "comment" | "handed";
+
+/**
+ * What Mermaid makes of a bare `%%` line in each kind (measured on 12.2.0),
+ * given whether the line stands below the kind's header. Sequence and state
+ * diagrams read it as a comment after all (their lexers have a `%%` rule of
+ * their own), so it means here what it means there. A class diagram reads it
+ * by where it stands — a class block's member `%%`, nothing between
+ * statements, a parse error in a namespace's body — so the line is handed
+ * to `parseClassDiagram`, which knows where it stands. A flowchart draws the
+ * line as a node below its header and refuses the document above it; an ER
+ * diagram refuses it anywhere. A record rather than a switch, as
  * `PARSE_KIND` is, so a new kind cannot arrive without this decision.
  */
-const BARE_COMMENT_MESSAGE: Record<DiagramKind, (belowHeader: boolean) => string | null> = {
-  flowchart: (belowHeader) => (belowHeader ? BARE_COMMENT_DRAWN : BARE_COMMENT_REFUSED),
-  sequence: () => null,
-  class: () => null,
-  state: () => null,
-  er: () => BARE_COMMENT_REFUSED,
+const BARE_COMMENT_OUTCOME: Record<DiagramKind, (belowHeader: boolean) => BareCommentOutcome> = {
+  flowchart: (belowHeader) => ({ refused: belowHeader ? BARE_COMMENT_DRAWN : BARE_COMMENT_REFUSED }),
+  sequence: () => "comment",
+  class: (belowHeader) => (belowHeader ? "handed" : "comment"),
+  state: () => "comment",
+  er: () => ({ refused: BARE_COMMENT_REFUSED }),
 };
 
-/**
- * Whether a kind's own parser is handed its bare `%%` lines below its
- * header, rather than blank lines. A class diagram's grammar reads one by
- * where it stands (measured on 12.2.0): a class block's member `%%`,
- * nothing between statements, a parse error in a namespace's body — so the
- * line goes to `parseClassDiagram`, which knows where it stands. Every
- * other kind reads it the same wherever it stands, which
- * `BARE_COMMENT_MESSAGE` says. A record for the reason that one is.
- */
-const BARE_COMMENT_HANDED_TO_KIND: Record<DiagramKind, boolean> = {
-  flowchart: false,
-  sequence: false,
-  class: true,
-  state: false,
-  er: false,
-};
+/** `BARE_COMMENT_OUTCOME` for the line `at`, in a document of `header`'s kind; a comment where no kind is named. */
+function bareCommentOutcome(header: Header | null, at: BareCommentLine): BareCommentOutcome {
+  return header?.kind ? BARE_COMMENT_OUTCOME[header.kind](at.line > header.index + 1) : "comment";
+}
 
 /**
- * `lines` with each bare `%%` line in `bareCommentLines` below `header` and
- * above `timelineStart` put back, at its column, when `header`'s kind is
- * handed them (`BARE_COMMENT_HANDED_TO_KIND`); `lines` itself otherwise.
+ * `lines` with each bare `%%` line in `bareCommentLines` above
+ * `timelineStart` that `header`'s kind is handed (`BARE_COMMENT_OUTCOME`)
+ * put back, at its column.
  */
 function withBareCommentLines(
   lines: readonly string[],
@@ -353,18 +345,11 @@ function withBareCommentLines(
   timelineStart: number,
   bareCommentLines: readonly BareCommentLine[],
 ): readonly string[] {
-  if (header?.kind == null || !BARE_COMMENT_HANDED_TO_KIND[header.kind]) return lines;
+  const handed = bareCommentLines.filter((at) => at.line - 1 < timelineStart && bareCommentOutcome(header, at) === "handed");
+  if (handed.length === 0) return lines;
   const restored = [...lines];
-  for (const at of bareCommentLines) {
-    const index = at.line - 1;
-    if (index > header.index && index < timelineStart) restored[index] = `${" ".repeat(at.column - 1)}%%`;
-  }
+  for (const at of handed) restored[at.line - 1] = `${" ".repeat(at.column - 1)}%%`;
   return restored;
-}
-
-/** `BARE_COMMENT_MESSAGE` for the line `at`, in a document of `header`'s kind. */
-function bareCommentMessage(header: Header | null, at: BareCommentLine): string | null {
-  return header?.kind ? BARE_COMMENT_MESSAGE[header.kind](at.line > header.index + 1) : null;
 }
 
 /**
@@ -411,8 +396,8 @@ export function parseSiren(source: string): ParseResult {
   // parser ends it.
   const bareCommentRefusals = bareCommentLines.flatMap((at): Diagnostic[] => {
     if (at.line - 1 >= timelineStart) return [];
-    const message = bareCommentMessage(header, at);
-    return message === null ? [] : [{ severity: "error", message, ...at }];
+    const outcome = bareCommentOutcome(header, at);
+    return typeof outcome === "string" ? [] : [{ severity: "error", message: outcome.refused, ...at }];
   });
   if (bareCommentRefusals.length > 0) {
     return { document: null, diagnostics: bareCommentRefusals, config: {} };

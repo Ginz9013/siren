@@ -21,8 +21,9 @@ import type {
 import { entityCodeAt, replaceCharacterReferences, replaceEntityCodes } from "../label/characterReferences";
 import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
+import { bareCommentError, isBareCommentLine } from "./bareCommentLine";
 import {
-  CLASS_DIRECTION_STATEMENTS,
+  classDirectionChoices,
   classDirectionMisspelling,
   isClassDirectionTD,
   listAcceptedHeaders,
@@ -311,9 +312,7 @@ const BARE_PERCENT_MEMBER: ClassMember = {
   returnType: null,
 };
 
-const BARE_PERCENT_IN_NAMESPACE =
-  'A line that is nothing but "%%" is not a comment in a namespace: a comment needs text after its "%%". ' +
-  'Write "%% text", or leave the line blank.';
+const BARE_PERCENT_IN_NAMESPACE = bareCommentError({ where: "in a namespace" });
 
 /** The column `rawLine`'s text starts at, after its indent. */
 function textColumn(rawLine: string): number {
@@ -414,12 +413,6 @@ const DIRECTION_MEANING: Record<Direction, string> = {
   RL: "right to left",
 };
 
-/** `a`, `b` or `c`, each as a code span: how an error names a choice of statements. */
-function codeSpanChoice(statements: readonly string[]): string {
-  const spans = statements.map((statement) => `\`${statement}\``);
-  return spans.length <= 1 ? spans.join("") : `${spans.slice(0, -1).join(", ")} or ${spans[spans.length - 1]}`;
-}
-
 /**
  * The error for a `direction` statement, quoted as `written`, that sets no
  * class-diagram direction: naming the one to write when its value names one
@@ -428,7 +421,7 @@ function codeSpanChoice(statements: readonly string[]): string {
 function notAClassDirection(written: string, value: Direction | null): string {
   const write =
     value === null
-      ? `write ${codeSpanChoice(CLASS_DIRECTION_STATEMENTS)}`
+      ? `write ${classDirectionChoices()}`
       : `write \`direction ${value}\` for ${DIRECTION_MEANING[value]}`;
   return `\`${written}\` is not a class-diagram direction: ${write}.`;
 }
@@ -1319,7 +1312,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     // character after its `%%` — and the class lexer reads it as a comment
     // between statements (measured, Chrome: `class A` ⏎ `%%` ⏎ `class B`
     // draws both), but not in a namespace's body, where it is a parse error.
-    if (rawLine.trimStart() === "%%") {
+    if (isBareCommentLine(rawLine)) {
       if (namespaceMembers !== null) {
         diagnostics.push({ severity: "error", message: BARE_PERCENT_IN_NAMESPACE, line: lineNumber, column });
         sawError = true;
@@ -2016,7 +2009,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
           // Unless it is nothing but `%%`: a comment needs a character after
           // it, a space will do, and a bare `%%` is the block's member `%%`
           // (measured, Chrome: `class A {` ⏎ `%%` ⏎ `}` draws `%%`).
-          if (bodyRawLine.trimStart() === "%%") {
+          if (isBareCommentLine(bodyRawLine)) {
             members.push({ ...BARE_PERCENT_MEMBER, line: bodyIndex + 1, column: textColumn(bodyRawLine) });
           }
           continue;

@@ -493,7 +493,20 @@ describe("layoutClassDiagram", () => {
         box.methods?.dividerY ?? null,
       ];
       expect(summary(layout([empty, f]))).toEqual(summary(layout([f])));
-      expect(summary(layout([empty, attribute({ name: "", classifier: "*" })]))).toEqual(summary(layout([])));
+    });
+
+    it("lays out a class whose only members draw no text as a class with none, by Siren's own divider rule", () => {
+      // Not Mermaid's: Mermaid 12.2.0 draws every class with both dividers,
+      // and a `$`-only block 12px shorter than an empty one (69 against 81,
+      // measured, Chrome). Siren draws a divider only above a compartment
+      // that draws something, so such a class is drawn as one with no
+      // members — a departure kept on purpose.
+      const layout = (members: ClassMember[]) =>
+        classById(layoutClassDiagram(classModel({ classes: [cls("A", members)] }), { measureText: fakeMeasurer }), "A");
+      const summary = (box: ReturnType<typeof layout>) => [box.height, box.attributes, box.methods];
+      expect(
+        summary(layout([attribute({ name: "", classifier: "$" }), attribute({ name: "", classifier: "*" })])),
+      ).toEqual(summary(layout([])));
     });
 
     it("draws one space after the visibility marker when the member wrote one", () => {

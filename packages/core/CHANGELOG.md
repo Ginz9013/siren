@@ -426,7 +426,10 @@ divider and now takes none (see **Changed**).
   in a namespace's body. Siren dropped it everywhere; `parseSiren` now hands it to the class
   parser, which draws, skips or refuses it the same way, with an error saying to write `%% text`
   or leave the line blank. A compartment whose every line draws no text (`$`, `*`) now takes no
-  room, its padding and divider included, as Mermaid draws `$` ⏎ `+f()` exactly as `+f()`.
+  room, its padding and divider included, when another member of the class draws text — as
+  Mermaid draws `$` ⏎ `+f()` exactly as `+f()`. A block of nothing but such lines is drawn like a
+  class with no members, no divider at all; Mermaid draws it with both dividers, 12px shorter than
+  an empty class — a known departure.
 - **The rest of a class member's text is drawn as Mermaid 12.2.0 draws it** (nook `01M51Z1XFF`,
   measured in Chrome): a space after the visibility marker is drawn, one however many were written
   (`+ x`, `+  x` draw `+ x`); a method may have no name after its marker (`+(a)`, `-( b ) int`

@@ -1180,6 +1180,16 @@ classDiagram
       }
     });
 
+    it("reads a bare `%%` between class statements, indented or not, as nothing", () => {
+      // Measured (Chrome): `class A` ⏎ `%%` ⏎ `class B` draws A and B, and a
+      // last line `%%` draws nothing more — the class parser, handed the
+      // line, skips it there.
+      const bare = parseSiren("classDiagram\n  class A\n%%\n    %%\n  class B\n  %%");
+      const without = parseSiren("classDiagram\n  class A\n\n\n  class B\n");
+      expect(bare.diagnostics).toEqual([]);
+      expect(bare.document).toEqual(without.document);
+    });
+
     it("hands a class diagram its bare `%%` lines, a class block reading one as the member `%%`", () => {
       // Measured (Chrome): `class A {` ⏎ `%%` ⏎ `+x` ⏎ `}` draws the members
       // `%%` and `+x`; `%% hi` and `%%   ` there are comments; a bare `%%` in

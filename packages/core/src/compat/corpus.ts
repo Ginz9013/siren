@@ -6803,7 +6803,11 @@ line2\`"]`,
       "room: Mermaid 12.2.0 draws `$` ⏎ `+f()` exactly as tall as `+f()` " +
       "alone, its dividers in the same places (measured, Chrome). Siren " +
       "used to give the `$` a compartment of its own, padding and divider " +
-      "included (nook 01M521P5NA).",
+      "included (nook 01M521P5NA). A known departure remains: a block of " +
+      "nothing but `$` or `*` is drawn like a class with no members, no " +
+      "divider at all, by Siren's own rule of a divider above every " +
+      "compartment that draws something; Mermaid draws it with both " +
+      "dividers, 12px shorter than an empty class.",
     assert: (result) => {
       const box = svgOf(result).querySelector('g.siren-class[data-siren-id="A"]');
       expectSame("members", members(result, "A"), ["+f()"]);

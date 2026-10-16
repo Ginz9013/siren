@@ -3549,7 +3549,7 @@ describe("parseClassDiagram — a `direction` with a value it does not set", () 
     const known = (written: string, value: string, meaning: string) =>
       `\`${written}\` is not a class-diagram direction: write \`direction ${value}\` for ${meaning}.`;
     const unknown = (written: string) =>
-      `\`${written}\` is not a class-diagram direction: write \`direction TB\`, \`direction BT\`, \`direction LR\` or \`direction RL\`.`;
+      `\`${written}\` is not a class-diagram direction: write \`direction TB\`, \`direction BT\`, \`direction LR\`, or \`direction RL\`.`;
     for (const [statement, message] of [
       ["direction lr", known("direction lr", "LR", "left to right")],
       ["direction Lr", known("direction Lr", "LR", "left to right")],
