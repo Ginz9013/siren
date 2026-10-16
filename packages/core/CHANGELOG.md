@@ -74,6 +74,14 @@ where each used to be a frame and an id of its own, so the ids after it shift (s
 
 ### Added
 
+- A dotted class namespace name (`namespace N.M { class A }`) is read as Mermaid 12.2.0 reads it
+  (nook `01M51B43T8`): the `M` inside N, drawn as the frame N around the frame M, the same picture
+  as the nested spelling. An `N` no block opens is created, titled `N` and numbered before `N.M`;
+  one that a block does open is merged with it, written before or after. A bracketed label titles
+  the last part only (`namespace N.M["Leaf"]`), a dotted name works inside another namespace
+  (`namespace N { namespace M.K { … } }` is three levels), and a space beside a dot is read as
+  none (`N. M`). A name with an empty part (`.N`, `N.`, `N..M`), which Mermaid refuses, is refused
+  at the name with the name to write instead. Each used to be refused as an unrecognized line.
 - A class namespace written inside another (`namespace N { namespace M { class A } }`, on lines of
   their own or on one line) is drawn as Mermaid 12.2.0 draws it (nook `01M51B43CP`): the frame N
   around the frame M around A, as nested clusters in the layout core, the outer frame painted first

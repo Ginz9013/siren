@@ -134,6 +134,9 @@ const STANDALONE_ANNOTATION_RE = /^<<(.+)>>\s+(\w+)$/;
  * the same way: a space may stand before the `[`, and `[""]` is a parse
  * error in Mermaid.
  *
+ * The name may be dotted, `namespace N.M {`, each segment a `\w+` and a
+ * space either side of a dot allowed, as Mermaid 12.2.0 reads it (measured).
+ *
  * What follows the `{` on its line is the body's first statement (the
  * third capture): Mermaid 12.2.0 reads `namespace N { class A }` as N
  * holding A, its `}` closing the namespace wherever it stands (measured).
@@ -141,9 +144,21 @@ const STANDALONE_ANNOTATION_RE = /^<<(.+)>>\s+(\w+)$/;
  * so a line with one does not open a namespace here.
  */
 const NAMESPACE_OPEN_RE = new RegExp(
-  String.raw`^namespace\s+(\w+)\s*${BRACKETED_LABEL}\s*\{(?!\s*%%)(.*)$`,
+  String.raw`^namespace\s+([\w.](?:[\w.\s]*[\w.])?)\s*${BRACKETED_LABEL}\s*\{(?!\s*%%)(.*)$`,
   "d",
 );
+
+/**
+ * `NAMESPACE_OPEN_RE`'s match on `line`, or `null` when there is none or the
+ * name holds a space anywhere but beside a dot (`namespace N M {`, which is
+ * no namespace this parser reads). A name with an empty part (`.N`, `N..M`)
+ * still matches, for the caller to refuse at the name.
+ */
+function matchNamespaceOpen(line: string): RegExpExecArray | null {
+  const match = NAMESPACE_OPEN_RE.exec(line);
+  if (match === null || /\s/.test(match[1].replace(/\s*\.\s*/g, "."))) return null;
+  return match;
+}
 
 /**
  * The index of the first `}` in `text` that closes no `{` opened before it
@@ -840,7 +855,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       return block.closeIndex - 1;
     }
 
-    const namespaceOpenMatch = NAMESPACE_OPEN_RE.exec(line);
+    const namespaceOpenMatch = matchNamespaceOpen(line);
     if (namespaceOpenMatch !== null) {
       const classIds: string[] = [];
       let closed = false;
@@ -852,11 +867,44 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       // `buildClassModel` numbers `namespace:N` in, outer first. A block is
       // known by its qualified name — Mermaid 12.2.0's `resolveQualifiedId`
       // — so the `M` written inside N is `N.M`, a namespace apart from a
-      // top-level `M` (measured: two frames).
-      const parentId = enclosingNamespace;
+      // top-level `M` (measured: two frames). A dotted name is the same
+      // nesting written on one line: `namespace N.M {` opens N, then the M
+      // inside it, the block's label and classes going to M alone
+      // (measured; a space either side of a dot is read as none). Each
+      // segment it passes through is recorded as a namespace with nothing
+      // of its own, which `buildClassModel` merges with any block of that
+      // name.
+      const outerNamespace = enclosingNamespace;
+      const writtenSegments = namespaceOpenMatch[1].split(".").map((segment) => segment.trim());
+      let segments = writtenSegments.filter((segment) => segment.length > 0);
+      if (segments.length < writtenSegments.length) {
+        // Measured: Mermaid 12.2.0 refuses `namespace .N`, `namespace N.`
+        // and `namespace N..M` ("… got 'DOT'"), and an empty part names
+        // nothing, so it is refused (ADR-0017). The block is still read, as
+        // the namespace its named parts spell, so its `}` closes it rather
+        // than being refused as well.
+        const fixed = segments.join(".");
+        diagnostics.push({
+          severity: "error",
+          message:
+            `Namespace name "${namespaceOpenMatch[1]}" has an empty part: each part between dots needs a name. ` +
+            (fixed.length > 0 ? `Write "${fixed}" instead.` : "Give the namespace a name."),
+          line: lineNumber,
+          column: column + namespaceOpenMatch.indices![1]![0],
+        });
+        sawError = true;
+        if (segments.length === 0) segments = [namespaceOpenMatch[1]];
+      }
+      let parentId = outerNamespace;
+      for (const segment of segments.slice(0, -1)) {
+        const id: string = parentId === null ? segment : `${parentId}.${segment}`;
+        namespaces.push({ id, name: segment, parentId, label: null, classIds: [], line: lineNumber, column });
+        parentId = id;
+      }
+      const name = segments[segments.length - 1]!;
       const namespace: ClassNamespace = {
-        id: parentId === null ? namespaceOpenMatch[1] : `${parentId}.${namespaceOpenMatch[1]}`,
-        name: namespaceOpenMatch[1],
+        id: parentId === null ? name : `${parentId}.${name}`,
+        name,
         parentId,
         label: null,
         classIds,
@@ -954,7 +1002,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         namespaceOpenMatch[2] === undefined
           ? null
           : readLabelIn(namespaceOpenMatch, 2, lineNumber, column);
-      enclosingNamespace = parentId;
+      enclosingNamespace = outerNamespace;
       namespaceDepth--;
       return bodyIndex;
     }
@@ -1396,7 +1444,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       const isComment =
         matchClassDirection(before) !== null || (followsCommentable && startIndex === lastStatementIndex);
       const isRefused =
-        !isComment && (followsCommentable || CLASS_DECL_RE.test(before) || NAMESPACE_OPEN_RE.test(before));
+        !isComment && (followsCommentable || CLASS_DECL_RE.test(before) || matchNamespaceOpen(before) !== null);
       if (isComment || isRefused) {
         if (isRefused) {
           diagnostics.push(midLinePercentError(lineNumber, column + percent));

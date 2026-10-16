@@ -1878,3 +1878,90 @@ describe("parseClassDiagram — nested namespace blocks", () => {
     ]);
   });
 });
+
+/**
+ * A dotted namespace name (measured on Mermaid 12.2.0, spec
+ * `class-nested-namespaces`): `namespace N.M { … }` is the `M` written inside
+ * N — Mermaid's `resolveQualifiedId` — so the parser records the block as
+ * opening N, then `N.M` inside it, each under its own name.
+ */
+describe("parseClassDiagram — a dotted namespace name", () => {
+  const classOk = (body: string) => parseOk(`classDiagram\n${body}`).document;
+  const nestingOf = (document: ClassDocument) =>
+    document.namespaces.map((n) => [n.id, n.name, n.parentId, n.classIds]);
+
+  it("reads `namespace N.M` on lines of its own as M inside N", () => {
+    // Measured: the cluster N around the cluster `N.M` (titled M) around A.
+    expect(nestingOf(classOk("  namespace N.M {\n    class A\n  }"))).toEqual([
+      ["N", "N", null, []],
+      ["N.M", "M", "N", ["A"]],
+    ]);
+    // Three segments open three levels.
+    expect(nestingOf(classOk("  namespace N.M.K {\n    class A\n  }"))).toEqual([
+      ["N", "N", null, []],
+      ["N.M", "M", "N", []],
+      ["N.M.K", "K", "N.M", ["A"]],
+    ]);
+  });
+
+  it("reads `namespace N.M` on one line the same way", () => {
+    expect(nestingOf(classOk("  namespace N.M { class A }"))).toEqual([
+      ["N", "N", null, []],
+      ["N.M", "M", "N", ["A"]],
+    ]);
+  });
+
+  it("reads a dotted name written inside another namespace from that namespace", () => {
+    // Measured: `namespace N { namespace M.K { class A } }` is N, `N.M`, `N.M.K`.
+    expect(nestingOf(classOk("  namespace N {\n    namespace M.K {\n      class A\n    }\n  }"))).toEqual([
+      ["N", "N", null, []],
+      ["N.M", "M", "N", []],
+      ["N.M.K", "K", "N.M", ["A"]],
+    ]);
+  });
+
+  it("reads spaces around the dot as Mermaid does, as the same name", () => {
+    // Measured: `namespace N. M` and `namespace N .M` each draw N around `N.M`.
+    for (const body of ["  namespace N. M {\n    class A\n  }", "  namespace N .M {\n    class A\n  }"]) {
+      expect([body, nestingOf(classOk(body))]).toEqual([
+        body,
+        [
+          ["N", "N", null, []],
+          ["N.M", "M", "N", ["A"]],
+        ],
+      ]);
+    }
+  });
+
+  it("refuses a dotted name with an empty part, at the name, saying what to write", () => {
+    // Measured: Mermaid refuses `namespace .N`, `namespace N.` and `namespace
+    // N..M` ("Expecting 'ALPHA', … got 'DOT'" / "… got 'STRUCT_START'"), and
+    // a dot alone as well.
+    const emptyPart = (written: string, fix: string) =>
+      `Namespace name "${written}" has an empty part: each part between dots needs a name. ${fix}`;
+    for (const [body, message] of [
+      ["  namespace .N {\n    class A\n  }", emptyPart(".N", 'Write "N" instead.')],
+      ["  namespace N. {\n    class A\n  }", emptyPart("N.", 'Write "N" instead.')],
+      ["  namespace N..M {\n    class A\n  }", emptyPart("N..M", 'Write "N.M" instead.')],
+      ["  namespace N. .M { class A }", emptyPart("N. .M", 'Write "N.M" instead.')],
+      ['  namespace N.["x"] {\n    class A\n  }', emptyPart("N.", 'Write "N" instead.')],
+      ["  namespace . {\n    class A\n  }", emptyPart(".", "Give the namespace a name.")],
+    ] as const) {
+      const { document, diagnostics } = parseClassDiagram(`classDiagram\n${body}`);
+      expect([body, document, diagnostics]).toEqual([
+        body,
+        null,
+        [{ severity: "error", message, line: 2, column: 13 }],
+      ]);
+    }
+  });
+
+  it("puts a dotted name's label on its last segment only", () => {
+    // Measured: `namespace N.M["Leaf"]` titles `N.M` Leaf and N plain N.
+    const document = classOk('  namespace N.M["Leaf"] {\n    class A\n  }');
+    expect(document.namespaces.map((n) => [n.id, n.label?.text ?? null])).toEqual([
+      ["N", null],
+      ["N.M", "Leaf"],
+    ]);
+  });
+});

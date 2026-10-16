@@ -1743,8 +1743,18 @@ const SILENTLY_WRONG = 0;
  * spaced on a single side as a parse error. Siren used to draw the group,
  * with no row to say so. No `supported` row moved: none glued an `&`.
  * `silently-wrong` does not move.
+ *
+ * **41 → 42: case (2), a refusal written down for the first time.**
+ * `01M51B43T8` read a dotted namespace name (`namespace Zoo.Cats`) as
+ * Mermaid 12.2.0 does, the `Cats` inside Zoo. Siren refused every dotted
+ * name as an unrecognized line until now, so no row had recorded the dotted
+ * names Mermaid refuses: `cls-namespace-dotted-empty-part`, a name with an
+ * empty part (`Zoo..Cats`, `.Zoo`, `Zoo.`; "… got 'DOT'", measured), now
+ * one error at the name saying what to write. No `supported` row moved.
+ * `cls-namespace-dotted`, new beside it, is `supported`. `silently-wrong`
+ * does not move.
  */
-const REJECTED = 41;
+const REJECTED = 42;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

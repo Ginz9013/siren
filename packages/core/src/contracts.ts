@@ -1856,7 +1856,10 @@ export interface ClassRelationship {
  * A `namespace Name { ... }` block. Its member classes also appear in
  * `ClassDocument.classes` as ordinary declarations; this only records the
  * grouping. A namespace opened more than once is one entry per block, all
- * with the same `id`; `buildClassModel` merges them into one namespace.
+ * with the same `id`; `buildClassModel` merges them into one namespace. A
+ * dotted name, `namespace N.M {`, is one entry per segment: N, holding
+ * nothing and labelled by nothing, then `N.M` with the block's label and
+ * classes.
  */
 export interface ClassNamespace {
   /**
@@ -1870,7 +1873,7 @@ export interface ClassNamespace {
   /**
    * The namespace's own name: the last segment of `id`, which titles its
    * frame when the block wrote no label — `M` for the `N.M` written inside
-   * `namespace N`. Carried beside `id` so nothing downstream has to split a
+   * `namespace N`, and for `namespace N.M`. Carried beside `id` so nothing downstream has to split a
    * qualified name to find it.
    */
   name: string;

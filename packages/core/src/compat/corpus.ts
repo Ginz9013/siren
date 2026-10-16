@@ -4694,6 +4694,56 @@ line2\`"]`,
     },
   },
   {
+    id: "cls-namespace-dotted",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo {
+        class Keeper
+      }
+      namespace Zoo.Cats["Big Cats"] {
+        class Lion
+      }
+      namespace Farm.Barn { class Cow }`,
+    status: "supported",
+    meaning:
+      "A dotted namespace name is a namespace inside another: Mermaid 12.2.0 " +
+      "reads `namespace Zoo.Cats` as the `Cats` written inside Zoo, merged " +
+      "with the Zoo written before it, and `namespace Farm.Barn` as Barn " +
+      "inside a Farm no block opens, titled by its name (measured). A label " +
+      "titles the last segment only. Siren used to refuse a dotted name as " +
+      "an unrecognized line.",
+    assert: (result) => {
+      expectSame(
+        "namespace labels, in paint order",
+        texts(result, "text.siren-namespace-label"),
+        ["Zoo", "Big Cats", "Farm", "Barn"],
+      );
+      expectSame("Keeper is inside Zoo", insideNamespaceId(result, "Keeper", "namespace:1"), true);
+      expectSame("Zoo.Cats is inside Zoo", namespaceInsideNamespace(result, "namespace:2", "namespace:1"), true);
+      expectSame("Lion is inside Zoo.Cats", insideNamespaceId(result, "Lion", "namespace:2"), true);
+      expectSame("Barn is inside Farm", namespaceInsideNamespace(result, "namespace:4", "namespace:3"), true);
+      expectSame("Cow is inside Barn", insideNamespaceId(result, "Cow", "namespace:4"), true);
+      expectSame("Farm is outside Zoo", namespaceInsideNamespace(result, "namespace:3", "namespace:1"), false);
+    },
+  },
+  {
+    id: "cls-namespace-dotted-empty-part",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo..Cats {
+        class Lion
+      }`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** Every part of a " +
+      "dotted namespace name needs a name: Mermaid 12.2.0 refuses " +
+      "`namespace Zoo..Cats`, `namespace .Zoo` and `namespace Zoo.` alike " +
+      "(\"Expecting 'ALPHA', … got 'DOT'\", measured). Siren refuses them " +
+      "too (ADR-0017), with one error at the name saying what to write " +
+      "instead (`Zoo.Cats`). Siren used to refuse each as an unrecognized " +
+      "line, with a second error at its `}`.",
+  },
+  {
     id: "cls-note",
     kind: "class",
     source: `classDiagram

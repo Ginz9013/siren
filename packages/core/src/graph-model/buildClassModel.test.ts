@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ClassDecl, ClassDocument, ClassMember, ClassRelationship, Label } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
+import { parseClassDiagram } from "../parser/parseClassDiagram";
 import { buildClassModel } from "./buildClassModel";
 
 /** A label of these rows, each one plain run — what `a<br/>b` reads as. */
@@ -1747,6 +1748,72 @@ describe("buildClassModel — labels", () => {
     expect(model.relationships.map((r) => r.label)).toEqual([rowsLabel("holds", "many")]);
     expect(model.notes).toEqual([
       { id: "note:1", label: rowsLabel("can fly", "can swim"), targetId: "Order" },
+    ]);
+  });
+});
+
+/**
+ * Dotted namespace names, read by the parser and resolved here (measured on
+ * Mermaid 12.2.0, spec `class-nested-namespaces`): the ancestors a dotted
+ * name implies exist whether or not a block opens them, and merge with the
+ * blocks that do.
+ */
+describe("buildClassModel — dotted namespace names", () => {
+  const modelOf = (body: string) => {
+    const { document } = parseClassDiagram(`classDiagram\n${body}`);
+    if (document === null || document.kind !== "class") throw new Error("expected a class document");
+    return buildClassModel(document);
+  };
+  const framesOf = (body: string) => {
+    const { model, diagnostics } = modelOf(body);
+    expect(diagnostics).toEqual([]);
+    return model.namespaces.map((n) => [n.id, n.parentId, n.label.text, n.classIds]);
+  };
+
+  it("creates the ancestor a dotted name implies, titled by its segment and numbered first", () => {
+    expect(framesOf("namespace N.M {\n  class A\n}")).toEqual([
+      ["namespace:1", null, "N", []],
+      ["namespace:2", "namespace:1", "M", ["A"]],
+    ]);
+  });
+
+  it("merges a dotted name's ancestor with a namespace of that name, written before or after", () => {
+    // Measured: `namespace N { class X }` with `namespace N.M { class A }`,
+    // in either order, is one N around X and `N.M`.
+    expect(framesOf("namespace N {\n  class X\n}\nnamespace N.M {\n  class A\n}")).toEqual([
+      ["namespace:1", null, "N", ["X"]],
+      ["namespace:2", "namespace:1", "M", ["A"]],
+    ]);
+    expect(framesOf("namespace N.M {\n  class A\n}\nnamespace N {\n  class X\n}")).toEqual([
+      ["namespace:1", null, "N", ["X"]],
+      ["namespace:2", "namespace:1", "M", ["A"]],
+    ]);
+    // A dotted name and the nested spelling of it are one namespace.
+    expect(framesOf("namespace N { namespace M { class A } }\nnamespace N.M { class B }")).toEqual([
+      ["namespace:1", null, "N", []],
+      ["namespace:2", "namespace:1", "M", ["A", "B"]],
+    ]);
+  });
+
+  it("labels the leaf only, leaving an ancestor its segment until a block of its own labels it", () => {
+    // Measured: `N.M["Leaf"]` alone titles N plain N; a later `N["Outer"]` titles it Outer.
+    expect(framesOf('namespace N.M["Leaf"] {\n  class A\n}')).toEqual([
+      ["namespace:1", null, "N", []],
+      ["namespace:2", "namespace:1", "Leaf", ["A"]],
+    ]);
+    expect(framesOf('namespace N.M["Leaf"] {\n  class A\n}\nnamespace N["Outer"] {\n  class X\n}')).toEqual([
+      ["namespace:1", null, "Outer", ["X"]],
+      ["namespace:2", "namespace:1", "Leaf", ["A"]],
+    ]);
+  });
+
+  it("numbers namespaces in the order they first open, an ancestor where its first dotted name opens it", () => {
+    // Measured: `K`, `N.M`, `N.L` draw K, N, `N.M`, `N.L`.
+    expect(framesOf("namespace K {\n  class Z\n}\nnamespace N.M {\n  class A\n}\nnamespace N.L {\n  class B\n}")).toEqual([
+      ["namespace:1", null, "K", ["Z"]],
+      ["namespace:2", null, "N", []],
+      ["namespace:3", "namespace:2", "M", ["A"]],
+      ["namespace:4", "namespace:2", "L", ["B"]],
     ]);
   });
 });
