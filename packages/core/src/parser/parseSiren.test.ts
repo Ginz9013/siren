@@ -3527,6 +3527,25 @@ describe("a `%%` in the middle of a flowchart line", () => {
     expect(commented).toEqual(plain);
   });
 
+  it("still cuts a `%%` glued or tabbed after a timeline header, unnamed or named", () => {
+    // A header holds no target, so its `%%` opens a comment however it is
+    // spaced, as it did before a `%%` could begin a target.
+    for (const [commented, plain] of [
+      ["timeline: %%note", "timeline:"],
+      ["timeline:\t%%note", "timeline:"],
+      ["timeline:%%note", "timeline:"],
+      ["timeline b: %%note", "timeline b:"],
+      ["timeline b:\t%%note", "timeline b:"],
+      ["timeline b:%%note", "timeline b:"],
+    ] as const) {
+      const source = (header: string) => `flowchart TB\n  A --> B\n${header}\n  enter B fade\n`;
+      const read = parseSiren(source(commented));
+
+      expect([commented, read.diagnostics]).toEqual([commented, []]);
+      expect([commented, read]).toEqual([commented, parseSiren(source(plain))]);
+    }
+  });
+
   it("reads a `%%` glued to the end of a timeline target as the target's, as the flowchart reads the id", () => {
     // `A%%x` is one node id (measured on Mermaid 12.2.0), so a timeline
     // must be able to name it; cutting the line at its `%%` used to aim

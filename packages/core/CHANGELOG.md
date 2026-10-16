@@ -697,6 +697,12 @@ refused (see **Changed**).
   target's text is the id's; a `%%` with a space after it (`enter %% note`), one after the action
   (`enter %%B fade %% note`), and a `%%` line stay comments. Other kinds' ids hold no `%`, so their
   timelines still cut every such `%%`.
+- In a flowchart timeline, a note glued after a lone verb (`enter %%todo`) is now read as that
+  action's target, not as a comment (nook `01M51TJRT0`). The line is still refused, with a
+  different message: `enter %%todo` reports its missing effect where it reported
+  `Unrecognized timeline action: "enter"`, and `unhighlight %%todo` names an id that is not in the
+  diagram. Write `%% todo`, with a space, for a comment. A `%%` after a timeline header
+  (`timeline: %%note`, glued or tabbed) is a comment, as before.
 - An `@{` that a flowchart statement holds as text no longer opens a node data block that runs on
   into the lines below (nook `01M51RE5K5`): `A -- x@{y --> B` followed by `C` draws A, B and C, the
   edge labelled `x@{y`, as Mermaid 12.2.0 does, where it was refused with the next line folded into

@@ -148,27 +148,43 @@ function cutAtDoublePercent(line: string): string {
 /**
  * A timeline line without its comment: everything from its first `%%` on,
  * as for every line before 01M4ZWT8PR — except, in a flowchart
- * (`gluedTargets`), a `%%` glued to the end of an action's target. There
- * `%` is an id character and `A%%x` one node id (measured on Mermaid
- * 12.2.0), so `unhighlight A%%x` names that node, where the cut aimed it at
- * `A`, silently; the target runs on to the next space. So does a `%%`
- * that begins the target (`enter %%B fade`): `A --> %%B` draws a node
- * `%%B`, and the cut left the verb with no target. A `%%` with a space or
- * the line's end straight after it (`enter %% note`) is a comment's own
- * form, so it opens one there too. A `%%` glued to a verb or an effect
- * (`enter A fade%% note`) still opens the comment, as a spaced one does,
- * and so does every `%%` in another kind's timeline, whose ids hold no `%`.
+ * (`gluedTargets`), a `%%` that is part of an action's target, since there
+ * `%` is an id character. That is a `%%` glued to the end of a target:
+ * `A%%x` is one node id (measured on Mermaid 12.2.0), so `unhighlight A%%x`
+ * names that node, where the cut aimed it at `A`, silently. And it is a
+ * `%%` that begins a target (`BEGINS_TARGET_RE`): `A --> %%B` draws a node
+ * `%%B`, so `enter %%B fade` names it, where the cut left the verb with no
+ * target. Either way the target runs on to the next space.
+ *
+ * Every other `%%` opens the comment: one with a space or the line's end
+ * straight after it (`enter %% note`, a comment's own form), one glued to
+ * a verb or an effect (`enter A fade%% note`), every one on a header line
+ * (`timeline: %%note` — a header holds no target), and every one in another
+ * kind's timeline, whose ids hold no `%`.
  */
 function cutTimelineComment(line: string, gluedTargets: boolean): string {
+  const cut = cutAtDoublePercent(line);
+  if (!gluedTargets || isTimelineHeader(cut.trim())) return cut;
   let from = 0;
   for (;;) {
     const at = line.indexOf("%%", from);
     if (at === -1) return line;
     const before = line.slice(0, at);
-    const inTarget = endsInTargetSlot(before) || (beginsTargetSlot(before) && /^%%\S/.test(line.slice(at)));
-    if (!gluedTargets || !inTarget) return before;
+    const inTarget = endsInTargetSlot(before) || (beginsTargetSlot(before) && BEGINS_TARGET_RE.test(line.slice(at)));
+    if (!inTarget) return before;
     from = at + line.slice(at).search(/\s|$/);
   }
+}
+
+/**
+ * A `%%` that begins a target rather than a comment: text straight after
+ * it. `%% note` and a `%%` at the line's end are a comment's own form.
+ */
+const BEGINS_TARGET_RE = /^%%\S/;
+
+/** The last comma-separated action of a timeline line read up to some point. */
+function lastAction(before: string): string {
+  return before.slice(before.lastIndexOf(",") + 1);
 }
 
 /**
@@ -177,8 +193,7 @@ function cutTimelineComment(line: string, gluedTargets: boolean): string {
  * after the target (the `verb target [effect]` of `TIMELINE_ACTION_RE`).
  */
 function endsInTargetSlot(before: string): boolean {
-  const action = before.slice(before.lastIndexOf(",") + 1);
-  return /^\s*\S+\s+\S+$/.test(action);
+  return /^\s*\S+\s+\S+$/.test(lastAction(before));
 }
 
 /**
@@ -186,8 +201,7 @@ function endsInTargetSlot(before: string): boolean {
  * action holds a verb and the space after it, and nothing else.
  */
 function beginsTargetSlot(before: string): boolean {
-  const action = before.slice(before.lastIndexOf(",") + 1);
-  return /^\s*\S+\s+$/.test(action);
+  return /^\s*\S+\s+$/.test(lastAction(before));
 }
 
 /** Where a line that is nothing but `%%` starts its `%%`, as the author wrote it. */

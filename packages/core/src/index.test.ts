@@ -8607,9 +8607,10 @@ describe("render() — a flowchart keeps the model's order among siblings", () =
 });
 
 describe("render() — a timeline names a flowchart id that begins with `%%`", () => {
-  // `A --> %%B` draws a node `%%B` and an edge `A-%%B` (ADR-0010); a
-  // timeline's target slot reads its `%%` as the id's, while a spaced `%%`
-  // after the action, and a `%%` line, stay comments.
+  // `A --> %%B` draws a node `%%B` (nook `01M50DYFG`), and its edge's id is
+  // `A-%%B`, derived from its ends (ADR-0010); a timeline's target slot reads
+  // its `%%` as the id's, while a spaced `%%` after the action, and a `%%`
+  // line, stay comments.
   const source = `flowchart TD
 A --> %%B
 timeline:
