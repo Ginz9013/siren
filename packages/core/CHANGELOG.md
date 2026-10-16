@@ -115,6 +115,11 @@ Breaking for a class document that gives a class a generic after first naming it
 a class name's generic (`class A~List<int>~`), which used to draw `A<List<int>>`. Each is now
 refused (see **Changed**).
 
+Breaking for a class document that gives a class a generic other than the one it was first named
+with (`class A~T~` then `class A~U~`, `A~U~ --> B` or `A~U~ : +x`), or a second, different
+annotation (`<<interface>> A` then `<<service>> A`), each of which used to draw the first with a
+warning and is now refused (see **Changed**).
+
 ### Added
 
 - More flowchart lines are read as Mermaid 12.2.0 reads them (nook `01M51Q7FK5`): a `%%` where an
@@ -277,6 +282,9 @@ refused (see **Changed**).
   none (`class A~~`, `A~~ --> B` draw `A`); on the inline member form's class (`A~T~ : +x`); and on
   a note's target when it is that class's own generic (`note for A~T~ "n"` on a class first named
   `A~T~`). Each used to be refused as an unrecognized line.
+- A `<br>` in a class name's generic is drawn as a line break (nook `01M51TMV71BF1Y0EC2RS2B6ZWG`),
+  as Mermaid 12.2.0 draws it: `class A~a<br>b~` draws `A<a` over `b>`, in any spelling the browser
+  reads as a break (`<br/>`, `<BR>`, `<br />`). It used to be refused as a tag.
 
 ### Changed
 
@@ -688,6 +696,15 @@ refused (see **Changed**).
 - **A note's target with a generic other than its class's is refused** (nook
   `01M51RR6AJKAR05VBT12A2BSB4`): `note for A~T~ "n"` on a class first named without `T`, or never
   named, whose `T` Mermaid 12.2.0 does not draw.
+- **A class generic other than the one the class was first named with is refused** (nook
+  `01M51TMV71BF1Y0EC2RS2B6ZWG`), in every statement and order — `class A~T~` then `class A~U~`,
+  `A~U~ --> B` or `A~U~ : +x`, `A~T~ --> B` then `class A~U~`, two blocks — where Mermaid 12.2.0
+  draws `A<T>`, the `U` gone with no diagnostic. It used to be kept to the first with a warning. The
+  check a note's target generic gets now lives beside this one, in the model, and its error names
+  the line the class was first named on.
+- **A second, different class annotation is refused** (nook `01M51TMV71BF1Y0EC2RS2B6ZWG`):
+  `<<interface>> A` then `<<service>> A`, or two annotation lines in one block, where Mermaid
+  12.2.0 draws only the first. It used to be kept to the first with a warning.
 
 ### Fixed
 

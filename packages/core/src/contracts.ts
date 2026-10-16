@@ -1775,7 +1775,11 @@ export interface ClassMember {
  */
 export interface ClassDecl {
   id: string;
-  /** Generic parameter text between the `~`s (`Shape` in `class Square~Shape~`), or `null`. */
+  /**
+   * Generic parameter text between the `~`s (`Shape` in `class Square~Shape~`),
+   * or `null` for none (an empty `~~` too). A `<br>` written in it is kept
+   * as the line break it draws, `\n` (`class A~a<br>b~` is `a\nb`).
+   */
   generic: string | null;
   /** Annotation text without its `<<`/`>>` (`interface`), or `null`. */
   annotation: string | null;
@@ -1915,6 +1919,13 @@ export interface ClassNote {
   label: Label;
   /** The class this note is attached to, or `null` for a free note. */
   targetId: string | null;
+  /**
+   * The `~generic~` written on the target (`T` in `note for A~T~ "n"`), or
+   * absent when none was (an empty `~~` is none). It names nothing: Mermaid
+   * 12.2.0 reads the target by its name alone, so `buildClassModel` holds
+   * it to the generic the class was first named with and refuses another.
+   */
+  targetGeneric?: string;
   line?: number;
   column?: number;
 }
@@ -2100,11 +2111,11 @@ export interface ResolvedClass {
   annotation: string | null;
   /**
    * The last label any declaration of the class wrote, or `null` when none
-   * did. Unlike `annotation` (first-named wins, a conflict is a warning)
-   * and `generic` (the first naming's wins, a different one later is a
-   * warning, and one given after a naming without any is an error), a later
-   * label replaces an earlier one silently — what Mermaid 11.17.2 draws,
-   * measured.
+   * did. Unlike `annotation` (the first one written is kept, and a
+   * different later one is an error) and `generic` (the first naming's is
+   * kept, and any other given later is an error — Mermaid 12.2.0 drops
+   * both without a word), a later label replaces an earlier one silently —
+   * what Mermaid 11.17.2 draws, measured.
    */
   label: Label | null;
   members: ClassMember[];

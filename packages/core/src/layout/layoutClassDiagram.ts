@@ -18,7 +18,7 @@ import type {
 } from "../contracts";
 import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
 import { entityCodeAt, htmlText } from "../label/characterReferences";
-import { atConnectorLabelSize, plainLabel } from "../label/label";
+import { atConnectorLabelSize, plainRun } from "../label/label";
 import { layoutLabel } from "../label/layoutLabel";
 import { wrapConnectorLabel } from "../label/wrapLabel";
 import {
@@ -182,11 +182,16 @@ function classNameText(cls: ResolvedClass): string {
  * The label a class box draws in its name band: the one the author wrote
  * in brackets when there is one — which replaces the whole name, generic
  * included (measured, mermaid 11.17.2: `class A~T~["Lab"]` draws "Lab") —
- * and otherwise `classNameText` as one plain run. Never read as markup
- * there: the composed `<T>` is the generic Mermaid draws, not a tag.
+ * and otherwise `classNameText` as plain runs, one row per line: a `<br>`
+ * in the generic reaches here as `\n` and draws a row of its own (measured
+ * on Mermaid 12.2.0, Chrome: `class A~a<br>b~` draws `A<a` over `b>`).
+ * Never read as markup there: the composed `<T>` is the generic Mermaid
+ * draws, not a tag.
  */
 function classLabel(cls: ResolvedClass): Label {
-  return cls.label ?? plainLabel(classNameText(cls));
+  if (cls.label !== null) return cls.label;
+  const text = classNameText(cls);
+  return { text, rows: text.split("\n").map((row) => [plainRun(row)]) };
 }
 
 /**

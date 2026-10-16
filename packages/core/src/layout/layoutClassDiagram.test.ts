@@ -695,6 +695,30 @@ describe("layoutClassDiagram", () => {
       expect(classById(diagram, "A").width).toBe(classById(diagram, "F").width);
     });
 
+    it("draws a line break in a class's generic as a row of its own, and sizes the box from the rows", () => {
+      // Measured on Mermaid 12.2.0 (Chrome): `class A~a<br>b~` draws `A<a`
+      // over `b>`, `~a<br>b<br>c~` three rows, `~<br>~` `A<` over `>`.
+      const rows = (...texts: string[]) => ({ text: texts.join("\n"), rows: texts.map((t) => [plainRun(t)]) });
+      const diagram = layoutClassDiagram(
+        classModel({
+          classes: [
+            cls("A", [], { generic: "a\nb" }),
+            cls("B", [], { generic: "a\nb\nc" }),
+            cls("C", [], { generic: "\n" }),
+            cls("D", [], { generic: "#lt;\nb" }),
+          ],
+        }),
+        { measureText: fakeMeasurer },
+      );
+      expect(["A", "B", "C", "D"].map((id) => classById(diagram, id).label)).toEqual([
+        rows("A<a", "b>"),
+        rows("B<a", "b", "c>"),
+        rows("C<", ">"),
+        rows("D<<", "b>"),
+      ]);
+      expect(classById(diagram, "B").height).toBeGreaterThan(classById(diagram, "A").height);
+    });
+
     it("draws a member's generic type and return type in angle brackets, leaving a package-visibility tilde alone", () => {
       const diagram = layoutClassDiagram(
         classModel({

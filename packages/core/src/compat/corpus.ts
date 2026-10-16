@@ -5845,6 +5845,57 @@ line2\`"]`,
       "the note for `Box` alone. Siren used to refuse the line as " +
       "unrecognized. `note for Box~U~ \"n\"` renders in both.",
   },
+  {
+    id: "cls-generic-conflict",
+    kind: "class",
+    source: `classDiagram
+      class Box~T~
+      class Box~U~`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A class keeps " +
+      "the generic its first naming gave it: Mermaid 12.2.0 draws `Box<T>`, " +
+      "the `U` gone with no diagnostic (measured, Chrome; so after `Box~U~ " +
+      "--> B` or `Box~U~ : +x`, in either order). Siren refuses it " +
+      "(ADR-0001), with an error saying to give the class one generic where " +
+      "it is first named. Siren used to draw `Box<T>` with a warning.",
+  },
+  {
+    id: "cls-annotation-conflict",
+    kind: "class",
+    source: `classDiagram
+      class Shape
+      <<interface>> Shape
+      <<service>> Shape`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A class keeps " +
+      "its first annotation: Mermaid 12.2.0 draws only «interface», the " +
+      "«service» gone with no diagnostic (measured, Chrome; so for two " +
+      "annotation lines in one block). Siren refuses it (ADR-0001), with an " +
+      "error saying to give the class one annotation. Siren used to draw " +
+      "«interface» with a warning.",
+  },
+  {
+    id: "cls-generic-break",
+    kind: "class",
+    source: `classDiagram
+      class Box~Key<br>Value~`,
+    status: "supported",
+    meaning:
+      "A `<br>` in a class name's generic is a line break, as it is to the " +
+      "browser Mermaid hands the generic to: Mermaid 12.2.0 draws `Box<Key` " +
+      "over `Value>` (measured, Chrome; `<br/>`, `<BR>` and `<br />` too). " +
+      "Siren used to refuse it as a tag.",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Box"]);
+      expectSame(
+        "name rows",
+        labelRows(svgOf(result).querySelector('g.siren-class[data-siren-id="Box"] text.siren-class-name')),
+        ["Box<Key", "Value>"],
+      );
+    },
+  },
   // -------------------------------------------------------------------------
   // sequenceDiagram
   // -------------------------------------------------------------------------

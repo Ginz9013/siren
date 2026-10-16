@@ -1867,8 +1867,18 @@ const SILENTLY_WRONG = 0;
  * mid-line `%%`, with no row to say so. No `supported` row moved.
  * `fc-percent-id-and-arrowless-group`, new beside it, is `supported`.
  * `silently-wrong` does not move.
+ *
+ * **56 → 58: case (2), two refusals written down for the first time.**
+ * `01M51TMV71BF1Y0EC2RS2B6ZWG` refused a class
+ * generic other than the one the class was first named with
+ * (`cls-generic-conflict`) and a second, different annotation
+ * (`cls-annotation-conflict`): Mermaid 12.2.0 drops the later one with no
+ * diagnostic (measured, Chrome), refused under ADR-0001. Siren used to
+ * draw the first with a warning, with no row to say so. No `supported` row
+ * moved: `cls-generic-break`, new beside them, is `supported`.
+ * `silently-wrong` does not move.
  */
-const REJECTED = 56;
+const REJECTED = 58;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

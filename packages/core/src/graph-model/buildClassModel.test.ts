@@ -236,32 +236,79 @@ describe("buildClassModel", () => {
     }
   });
 
-  it("keeps the first generic a class was named with, warning about a different later one in any order", () => {
-    // Measured on Mermaid 12.2.0 (Chrome): `class A~T~` then `A~U~ --> B`,
-    // and `A~T~ --> B` then `A~U~ --> C`, draw `A<T>`; `A~U~ --> B` then
-    // `class A~T~` draws `A<U>`; `A~T~ --> B` then `class A` draws `A<T>`.
-    const conflict = (kept: string, dropped: string, line: number) => ({
-      severity: "warning",
-      message: `Class "A" is declared with conflicting generics ("${kept}" vs. "${dropped}"); keeping the first-seen generic.`,
+  it("refuses a generic other than the one the class was first named with, in any statement and order", () => {
+    // Measured on Mermaid 12.2.0 (Chrome): `class A~T~` then `class A~U~`,
+    // `A~U~ --> B` or `A~U~ : +x`; `A~T~ --> B` then `A~U~ --> C` or `class
+    // A~U~`; `A~T~ : +x` then `class A~U~`; and two `class A~T~ { … }` /
+    // `class A~U~ { … }` blocks each draw `A<T>`, the `U` gone with no
+    // diagnostic — a picture other than the one written (ADR-0001). The
+    // same generic again is no conflict.
+    const conflict = (kept: string, given: string, line: number) => ({
+      severity: "error",
+      message:
+        `Class "A" gets the generic "${given}" here, but it was first named on line 2 with "${kept}", ` +
+        'and a class keeps what its first naming gave it. Give "A" one generic, where it is first named.',
       line,
       column: 3,
     });
-    for (const [source, generic, warnings] of [
+    for (const [source, generic, errors] of [
+      ["classDiagram\n  class A~T~\n  class A~U~", "T", [conflict("T", "U", 3)]],
       ["classDiagram\n  class A~T~\n  A~U~ --> B", "T", [conflict("T", "U", 3)]],
+      ["classDiagram\n  class A~T~\n  A~U~ : +x", "T", [conflict("T", "U", 3)]],
       ["classDiagram\n  A~T~ --> B\n  A~U~ --> C", "T", [conflict("T", "U", 3)]],
-      ["classDiagram\n  A~U~ --> B\n  class A~T~", "U", [conflict("U", "T", 3)]],
+      ["classDiagram\n  A~T~ --> B\n  class A~U~", "T", [conflict("T", "U", 3)]],
+      ["classDiagram\n  A~T~ : +x\n  class A~U~", "T", [conflict("T", "U", 3)]],
+      ["classDiagram\n  class A~T~ {\n    +x\n  }\n  class A~U~ {\n    +y\n  }", "T", [conflict("T", "U", 5)]],
       ["classDiagram\n  A~T~ --> B\n  A~T~ --> C\n  class A", "T", []],
     ] as const) {
       const parsed = parseClassDiagram(source);
       if (parsed.document === null || parsed.document.kind !== "class") throw new Error(source);
       expect([source, parsed.diagnostics]).toEqual([source, []]);
       const { model, diagnostics } = buildClassModel(parsed.document);
-      expect([source, diagnostics]).toEqual([source, warnings]);
+      expect([source, diagnostics]).toEqual([source, errors]);
       expect(model.classes.find((c) => c.id === "A")!.generic).toBe(generic);
     }
   });
 
-  it("warns and keeps the first annotation when two declarations of one class annotate it differently", () => {
+  it("holds a note target's generic to the one its class was first named with", () => {
+    // Measured on Mermaid 12.2.0 (Chrome): a note's target names a class by
+    // its name alone, the generic ignored — `class A~T~` then `note for
+    // A~T~ "n"` (or the note first) draws `A<T>` with the note; `class A`
+    // then `note for A~~ "n"` draws `A` with it. When the generic is not
+    // the class's — `class A` or `class A~U~` then `note for A~T~ "n"`, or
+    // no class `A` at all — the `T` is not drawn, with no diagnostic
+    // (ADR-0001).
+    const build = (source: string) => {
+      const parsed = parseClassDiagram(source);
+      if (parsed.document === null || parsed.document.kind !== "class") throw new Error(source);
+      expect([source, parsed.diagnostics]).toEqual([source, []]);
+      return buildClassModel(parsed.document);
+    };
+    for (const source of [
+      'classDiagram\n  class A~T~\n  note for A~T~ "n"',
+      'classDiagram\n  note for A~T~ "n"\n  class A~T~',
+      'classDiagram\n  class A\n  note for A~~ "n"',
+    ]) {
+      const { model, diagnostics } = build(source);
+      expect([source, diagnostics]).toEqual([source, []]);
+      expect([source, model.notes.map((n) => n.targetId)]).toEqual([source, ["A"]]);
+    }
+    const message = (has: string) =>
+      `The note for "A~T~" names the generic "T", but class "A" ${has}, so "T" would not be drawn. ` +
+      'Write the note for "A" alone, or give "A" that generic where it is first named.';
+    for (const [source, has, line] of [
+      ['classDiagram\n  class A\n  note for A~T~ "n"', "was first named on line 2 without one", 3],
+      ['classDiagram\n  class A~U~\n  note for A~T~ "n"', 'was first named on line 2 with "U"', 3],
+      ['classDiagram\n  note for A~T~ "n"', "is never named", 2],
+    ] as const) {
+      expect([source, build(source).diagnostics]).toEqual([
+        source,
+        [{ severity: "error", message: message(has), line, column: 3 }],
+      ]);
+    }
+  });
+
+  it("refuses a second, different annotation and keeps the first", () => {
     const { model, diagnostics } = buildClassModel(
       classDocument({
         classes: [
@@ -275,13 +322,43 @@ describe("buildClassModel", () => {
     expect(model.classes[0].annotation).toBe("interface");
     expect(diagnostics).toEqual([
       {
-        severity: "warning",
+        severity: "error",
         message:
-          'Class "Shape" is declared with conflicting annotations ("interface" vs. "abstract"); keeping the first-seen annotation.',
+          'Class "Shape" is annotated «abstract» here, but it was first annotated «interface» on line 2, ' +
+          'and a class keeps its first annotation. Give "Shape" one annotation.',
         line: 5,
         column: 1,
       },
     ]);
+  });
+
+  it("refuses a second, different annotation however the two are written", () => {
+    // Measured on Mermaid 12.2.0 (Chrome): `<<interface>> A` then
+    // `<<service>> A`, a block's `<<interface>>` then `<<service>> A`, two
+    // annotation lines in one block, and `<<interface>> A` then a block's
+    // `<<service>>` each draw only «interface», the second gone with no
+    // diagnostic (ADR-0001). The same annotation twice is no conflict.
+    const conflict = (line: number, column: number) => ({
+      severity: "error",
+      message:
+        'Class "A" is annotated «service» here, but it was first annotated «interface» on line 3, ' +
+        'and a class keeps its first annotation. Give "A" one annotation.',
+      line,
+      column,
+    });
+    for (const [source, errors] of [
+      ["classDiagram\n  class A\n  <<interface>> A\n  <<service>> A", [conflict(4, 3)]],
+      ["classDiagram\n  class A {\n    <<interface>>\n  }\n  <<service>> A", [conflict(5, 3)]],
+      ["classDiagram\n  class A {\n    <<interface>>\n    <<service>>\n  }", [conflict(4, 5)]],
+      ["classDiagram\n  class A\n  <<interface>> A\n  class A {\n    <<service>>\n  }", [conflict(5, 5)]],
+      ["classDiagram\n  class A\n  <<interface>> A\n  <<interface>> A", []],
+    ] as const) {
+      const parsed = parseClassDiagram(source);
+      if (parsed.document === null || parsed.document.kind !== "class") throw new Error(source);
+      const { model, diagnostics } = buildClassModel(parsed.document);
+      expect([source, diagnostics]).toEqual([source, errors]);
+      expect(model.classes.find((c) => c.id === "A")!.annotation).toBe("interface");
+    }
   });
 
   it("resolves each namespace to a stable namespace:n id carrying its declared name and member ids", () => {

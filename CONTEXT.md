@@ -821,7 +821,9 @@ generic; the label is a **Label** in the `html` dialect, and the name stays the 
 declaration of the same name merges members rather than erroring (a second, different label is
 ignored with a warning — the first one is kept). May carry one **annotation** (`<<interface>>`, `<<abstract>>`, or any
 author-chosen text), drawn in guillemets above the name — an annotation labels the class it
-is written in, unlike a note, which is a box of its own.
+is written in, unlike a note, which is a box of its own. A class keeps the generic its first naming
+gave it (none, if that naming wrote none) and the first annotation written; a different one written
+later is refused, as Mermaid drops it without a word. A `<br>` in the generic draws a line break.
 _Avoid_: CSS class (the codebase is full of `siren-*` CSS classes and of these boxes — say
 "class" only for the box, and "CSS class" for the other; the `classDef`/`cssClass` directives
 name the CSS-ish sense, not this one, and so does a flowchart's apply-directive, which Mermaid

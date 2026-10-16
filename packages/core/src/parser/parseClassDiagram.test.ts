@@ -516,35 +516,24 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
     ]);
   });
 
-  it("reads a note's target with the generic its class was first named with, and refuses another", () => {
+  it("keeps the generic written on a note's target, for the model to hold to its class's", () => {
     // Measured on Mermaid 12.2.0 (Chrome): a note's target names a class by
-    // its name alone, the generic ignored — `class A~T~` then `note for
-    // A~T~ "n"` (or `note for A ~T~ "n"`, or the note first) draws `A<T>`
-    // with the note; `class A` then `note for A~~ "n"` draws `A` with it.
-    // When the generic is not the class's — `class A` or `class A~U~` then
-    // `note for A~T~ "n"`, or no class `A` at all — the `T` is not drawn,
-    // with no diagnostic (ADR-0001).
-    for (const source of [
-      'classDiagram\n  class A~T~\n  note for A~T~ "n"',
-      'classDiagram\n  class A~T~\n  note for A ~T~ "n"',
-      'classDiagram\n  note for A~T~ "n"\n  class A~T~',
-      'classDiagram\n  class A\n  note for A~~ "n"',
-    ]) {
+    // its name alone — `note for A~T~ "n"`, `note for A ~T~ "n"` — so the
+    // generic is kept beside the target, and `buildClassModel` decides
+    // whether it is the class's own. An empty one is none.
+    for (const [source, generic] of [
+      ['classDiagram\n  note for A~T~ "n"', "T"],
+      ['classDiagram\n  note for A ~T~ "n"', "T"],
+      ['classDiagram\n  class A\n  note for A~U~ "n"', "U"],
+      ['classDiagram\n  note for A~~ "n"', undefined],
+      ['classDiagram\n  note for A "n"', undefined],
+    ] as const) {
       const { document, diagnostics } = parseOk(source);
       expect([source, diagnostics]).toEqual([source, []]);
-      expect([source, document.notes.map((n) => [n.targetId, n.label.text])]).toEqual([source, [["A", "n"]]]);
-    }
-    const message = (has: string) =>
-      `The note for "A~T~" names the generic "T", but class "A" ${has}, so "T" would not be drawn. ` +
-      'Write the note for "A" alone, or give "A" that generic where it is first named.';
-    for (const [source, has, line] of [
-      ['classDiagram\n  class A\n  note for A~T~ "n"', "was first named without one", 3],
-      ['classDiagram\n  class A~U~\n  note for A~T~ "n"', 'was first named with "U"', 3],
-      ['classDiagram\n  note for A~T~ "n"', "is never named", 2],
-    ] as const) {
-      const { document, diagnostics } = parseClassDiagram(source);
-      expect([source, document]).toEqual([source, null]);
-      expect([source, diagnostics]).toEqual([source, [{ severity: "error", message: message(has), line, column: 3 }]]);
+      expect([source, document.notes.map((n) => [n.targetId, n.targetGeneric, n.label.text])]).toEqual([
+        source,
+        [["A", generic, "n"]],
+      ]);
     }
   });
 
@@ -560,6 +549,23 @@ ${memberLines.map((member) => `    ${member}`).join("\n")}
         line: 2,
         column: 13,
       },
+    ]);
+  });
+
+  it("reads a `<br>` in a class name's generic as a line break, not a tag to refuse", () => {
+    // Measured on Mermaid 12.2.0 (Chrome): `class A~a<br>b~`, `~a<br/>b~`,
+    // `~a<BR>b~`, `~a<br />b~` and `~a<br class="x">b~` draw `A<a` over
+    // `b>`, on a relationship's end and the inline member form's class too.
+    // Each is kept as the break it draws, a `\n`.
+    const generics = ["a<br>b", "a<br/>b", "a<BR>b", "a<br />b", 'a<br class="x">b'];
+    const { document, diagnostics } = parseOk(
+      `classDiagram\n${generics.map((g, i) => `  class C${i}~${g}~`).join("\n")}\n  R~a<br>b~ --> S\n  M~a<br>b~ : +x`,
+    );
+    expect(diagnostics).toEqual([]);
+    expect(document.classes.filter((c) => c.generic !== null).map((c) => [c.id, c.generic])).toEqual([
+      ...generics.map((_, i) => [`C${i}`, "a\nb"]),
+      ["R", "a\nb"],
+      ["M", "a\nb"],
     ]);
   });
 

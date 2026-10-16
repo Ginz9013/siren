@@ -213,8 +213,8 @@ const NOTE_RE = /^note\s+"([^"]*)"$/d;
  * The class may carry a `~generic~` (second capture), which names nothing:
  * Mermaid 12.2.0 reads the target by its name alone (measured, Chrome:
  * `class A~T~` then `note for A~T~ "n"` draws `A<T>` with the note, `class
- * A` then `note for A~T~ "n"` draws `A`), so the parser holds it to the
- * class's own (`noteGenericErrors`).
+ * A` then `note for A~T~ "n"` draws `A`). It is kept as the note's
+ * `targetGeneric`, for `buildClassModel` to hold to the class's own.
  */
 const NOTE_FOR_RE = /^note\s+for\s+(\w+)(?:\s*~(.*?)~)?\s+"([^"]*)"$/d;
 
@@ -442,16 +442,25 @@ function maskReferences(text: string): string {
 const TAG_OPEN_RE = /<[A-Za-z/!]/;
 
 /**
+ * A `<br>` tag in a class name's generic, in any spelling the browser reads
+ * as one — `<br>`, `<br/>`, `<BR>`, `<br />`, `<br class="x">`: Mermaid
+ * 12.2.0 hands the generic to the browser as markup, and each draws a line
+ * break (measured, Chrome: `class A~a<br>b~` draws `A<a` over `b>`). The
+ * one tag `TAG_OPEN_RE` lets through; `genericOf` keeps it as `\n`.
+ */
+const GENERIC_BREAK_RE = /<br(?:\s[^>]*)?\/?>/gi;
+
+/**
  * The error for a class name's generic that cannot be drawn as written —
  * one holding another (`nestedGenericError`), or one holding a `<` that
- * opens a tag (`TAG_OPEN_RE`), drawn as something else with no diagnostic
- * (ADR-0001) — at `line`:`column`, the column of its opening `~`; or
- * `null`.
+ * opens a tag other than `<br>` (`TAG_OPEN_RE`), drawn as something else
+ * with no diagnostic (ADR-0001) — at `line`:`column`, the column of its
+ * opening `~`; or `null`.
  */
 function genericError(generic: string, line: number, column: number): Diagnostic | null {
   const nested = nestedGenericError(generic, line, column);
   if (nested !== null) return nested;
-  const tag = TAG_OPEN_RE.exec(generic);
+  const tag = TAG_OPEN_RE.exec(generic.replace(GENERIC_BREAK_RE, ""));
   if (tag === null) return null;
   return {
     severity: "error",
@@ -464,13 +473,14 @@ function genericError(generic: string, line: number, column: number): Diagnostic
 }
 
 /**
- * The generic a class name's `~…~` gives it: the captured text, or `null`
+ * The generic a class name's `~…~` gives it: the captured text, each
+ * `<br>` in it (`GENERIC_BREAK_RE`) kept as the `\n` it draws, or `null`
  * for none — no `~…~` at all, or an empty one. Measured on Mermaid 12.2.0
  * (Chrome): `class A~~` and `A~~ --> B` draw the bare `A`; `class A~ ~`
  * keeps its space, `A< >`.
  */
 function genericOf(captured: string | undefined): string | null {
-  return captured === undefined || captured === "" ? null : captured;
+  return captured === undefined || captured === "" ? null : captured.replace(GENERIC_BREAK_RE, "\n");
 }
 
 /**
@@ -889,11 +899,6 @@ export function parseClassDiagram(source: string): DiagramParseResult {
   const styles: StyleDecl[] = [];
   /** Every class id seen so far, however it was introduced. */
   const declaredIds = new Set<string>();
-  /**
-   * Each `note for A~T~`'s target and generic, held to the generic class
-   * `A` was first named with once every declaration is read.
-   */
-  const noteGenerics: { id: string; generic: string; line: number; column: number }[] = [];
   /**
    * Whether any error-severity problem was found. Like the flowchart and
    * sequence parsers, a document with one is returned as `null`: the
@@ -1463,15 +1468,13 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     // 12.2.0) — so it is recorded on the innermost block around it.
     const noteForMatch = NOTE_FOR_RE.exec(line);
     if (noteForMatch !== null) {
-      const refused = refuseUndrawableGeneric(noteForMatch, lineNumber, column);
+      refuseUndrawableGeneric(noteForMatch, lineNumber, column);
       const generic = genericOf(noteForMatch[2]);
-      if (generic !== null && !refused) {
-        noteGenerics.push({ id: noteForMatch[1], generic, line: lineNumber, column });
-      }
       enclosingNamespace?.noteIndexes.push(notes.length);
       notes.push({
         label: readLabelIn(noteForMatch, 3, lineNumber, column),
         targetId: noteForMatch[1],
+        ...(generic === null ? {} : { targetGeneric: generic }),
         line: lineNumber,
         column,
       });
@@ -2112,32 +2115,6 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     }
 
     index = parseStatement(index, null).lastIndex;
-  }
-
-  // A note's `~generic~` is drawn only as its class's own: the generic the
-  // class's first declaration gave it, which is the one it keeps
-  // (`buildClassModel`). Any other is not drawn, with no diagnostic in
-  // Mermaid 12.2.0 (measured) — refused, after every declaration is read,
-  // since the class may be named after the note.
-  for (const note of noteGenerics) {
-    const first = classes.find((declaration) => declaration.id === note.id);
-    if (first !== undefined && first.generic === note.generic) continue;
-    const has =
-      first === undefined
-        ? "is never named"
-        : first.generic === null
-          ? "was first named without one"
-          : `was first named with "${first.generic}"`;
-    diagnostics.push({
-      severity: "error",
-      message:
-        `The note for "${note.id}~${note.generic}~" names the generic "${note.generic}", but class "${note.id}" ${has}, ` +
-        `so "${note.generic}" would not be drawn. ` +
-        `Write the note for "${note.id}" alone, or give "${note.id}" that generic where it is first named.`,
-      line: note.line,
-      column: note.column,
-    });
-    sawError = true;
   }
 
   if (sawError) {
