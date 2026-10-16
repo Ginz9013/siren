@@ -439,6 +439,23 @@ divider and now takes none (see **Changed**).
   diameter is computed from the icon's square rather than from the ink its glyph covers. `icon`,
   `form`, `pos` and `h` used to be refused as not supported yet, and `shape: icon` as a shape not
   drawn yet. `siren-board` passes a board's `iconPacks` option to `render()`.
+- An icon node's keys may be written over several `@{ … }` blocks (nook
+  `01M51XACZJ8QSCSGEDZE7M4XDK`), as Mermaid 12.2.0 merges them: each keeps its last value, a `form`
+  or `h` written before or after the `icon:` still shapes it, and a node with an `icon:` stays an
+  icon node whatever a later `shape:` or brackets say. `w` sizes an icon too, which is the larger of
+  `w` and `h` square.
+- Image nodes (nook `01M51XAD6416EJHSDVWB725NRY`, measured in headless Chrome): a flowchart node's
+  `@{ img: "data:image/…" }` draws that image over a rectangle in the node's paint, at its natural
+  size — read off the data's own header for PNG, GIF, JPEG (turned as its Exif orientation says),
+  WebP and SVG (sized as the browser sizes one with no `width` or `height`) — or `w` by `h`, keeping
+  its proportions with `constraint: on`, at least 120 wide with a label, which goes below it or,
+  with `pos: t`, above. An image node given no label draws none. **Only a data URL is drawn:**
+  Siren never fetches while drawing, so an image at any other URL is an error saying to embed it,
+  where Mermaid loads it. A data URL of another type, data that is not the image its type names,
+  and an image over 4 MB are refused, as are a `constraint` other than `on` or `off`, a `w` or `h`
+  that is no positive number, and an `icon:` beside an `img:`, which Mermaid drops. The image is
+  drawn as an `<image>` whose `href` is the data URL, so an SVG image runs no script and loads
+  nothing. `img`, `w` and `constraint` used to be refused as not supported yet.
 
 ### Changed
 

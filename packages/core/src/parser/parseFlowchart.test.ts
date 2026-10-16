@@ -459,27 +459,12 @@ describe("a `shape:` Siren does not draw", () => {
 
 /**
  * The keys of an `@{ … }` block other than `shape`, `label` and
- * `labelType`. Measured on Mermaid 12.2.0: `img`, `w` and `constraint`
- * change what a node draws (an image node, its size; the icon keys are
- * read, below); any other key is read and ignored (`A@{ foo: 1 }` is a
+ * `labelType`. Measured on Mermaid 12.2.0: the icon and image keys are
+ * read (below); any other key is read and ignored (`A@{ foo: 1 }` is a
  * plain node). What is not YAML is refused ("missed comma between flow
  * collection entries").
  */
 describe("the other keys of a node's `@{ … }` block", () => {
-  it.each(["img", "w", "constraint"])("refuses `%s` at the `@`, as not supported yet", (key) => {
-    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A@{ shape: circle, ${key}: x }`);
-
-    expect(document).toBeNull();
-    expect(diagnostics).toEqual([
-      {
-        severity: "error",
-        message: `Siren does not support "${key}" in a node's "@{ … }" block yet. Leave it out`,
-        line: 2,
-        column: 4,
-      },
-    ]);
-  });
-
   it("ignores a key it does not know, with a warning at the `@`", () => {
     const { document, diagnostics } = parseOk("flowchart TB\n  A@{ foo: 1, shape: hex }");
 
@@ -3406,10 +3391,13 @@ describe("an icon node's `@{ … }` keys", () => {
   });
 
   it.each([
-    ["form: square", "form"],
-    ["pos: t", "pos"],
-    ["h: 60", "h"],
-  ])("warns that `%s` on a node that is no icon is ignored", (written, key) => {
+    ["form: square", '"form" only shapes an icon node, and is ignored here. Remove it, or give the node an icon'],
+    [
+      "pos: t",
+      '"pos" only shapes an icon or image node, and is ignored here. Remove it, or give the node an icon or an image',
+    ],
+    ["h: 60", '"h" only shapes an icon or image node, and is ignored here. Remove it, or give the node an icon or an image'],
+  ])("warns that `%s` on a node that is no icon is ignored", (written, message) => {
     const { node, diagnostics } = nodeOf(`flowchart TB\n  A@{ shape: circle, ${written} }`);
 
     expect(node.shape).toBe("circle");
@@ -3417,7 +3405,7 @@ describe("an icon node's `@{ … }` keys", () => {
     expect(diagnostics).toEqual([
       {
         severity: "warning",
-        message: `"${key}" only shapes an icon node, and is ignored here. Remove it, or give the node an icon`,
+        message,
         line: 2,
         column: 4,
       },
@@ -3434,9 +3422,11 @@ describe("an icon node's `@{ … }` keys", () => {
 });
 
 describe("the shape table and the shape names", () => {
-  it("names every shape the table draws, in brackets or in a `@{ shape: … }` block", () => {
-    const named = new Set(SHAPE_OF_NAME.values());
-    expect(Object.keys(SHAPES).filter((shape) => !named.has(shape as NodeShape))).toEqual([]);
+  it("names every shape the table draws, in brackets or in a `@{ shape: … }` block — but an image, which only `img:` draws", () => {
+    // Mermaid 12.2.0 has no `shape:` name for an image node (measured:
+    // `shape: image` is "No such shape"); an `img:` is the one way to one.
+    const named = new Set<string>([...SHAPE_OF_NAME.values(), "image"]);
+    expect(Object.keys(SHAPES).filter((shape) => !named.has(shape))).toEqual([]);
   });
 
   it("refuses a style by name for the shapes the table keeps out of every author's paint, and only shapes it draws", () => {
@@ -3446,7 +3436,7 @@ describe("the shape table and the shape names", () => {
     // draws. A small circle is in the set while its frame takes an author's
     // paint: `classDef default` reaches it (measured), a style by name does not.
     // Only the box matters to a frame here; the rest of the node is unread.
-    const node = { x: 0, y: 0, width: 20, height: 20 } as unknown as Parameters<(typeof SHAPES)[NodeShape]["frames"]>[0];
+    const node = { x: 0, y: 0, width: 20, height: 20, label: plainLabel("") } as unknown as Parameters<(typeof SHAPES)[NodeShape]["frames"]>[0];
     const unstyled = Object.entries(SHAPES)
       .filter(([, spec]) => spec.frames(node).every((frame) => frame.authorStyle === false))
       .map(([shape]) => shape);
@@ -3769,6 +3759,93 @@ describe("an icon node's keys over several blocks", () => {
         line: 2,
         column: 4,
       },
+    ]);
+  });
+});
+
+/**
+ * A node's `img:`: only a `data:image/…` URL, its natural size read off the
+ * data, and the keys that size an image node — `w`, `h`, `constraint` and
+ * `pos`. Measured on Mermaid 12.2.0 (Chrome): an `img:` draws the node as an
+ * image whatever its `shape:` or `icon:` say (`getTypeFromVertex`), the keys
+ * merged block by block like an icon's; an image node given no label draws
+ * none. `w` sizes an icon too, which is `max(w, h)` square.
+ */
+describe("an image node's `@{ … }` keys", () => {
+  /** A 40 x 20 PNG: its signature and `IHDR` chunk. */
+  const PNG = `data:image/png;base64,${btoa(
+    String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 40, 0, 0, 0, 20, 8, 6, 0, 0, 0),
+  )}`;
+  const nodeOf = (source: string) => {
+    const { document, diagnostics } = parseOk(source);
+    return { node: document.nodes.find((node) => node.id === "A")!, diagnostics };
+  };
+
+  it("draws a node with an `img:` as an image of the data's natural size, with no label when it has none", () => {
+    const { node, diagnostics } = nodeOf(`flowchart TB\n  A@{ shape: circle, img: "${PNG}" }`);
+
+    expect(diagnostics).toEqual([]);
+    expect(node.shape).toBe("image");
+    expect(node.label.text).toBe("");
+    expect(node.image).toEqual({
+      src: PNG,
+      naturalWidth: 40,
+      naturalHeight: 20,
+      w: null,
+      h: null,
+      constraint: false,
+      pos: "b",
+      line: 2,
+      column: 4,
+    });
+  });
+
+  it("reads `w`, `h`, `constraint` and `pos`, from this block or another", () => {
+    const { node, diagnostics } = nodeOf(
+      `flowchart TB\n  A@{ img: "${PNG}", label: "Pic", w: 100 }\n  A@{ h: 50, constraint: on, pos: t }`,
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(node.label.text).toBe("Pic");
+    expect(node.image).toMatchObject({ w: 100, h: 50, constraint: true, pos: "t" });
+  });
+
+  it("reads `constraint: off` as no constraint", () => {
+    expect(nodeOf(`flowchart TB\n  A@{ img: "${PNG}", constraint: off }`).node.image?.constraint).toBe(false);
+  });
+
+  it.each([
+    [
+      'img: "https://example.com/a.png"',
+      'Siren never fetches an image while drawing, so "https://example.com/a.png" cannot be drawn. Embed the image as a data URL, such as img: "data:image/png;base64,…"',
+    ],
+    ['img: "data:image/png;base64,R0lGODlh"', "The image's data is not a PNG image, so its size cannot be read. Check the data, or the type its data URL names"],
+    ["img: 3", 'An image is a data URL, such as img: "data:image/png;base64,…"'],
+    [`img: "${PNG}", icon: "fa:user"`, "A node draws an icon or an image, not both. Remove one of them"],
+    [`img: "${PNG}", w: 0`, 'An image\'s width is a number of pixels above 0, such as "w: 64"'],
+    [`img: "${PNG}", h: tall`, 'An image\'s height is a number of pixels above 0, such as "h: 64"'],
+    [`img: "${PNG}", constraint: yes`, 'An image\'s "constraint" is "on" or "off", not "yes"'],
+    [`img: "${PNG}", pos: x`, 'An image\'s label goes above it ("pos: t") or below it ("pos: b"), not "x"'],
+  ])("refuses `%s` at the `@`", (written, message) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A@{ ${written} }`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message, line: 2, column: 4 }]);
+  });
+
+  it("sizes an icon by the larger of `w` and `h`", () => {
+    expect(nodeOf('flowchart TB\n  A@{ icon: "fa:user", w: 80 }').node.icon?.size).toBe(80);
+    expect(nodeOf('flowchart TB\n  A@{ icon: "fa:user", w: 80, h: 30 }').node.icon?.size).toBe(80);
+    expect(nodeOf('flowchart TB\n  A@{ icon: "fa:user", w: 30, h: 70 }').node.icon?.size).toBe(70);
+  });
+
+  it.each([
+    ['icon: "fa:user", constraint: on', '"constraint" only shapes an image node, and is ignored here. Remove it, or give the node an image'],
+    [`img: "${PNG}", form: square`, '"form" only shapes an icon node, and is ignored here. Remove it, or give the node an icon'],
+    ["shape: circle, w: 300", '"w" only shapes an icon or image node, and is ignored here. Remove it, or give the node an icon or an image'],
+  ])("warns that `%s` is ignored", (written, message) => {
+    expect(nodeOf(`flowchart TB\n  A@{ ${written} }`).diagnostics).toEqual([
+      { severity: "warning", message, line: 2, column: 4 },
     ]);
   });
 });

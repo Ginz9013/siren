@@ -8921,3 +8921,48 @@ describe("render() of a flowchart edge from a subgraph to its own member inside 
     }
   });
 });
+
+/**
+ * An image node through `render()`: drawn from the `data:` URL its `img:`
+ * holds, and nothing else — Siren never fetches while drawing, so any other
+ * URL is an error where Mermaid would load it.
+ */
+describe("render() — an image from a data URL", () => {
+  /** A 40 x 20 PNG: its signature and `IHDR` chunk. */
+  const PNG = `data:image/png;base64,${btoa(
+    String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 40, 0, 0, 0, 20, 8, 6, 0, 0, 0),
+  )}`;
+
+  it("draws the image, sized from its data, with its label below", () => {
+    const result = render(`flowchart TB\n  A@{ img: "${PNG}", label: "Pic", w: 200, h: 100 }`, document.createElement("div"));
+
+    expect(result.diagnostics).toEqual([]);
+    const group = result.svg!.querySelector('g.siren-node[data-siren-id="A"]')!;
+    expect(group.getAttribute("data-siren-shape")).toBe("image");
+    const image = group.querySelector("image")!;
+    expect([image.getAttribute("href"), image.getAttribute("width"), image.getAttribute("height")]).toEqual([PNG, "200", "100"]);
+    expect(group.querySelector("text")!.textContent).toBe("Pic");
+  });
+
+  it("refuses an image at a URL, at its block, saying to embed it", () => {
+    const result = render('flowchart TB\n  A --> B@{ img: "https://example.com/a.png" }', document.createElement("div"));
+
+    expect(result.svg).toBeNull();
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'Siren never fetches an image while drawing, so "https://example.com/a.png" cannot be drawn. ' +
+          'Embed the image as a data URL, such as img: "data:image/png;base64,…"',
+        line: 2,
+        column: 10,
+      },
+    ]);
+  });
+
+  it("draws no `<image>` but its own, whose `href` is the data URL", () => {
+    const result = render(`flowchart TB\n  A@{ img: "${PNG}" }\n  B --> A`, document.createElement("div"));
+
+    expect(Array.from(result.svg!.querySelectorAll("image")).map((image) => image.getAttribute("href"))).toEqual([PNG]);
+  });
+});

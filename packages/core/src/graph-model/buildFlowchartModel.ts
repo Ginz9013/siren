@@ -315,6 +315,7 @@ function resolveNodes(document: FlowchartDocument): GraphNode[] {
         label: node.label,
         shape: node.shape,
         ...(node.icon === undefined ? {} : { icon: node.icon }),
+        ...(node.image === undefined ? {} : { image: node.image }),
         style: unstyled(),
         // Filled in by `resolveSubgraphs`, once the blocks have ids to point
         // at. `null` here rather than left out, so a node nobody grouped is
@@ -337,6 +338,9 @@ function resolveNodes(document: FlowchartDocument): GraphNode[] {
     existing.shape = node.shape;
     if (node.icon !== undefined) {
       existing.icon = node.icon;
+    }
+    if (node.image !== undefined) {
+      existing.image = node.image;
     }
   }
 

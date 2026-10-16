@@ -131,7 +131,9 @@ export type NodeShape =
   | "cloud"
   | "bang"
   // An icon from a registered pack, in one of its forms (`NodeIcon`).
-  | "icon";
+  | "icon"
+  // An image from a data URL (`NodeImage`).
+  | "image";
 
 /** Effect names accepted by `enter`/`exit` timeline actions. */
 export type EnterExitEffect =
@@ -199,6 +201,31 @@ export interface SirenNode {
    * for every other shape.
    */
   icon?: NodeIcon;
+  /**
+   * What an `image` node draws, from its `@{ img, w, h, constraint, pos }`;
+   * absent for every other shape.
+   */
+  image?: NodeImage;
+  line?: number;
+  column?: number;
+}
+
+/**
+ * An image node's image, as its `@{ … }` block wrote it: the `data:` URL it
+ * is drawn from — the only kind Siren draws, since it never fetches while
+ * drawing — the image's natural size, read off the data's header, and the
+ * size the author asked for (`w`, `h`; `null` when not written), whether
+ * that size keeps the image's proportions (`constraint: on`), and which side
+ * of it its label goes on. `line`/`column` are where its `img:` stands.
+ */
+export interface NodeImage {
+  src: string;
+  naturalWidth: number;
+  naturalHeight: number;
+  w: number | null;
+  h: number | null;
+  constraint: boolean;
+  pos: "t" | "b";
   line?: number;
   column?: number;
 }
@@ -1399,6 +1426,8 @@ export interface GraphNode {
   shape: NodeShape;
   /** Carried unchanged from `SirenNode.icon`: what an `icon` node draws. */
   icon?: NodeIcon;
+  /** Carried unchanged from `SirenNode.image`: what an `image` node draws. */
+  image?: NodeImage;
   /**
    * Author declarations to emit as this node's inline `style` attributes, in
    * declaration order, with rejected values already dropped and each half

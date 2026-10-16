@@ -43,7 +43,7 @@ export interface Rect extends Size {
  * strokes a bar because it strokes a frame.
  */
 export interface ShapeFrame {
-  element: "rect" | "path" | "circle" | "line" | "g";
+  element: "rect" | "path" | "circle" | "line" | "g" | "image";
   attributes: ReadonlyArray<readonly [name: string, value: number | string]>;
   /** Declarations the shape owns, written inline before the author's. */
   style?: readonly StyleProperty[];
@@ -58,9 +58,10 @@ export interface ShapeFrame {
   authorStyle?: false;
   /**
    * What a `g` frame holds: a **figure** drawn inside the node, such as an
-   * icon's glyph. A frame with children is painted by the shape alone — it
-   * wears neither `siren-node-frame` nor the author's declarations, which
-   * the shape has already read for the colour it asks for.
+   * icon's glyph, or an image node's `image` (with no children). A frame
+   * with children is painted by the shape alone — it wears neither
+   * `siren-node-frame` nor the author's declarations, which the shape has
+   * already read for the colour it asks for.
    */
   children?: readonly FigureElement[];
 }

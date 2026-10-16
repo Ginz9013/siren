@@ -1387,3 +1387,9 @@ data, never loaded or fetched, so an icon no registered pack holds is an error r
 `?` Mermaid draws. An icon's body is read through an allowlist into figure data and drawn
 element by element: no markup from a pack reaches a parser in the page.
 _Avoid_: icon set, icon library, icon font
+
+**Image node**:
+A flowchart node drawn as an image (`A@{ img: "data:image/…", w, h, constraint, pos }`). Its image
+is a `data:` URL the document holds — never one Siren fetches, since it draws without touching the
+network — of a PNG, GIF, JPEG, WebP or SVG, whose natural size is read off the data's own header.
+_Avoid_: picture node, image shape (there is no `shape:` name for it)

@@ -1972,8 +1972,19 @@ const SILENTLY_WRONG = 0;
  * measured in headless Chrome, both refused under ADR-0001 since the edge
  * work, with no row to say so. No `supported` row moved. `silently-wrong`
  * does not move.
+ *
+ * **75 → 78: case (2), three refusals written down for the first time.**
+ * `01M51XAD6416EJHSDVWB725NRY` drew an image node from a data URL
+ * (`fc-node-image-data-url`, `supported`) and refused an image at a URL
+ * (`fc-node-image-url`), which Mermaid 12.2.0 loads and Siren never fetches
+ * — a deliberate departure — and, under ADR-0001, a `constraint` Mermaid
+ * draws silently unconstrained (`fc-node-image-constraint-unknown`) and an
+ * `icon:` beside an `img:`, which Mermaid drops (`fc-node-image-and-icon`;
+ * measured, Chrome). Siren refused every `img:` before, as not supported
+ * yet, with no row to say so. No `supported` row moved. `silently-wrong`
+ * does not move.
  */
-const REJECTED = 75;
+const REJECTED = 78;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

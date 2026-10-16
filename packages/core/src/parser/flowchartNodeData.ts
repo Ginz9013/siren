@@ -1,5 +1,6 @@
 import { JSON_SCHEMA, load, YAMLException } from "js-yaml";
-import type { NodeIcon, NodeShape } from "../contracts";
+import type { NodeIcon, NodeImage, NodeShape } from "../contracts";
+import { readImageData } from "../image/imageData";
 import { DEFAULT_ICON_SIZE, SHAPES_DRAWN_WITHOUT_TEXT, SHAPES_TAKING_NO_STYLE } from "../nodeShapeTraits";
 
 /**
@@ -10,7 +11,8 @@ import { DEFAULT_ICON_SIZE, SHAPES_DRAWN_WITHOUT_TEXT, SHAPES_TAKING_NO_STYLE } 
  * `pnpm --filter siren-core probe`).
  *
  * Only what Siren can draw is read here: the shape names of the shapes
- * Siren draws, a label, and an icon with its form, label position and size.
+ * Siren draws, a label, an icon with its form, label position and size, and
+ * an image with its size.
  */
 
 /**
@@ -159,29 +161,32 @@ export interface NodeData {
    */
   label: { text: string; markdown: boolean } | null;
   /**
-   * The icon keys it writes, as written: what they draw is settled once
-   * every block for the node is read (`settleIcon`), since Mermaid merges
-   * them key by key.
+   * The icon and image keys it writes, as written: what they draw is
+   * settled once every block for the node is read (`settleNodeMedia`),
+   * since Mermaid merges them key by key.
    */
-  iconKeys: ReadonlyMap<IconKey, unknown>;
+  mediaKeys: ReadonlyMap<MediaKey, unknown>;
 }
 
 /** The keys this reader draws. */
-const READ_KEYS: ReadonlySet<string> = new Set(["shape", "label", "labelType", "icon", "form", "pos", "h"]);
+const READ_KEYS: ReadonlySet<string> = new Set([
+  "shape",
+  "label",
+  "labelType",
+  "icon",
+  "img",
+  "form",
+  "pos",
+  "h",
+  "w",
+  "constraint",
+]);
 
-/**
- * The keys that change what Mermaid 12.2.0 draws for a node and that Siren
- * does not draw yet: an image node and its size (`FlowDB.addVertex`). Any
- * other key is read by Mermaid and ignored for a node (`A@{ foo: 1 }`,
- * measured).
- */
-const UNSUPPORTED_KEYS: ReadonlySet<string> = new Set(["img", "w", "constraint"]);
+/** The keys that make and shape an icon or image node. */
+const MEDIA_KEYS = ["icon", "img", "form", "pos", "h", "w", "constraint"] as const;
 
-/** The keys that shape an icon node. */
-const ICON_KEYS = ["icon", "form", "pos", "h"] as const;
-
-/** One of the keys that shape an icon node. */
-export type IconKey = (typeof ICON_KEYS)[number];
+/** One of the keys that make and shape an icon or image node. */
+export type MediaKey = (typeof MEDIA_KEYS)[number];
 
 /** The forms an icon is drawn in, beside none (Mermaid's `getTypeFromVertex`). */
 const ICON_FORMS: ReadonlySet<unknown> = new Set(["square", "circle", "rounded"]);
@@ -251,17 +256,12 @@ export function loadDataBlock(
 export function readNodeData(written: string): NodeData {
   const loaded = loadDataBlock(written, "shape: circle");
   if ("problem" in loaded) {
-    return { problems: [loaded.problem], shape: null, label: null, iconKeys: new Map() };
+    return { problems: [loaded.problem], shape: null, label: null, mediaKeys: new Map() };
   }
   const { doc } = loaded;
   const problems: DataBlockProblem[] = [];
   for (const key of Object.keys(doc)) {
-    if (UNSUPPORTED_KEYS.has(key)) {
-      problems.push({
-        severity: "error",
-        message: `Siren does not support "${key}" in a node's "@{ … }" block yet. Leave it out`,
-      });
-    } else if (!READ_KEYS.has(key)) {
+    if (!READ_KEYS.has(key)) {
       problems.push({
         severity: "warning",
         message: `"${key}" is not a key of a node's "@{ … }" block, and is ignored. Remove it`,
@@ -275,53 +275,123 @@ export function readNodeData(written: string): NodeData {
   } else if (doc.label) {
     label = { text: String(doc.label), markdown: !PLAIN_LABEL_TYPES.has(doc.labelType) };
   }
-  // Each icon key as written, read only once every block for the node is:
-  // a key Mermaid tests for truth is kept only when its value is truthy, and
-  // `h` whenever it is written, so that `h: 0` is refused.
-  const iconKeys = new Map<IconKey, unknown>();
-  for (const key of ICON_KEYS) {
+  // Each icon and image key as written, read only once every block for the
+  // node is: a key Mermaid tests for truth is kept only when its value is
+  // truthy, and `h` and `w` whenever they are written, so that `h: 0` is
+  // refused.
+  const mediaKeys = new Map<MediaKey, unknown>();
+  for (const key of MEDIA_KEYS) {
     const value = doc[key];
-    if (key === "h" ? value !== undefined && value !== null : Boolean(value)) {
-      iconKeys.set(key, value);
+    if (key === "h" || key === "w" ? value !== undefined && value !== null : Boolean(value)) {
+      mediaKeys.set(key, value);
     }
   }
-  return { problems, shape, label, iconKeys };
+  return { problems, shape, label, mediaKeys };
 }
 
+/** Where a key was written, and a problem with what a node's media keys say. */
+type SettledProblem<At> = { severity: "error" | "warning"; message: string; at: At };
+
 /**
- * Settles what a node's icon keys, written over every block for it, draw —
- * as Mermaid 12.2.0 reads them: each key keeps the last value written for
- * it (`addVertex`), and a node with an `icon:` is an icon node whatever its
- * `shape:` or brackets say (`getTypeFromVertex`), so a key written before
- * the `icon:` still shapes it. `shape: icon` with no `icon:` is an icon node
- * drawing no icon, which `pos` and `h` shape and `form` does not.
+ * Settles what a node's icon and image keys, written over every block for
+ * it, draw — as Mermaid 12.2.0 reads them: each key keeps the last value
+ * written for it (`addVertex`), and a node with an `img:` is an image node,
+ * else one with an `icon:` an icon node, whatever its `shape:` or brackets
+ * say (`getTypeFromVertex`), so a key written before the `img:` or `icon:`
+ * still shapes it. `shape: icon` with no `icon:` is an icon node drawing no
+ * icon, which `pos`, `h` and `w` shape and `form` does not.
  *
  * A value Mermaid would draw silently wrong is refused: a form it does not
- * know falls back to none, a `pos` it does not know to below, and an `h`
- * that is no positive number breaks the size. A key for a node that is no
- * icon is warned about, since Mermaid ignores it. Each problem comes back
- * with where its key was written (`at`).
+ * know falls back to none, a `pos` it does not know to below, a
+ * `constraint` it does not know to off, and an `h` or `w` that is no
+ * positive number breaks the size; so is an image Siren cannot draw
+ * (`readImageData`), and an `icon:` beside an `img:`, which Mermaid drops.
+ * A key for a node it does not shape is warned about, since Mermaid ignores
+ * it. Each problem comes back with where its key was written (`at`).
  */
-export function settleIcon<At>(
+export function settleNodeMedia<At>(
   shape: NodeShape,
-  written: ReadonlyMap<IconKey, { value: unknown; at: At }>,
-): { shape: NodeShape; icon?: NodeIcon & { at?: At }; problems: Array<{ severity: "error" | "warning"; message: string; at: At }> } {
-  const problems: Array<{ severity: "error" | "warning"; message: string; at: At }> = [];
+  written: ReadonlyMap<MediaKey, { value: unknown; at: At }>,
+): {
+  shape: NodeShape;
+  icon?: Omit<NodeIcon, "line" | "column"> & { at?: At };
+  image?: Omit<NodeImage, "line" | "column"> & { at: At };
+  problems: SettledProblem<At>[];
+} {
+  const problems: SettledProblem<At>[] = [];
+  const img = written.get("img");
   const named = written.get("icon");
-  const iconNode = named !== undefined || shape === "icon";
+  const kind = img !== undefined ? "image" : named !== undefined || shape === "icon" ? "icon" : null;
+  // What each key shapes: `form` an icon with an `icon:`, `constraint` an
+  // image, and `pos`, `h` and `w` either.
+  const shapes = (key: MediaKey) =>
+    key === "form" ? kind === "icon" && named !== undefined : key === "constraint" ? kind === "image" : kind !== null;
   for (const [key, { at }] of written) {
-    if (key !== "icon" && !(iconNode && (named !== undefined || key !== "form"))) {
-      problems.push({
-        severity: "warning",
-        message: `"${key}" only shapes an icon node, and is ignored here. Remove it, or give the node an icon`,
-        at,
-      });
+    if (key === "icon" || key === "img" || shapes(key)) {
+      continue;
     }
+    const what = key === "form" ? "an icon" : key === "constraint" ? "an image" : "an icon or an image";
+    const node = key === "form" ? "an icon" : key === "constraint" ? "an image" : "an icon or image";
+    problems.push({
+      severity: "warning",
+      message: `"${key}" only shapes ${node} node, and is ignored here. Remove it, or give the node ${what}`,
+      at,
+    });
   }
-  if (!iconNode) {
+  if (kind === null) {
     return { shape, problems };
   }
-  const refuse = (key: IconKey, message: string) => problems.push({ severity: "error", message, at: written.get(key)!.at });
+  const refuse = (key: MediaKey, message: string) => problems.push({ severity: "error", message, at: written.get(key)!.at });
+  const noun = kind === "image" ? "An image" : "An icon";
+  const pos = written.get("pos")?.value;
+  if (pos !== undefined && pos !== "t" && pos !== "b") {
+    refuse("pos", `${noun}'s label goes above it ("pos: t") or below it ("pos: b"), not "${String(pos)}"`);
+  }
+  /** A `w` or `h` as written, `null` when absent, refused unless a positive number. */
+  const length = (key: "w" | "h", message: string): number | null => {
+    const value = written.get(key);
+    if (value === undefined) {
+      return null;
+    }
+    const pixels = Number(value.value);
+    if (!(pixels > 0) || !Number.isFinite(pixels)) {
+      refuse(key, message);
+    }
+    return pixels;
+  };
+  if (kind === "image") {
+    if (named !== undefined) {
+      refuse("icon", "A node draws an icon or an image, not both. Remove one of them");
+    }
+    const w = length("w", 'An image\'s width is a number of pixels above 0, such as "w: 64"');
+    const h = length("h", 'An image\'s height is a number of pixels above 0, such as "h: 64"');
+    const constraint = written.get("constraint")?.value;
+    if (constraint !== undefined && constraint !== "on" && constraint !== "off") {
+      refuse("constraint", `An image's "constraint" is "on" or "off", not "${String(constraint)}"`);
+    }
+    const read =
+      typeof img!.value === "string"
+        ? readImageData(img!.value)
+        : { problem: 'An image is a data URL, such as img: "data:image/png;base64,…"' };
+    if ("problem" in read) {
+      refuse("img", read.problem);
+      return { shape: "image", problems };
+    }
+    return {
+      shape: "image",
+      image: {
+        src: img!.value as string,
+        naturalWidth: read.image.width,
+        naturalHeight: read.image.height,
+        w,
+        h,
+        constraint: constraint === "on",
+        pos: pos === "t" ? "t" : "b",
+        at: img!.at,
+      },
+      problems,
+    };
+  }
   if (named !== undefined && (typeof named.value !== "string" || !ICON_NAME.test(named.value))) {
     refuse("icon", 'An icon is named by its pack and its name, such as icon: "fa:user"');
   }
@@ -329,22 +399,16 @@ export function settleIcon<At>(
   if (form !== undefined && !ICON_FORMS.has(form)) {
     refuse("form", `There is no icon form "${String(form)}". Use square, circle or rounded`);
   }
-  const pos = written.get("pos")?.value;
-  if (pos !== undefined && pos !== "t" && pos !== "b") {
-    refuse("pos", `An icon's label goes above it ("pos: t") or below it ("pos: b"), not "${String(pos)}"`);
-  }
-  const h = written.get("h");
-  const size = h === undefined ? DEFAULT_ICON_SIZE : Number(h.value);
-  if (!(size > 0) || !Number.isFinite(size)) {
-    refuse("h", 'An icon\'s size is a number of pixels above 0, such as "h: 64"');
-  }
+  // Mermaid's icon is `max(h, w)` square, each 48 when not written.
+  const h = length("h", 'An icon\'s size is a number of pixels above 0, such as "h: 64"');
+  const w = length("w", 'An icon\'s size is a number of pixels above 0, such as "w: 64"');
   return {
     shape: "icon",
     icon: {
       name: named !== undefined && typeof named.value === "string" ? named.value : null,
       form: form === undefined || !ICON_FORMS.has(form) ? null : (form as NonNullable<NodeIcon["form"]>),
       pos: pos === "t" ? "t" : "b",
-      size,
+      size: Math.max(h ?? DEFAULT_ICON_SIZE, w ?? DEFAULT_ICON_SIZE),
       // Where the `icon:` stands, for a problem with the icon it names;
       // else where the first key shaping the node does.
       ...(named !== undefined ? { at: named.at } : written.size > 0 ? { at: [...written.values()][0]!.at } : {}),

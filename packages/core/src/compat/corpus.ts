@@ -13463,8 +13463,8 @@ line2\`"]`,
       "(nook 01M51XACZJ8QSCSGEDZE7M4XDK).",
     warnings: [
       '"form" only shapes an icon node, and is ignored here. Remove it, or give the node an icon',
-      '"pos" only shapes an icon node, and is ignored here. Remove it, or give the node an icon',
-      '"h" only shapes an icon node, and is ignored here. Remove it, or give the node an icon',
+      '"pos" only shapes an icon or image node, and is ignored here. Remove it, or give the node an icon or an image',
+      '"h" only shapes an icon or image node, and is ignored here. Remove it, or give the node an icon or an image',
     ],
     assert: (result) => {
       expectSame("nodes", nodes(result), ["A[A]"]);
@@ -13474,6 +13474,74 @@ line2\`"]`,
         "circle",
       );
     },
+  },
+
+  {
+    id: "fc-node-image-data-url",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ img: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAYAAAA=", label: "Pic", w: 200, h: 100 } --> B@{ img: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAYAAAA=", label: "Kept", h: 50, constraint: on, pos: t }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 draws an `img:` node as the image over a rectangle " +
+      "in the node's paint, `w` by `h` (here 200 x 100), or with " +
+      "`constraint: on` keeping its proportions (here 100 x 50 from `h: 50` " +
+      "for a 40 x 20 PNG), its label 8px below it or, with `pos: t`, above " +
+      "(measured, Chrome). Siren draws the same from the data URL, its " +
+      "natural size read off the data's header (nook " +
+      "01M51XAD6416EJHSDVWB725NRY).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Pic]", "B[Kept]"]);
+      const sizeOf = (id: string) => {
+        const image = svgOf(result).querySelector(`g.siren-node[data-siren-id="${id}"] image`)!;
+        return [image.getAttribute("width"), image.getAttribute("height")];
+      };
+      expectSame("A's image", sizeOf("A"), ["200", "100"]);
+      expectSame("B's image", sizeOf("B"), ["100", "50"]);
+      const group = svgOf(result).querySelector('g.siren-node[data-siren-id="B"]')!;
+      expectSame(
+        "B's label above its image",
+        Number(group.querySelector("text")!.getAttribute("y")) < Number(group.querySelector("image")!.getAttribute("y")),
+        true,
+      );
+    },
+  },
+  {
+    id: "fc-node-image-url",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ img: "https://example.com/a.png", label: "Pic" }`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 loads the image at the URL and draws it. Siren never " +
+      "fetches anything while drawing, so it draws an image only from a " +
+      "data URL the document holds and refuses any other, saying to embed " +
+      "the image: a deliberate departure, recorded as its own decision (nook " +
+      "01M51XAD6416EJHSDVWB725NRY).",
+  },
+  {
+    id: "fc-node-image-constraint-unknown",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ img: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAYAAAA=", h: 50, constraint: yes }`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 keeps an image's proportions only for " +
+      "`constraint: on` (`node.constraint === 'on'`), so `constraint: yes` " +
+      "is silently drawn unconstrained, refused under ADR-0001, naming `on` " +
+      "and `off` (nook 01M51XAD6416EJHSDVWB725NRY).",
+  },
+  {
+    id: "fc-node-image-and-icon",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ img: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAYAAAA=", icon: "fa:user" }`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 draws a node given both an `img:` and an `icon:` as " +
+      "the image and drops the icon without a word (`getTypeFromVertex`, " +
+      "measured), refused under ADR-0001, asking for one of them (nook " +
+      "01M51XAD6416EJHSDVWB725NRY).",
   },
 
   // -------------------------------------------------------------------------

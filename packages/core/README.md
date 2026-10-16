@@ -337,6 +337,10 @@ render('flowchart TB\n  A@{ icon: "fa6-solid:user", form: circle, label: "User" 
 An icon's SVG is drawn through an allowlist of shapes, groups, gradients, clips and masks, so
 script, event handlers, links and references outside the icon in a pack are never drawn.
 
+An image node (`A@{ img: "data:image/png;base64,…" }`) needs no option: Siren draws an image only
+from a `data:` URL the document holds (PNG, GIF, JPEG, WebP or SVG, up to 4 MB), and refuses one at
+any other URL, since it never fetches while drawing.
+
 #### Choosing a timeline
 
 `true`, or leaving the option out, applies the unnamed `timeline:` block, or else the first
