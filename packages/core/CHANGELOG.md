@@ -121,7 +121,9 @@ Breaking for a class document with a method that declares a return type, which u
   `lean_right`), the keys `icon`, `img`, `form`, `pos`, `w`, `h` and `constraint`, a block that is
   not YAML, a space before the `@`, text after the `}`, a second block, a block never closed and a
   block on a subgraph's id are each refused at the `@` or the text, saying what to write instead;
-  another key is ignored with a warning. Each used to be refused as `@{ … }` not supported yet.
+  another key is ignored with a warning. Each used to be refused as `@{ … }` not supported yet. A
+  node with a block followed by `& B` and no arrow gets the error a bare `A & B` line gets, and a
+  block never closed is read to the end of the document in time linear in its length.
 - A dotted class namespace name (`namespace N.M { class A }`) is read as Mermaid 12.2.0 reads it
   (nook `01M51B43T8`): the `M` inside N, drawn as the frame N around the frame M, the same picture
   as the nested spelling. An `N` no block opens is created, titled `N` and numbered before `N.M`;
@@ -640,8 +642,7 @@ Breaking for a class document with a method that declares a return type, which u
   edge labelled `x@{y`, as Mermaid 12.2.0 does, where it was refused with the next line folded into
   it. A block runs on across lines only where a node is written — at an edge's end or as a node of
   its own — and never from an arrow's label, a `|label|`, a quoted string, `accTitle`, a subgraph
-  title, `classDef` or `style`. A block never closed is now joined in linear time, and a node with
-  a block followed by `& B` and no arrow is no longer told to drop `& B`.
+  title, `classDef` or `style`.
 - A flowchart subgraph whose quoted title is one word (`subgraph "t"`) now takes that word as its
   handle, as Mermaid 12.2.0 records it (id `t`, measured), so an edge naming it (`t --> B`) joins
   the frame, where Siren used to draw a stray node `t` beside it. A quoted title holding whitespace

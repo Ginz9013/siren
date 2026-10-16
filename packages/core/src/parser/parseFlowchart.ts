@@ -2526,7 +2526,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
         if (blocks.at(-1)?.end !== null || ranOn.has(i)) {
           return false;
         }
-        const { text, taken } = blockRunOn(line, lines.slice(i + 1), nodeDataBlocksOf);
+        const { text, taken } = blockRunOn(line, lines, i + 1, nodeDataBlocksOf);
         if (taken === 0) {
           return false;
         }

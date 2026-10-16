@@ -592,6 +592,25 @@ describe("an `@{ … }` block written where it cannot stand", () => {
     expect(elapsed).toBeLessThan(1000);
   });
 
+  it("reads many blocks written across lines in time linear in the document", () => {
+    // A guard against handing each block the rest of the document as a
+    // copy, timed against the same nodes written with brackets so that the
+    // machine's speed cancels out: linear, the blocks cost under twice the
+    // brackets; quadratic, 50,000 blocks cost over fifteen times.
+    const count = 50_000;
+    const timed = (body: string) => {
+      const started = performance.now();
+      const result = parseFlowchart(`flowchart TB\n${body}`);
+      return { result, elapsed: performance.now() - started };
+    };
+    const brackets = timed(Array.from({ length: count }, (_, k) => `  N${k}((c))\n\n`).join("\n"));
+    const blocks = timed(Array.from({ length: count }, (_, k) => `  N${k}@{\n    shape: circle\n  }`).join("\n"));
+
+    expect(blocks.result.diagnostics).toEqual([]);
+    expect(blocks.result.document?.kind === "flowchart" && blocks.result.document.nodes.length).toBe(count);
+    expect(blocks.elapsed).toBeLessThan(5 * brackets.elapsed);
+  });
+
   it("leaves a group with no arrow (`A@{ … } & B`) to the error a bare `A & B` gets", () => {
     // Mermaid 12.2.0 draws both nodes; a group with no arrow is its own
     // ticket, and until then the line is not told to lose its `& B`.
@@ -664,6 +683,19 @@ describe("an `@{` written where no node is", () => {
     expect(document.edges.map((edge) => [edge.from, edge.to, edge.label?.text ?? null])).toEqual([
       ["A", "B", "x@{y"],
       ["C", "D", null],
+    ]);
+  });
+
+  it("keeps a closed `@{ … }` inside a `|label|` as the label's text, and reads the next line on its own", () => {
+    // Mermaid 12.2.0 refuses this too ("got 'DIAMOND_START'"); see below.
+    const { document, diagnostics } = parseOk("flowchart TB\n  A -->|a@{b}| B\n  C");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges.map((edge) => [edge.from, edge.to, edge.label?.text ?? null])).toEqual([["A", "B", "a@{b}"]]);
+    expect(document.nodes.map((node) => [node.id, node.line])).toEqual([
+      ["A", 2],
+      ["B", 2],
+      ["C", 3],
     ]);
   });
 

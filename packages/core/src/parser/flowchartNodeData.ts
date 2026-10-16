@@ -216,7 +216,7 @@ export function nodeDataEnd(text: string, at: number): number | null {
 
 /**
  * The text of a statement whose last `@{ … }` block is not closed on its
- * own line, run on into the lines after it until the `}` closing it — the
+ * own line, run on into `lines` from `from` until the `}` closing it — the
  * multi-line block Mermaid 12.2.0 reads as block YAML (`A@{` ⏎
  * `shape: circle` ⏎ `}`, measured) — and how many of those lines it took.
  * A block never closed takes every line. A line the block closes on may
@@ -230,14 +230,15 @@ export function nodeDataEnd(text: string, at: number): number | null {
  */
 export function blockRunOn(
   text: string,
-  following: readonly string[],
+  lines: readonly string[],
+  from: number,
   blocksOf: (text: string) => readonly NodeDataBlock[],
 ): { text: string; taken: number } {
   let joined = text;
   let taken = 0;
   let { open, quoted } = openBlockAtEnd(text, blocksOf);
-  while (open && taken < following.length) {
-    const line = following[taken]!;
+  while (open && from + taken < lines.length) {
+    const line = lines[from + taken]!;
     taken++;
     joined += "\n" + line;
     const close = closingBraceIn(line, 0, quoted);
