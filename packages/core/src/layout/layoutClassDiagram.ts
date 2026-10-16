@@ -1,6 +1,7 @@
 import type {
   Direction,
   ClassMember,
+  ClassMemberClassifier,
   ClassModel,
   LayoutOptions,
   Point,
@@ -52,8 +53,10 @@ const MULTIPLICITY_MARKER_CLEARANCE = 6;
 /**
  * The text a member is drawn as, rebuilt from the parts the parser kept:
  * `+int age` for an attribute, `+swim() : bool` for a method. The classifier
- * goes last, as Mermaid writes it (`-id$`, `#quack(int times)*`), so one
- * rule covers both member kinds whether or not a return type follows.
+ * is no part of it: Mermaid 12.2.0 draws `-id$` as `-id` underlined and
+ * `#quack(int times)*` as `#quack(int times)` in italics (measured, Chrome),
+ * so it travels beside the text as a style on the whole line, and the line
+ * is measured without it.
  *
  * A method's return type follows ` : ` — one space either side, however
  * many the author wrote before it: measured on Mermaid 12.2.0 (Chrome), in a
@@ -72,15 +75,14 @@ const MULTIPLICITY_MARKER_CLEARANCE = 6;
  */
 function memberText(member: ClassMember): string {
   const visibility = member.visibility ?? "";
-  const classifier = member.classifier ?? "";
   if (member.memberKind === "method") {
     const returnType =
       member.returnType === null ? "" : ` : ${angleBrackets(member.returnType)}`;
     const parameters = angleBrackets(member.parameters ?? "");
-    return htmlText(`${visibility}${member.name}(${parameters})${returnType}${classifier}`, "text");
+    return htmlText(`${visibility}${member.name}(${parameters})${returnType}`, "text");
   }
   const type = member.type === null ? "" : `${angleBrackets(member.type)} `;
-  return htmlText(`${visibility}${type}${member.name}${classifier}`, "text");
+  return htmlText(`${visibility}${type}${member.name}`, "text");
 }
 
 /**
@@ -200,7 +202,7 @@ function classLabel(cls: ResolvedClass): Label {
  */
 interface CompartmentPlan {
   dividerY: number;
-  members: { text: string; y: number }[];
+  members: { text: string; classifier: ClassMemberClassifier | null; y: number }[];
 }
 
 /**
@@ -263,7 +265,7 @@ function planClassBox(
       widths.push(measured.width);
       const y = bottom + measured.height / 2;
       bottom += measured.height;
-      return { text, y };
+      return { text, classifier: member.classifier, y };
     });
     bottom += CLASS_PADDING_Y;
     return { dividerY, members: planned };
@@ -607,6 +609,7 @@ export function layoutClassDiagram(
               text: member.text,
               x: box.x + CLASS_PADDING_X,
               y: box.y + member.y,
+              classifier: member.classifier,
             })),
           };
 

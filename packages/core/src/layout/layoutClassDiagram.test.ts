@@ -417,7 +417,7 @@ describe("layoutClassDiagram", () => {
   });
 
   describe("member text", () => {
-    it("rebuilds each member line from the parts the model kept, classifier last", () => {
+    it("rebuilds each member line from the parts the model kept, its classifier left out of the text", () => {
       const diagram = layoutClassDiagram(
         classModel({
           classes: [
@@ -445,12 +445,34 @@ describe("layoutClassDiagram", () => {
       const duck = classById(diagram, "Duck");
       expect(duck.attributes!.members.map((m) => m.text)).toEqual([
         "+String beakColor",
-        "-id$",
+        "-id",
       ]);
       expect(duck.methods!.members.map((m) => m.text)).toEqual([
         "+swim() : bool",
-        "#quack(int times)*",
+        "#quack(int times)",
       ]);
+    });
+
+    it("carries each member's classifier beside its text, and measures the line without it", () => {
+      // Measured (Mermaid 12.2.0, Chrome): `+x$` draws `+x` underlined and
+      // `+foo()* bool` draws `+foo() : bool` in italics — the classifier is
+      // a style on the whole line, never a character of it, so the line is
+      // as wide as the same member without one.
+      const layout = (members: ClassMember[]) =>
+        classById(layoutClassDiagram(classModel({ classes: [cls("A", members)] }), { measureText: fakeMeasurer }), "A");
+      const box = layout([
+        attribute({ visibility: "+", name: "x", classifier: "$" }),
+        attribute({ visibility: "+", name: "y" }),
+        method({ visibility: "+", name: "foo", parameters: "", returnType: "bool", classifier: "*" }),
+      ]);
+      expect([...box.attributes!.members, ...box.methods!.members].map((m) => [m.text, m.classifier])).toEqual([
+        ["+x", "$"],
+        ["+y", null],
+        ["+foo() : bool", "*"],
+      ]);
+      expect(layout([method({ visibility: "+", name: "foolong", parameters: "", classifier: "$" })]).width).toBe(
+        layout([method({ visibility: "+", name: "foolong", parameters: "" })]).width,
+      );
     });
 
     it("draws a method's return type after ` : `, and sizes the box from that text", () => {
@@ -613,13 +635,13 @@ describe("layoutClassDiagram", () => {
       ).toEqual(["+List<<> x", "+List<int<> x", "+foo(Map<♥> m)"]);
     });
 
-    it("decodes an entity code beside a classifier, which stays last", () => {
+    it("decodes an entity code beside a classifier, which is no part of the text", () => {
       expect(
         drawn(
           attribute({ visibility: "+", type: "int", name: "#lt;", classifier: "$" }),
           method({ visibility: "+", name: "foo", parameters: "#lt;", classifier: "*" }),
         ),
-      ).toEqual(["+int <$", "+foo(<)*"]);
+      ).toEqual(["+int <", "+foo(<)"]);
     });
   });
 

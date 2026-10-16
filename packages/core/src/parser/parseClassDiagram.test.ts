@@ -3139,6 +3139,25 @@ describe("parseClassDiagram — an entity code in a member", () => {
     expect([member!.type, member!.name, member!.classifier]).toEqual(["int", "#lt;", "$"]);
   });
 
+  it("reads a method's classifier right after its `)` as well as at the end of its return type", () => {
+    // Measured (Mermaid 12.2.0, Chrome), in a class block and after `A :`
+    // alike: `+foo()* bool` draws `+foo() : bool` in italics and
+    // `+foo()$ bool`, `+foo() bool$` and `+foo()$` draw underlined, while a
+    // `$` in the middle of an attribute (`+x$ int`) is drawn as written.
+    for (const body of [
+      "  class A {\n    +foo()* bool\n    +foo()$ bool\n    +foo() bool$\n    +foo()$\n    +x$ int\n  }",
+      "  class A\n  A : +foo()* bool\n  A : +foo()$ bool\n  A : +foo() bool$\n  A : +foo()$\n  A : +x$ int",
+    ]) {
+      expect(membersIn(body).map((m) => [m.memberKind, m.type, m.name, m.returnType, m.classifier])).toEqual([
+        ["method", null, "foo", "bool", "*"],
+        ["method", null, "foo", "bool", "$"],
+        ["method", null, "foo", "bool", "$"],
+        ["method", null, "foo", null, "$"],
+        ["attribute", "x$", "int", null, null],
+      ]);
+    }
+  });
+
   it("reads an entity code opening a member as text, not as the `#` visibility marker", () => {
     // Measured: `#lt; x` draws `< x` and `#lt;int x` `<int x` — Mermaid
     // encodes the code before it looks for a marker, so none is found.

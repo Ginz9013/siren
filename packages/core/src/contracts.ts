@@ -1744,7 +1744,9 @@ export type ClassMemberVisibility = "+" | "-" | "#" | "~";
 
 /**
  * A member's classifier, stored as the character the author wrote: `*`
- * abstract, `$` static. Mermaid appends it to the end of the member line.
+ * abstract, `$` static. It is written last on an attribute, and on a method
+ * either right after its `)` or last; it is drawn as a style on the whole
+ * member line — `*` italic, `$` underlined — never as a character of it.
  */
 export type ClassMemberClassifier = "*" | "$";
 
@@ -2263,6 +2265,11 @@ export interface PositionedClassMember {
   text: string;
   x: number;
   y: number;
+  /**
+   * The member's classifier, which the text leaves out: the whole line is
+   * drawn italic for `*` and underlined for `$`. Absent or `null` for none.
+   */
+  classifier?: ClassMemberClassifier | null;
 }
 
 /**

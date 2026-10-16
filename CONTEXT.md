@@ -834,6 +834,9 @@ boxes, so say "the apply-directive" for it), node, entity, box
 One attribute or method line inside a class, carrying an optional visibility marker (`+` public,
 `-` private, `#` protected, `~` package), an optional classifier (`*` abstract, `$` static), a
 name, an optional type, and — for methods — a parameter list and an optional return type.
+The classifier is drawn as a style on the whole line — `*` italic, `$` underlined — never as a
+character of it; an attribute's is its last character, a method's stands right after its `)` or
+last.
 Drawn as the author spelled it, its entity codes and character references decoded (`+#lt; x` draws
 `+< x`, `+&lt x` too): a member is **not** a Label, because Mermaid escapes its `<` and `>` in both
 label modes, so no tag in it is read — the one change made first, as Mermaid makes it, is

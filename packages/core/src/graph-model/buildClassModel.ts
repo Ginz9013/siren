@@ -409,7 +409,8 @@ function claimMembers(
  * Two members differing in visibility, type, parameters, return type or
  * classifier draw differently and are therefore different members, even
  * when they share a name; Mermaid lets a class carry both, and so does
- * this.
+ * this. A classifier is drawn as a style rather than a character, but it
+ * still tells two lines apart, so the key keeps it.
  */
 function addMembers(target: ClassAccumulator, members: ClassMember[]): void {
   for (const member of members) {
@@ -430,7 +431,11 @@ function addMembers(target: ClassAccumulator, members: ClassMember[]): void {
  * The two spellings have since diverged on purpose, and must not be
  * "fixed" to match. This composes the **authored** spelling; layout
  * composes the **drawn** one, which converts a generic's `~T~` into the
- * `<T>` Mermaid draws. That is fine — a union key only has to be
+ * `<T>` Mermaid draws and leaves the classifier out of the text (it is
+ * drawn as the line's style). This key writes the classifier last, where
+ * it cannot be mistaken for part of a return type: the parser takes a
+ * return type's last `$` or `*` as the classifier unless one already
+ * stood right after the `)`. That is fine — a union key only has to be
  * consistent with itself, and it is computed at one stage from one source.
  *
  * The one visible consequence: a class declaring both `+List~int~ items`

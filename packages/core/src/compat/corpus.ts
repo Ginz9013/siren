@@ -5969,6 +5969,45 @@ line2\`"]`,
       );
     },
   },
+  {
+    id: "cls-member-classifiers",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        +x$
+        +y*
+        +x$ int
+        +foo()$
+        +foo()* bool
+        +foo() bool$
+      }
+      A : +bar()$ int`,
+    status: "supported",
+    meaning:
+      "A member's classifier is a style on its whole line, not a character " +
+      "of it: Mermaid 12.2.0 draws `+x$` as `+x` underlined (static) and " +
+      "`+y*` as `+y` in italics (abstract), visibility and return type " +
+      "included (measured, Chrome). An attribute's classifier is its last " +
+      "character only — `+x$ int` is drawn as written — and a method's " +
+      "stands right after its `)` or at the end of its return type, in a " +
+      "class block and after `A :` alike. Siren used to draw the `$` or `*` " +
+      "at the end of the line, and `+foo()* bool` as `+foo() : * bool` " +
+      "(01M51XAEEXFFAB5Y0H6YN4K2BM).",
+    assert: (result) => {
+      const lines = Array.from(
+        svgOf(result).querySelectorAll('g.siren-class[data-siren-id="A"] text.siren-member'),
+      ).map((t) => `${t.textContent} {${t.getAttribute("style") ?? ""}}`);
+      expectSame("member lines", lines, [
+        "+x {text-decoration:underline}",
+        "+y {font-style:italic}",
+        "+x$ int {}",
+        "+foo() {text-decoration:underline}",
+        "+foo() : bool {font-style:italic}",
+        "+foo() : bool {text-decoration:underline}",
+        "+bar() : int {text-decoration:underline}",
+      ]);
+    },
+  },
   // -------------------------------------------------------------------------
   // sequenceDiagram
   // -------------------------------------------------------------------------

@@ -1303,8 +1303,12 @@ exit note:1 fade
       result
         .svg!.querySelector('g.siren-class[data-siren-id="Registry"]')!
         .querySelectorAll("text.siren-member"),
-    ).map((t) => t.textContent);
-    expect(registryMembers).toEqual(["-int cachedCount$", "+lookup(String name) : Animal$"]);
+    ).map((t) => [t.textContent, t.getAttribute("style")]);
+    // A `$` classifier is drawn as an underline on the whole line, not as a character of it.
+    expect(registryMembers).toEqual([
+      ["-int cachedCount", "text-decoration:underline"],
+      ["+lookup(String name) : Animal", "text-decoration:underline"],
+    ]);
 
     // All eight Mermaid relationship kinds, over ten statements.
     const relationships = Array.from(
@@ -2154,7 +2158,7 @@ click Sneaky call inspect() "<b>tooltip</b>"
       "#int durationInSeconds",
       "-bool licensed",
       "~String catalogKey",
-      "+play()*",
+      "+play()",
       "+describe() : String",
     ]);
     expect(classGroup("Media").querySelectorAll("line.siren-class-divider")).toHaveLength(2);
@@ -2172,10 +2176,10 @@ click Sneaky call inspect() "<b>tooltip</b>"
     );
     expect(membersOf("Shelf")).toEqual([
       "-Map<String, List<T>> byGenre",
-      "-int loadedCount$",
+      "-int loadedCount",
       "+add(String genre, T item)",
       "+find(String genre) : List<T>",
-      "+clear()$",
+      "+clear()",
     ]);
 
     // --- annotations ---

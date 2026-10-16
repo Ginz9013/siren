@@ -123,6 +123,11 @@ with (`class A~T~` then `class A~U~`, `A~U~ --> B` or `A~U~ : +x`), or a second,
 annotation (`<<interface>> A` then `<<service>> A`), each of which used to draw the first with a
 warning and is now refused (see **Changed**).
 
+Breaking for a class document with a classified member (`+x$`, `+run()*`), which used to be drawn
+with the `$` or `*` at the end of its text (`+x$`) and is now drawn without it, the whole line
+underlined for `$` and in italics for `*`; and for one with a method whose classifier stands right
+after its `)` (`+foo()* bool`), which used to be drawn `+foo() : * bool` (see **Changed**).
+
 ### Added
 
 - A flowchart class name may hold what Mermaid 12.2.0 styles (nook `01M51Q7FSS`, measured in
@@ -297,6 +302,15 @@ warning and is now refused (see **Changed**).
 
 ### Changed
 
+- **A class member's classifier is drawn as a style, not as a character** (nook `01M51XAEEX`):
+  Mermaid 12.2.0 draws `+x$` as `+x` underlined and `+y*` as `+y` in italics, the style on the
+  whole line, visibility and return type included. Siren drew the `$` or `*` at the end of the
+  text; it now leaves it out — the line measured without it — and draws the line with
+  `text-decoration:underline` or `font-style:italic`, after the class's own text style. A method's
+  classifier is read right after its `)` too (`+foo()* bool` is an abstract method returning
+  `bool`), as well as at the end of its return type; an attribute's only as its last character,
+  so `+x$ int` is drawn as written. A positioned class member carries its `classifier` beside its
+  `text`.
 - **A flowchart class name Mermaid cannot style is refused** (nook `01M51Q7FSS`): Mermaid 12.2.0
   writes each `classDef` as the CSS rule `.<name> > *`, and a name that makes it fail to parse
   (`1c`, `c.`, `c..d`, `c:d`, `c%`, `c!`, `c/d` and the like) stops the whole diagram rendering in a

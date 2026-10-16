@@ -1,4 +1,5 @@
 import type {
+  ClassMemberClassifier,
   ClassRelationshipEnd,
   Point,
   PositionedClass,
@@ -504,9 +505,12 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
    * `color` because `fill` is what paints SVG text; `resolveStyles` made
    * that translation, and this renderer neither repeats nor second-guesses
    * it.
+   *
+   * `own` is what the label adds of its own after the class's declarations —
+   * a member's classifier style (`classifierStyle`).
    */
-  const appendClassText = (label: SVGTextElement): void => {
-    applyAuthorStyle(label, positionedClass.style.text);
+  const appendClassText = (label: SVGTextElement, own: StyleProperty[] = []): void => {
+    applyAuthorStyle(label, [...positionedClass.style.text, ...own]);
     g.appendChild(label);
   };
 
@@ -554,7 +558,7 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
       // textContent, never innerHTML — the hard invariant of every Siren
       // renderer: member text is author input and must render literally.
       text.textContent = member.text;
-      appendClassText(text);
+      appendClassText(text, classifierStyle(member.classifier ?? null));
     }
   }
 
@@ -716,6 +720,23 @@ function applyAuthorStyle(element: SVGElement, style: StyleProperty[]): void {
     "style",
     style.map(({ property, value }) => `${property}:${value}`).join(";"),
   );
+}
+
+/**
+ * The declaration a member's classifier draws its whole line with — `$`
+ * underlined, `*` in italics, as Mermaid 12.2.0 draws them (measured,
+ * Chrome) — written after the class's own text declarations so that, as in
+ * Mermaid, where it sits nearer the text, the classifier wins.
+ */
+function classifierStyle(classifier: ClassMemberClassifier | null): StyleProperty[] {
+  switch (classifier) {
+    case "$":
+      return [{ property: "text-decoration", value: "underline" }];
+    case "*":
+      return [{ property: "font-style", value: "italic" }];
+    default:
+      return [];
+  }
 }
 
 /** Builds one `<line class="siren-class-divider">` spanning the class frame's full width. */

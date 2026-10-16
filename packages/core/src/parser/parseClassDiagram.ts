@@ -622,6 +622,12 @@ const MEMBER_BREAK_RE = /<br\s*\/?>/gi;
 const VISIBILITY_MARKERS = new Set<string>(["+", "-", "#", "~"]);
 const CLASSIFIER_MARKERS = new Set<string>(["*", "$"]);
 
+/** The classifier written as the character at `index` of `text`, or `null` when that is no classifier. */
+function classifierAt(text: string, index: number): ClassMemberClassifier | null {
+  const char = text.charAt(index);
+  return CLASSIFIER_MARKERS.has(char) ? (char as ClassMemberClassifier) : null;
+}
+
 /**
  * Strips one layer of surrounding quotes from a `call fn("arg")`
  * argument, and reads an empty argument list as no argument at all.
@@ -701,13 +707,6 @@ function runsOnIntoMember(text: string): boolean {
 function parseMember(text: string, line: number, column: number): ClassMember | null {
   let rest = text.trim().replace(MEMBER_BREAK_RE, "<br>");
 
-  let classifier: ClassMemberClassifier | null = null;
-  const lastChar = rest.slice(-1);
-  if (CLASSIFIER_MARKERS.has(lastChar)) {
-    classifier = lastChar as ClassMemberClassifier;
-    rest = rest.slice(0, -1).trim();
-  }
-
   let visibility: ClassMemberVisibility | null = null;
   const firstChar = rest.slice(0, 1);
   // A `#` opening an entity code is the code's: Mermaid 12.2.0 encodes
@@ -727,7 +726,19 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
     if (!isMemberName(name)) {
       return null;
     }
-    const returnType = rest.slice(closeParen + 1).trim();
+    // A method's classifier stands right after its `)` (`+foo()* bool`) or,
+    // when none does, as the last character of its return type
+    // (`+foo() bool$`) — Mermaid 12.2.0's `parseMember` (measured, Chrome).
+    let afterParen = rest.slice(closeParen + 1);
+    let classifier = classifierAt(afterParen, 0);
+    if (classifier !== null) {
+      afterParen = afterParen.slice(1);
+    }
+    let returnType = afterParen.trim();
+    if (classifier === null) {
+      classifier = classifierAt(returnType, returnType.length - 1);
+      if (classifier !== null) returnType = returnType.slice(0, -1).trim();
+    }
     return {
       memberKind: "method",
       visibility,
@@ -741,6 +752,12 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
     };
   }
 
+  // An attribute's classifier is its last character, and only that: a `$`
+  // anywhere else (`+x$ int`) is drawn as written (measured, Chrome).
+  const classifier = classifierAt(rest, rest.length - 1);
+  if (classifier !== null) {
+    rest = rest.slice(0, -1).trim();
+  }
   const tokens = rest.split(/\s+/).filter((token) => token.length > 0);
   if (tokens.length === 0) {
     return null;
