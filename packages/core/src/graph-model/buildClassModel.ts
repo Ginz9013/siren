@@ -4,6 +4,7 @@ import type {
   ClassMember,
   ClassModel,
   ClassModelResult,
+  ClassNamespace,
   Diagnostic,
   ResolvedClass,
   ResolvedClassNamespace,
@@ -54,9 +55,14 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
 
   const classesById = resolveClasses(document, diagnostics);
 
-  const namespaces = resolveNamespaces(document, classesById, diagnostics);
-
   const notes = resolveNotes(document, classesById, diagnostics);
+
+  const namespaces = resolveNamespaces(
+    document,
+    classesById,
+    new Set(notes.map((note) => note.id)),
+    diagnostics,
+  );
 
   const classes = [...classesById.values()].map((accumulator) => accumulator.resolved);
 
@@ -210,11 +216,20 @@ function resolveClasses(
 }
 
 /**
- * Resolves the document's `namespace` blocks: each gets the stable
- * `namespace:${n}` id the timeline and the renderer address it by — a
- * 1-based counter in document order, the same convention
- * `buildSequenceModel` gives its blocks — while the label the author wrote
- * in brackets, or else the name, becomes the frame's `label`.
+ * Resolves the document's `namespace` blocks into one namespace per
+ * qualified name: a namespace opened again — `namespace N { class X }` and
+ * later `namespace N { class Y }` — is the same namespace, merged into one
+ * frame holding every block's classes, as Mermaid 12.2.0 draws it
+ * (measured; nook decision `01M51B4M3C`).
+ *
+ * Each gets the stable `namespace:${n}` id the timeline and the renderer
+ * address it by — a 1-based counter in the order the namespaces are first
+ * opened, which the parser makes document order, so an outer namespace is
+ * numbered before the ones inside it, as `buildFlowchartModel` numbers
+ * `subgraph:N` — while the last label the author wrote in brackets, or else
+ * its own `name` (not the qualified one), becomes the frame's `label`. A nested
+ * one carries the generated id of the namespace around it as its
+ * `parentId`.
  *
  * The `:` separator is load-bearing, not decoration: see `generatedId`.
  *
@@ -226,54 +241,101 @@ function resolveClasses(
  *
  * A class belongs to at most one namespace, because a namespace is drawn as
  * a frame enclosing its members and one box cannot sit inside two frames.
- * The first claim wins and the second is an error: unlike a conflicting
- * annotation, there is no reading of the source under which both are
- * satisfiable.
+ * The first claim wins and a claim by a *different* namespace is an error:
+ * unlike a conflicting annotation, there is no reading of the source under
+ * which both are satisfiable. Two blocks of one namespace naming a class are
+ * one claim.
  */
 function resolveNamespaces(
   document: ClassDocument,
   classesById: Map<string, ClassAccumulator>,
+  noteIds: ReadonlySet<string>,
   diagnostics: Diagnostic[],
 ): ResolvedClassNamespace[] {
-  /** The namespace that claimed each class first, by its author-written name. */
+  /** The namespace that claimed each class first, by its qualified name. */
   const claimedBy = new Map<string, string>();
+  /**
+   * Each namespace, by its qualified name, in the order first opened. A
+   * parent is listed before its children, so it is always here by the time
+   * a child looks it up.
+   */
+  const byQualifiedName = new Map<string, ResolvedClassNamespace>();
 
-  return document.namespaces.map((namespace, index) => {
-    const id = generatedId("namespace", index + 1);
-    const classIds: string[] = [];
-
-    for (const classId of namespace.classIds) {
-      const claimant = claimedBy.get(classId);
-      if (claimant !== undefined) {
-        diagnostics.push({
-          severity: "error",
-          message:
-            `Class "${classId}" is named by more than one namespace ` +
-            `("${claimant}" and "${namespace.id}"); keeping the first.`,
-          line: namespace.line,
-          column: namespace.column,
-        });
-        continue;
-      }
-
-      // A namespace naming a class nothing else declares creates it, the
-      // same way a relationship endpoint does: naming a class is a way of
-      // introducing one, and a frame with a hole where a member should be
-      // helps nobody.
-      let member = classesById.get(classId);
-      if (member === undefined) {
-        member = emptyClass(classId);
-        classesById.set(classId, member);
-      }
-      member.resolved.namespaceId = id;
-      claimedBy.set(classId, namespace.id);
-      classIds.push(classId);
+  for (const block of document.namespaces) {
+    let namespace = byQualifiedName.get(block.id);
+    if (namespace === undefined) {
+      namespace = {
+        id: generatedId("namespace", byQualifiedName.size + 1),
+        parentId: block.parentId === null ? null : (byQualifiedName.get(block.parentId)?.id ?? null),
+        // A name is an identifier and has no tag in it to read, so a
+        // namespace written without a label is labelled by its own name as
+        // one plain run — `M` inside N, not the qualified `N.M`.
+        label: block.label ?? plainLabel(block.name),
+        classIds: [],
+        noteIds: [],
+      };
+      byQualifiedName.set(block.id, namespace);
+    } else if (block.label !== null) {
+      // Measured: the last bracketed label written wins, and a block that
+      // writes none keeps the one before it.
+      namespace.label = block.label;
     }
 
-    // A name is an identifier and has no tag in it to read, so a namespace
-    // written without a label is labelled by its name as one plain run.
-    return { id, label: namespace.label ?? plainLabel(namespace.id), classIds };
-  });
+    claimMembers(block, namespace, claimedBy, classesById, diagnostics);
+    // A note's id is its place among the document's notes, the id
+    // `resolveNotes` gave it; one it dropped, for naming no class, is in no
+    // namespace either.
+    for (const index of block.noteIndexes) {
+      const noteId = generatedId("note", index + 1);
+      if (noteIds.has(noteId)) namespace.noteIds.push(noteId);
+    }
+  }
+
+  return [...byQualifiedName.values()];
+}
+
+/**
+ * Makes the classes one `namespace` block names members of the namespace it
+ * opens, `namespace`. `claimedBy` records which namespace, by qualified
+ * name, holds each class so far: a class it already holds is skipped, and
+ * one a different namespace holds stays there, with an error.
+ */
+function claimMembers(
+  block: ClassNamespace,
+  namespace: ResolvedClassNamespace,
+  claimedBy: Map<string, string>,
+  classesById: Map<string, ClassAccumulator>,
+  diagnostics: Diagnostic[],
+): void {
+  for (const classId of block.classIds) {
+    const claimant = claimedBy.get(classId);
+    if (claimant === block.id) continue;
+    if (claimant !== undefined) {
+      diagnostics.push({
+        severity: "error",
+        message:
+          `Class "${classId}" is named by more than one namespace ` +
+          `("${claimant}" and "${block.id}"), and a class can sit in only one; ` +
+          `keeping it in "${claimant}". Name it in only one of the namespaces.`,
+        line: block.line,
+        column: block.column,
+      });
+      continue;
+    }
+
+    // A namespace naming a class nothing else declares creates it, the
+    // same way a relationship endpoint does: naming a class is a way of
+    // introducing one, and a frame with a hole where a member should be
+    // helps nobody.
+    let member = classesById.get(classId);
+    if (member === undefined) {
+      member = emptyClass(classId);
+      classesById.set(classId, member);
+    }
+    member.resolved.namespaceId = namespace.id;
+    claimedBy.set(classId, block.id);
+    namespace.classIds.push(classId);
+  }
 }
 
 /**

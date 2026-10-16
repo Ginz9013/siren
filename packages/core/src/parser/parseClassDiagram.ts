@@ -134,6 +134,12 @@ const STANDALONE_ANNOTATION_RE = /^<<(.+)>>\s+(\w+)$/;
  * the same way: a space may stand before the `[`, and `[""]` is a parse
  * error in Mermaid.
  *
+ * The name may be dotted, `namespace N.M {`, each segment a `\w+` and a
+ * space either side of a dot allowed, as Mermaid 12.2.0 reads it (measured)
+ * — a space anywhere else ends the name, so `namespace N M {` is no
+ * namespace. A segment may also be empty (`.N`, `N.`, `N..M`): such a name
+ * still matches, for the caller to refuse at the name.
+ *
  * What follows the `{` on its line is the body's first statement (the
  * third capture): Mermaid 12.2.0 reads `namespace N { class A }` as N
  * holding A, its `}` closing the namespace wherever it stands (measured).
@@ -141,7 +147,7 @@ const STANDALONE_ANNOTATION_RE = /^<<(.+)>>\s+(\w+)$/;
  * so a line with one does not open a namespace here.
  */
 const NAMESPACE_OPEN_RE = new RegExp(
-  String.raw`^namespace\s+(\w+)\s*${BRACKETED_LABEL}\s*\{(?!\s*%%)(.*)$`,
+  String.raw`^namespace\s+((?=[\w.])\w*(?:\s*\.(?:\s*\w+)?)*)\s*${BRACKETED_LABEL}\s*\{(?!\s*%%)(.*)$`,
   "d",
 );
 
@@ -563,6 +569,12 @@ export function parseClassDiagram(source: string): DiagramParseResult {
   /** How many `namespace` blocks enclose the statement being parsed. */
   let namespaceDepth = 0;
   /**
+   * The innermost `namespace` block enclosing the statement being parsed, or
+   * `null` at the top level: what a qualified name is built from, and where
+   * a note written there is recorded.
+   */
+  let enclosingNamespace: ClassNamespace | null = null;
+  /**
    * The `}`s written after a block's own `}` on its line, each closing one
    * of the namespaces around it in turn — `class A {` ⏎ `+x }}` closes A,
    * then its namespace, as Mermaid 12.2.0 reads it (measured). Each
@@ -843,6 +855,59 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       let bodyIndex = startIndex + 1;
       namespaceDepth++;
 
+      // Recorded as it opens, so the blocks inside it follow it: the order
+      // `buildClassModel` numbers `namespace:N` in, outer first. A block is
+      // known by its qualified name — Mermaid 12.2.0's `resolveQualifiedId`
+      // — so the `M` written inside N is `N.M`, a namespace apart from a
+      // top-level `M` (measured: two frames). A dotted name is the same
+      // nesting written on one line: `namespace N.M {` opens N, then the M
+      // inside it, the block's label and classes going to M alone
+      // (measured; a space either side of a dot is read as none). Each
+      // segment it passes through is recorded as a namespace with nothing
+      // of its own, which `buildClassModel` merges with any block of that
+      // name.
+      const outerNamespace = enclosingNamespace;
+      const writtenSegments = namespaceOpenMatch[1].split(".").map((segment) => segment.trim());
+      let segments = writtenSegments.filter((segment) => segment.length > 0);
+      if (segments.length < writtenSegments.length) {
+        // Measured: Mermaid 12.2.0 refuses `namespace .N`, `namespace N.`
+        // and `namespace N..M` ("… got 'DOT'"), and an empty part names
+        // nothing, so it is refused (ADR-0017). The block is still read, as
+        // the namespace its named parts spell, so its `}` closes it rather
+        // than being refused as well.
+        const fixed = segments.join(".");
+        diagnostics.push({
+          severity: "error",
+          message:
+            `Namespace name "${namespaceOpenMatch[1]}" has an empty part: each part between dots needs a name. ` +
+            (fixed.length > 0 ? `Write "${fixed}" instead.` : "Give the namespace a name."),
+          line: lineNumber,
+          column: column + namespaceOpenMatch.indices![1]![0],
+        });
+        sawError = true;
+        if (segments.length === 0) segments = [namespaceOpenMatch[1]];
+      }
+      /** The entry for `segment` inside the namespace `parent`, holding `members`. */
+      const blockEntry = (segment: string, parent: string | null, members: string[]): ClassNamespace => ({
+        id: parent === null ? segment : `${parent}.${segment}`,
+        name: segment,
+        parentId: parent,
+        label: null,
+        classIds: members,
+        noteIndexes: [],
+        line: lineNumber,
+        column,
+      });
+      let parentId = outerNamespace?.id ?? null;
+      for (const segment of segments.slice(0, -1)) {
+        const ancestor = blockEntry(segment, parentId, []);
+        namespaces.push(ancestor);
+        parentId = ancestor.id;
+      }
+      const namespace = blockEntry(segments[segments.length - 1]!, parentId, classIds);
+      namespaces.push(namespace);
+      enclosingNamespace = namespace;
+
       /**
        * Reads `text`, standing at `offset` on line `index`, as one of the
        * namespace's statements, up to a `}` closing nothing opened before it
@@ -927,22 +992,21 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         sawError = true;
       }
 
-      namespaces.push({
-        id: namespaceOpenMatch[1],
-        label:
-          namespaceOpenMatch[2] === undefined
-            ? null
-            : readLabelIn(namespaceOpenMatch, 2, lineNumber, column),
-        classIds,
-        line: lineNumber,
-        column,
-      });
+      namespace.label =
+        namespaceOpenMatch[2] === undefined
+          ? null
+          : readLabelIn(namespaceOpenMatch, 2, lineNumber, column);
+      enclosingNamespace = outerNamespace;
       namespaceDepth--;
       return bodyIndex;
     }
 
+    // A note written in a namespace is that namespace's, drawn inside its
+    // frame — `note for X` too, wherever X stands (measured, Mermaid
+    // 12.2.0) — so it is recorded on the innermost block around it.
     const noteForMatch = NOTE_FOR_RE.exec(line);
     if (noteForMatch !== null) {
+      enclosingNamespace?.noteIndexes.push(notes.length);
       notes.push({
         label: readLabelIn(noteForMatch, 2, lineNumber, column),
         targetId: noteForMatch[1],
@@ -954,6 +1018,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
 
     const noteMatch = NOTE_RE.exec(line);
     if (noteMatch !== null) {
+      enclosingNamespace?.noteIndexes.push(notes.length);
       notes.push({
         label: readLabelIn(noteMatch, 1, lineNumber, column),
         targetId: null,

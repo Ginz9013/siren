@@ -64,8 +64,32 @@ between), which is now refused (see **Changed**).
 Breaking for a flowchart document with an `&` between nodes that lacks a space on either side
 (`A&B-->C`, `A &B-->C`, `A[x]&B-->C`), which is now refused (see **Changed**).
 
+Breaking for a class document with a namespace written inside another whose timeline names a
+namespace by its generated id (`namespace:N`): the ids are now numbered in the order the blocks
+open, outer first, where they used to be numbered in the order the blocks closed (see **Changed**).
+
+Breaking for a class document that opens one namespace more than once (`namespace N { class X }`
+and later `namespace N { class Y }`): its blocks are now one frame under one `namespace:N` id,
+where each used to be a frame and an id of its own, so the ids after it shift (see **Changed**).
+
 ### Added
 
+- A dotted class namespace name (`namespace N.M { class A }`) is read as Mermaid 12.2.0 reads it
+  (nook `01M51B43T8`): the `M` inside N, drawn as the frame N around the frame M, the same picture
+  as the nested spelling. An `N` no block opens is created, titled `N` and numbered before `N.M`;
+  one that a block does open is merged with it, written before or after. A bracketed label titles
+  the last part only (`namespace N.M["Leaf"]`), a dotted name works inside another namespace
+  (`namespace N { namespace M.K { … } }` is three levels), and a space beside a dot is read as
+  none (`N. M`). A name with an empty part (`.N`, `N.`, `N..M`), which Mermaid refuses, is refused
+  at the name with the name to write instead. Each used to be refused as an unrecognized line.
+- A class namespace written inside another (`namespace N { namespace M { class A } }`, on lines of
+  their own or on one line) is drawn as Mermaid 12.2.0 draws it (nook `01M51B43CP`): the frame N
+  around the frame M around A, as nested clusters in the layout core, the outer frame painted first
+  and drawn even when it holds no class of its own. Each frame keeps its own label and its own
+  `data-siren-id`, so a timeline reaches the outer frame too. A namespace is known by its qualified
+  name (decision `01M51B4M3C`): the `M` inside N is `N.M`, and a top-level `namespace M` is another
+  frame. `ClassNamespace` gains `name` (its own name) and `parentId`, and its `id` is the qualified
+  name; `ResolvedClassNamespace` gains `parentId`. Siren used to draw only the innermost frame.
 - More flowchart subgraph headers are read as Mermaid 12.2.0 reads them (nook `01M4ZY2D3D`): a
   word glued to a quoted title runs on from it (`subgraph "t"zz` is the handle and title `tzz`,
   `subgraph "t"zz yy` the title `tzz yy` under no handle), and a quoted handle may carry a
@@ -177,6 +201,24 @@ Breaking for a flowchart document with an `&` between nodes that lacks a space o
 
 ### Changed
 
+- **A note written in a class namespace is drawn inside its frame** (nook `01M51B440V`, decision
+  `01M51B4M3C`), as Mermaid 12.2.0 draws it: `note "x"` and `note for X "x"` alike, the latter
+  even when X stands outside the namespace, its connector running out across the frame. In a
+  nested namespace the note goes in the innermost frame around it, and in a dotted one
+  (`namespace N.M`) in `N.M`'s. A namespace holding only a note (`namespace N { note "x" }`) is
+  framed, where it used to draw no frame and give no diagnostic. Such notes used to be drawn
+  outside every frame. A note's `note:N` id is unchanged. `ClassNamespace` gains `noteIndexes`
+  and `ResolvedClassNamespace` gains `noteIds`.
+- **A class namespace opened more than once is one namespace** (nook `01M51B43KA`, decision
+  `01M51B4M3C`), as Mermaid 12.2.0 draws it: `namespace N { class X }` and `namespace N { class Y }`
+  are one frame N around X and Y, and `N { M { A } }` with `N { M { B } }` one N around one `N.M`.
+  The merged namespace keeps the `namespace:N` id and place of its first block and the last
+  bracketed label written, and two of its blocks naming one class is no longer an error. Each block
+  used to be a frame of its own.
+- **A class namespace's generated id is numbered in the order the blocks open** (nook
+  `01M51B43CP`, decision `01M51B4M3C`), outer before inner, as a flowchart's `subgraph:N` is: in
+  `namespace N { namespace M { class A } }`, N is `namespace:1` and M `namespace:2`, where they used
+  to be the other way round. A document whose namespaces are not nested keeps its ids.
 - **A flowchart `&` between nodes needs a space on each side** (nook `01M4ZWT8PR`). Mermaid 12.2.0
   reads an `&` glued to an id as a character of it (`A&B-->C` is the one node `A&B`, `A%&B-->C` the
   node `A%&B`) and refuses one spaced on a single side or written after a bracket (`A &B-->C`,

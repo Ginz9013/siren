@@ -938,16 +938,75 @@ function classBox(result: SirenRenderResult, id: string): Point {
   return { x: Number(frame.getAttribute("x")), y: Number(frame.getAttribute("y")) };
 }
 
+/** A drawn box: a `rect`'s position and size. */
+interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** The `x`, `y`, `width` and `height` a frame's `rect` was drawn with. */
+function frameRect(frame: Element): Rect {
+  const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(frame.getAttribute(name)));
+  return { x, y, width, height };
+}
+
+/**
+ * Whether `inner` lies wholly inside `outer`, every edge strictly within —
+ * what every "inside" helper below means, for a class, a note or a frame.
+ */
+function rectInside(inner: Rect, outer: Rect): boolean {
+  return (
+    inner.x > outer.x &&
+    inner.y > outer.y &&
+    inner.x + inner.width < outer.x + outer.width &&
+    inner.y + inner.height < outer.y + outer.height
+  );
+}
+
+/** The frame of the namespace `id` (its `data-siren-id`), as drawn. */
+function namespaceFrame(result: SirenRenderResult, id: string): Rect {
+  const frame = svgOf(result).querySelector(`g.siren-namespace[data-siren-id="${id}"] rect.siren-namespace-frame`);
+  if (frame === null) throw new Error(`no namespace "${id}" was drawn`);
+  return frameRect(frame);
+}
+
+/** Whether the class `id`'s whole box is drawn inside `frame`. */
+function classInsideFrame(result: SirenRenderResult, id: string, frame: Rect): boolean {
+  const box = svgOf(result).querySelector(`g.siren-class[data-siren-id="${id}"] rect.siren-class-frame`);
+  if (box === null) throw new Error(`no class "${id}" was drawn`);
+  return rectInside(frameRect(box), frame);
+}
+
 /** Whether the class `id`'s box is drawn inside the frame of the namespace labelled `label`. */
 function insideNamespace(result: SirenRenderResult, id: string, label: string): boolean {
-  const namespace = Array.from(svgOf(result).querySelectorAll("g.siren-namespace")).find(
+  const group = Array.from(svgOf(result).querySelectorAll("g.siren-namespace")).find(
     (g) => g.querySelector("text.siren-namespace-label")?.textContent === label,
   );
-  const frame = namespace?.querySelector("rect.siren-namespace-frame") ?? null;
-  if (frame === null) return false;
-  const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => Number(frame.getAttribute(name)));
-  const box = classBox(result, id);
-  return box.x >= x && box.x <= x + width && box.y >= y && box.y <= y + height;
+  const rect = group?.querySelector("rect.siren-namespace-frame") ?? null;
+  return rect !== null && classInsideFrame(result, id, frameRect(rect));
+}
+
+/**
+ * Whether the class `id`'s box is drawn inside the frame of the namespace
+ * whose `data-siren-id` is `namespaceId` — the way to tell apart two frames
+ * with one label.
+ */
+function insideNamespaceId(result: SirenRenderResult, id: string, namespaceId: string): boolean {
+  return classInsideFrame(result, id, namespaceFrame(result, namespaceId));
+}
+
+/** Whether the note `id`'s box is drawn inside the frame of the namespace `namespaceId`, by id. */
+function noteInsideNamespaceId(result: SirenRenderResult, id: string, namespaceId: string): boolean {
+  const rect = svgOf(result).querySelector(`g.siren-note[data-siren-id="${id}"] rect.siren-note-frame`);
+  if (rect === null) throw new Error(`no note "${id}" was drawn`);
+  return rectInside(frameRect(rect), namespaceFrame(result, namespaceId));
+}
+
+/** Whether the namespace `inner`'s frame is drawn inside the namespace `outer`'s, by id. */
+function namespaceInsideNamespace(result: SirenRenderResult, inner: string, outer: string): boolean {
+  return rectInside(namespaceFrame(result, inner), namespaceFrame(result, outer));
 }
 
 /** Every member line drawn inside the class `id`, in draw order. */
@@ -4513,6 +4572,243 @@ line2\`"]`,
       "`class Lion class Tiger` on any line) — a picture of neither class, " +
       "with no diagnostic. Siren refuses the line as it refuses that " +
       "statement anywhere (ADR-0001). One class per line renders in both.",
+  },
+  {
+    id: "cls-namespace-nested",
+    kind: "class",
+    source: `classDiagram
+      namespace Outer {
+        namespace Inner {
+          class Lion
+        }
+      }
+      namespace Zoo { namespace Cage { class Tiger } }
+
+      timeline:
+        enter namespace:1 fade`,
+    status: "supported",
+    meaning:
+      "A namespace written inside another is framed inside it, on lines of " +
+      "their own or on one line, and the outer frame is drawn even when it " +
+      "holds no class of its own: Mermaid 12.2.0 draws the cluster `Outer` " +
+      "around the cluster `Outer.Inner` around Lion (measured, the inner " +
+      "frame wholly inside the outer one). Namespaces are numbered in the " +
+      "order they open, so the outer frame is `namespace:1`, painted before " +
+      "the inner one, and a timeline can address it. Siren used to draw " +
+      "only the inner frame.",
+    assert: (result) => {
+      expectSame("timeline steps", result.controller?.totalSteps ?? 0, 1);
+      expectSame(
+        "the outer frame waits for its step",
+        elements(result, "g.siren-namespace.siren-pending").map(idOf),
+        ["namespace:1"],
+      );
+      expectSame(
+        "namespace ids, in paint order",
+        elements(result, "g.siren-namespace").map(idOf),
+        ["namespace:1", "namespace:2", "namespace:3", "namespace:4"],
+      );
+      expectSame("namespace labels", texts(result, "text.siren-namespace-label"), ["Outer", "Inner", "Zoo", "Cage"]);
+      expectSame("Inner is inside Outer", namespaceInsideNamespace(result, "namespace:2", "namespace:1"), true);
+      expectSame("Lion is inside Inner", insideNamespaceId(result, "Lion", "namespace:2"), true);
+      expectSame("Cage is inside Zoo", namespaceInsideNamespace(result, "namespace:4", "namespace:3"), true);
+      expectSame("Tiger is inside Cage", insideNamespaceId(result, "Tiger", "namespace:4"), true);
+      expectSame("Zoo is outside Outer", namespaceInsideNamespace(result, "namespace:3", "namespace:1"), false);
+    },
+  },
+  {
+    id: "cls-namespace-nested-mixed",
+    kind: "class",
+    source: `classDiagram
+      direction LR
+      namespace Zoo["The Zoo"] {
+        class Keeper
+        namespace Cats {
+          class Lion
+        }
+        namespace Birds {
+          class Parrot
+        }
+      }
+      namespace Cats {
+        class Tabby
+      }
+      class Visitor
+      Keeper --> Lion
+      Lion --> Visitor`,
+    status: "supported",
+    meaning:
+      "An outer namespace may hold classes beside the namespaces inside it, " +
+      "and relationships may cross the frames: Mermaid 12.2.0 draws the " +
+      "cluster Zoo around Keeper and both inner clusters, under `direction " +
+      "LR` as under TB, each with its own label (measured). A namespace is " +
+      "known by its qualified name, so the `Cats` inside Zoo is `Zoo.Cats` " +
+      "and the top-level `Cats` is another frame, outside Zoo (measured: " +
+      "two frames).",
+    assert: (result) => {
+      expectSame(
+        "namespace labels, in paint order",
+        texts(result, "text.siren-namespace-label"),
+        ["The Zoo", "Cats", "Birds", "Cats"],
+      );
+      expectSame("Keeper is inside Zoo", insideNamespaceId(result, "Keeper", "namespace:1"), true);
+      expectSame("Zoo.Cats is inside Zoo", namespaceInsideNamespace(result, "namespace:2", "namespace:1"), true);
+      expectSame("Zoo.Birds is inside Zoo", namespaceInsideNamespace(result, "namespace:3", "namespace:1"), true);
+      expectSame("Lion is inside Zoo.Cats", insideNamespaceId(result, "Lion", "namespace:2"), true);
+      expectSame("Parrot is inside Zoo.Birds", insideNamespaceId(result, "Parrot", "namespace:3"), true);
+      expectSame("Keeper is outside Zoo.Cats", insideNamespaceId(result, "Keeper", "namespace:2"), false);
+      expectSame("the top-level Cats is outside Zoo", namespaceInsideNamespace(result, "namespace:4", "namespace:1"), false);
+      expectSame("Tabby is inside the top-level Cats", insideNamespaceId(result, "Tabby", "namespace:4"), true);
+      expectSame("Visitor is outside Zoo", insideNamespaceId(result, "Visitor", "namespace:1"), false);
+      expectSame("relationships", relationships(result).length, 2);
+    },
+  },
+  {
+    id: "cls-namespace-reopened",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo { class Lion }
+      namespace Farm { class Cow }
+      namespace Zoo { class Tiger }
+      namespace Zoo { namespace Cage { class Owl } }
+      namespace Zoo { namespace Cage { class Bat } }`,
+    status: "supported",
+    meaning:
+      "A namespace opened again is one namespace: Mermaid 12.2.0 draws one " +
+      "frame Zoo around Lion and Tiger, and one `Zoo.Cage` inside it around " +
+      "Owl and Bat (measured). The merged frame keeps the place, and the " +
+      "`namespace:N` id, of its first block, so Zoo comes before Farm. " +
+      "Siren used to draw a frame per block.",
+    assert: (result) => {
+      expectSame(
+        "namespace ids, in paint order",
+        elements(result, "g.siren-namespace").map(idOf),
+        ["namespace:1", "namespace:2", "namespace:3"],
+      );
+      expectSame("namespace labels", texts(result, "text.siren-namespace-label"), ["Zoo", "Farm", "Cage"]);
+      expectSame("Lion is inside Zoo", insideNamespaceId(result, "Lion", "namespace:1"), true);
+      expectSame("Tiger is inside Zoo", insideNamespaceId(result, "Tiger", "namespace:1"), true);
+      expectSame("Cow is inside Farm", insideNamespaceId(result, "Cow", "namespace:2"), true);
+      expectSame("Cow is outside Zoo", insideNamespaceId(result, "Cow", "namespace:1"), false);
+      expectSame("Cage is inside Zoo", namespaceInsideNamespace(result, "namespace:3", "namespace:1"), true);
+      expectSame("Owl is inside Cage", insideNamespaceId(result, "Owl", "namespace:3"), true);
+      expectSame("Bat is inside Cage", insideNamespaceId(result, "Bat", "namespace:3"), true);
+    },
+  },
+  {
+    id: "cls-namespace-reopened-label",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo["City Zoo"] { class Lion }
+      namespace Zoo["Old Zoo"] { class Tiger }
+      namespace Farm["Farm"] { class Cow }
+      namespace Farm { class Pig }`,
+    status: "supported",
+    meaning:
+      "A namespace opened again takes the last bracketed label its blocks " +
+      "wrote, and a block with none keeps the label written before it: " +
+      "Mermaid 12.2.0 titles the one frame Zoo `Old Zoo` and the one frame " +
+      "Farm `Farm` (measured).",
+    assert: (result) => {
+      expectSame("namespace labels", texts(result, "text.siren-namespace-label"), ["Old Zoo", "Farm"]);
+      expectSame("Lion is inside Old Zoo", insideNamespace(result, "Lion", "Old Zoo"), true);
+      expectSame("Tiger is inside Old Zoo", insideNamespace(result, "Tiger", "Old Zoo"), true);
+      expectSame("Pig is inside Farm", insideNamespace(result, "Pig", "Farm"), true);
+    },
+  },
+  {
+    id: "cls-namespace-dotted",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo {
+        class Keeper
+      }
+      namespace Zoo.Cats["Big Cats"] {
+        class Lion
+      }
+      namespace Farm.Barn { class Cow }`,
+    status: "supported",
+    meaning:
+      "A dotted namespace name is a namespace inside another: Mermaid 12.2.0 " +
+      "reads `namespace Zoo.Cats` as the `Cats` written inside Zoo, merged " +
+      "with the Zoo written before it, and `namespace Farm.Barn` as Barn " +
+      "inside a Farm no block opens, titled by its name (measured). A label " +
+      "titles the last segment only. Siren used to refuse a dotted name as " +
+      "an unrecognized line.",
+    assert: (result) => {
+      expectSame(
+        "namespace labels, in paint order",
+        texts(result, "text.siren-namespace-label"),
+        ["Zoo", "Big Cats", "Farm", "Barn"],
+      );
+      expectSame("Keeper is inside Zoo", insideNamespaceId(result, "Keeper", "namespace:1"), true);
+      expectSame("Zoo.Cats is inside Zoo", namespaceInsideNamespace(result, "namespace:2", "namespace:1"), true);
+      expectSame("Lion is inside Zoo.Cats", insideNamespaceId(result, "Lion", "namespace:2"), true);
+      expectSame("Barn is inside Farm", namespaceInsideNamespace(result, "namespace:4", "namespace:3"), true);
+      expectSame("Cow is inside Barn", insideNamespaceId(result, "Cow", "namespace:4"), true);
+      expectSame("Farm is outside Zoo", namespaceInsideNamespace(result, "namespace:3", "namespace:1"), false);
+    },
+  },
+  {
+    id: "cls-namespace-dotted-empty-part",
+    kind: "class",
+    source: `classDiagram
+      namespace Zoo..Cats {
+        class Lion
+      }`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** Every part of a " +
+      "dotted namespace name needs a name: Mermaid 12.2.0 refuses " +
+      "`namespace Zoo..Cats`, `namespace .Zoo` and `namespace Zoo.` alike " +
+      "(\"Expecting 'ALPHA', … got 'DOT'\", measured). Siren refuses them " +
+      "too (ADR-0017), with one error at the name saying what to write " +
+      "instead (`Zoo.Cats`). Siren used to refuse each as an unrecognized " +
+      "line, with a second error at its `}`.",
+  },
+  {
+    id: "cls-namespace-note",
+    kind: "class",
+    source: `classDiagram
+      note "the whole park"
+      namespace Zoo {
+        class Lion
+        note "big cats"
+        note for Keeper "works here"
+        namespace Aviary {
+          class Parrot
+          note "birds"
+        }
+      }
+      namespace Info { note "open daily" }
+      class Keeper`,
+    status: "supported",
+    meaning:
+      "A note written in a namespace is that namespace's: Mermaid 12.2.0 " +
+      "draws it inside the frame, the innermost one around it, and a " +
+      "`note for` written there too, its connector running out to a class " +
+      "outside the frame (measured). A namespace holding only a note is " +
+      "framed. Notes keep their `note:N` ids in the order written, inside a " +
+      "namespace or not. Siren used to draw such notes outside every frame, " +
+      "and no frame for a namespace holding only a note.",
+    assert: (result) => {
+      expectSame("note texts", texts(result, "text.siren-note-text"), [
+        "the whole park",
+        "big cats",
+        "works here",
+        "birds",
+        "open daily",
+      ]);
+      expectSame("namespace labels", texts(result, "text.siren-namespace-label"), ["Zoo", "Aviary", "Info"]);
+      expectSame("the free note outside is outside Zoo", noteInsideNamespaceId(result, "note:1", "namespace:1"), false);
+      expectSame("big cats is inside Zoo", noteInsideNamespaceId(result, "note:2", "namespace:1"), true);
+      expectSame("big cats is outside Aviary", noteInsideNamespaceId(result, "note:2", "namespace:2"), false);
+      expectSame("works here is inside Zoo", noteInsideNamespaceId(result, "note:3", "namespace:1"), true);
+      expectSame("Keeper is outside Zoo", insideNamespaceId(result, "Keeper", "namespace:1"), false);
+      expectSame("works here is linked to Keeper", drew(result, 'path.siren-note-link[data-siren-id="note:3"]'), true);
+      expectSame("birds is inside Aviary", noteInsideNamespaceId(result, "note:4", "namespace:2"), true);
+      expectSame("open daily is inside Info", noteInsideNamespaceId(result, "note:5", "namespace:3"), true);
+    },
   },
   {
     id: "cls-note",

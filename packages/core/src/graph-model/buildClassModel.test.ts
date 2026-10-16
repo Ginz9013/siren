@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ClassDecl, ClassDocument, ClassMember, ClassRelationship, Label } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
+import { parseClassDiagram } from "../parser/parseClassDiagram";
 import { buildClassModel } from "./buildClassModel";
 
 /** A label of these rows, each one plain run — what `a<br/>b` reads as. */
@@ -255,16 +256,16 @@ describe("buildClassModel", () => {
           classDecl({ id: "Button" }),
         ],
         namespaces: [
-          { id: "BaseShapes", label: null, classIds: ["Triangle", "Square"] },
-          { id: "Widgets", label: null, classIds: ["Button"] },
+          { id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle", "Square"], noteIndexes: [] },
+          { id: "Widgets", name: "Widgets", parentId: null, label: null, classIds: ["Button"], noteIndexes: [] },
         ],
       }),
     );
 
     expect(diagnostics).toEqual([]);
     expect(model.namespaces).toEqual([
-      { id: "namespace:1", label: plainLabel("BaseShapes"), classIds: ["Triangle", "Square"] },
-      { id: "namespace:2", label: plainLabel("Widgets"), classIds: ["Button"] },
+      { id: "namespace:1", parentId: null, label: plainLabel("BaseShapes"), classIds: ["Triangle", "Square"], noteIds: [] },
+      { id: "namespace:2", parentId: null, label: plainLabel("Widgets"), classIds: ["Button"], noteIds: [] },
     ]);
     expect(model.classes.map((c) => [c.id, c.namespaceId])).toEqual([
       ["Triangle", "namespace:1"],
@@ -281,8 +282,8 @@ describe("buildClassModel", () => {
       classDocument({
         classes: [classDecl({ id: "Triangle" }), classDecl({ id: "Square" })],
         namespaces: [
-          { id: "BaseShapes", label: null, classIds: ["Triangle", "Square"], line: 2, column: 1 },
-          { id: "Widgets", label: null, classIds: ["Triangle"], line: 7, column: 1 },
+          { id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle", "Square"], noteIndexes: [], line: 2, column: 1 },
+          { id: "Widgets", name: "Widgets", parentId: null, label: null, classIds: ["Triangle"], noteIndexes: [], line: 7, column: 1 },
         ],
       }),
     );
@@ -291,23 +292,228 @@ describe("buildClassModel", () => {
       {
         severity: "error",
         message:
-          'Class "Triangle" is named by more than one namespace ("BaseShapes" and "Widgets"); keeping the first.',
+          'Class "Triangle" is named by more than one namespace ("BaseShapes" and "Widgets"), and a class can sit in only one; keeping it in "BaseShapes". ' +
+          'Name it in only one of the namespaces.',
         line: 7,
         column: 1,
       },
     ]);
     expect(model.namespaces).toEqual([
-      { id: "namespace:1", label: plainLabel("BaseShapes"), classIds: ["Triangle", "Square"] },
-      { id: "namespace:2", label: plainLabel("Widgets"), classIds: [] },
+      { id: "namespace:1", parentId: null, label: plainLabel("BaseShapes"), classIds: ["Triangle", "Square"], noteIds: [] },
+      { id: "namespace:2", parentId: null, label: plainLabel("Widgets"), classIds: [], noteIds: [] },
     ]);
     expect(model.classes.map((c) => c.namespaceId)).toEqual(["namespace:1", "namespace:1"]);
+  });
+
+  it("gives a nested namespace the generated id of the namespace around it as its parentId", () => {
+    // What the parser hands over for:
+    //   namespace N {
+    //     class X
+    //     namespace M {
+    //       class A
+    //     }
+    //   }
+    //   namespace M {
+    //     class B
+    //   }
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "X" }), classDecl({ id: "A" }), classDecl({ id: "B" })],
+        namespaces: [
+          { id: "N", name: "N", parentId: null, label: null, classIds: ["X"], noteIndexes: [] },
+          { id: "N.M", name: "M", parentId: "N", label: null, classIds: ["A"], noteIndexes: [] },
+          { id: "M", name: "M", parentId: null, label: null, classIds: ["B"], noteIndexes: [] },
+        ],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model.namespaces.map((n) => [n.id, n.parentId])).toEqual([
+      ["namespace:1", null],
+      ["namespace:2", "namespace:1"],
+      ["namespace:3", null],
+    ]);
+  });
+
+  it("numbers namespaces in the order they open, outer before inner, each labelled by its own name", () => {
+    // The parser lists blocks as they open, so `namespace N { namespace M {
+    // namespace L { class A } } }` is N, `N.M`, `N.M.L`: the outermost is
+    // `namespace:1`, as a flowchart's outer subgraph is `subgraph:1`.
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "A" })],
+        namespaces: [
+          { id: "N", name: "N", parentId: null, label: null, classIds: [], noteIndexes: [] },
+          { id: "N.M", name: "M", parentId: "N", label: null, classIds: [], noteIndexes: [] },
+          { id: "N.M.L", name: "L", parentId: "N.M", label: null, classIds: ["A"], noteIndexes: [] },
+        ],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model.namespaces).toEqual([
+      { id: "namespace:1", parentId: null, label: plainLabel("N"), classIds: [], noteIds: [] },
+      { id: "namespace:2", parentId: "namespace:1", label: plainLabel("M"), classIds: [], noteIds: [] },
+      { id: "namespace:3", parentId: "namespace:2", label: plainLabel("L"), classIds: ["A"], noteIds: [] },
+    ]);
+    expect(model.classes.map((c) => [c.id, c.namespaceId])).toEqual([["A", "namespace:3"]]);
+  });
+
+  it("errors when a class is named by a namespace and by one nested in it, naming the two in source order", () => {
+    // `namespace N { class A; namespace M { class A } }`: one box cannot sit
+    // in two frames, and the outer block is written first.
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "A" })],
+        namespaces: [
+          { id: "N", name: "N", parentId: null, label: null, classIds: ["A"], noteIndexes: [], line: 2, column: 1 },
+          { id: "N.M", name: "M", parentId: "N", label: null, classIds: ["A"], noteIndexes: [], line: 4, column: 3 },
+        ],
+      }),
+    );
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'Class "A" is named by more than one namespace ("N" and "N.M"), and a class can sit in only one; keeping it in "N". ' +
+          'Name it in only one of the namespaces.',
+        line: 4,
+        column: 3,
+      },
+    ]);
+    expect(model.classes.map((c) => c.namespaceId)).toEqual(["namespace:1"]);
+  });
+
+  /**
+   * A namespace opened again under the same qualified name (measured on
+   * Mermaid 12.2.0, spec `class-nested-namespaces`): one frame holding every
+   * block's classes, numbered where it first opened.
+   */
+  describe("a namespace opened more than once", () => {
+    const ns = (
+      id: string,
+      classIds: string[],
+      extra: { parentId?: string; label?: Label; line?: number } = {},
+    ) => ({
+      id,
+      name: id.slice(id.lastIndexOf(".") + 1),
+      parentId: extra.parentId ?? null,
+      label: extra.label ?? null,
+      classIds,
+      noteIndexes: [],
+      ...(extra.line === undefined ? {} : { line: extra.line, column: 1 }),
+    });
+
+    it("merges two blocks of one namespace into one, holding both blocks' classes", () => {
+      // `namespace N { class X }` ⏎ `namespace N { class Y }`: measured, one
+      // frame N around X and Y.
+      const { model, diagnostics } = buildClassModel(
+        classDocument({
+          classes: [classDecl({ id: "X" }), classDecl({ id: "Y" })],
+          namespaces: [ns("N", ["X"]), ns("N", ["Y"])],
+        }),
+      );
+
+      expect(diagnostics).toEqual([]);
+      expect(model.namespaces).toEqual([
+        { id: "namespace:1", parentId: null, label: plainLabel("N"), classIds: ["X", "Y"], noteIds: [] },
+      ]);
+      expect(model.classes.map((c) => [c.id, c.namespaceId])).toEqual([
+        ["X", "namespace:1"],
+        ["Y", "namespace:1"],
+      ]);
+    });
+
+    it("merges a nested namespace opened again inside its reopened parent", () => {
+      // `N { M { A } }` ⏎ `N { M { B } }`: measured, one N around one `N.M`
+      // around A and B.
+      const { model, diagnostics } = buildClassModel(
+        classDocument({
+          classes: [classDecl({ id: "A" }), classDecl({ id: "B" })],
+          namespaces: [ns("N", []), ns("N.M", ["A"], { parentId: "N" }), ns("N", []), ns("N.M", ["B"], { parentId: "N" })],
+        }),
+      );
+
+      expect(diagnostics).toEqual([]);
+      expect(model.namespaces).toEqual([
+        { id: "namespace:1", parentId: null, label: plainLabel("N"), classIds: [], noteIds: [] },
+        { id: "namespace:2", parentId: "namespace:1", label: plainLabel("M"), classIds: ["A", "B"], noteIds: [] },
+      ]);
+    });
+
+    it("numbers the merged namespace where it first opened, before a namespace opened between its blocks", () => {
+      // `N { X }`, `K { Z }`, `N { Y }`: measured, N then K.
+      const { model } = buildClassModel(
+        classDocument({
+          classes: [classDecl({ id: "X" }), classDecl({ id: "Z" }), classDecl({ id: "Y" })],
+          namespaces: [ns("N", ["X"]), ns("K", ["Z"]), ns("N", ["Y"])],
+        }),
+      );
+
+      expect(model.namespaces.map((n) => [n.id, n.label.text, n.classIds])).toEqual([
+        ["namespace:1", "N", ["X", "Y"]],
+        ["namespace:2", "K", ["Z"]],
+      ]);
+    });
+
+    it("labels the merged namespace with the last label its blocks wrote, or its name when none wrote one", () => {
+      // Measured: `N["First"]` then `N["Second"]` is titled Second; `N` then
+      // `N["Second"]` Second; `N["First"]` then `N` First.
+      const labelOf = (first: Label | undefined, second: Label | undefined) =>
+        buildClassModel(
+          classDocument({
+            classes: [classDecl({ id: "X" }), classDecl({ id: "Y" })],
+            namespaces: [ns("N", ["X"], { label: first }), ns("N", ["Y"], { label: second })],
+          }),
+        ).model.namespaces.map((n) => n.label);
+
+      expect(labelOf(plainLabel("First"), plainLabel("Second"))).toEqual([plainLabel("Second")]);
+      expect(labelOf(undefined, plainLabel("Second"))).toEqual([plainLabel("Second")]);
+      expect(labelOf(plainLabel("First"), undefined)).toEqual([plainLabel("First")]);
+      expect(labelOf(undefined, undefined)).toEqual([plainLabel("N")]);
+    });
+
+    it("lets one namespace name a class in two of its blocks without an error", () => {
+      // `namespace N { class X }` twice: measured, one frame around one X.
+      const { model, diagnostics } = buildClassModel(
+        classDocument({
+          classes: [classDecl({ id: "X" })],
+          namespaces: [ns("N", ["X"], { line: 2 }), ns("N", ["X"], { line: 5 })],
+        }),
+      );
+
+      expect(diagnostics).toEqual([]);
+      expect(model.namespaces.map((n) => n.classIds)).toEqual([["X"]]);
+      expect(model.classes.map((c) => c.namespaceId)).toEqual(["namespace:1"]);
+    });
+
+    it("still errors when a different namespace names a class a reopened one holds", () => {
+      const { diagnostics } = buildClassModel(
+        classDocument({
+          classes: [classDecl({ id: "X" })],
+          namespaces: [ns("N", ["X"], { line: 2 }), ns("N.M", ["X"], { parentId: "N", line: 3 }), ns("N", ["X"], { line: 6 })],
+        }),
+      );
+
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message:
+            'Class "X" is named by more than one namespace ("N" and "N.M"), and a class can sit in only one; keeping it in "N". ' +
+            'Name it in only one of the namespaces.',
+          line: 3,
+          column: 1,
+        },
+      ]);
+    });
   });
 
   it("leaves a class outside every namespace with a null namespaceId", () => {
     const { model } = buildClassModel(
       classDocument({
         classes: [classDecl({ id: "Triangle" }), classDecl({ id: "Loose" })],
-        namespaces: [{ id: "BaseShapes", label: null, classIds: ["Triangle"] }],
+        namespaces: [{ id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle"], noteIndexes: [] }],
       }),
     );
 
@@ -318,7 +524,7 @@ describe("buildClassModel", () => {
     const { model, diagnostics } = buildClassModel(
       classDocument({
         classes: [classDecl({ id: "Triangle" })],
-        namespaces: [{ id: "BaseShapes", label: null, classIds: ["Triangle", "Square"] }],
+        namespaces: [{ id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle", "Square"], noteIndexes: [] }],
       }),
     );
 
@@ -550,7 +756,7 @@ describe("buildClassModel", () => {
     const { model, diagnostics } = buildClassModel(
       classDocument({
         classes: [classDecl({ id: "Triangle" })],
-        namespaces: [{ id: "BaseShapes", label: null, classIds: ["Triangle"] }],
+        namespaces: [{ id: "BaseShapes", name: "BaseShapes", parentId: null, label: null, classIds: ["Triangle"], noteIndexes: [] }],
         notes: [{ label: plainLabel("shapes live here"), targetId: "Triangle" }],
         timeline: {
           entries: [
@@ -1419,7 +1625,7 @@ describe("buildClassModel", () => {
       classDocument({
         classes: [classDecl({ id: "namespace" }), classDecl({ id: "1" })],
         relationships: [relationship({ from: "namespace", to: "1" })],
-        namespaces: [{ id: "Shapes", label: null, classIds: ["namespace"] }],
+        namespaces: [{ id: "Shapes", name: "Shapes", parentId: null, label: null, classIds: ["namespace"], noteIndexes: [] }],
         notes: [{ label: plainLabel("about shapes"), targetId: "namespace" }],
         timeline: {
           entries: [
@@ -1517,16 +1723,16 @@ describe("buildClassModel — labels", () => {
       classDocument({
         classes: [classDecl({ id: "Lion" }), classDecl({ id: "Cow" })],
         namespaces: [
-          { id: "Zoo", label: rowsLabel("Big", "Zoo"), classIds: ["Lion"] },
-          { id: "Farm", label: null, classIds: ["Cow"] },
+          { id: "Zoo", name: "Zoo", parentId: null, label: rowsLabel("Big", "Zoo"), classIds: ["Lion"], noteIndexes: [] },
+          { id: "Farm", name: "Farm", parentId: null, label: null, classIds: ["Cow"], noteIndexes: [] },
         ],
       }),
     );
 
     expect(diagnostics).toEqual([]);
     expect(model.namespaces).toEqual([
-      { id: "namespace:1", label: rowsLabel("Big", "Zoo"), classIds: ["Lion"] },
-      { id: "namespace:2", label: plainLabel("Farm"), classIds: ["Cow"] },
+      { id: "namespace:1", parentId: null, label: rowsLabel("Big", "Zoo"), classIds: ["Lion"], noteIds: [] },
+      { id: "namespace:2", parentId: null, label: plainLabel("Farm"), classIds: ["Cow"], noteIds: [] },
     ]);
   });
 
@@ -1546,5 +1752,146 @@ describe("buildClassModel — labels", () => {
     expect(model.notes).toEqual([
       { id: "note:1", label: rowsLabel("can fly", "can swim"), targetId: "Order" },
     ]);
+  });
+});
+
+/**
+ * Dotted namespace names, read by the parser and resolved here (measured on
+ * Mermaid 12.2.0, spec `class-nested-namespaces`): the ancestors a dotted
+ * name implies exist whether or not a block opens them, and merge with the
+ * blocks that do.
+ */
+describe("buildClassModel — dotted namespace names", () => {
+  const modelOf = (body: string) => {
+    const { document } = parseClassDiagram(`classDiagram\n${body}`);
+    if (document === null || document.kind !== "class") throw new Error("expected a class document");
+    return buildClassModel(document);
+  };
+  const framesOf = (body: string) => {
+    const { model, diagnostics } = modelOf(body);
+    expect(diagnostics).toEqual([]);
+    return model.namespaces.map((n) => [n.id, n.parentId, n.label.text, n.classIds]);
+  };
+
+  it("creates the ancestor a dotted name implies, titled by its segment and numbered first", () => {
+    expect(framesOf("namespace N.M {\n  class A\n}")).toEqual([
+      ["namespace:1", null, "N", []],
+      ["namespace:2", "namespace:1", "M", ["A"]],
+    ]);
+  });
+
+  it("merges a dotted name's ancestor with a namespace of that name, written before or after", () => {
+    // Measured: `namespace N { class X }` with `namespace N.M { class A }`,
+    // in either order, is one N around X and `N.M`.
+    expect(framesOf("namespace N {\n  class X\n}\nnamespace N.M {\n  class A\n}")).toEqual([
+      ["namespace:1", null, "N", ["X"]],
+      ["namespace:2", "namespace:1", "M", ["A"]],
+    ]);
+    expect(framesOf("namespace N.M {\n  class A\n}\nnamespace N {\n  class X\n}")).toEqual([
+      ["namespace:1", null, "N", ["X"]],
+      ["namespace:2", "namespace:1", "M", ["A"]],
+    ]);
+    // A dotted name and the nested spelling of it are one namespace.
+    expect(framesOf("namespace N { namespace M { class A } }\nnamespace N.M { class B }")).toEqual([
+      ["namespace:1", null, "N", []],
+      ["namespace:2", "namespace:1", "M", ["A", "B"]],
+    ]);
+  });
+
+  it("labels the leaf only, leaving an ancestor its segment until a block of its own labels it", () => {
+    // Measured: `N.M["Leaf"]` alone titles N plain N; a later `N["Outer"]` titles it Outer.
+    expect(framesOf('namespace N.M["Leaf"] {\n  class A\n}')).toEqual([
+      ["namespace:1", null, "N", []],
+      ["namespace:2", "namespace:1", "Leaf", ["A"]],
+    ]);
+    expect(framesOf('namespace N.M["Leaf"] {\n  class A\n}\nnamespace N["Outer"] {\n  class X\n}')).toEqual([
+      ["namespace:1", null, "Outer", ["X"]],
+      ["namespace:2", "namespace:1", "Leaf", ["A"]],
+    ]);
+  });
+
+  it("numbers namespaces in the order they first open, an ancestor where its first dotted name opens it", () => {
+    // Measured: `K`, `N.M`, `N.L` draw K, N, `N.M`, `N.L`.
+    expect(framesOf("namespace K {\n  class Z\n}\nnamespace N.M {\n  class A\n}\nnamespace N.L {\n  class B\n}")).toEqual([
+      ["namespace:1", null, "K", ["Z"]],
+      ["namespace:2", null, "N", []],
+      ["namespace:3", "namespace:2", "M", ["A"]],
+      ["namespace:4", "namespace:2", "L", ["B"]],
+    ]);
+  });
+});
+
+/**
+ * Notes written inside a namespace (measured on Mermaid 12.2.0, spec
+ * `class-nested-namespaces`): each is listed on the namespace the parser
+ * recorded it on, by the `note:N` id it already had.
+ */
+describe("buildClassModel — notes inside namespaces", () => {
+  const block = (id: string, classIds: string[], noteIndexes: number[], parentId: string | null = null) => ({
+    id,
+    name: id.slice(id.lastIndexOf(".") + 1),
+    parentId,
+    label: null,
+    classIds,
+    noteIndexes,
+  });
+  const free = (text: string) => ({ label: plainLabel(text), targetId: null });
+
+  it("lists a namespace's notes by their note:N ids, which a note outside every namespace keeps too", () => {
+    // `note "first"`, `namespace N { class A; note "second"; note for B "third" }`, `class B`.
+    const { model, diagnostics } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "A" }), classDecl({ id: "B" })],
+        namespaces: [block("N", ["A"], [1, 2])],
+        notes: [free("first"), free("second"), { label: plainLabel("third"), targetId: "B" }],
+      }),
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(model.notes.map((n) => n.id)).toEqual(["note:1", "note:2", "note:3"]);
+    expect(model.namespaces.map((n) => [n.id, n.noteIds])).toEqual([["namespace:1", ["note:2", "note:3"]]]);
+  });
+
+  it("lists each note on the namespace it was written in, nested or dotted", () => {
+    // `namespace N { note "outer"; namespace M { class A; note "inner" } }`,
+    // or the leaf of `namespace N.M { class A; note "inner" }`.
+    const { model } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "A" })],
+        namespaces: [block("N", [], [0]), block("N.M", ["A"], [1], "N")],
+        notes: [free("outer"), free("inner")],
+      }),
+    );
+
+    expect(model.namespaces.map((n) => [n.id, n.noteIds])).toEqual([
+      ["namespace:1", ["note:1"]],
+      ["namespace:2", ["note:2"]],
+    ]);
+  });
+
+  it("gathers the notes of every block of a reopened namespace on the one namespace", () => {
+    const { model } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "X" })],
+        namespaces: [block("N", ["X"], [0]), block("N", [], [1])],
+        notes: [free("a"), free("b")],
+      }),
+    );
+
+    expect(model.namespaces.map((n) => [n.id, n.classIds, n.noteIds])).toEqual([["namespace:1", ["X"], ["note:1", "note:2"]]]);
+  });
+
+  it("leaves a dropped note off its namespace", () => {
+    // `note for Ghost` names no class, so the note is dropped with an error.
+    const { model } = buildClassModel(
+      classDocument({
+        classes: [classDecl({ id: "A" })],
+        namespaces: [block("N", ["A"], [0, 1])],
+        notes: [{ label: plainLabel("lost"), targetId: "Ghost" }, free("kept")],
+      }),
+    );
+
+    expect(model.notes.map((n) => n.id)).toEqual(["note:2"]);
+    expect(model.namespaces.map((n) => n.noteIds)).toEqual([["note:2"]]);
   });
 });

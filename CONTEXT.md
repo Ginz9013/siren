@@ -617,11 +617,12 @@ Flowchart nodes likewise double only their original positive text padding, retai
 label geometry and wrap width; other diagram kinds keep their existing padding. The **fourth** grouping construct here,
 and the second spatial one in a graph-shaped diagram after a class diagram's **namespace** — a
 sequence diagram's **box grouping** bands participant lanes and its **control-flow block** wraps
-statements in time. Five things separate it from the namespace it most resembles, and none of them
-is cosmetic:
+statements in time. Both nest — `ResolvedSubgraph` and `ResolvedClassNamespace` each carry a
+`parentId`, handed to the engine as nested clusters — and both number their generated ids outer
+first: a subgraph where its block opens, a namespace where it first opens, since the blocks of a
+namespace opened again under the same qualified name merge into one. Four things separate it from
+the namespace it most resembles, and none of them is cosmetic:
 
-- **It nests.** `ResolvedSubgraph` carries a `parentId`; `ResolvedClassNamespace` has no such
-  field, so the class model has no way to say one group is inside another.
 - **Membership lives on the node**, as `GraphNode.parentId`, in one place — so a node and the
   frame around it cannot disagree about which holds it. A namespace keeps a `classIds` list beside
   the classes and has to promise the two agree.
@@ -878,11 +879,21 @@ draws N1, N2, X from left to right. The third grouping construct in the codebase
 one in a graph-shaped diagram — a sequence diagram's **box grouping** bands participant lanes, and
 its **control-flow block** wraps statements in time. A flowchart's **subgraph** is the fourth and
 draws the same figure deliberately, so a theme or an author who has learned to read one need not
-learn a second vocabulary; that entry lists the four things that are nevertheless not the same,
-starting with nesting, which this construct does not do. It may carry a bracketed `["label"]` after
-its name (`namespace Zoo["Big Zoo"] {`), drawn as the frame's title in place of the name — a
-**Label** in the `html` dialect. Addressable in a `timeline:` block under
-a generated id (`namespace:1`, `namespace:2`, … in source order).
+learn a second vocabulary; that entry lists the four things that are nevertheless not the same.
+It nests, as a subgraph does: a namespace written inside another is framed inside it, and the
+outer frame is drawn even when it holds no class of its own (`ResolvedClassNamespace.parentId`). A
+namespace is known by its **qualified name** — the enclosing namespace's qualified name, a `.`,
+then its own — so the `M` written inside `N` is `N.M`, a different namespace from a top-level `M`
+(nook decision `01M51B4M3C`); its frame is still titled `M`. A namespace opened again under the same
+qualified name is the same namespace: its blocks merge into one frame holding all their classes. A
+dotted name is the same nesting on one line: `namespace N.M {` is the `M` inside `N`, creating an
+`N` titled `N` if no block opens one and merging with one that does. A note written in a namespace
+is that namespace's (`ResolvedClassNamespace.noteIds`) and drawn inside its frame, so a namespace
+holding only a note is framed too. A namespace may carry a bracketed `["label"]` after its name
+(`namespace Zoo["Big Zoo"] {`), drawn as the frame's title in place of the name — a **Label** in the
+`html` dialect; of a reopened namespace's labels, the last one written wins, and a dotted name's
+label titles its last part only. Addressable in a `timeline:` block under a generated id
+(`namespace:1`, `namespace:2`, … in the order the namespaces first open, outer before inner).
 _Avoid_: package, module, cluster (that is the word the layout core uses for the mechanism, not
 the authored construct), group, box
 
@@ -899,15 +910,17 @@ classes — deliberately reused rather than duplicated, since it is the same ide
 annotation) in both kinds. The two differ in layout: a class diagram's note is laid out as an
 ordinary graph node, so the layout engine itself guarantees it never overlaps a class box, at the
 cost of occupying a rank — joined from the note to its class, as Mermaid 12 joins it, so an attached
-note sits a layer before the class it is about; a sequence diagram's note occupies its own rank on the timeline the same
-way a message does (measured against real Mermaid: it never overlaps the message before or after
-it) and draws no connector at all, unlike the class diagram's attached form. Addressable in a
-`timeline:` block under a generated id in both kinds (`note:1`, `note:2`, … in source order, which
-a dropped note does not renumber). A state diagram's note (`note right of S : ...`) is laid out the
-class diagram's way, a box joined to its state by a connector, after its state along the diagram's
-direction for `right of` and before it for `left of` — at its state's own level, so inside the
-composite its state is written in, where Mermaid 12 lays it out outside (decision
-`01M4VKTJ2A1DGXAMYVF16BK2W3`); it has no id of its own and is drawn in its state's group.
+note sits a layer before the class it is about, and one written inside a **namespace** is laid out
+inside that namespace's frame, the innermost one around it, a `note for` a class outside the frame
+included; a sequence diagram's note occupies its own rank on the timeline the same way a message
+does (measured against real Mermaid: it never overlaps the message before or after it) and draws no
+connector at all, unlike the class diagram's attached form. Addressable in a `timeline:` block under
+a generated id in both kinds (`note:1`, `note:2`, … in source order, which a dropped note does not
+renumber). A state diagram's note (`note right of S : ...`) is laid out the class diagram's way, a
+box joined to its state by a connector, after its state along the diagram's direction for `right of`
+and before it for `left of` — at its state's own level, so inside the composite its state is written
+in, where Mermaid 12 lays it out outside (decision `01M4VKTJ2A1DGXAMYVF16BK2W3`); it has no id of
+its own and is drawn in its state's group.
 _Avoid_: annotation (that is the `<<interface>>` marker *inside* a class — a note is a box of its
 own), comment (that is a `%%` line, which is stripped before parsing and draws nothing; a line of
 nothing but `%%` is not a comment in a flowchart or ER diagram and is refused, ADR-0017), label,

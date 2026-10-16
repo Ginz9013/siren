@@ -1853,12 +1853,36 @@ export interface ClassRelationship {
 }
 
 /**
- * A `namespace Name { ... }` grouping. Its member classes also appear in
+ * A `namespace Name { ... }` block. Its member classes also appear in
  * `ClassDocument.classes` as ordinary declarations; this only records the
- * grouping.
+ * grouping. A namespace opened more than once is one entry per block, all
+ * with the same `id`; `buildClassModel` merges them into one namespace. A
+ * dotted name, `namespace N.M {`, is one entry per segment: N, holding
+ * nothing and labelled by nothing, then `N.M` with the block's label,
+ * classes and notes.
  */
 export interface ClassNamespace {
+  /**
+   * The qualified name: the enclosing block's qualified name, a `.`, then
+   * the name this block wrote — the `M` written inside `namespace N` is
+   * `N.M` — or the written name alone at the top level. It is the
+   * namespace's identity, so a top-level `M` is a different namespace from
+   * `N.M` (nook decision `01M51B4M3C`).
+   */
   id: string;
+  /**
+   * The namespace's own name: the last segment of `id`, which titles its
+   * frame when the block wrote no label — `M` for the `N.M` written inside
+   * `namespace N`, and for `namespace N.M`. Carried beside `id` so nothing
+   * downstream has to split a qualified name to find it.
+   */
+  name: string;
+  /**
+   * The qualified name of the block this one is written inside, or `null`
+   * for a block at the top level. Blocks are listed in the order they open,
+   * so a parent always comes before its children.
+   */
+  parentId: string | null;
   /**
    * The label written in brackets after the name — `namespace Zoo["Big
    * Zoo"] {` — or `null` when the block wrote none, in which case the frame
@@ -1869,6 +1893,12 @@ export interface ClassNamespace {
    */
   label: Label | null;
   classIds: string[];
+  /**
+   * The notes written directly in this block — `note "x"` and `note for X
+   * "x"` alike, wherever X stands — as indexes into `ClassDocument.notes`,
+   * whose order (and so each note's `note:N` id) they leave unchanged.
+   */
+  noteIndexes: number[];
   line?: number;
   column?: number;
 }
@@ -2112,15 +2142,32 @@ export interface ResolvedClassRelationship {
   toInterfaceLabel: string | null;
 }
 
-/** A namespace after model resolution: assigned id, membership resolved. */
+/**
+ * A namespace after model resolution: one per qualified name, every block
+ * that opened it merged, assigned id, membership resolved.
+ */
 export interface ResolvedClassNamespace {
+  /** The generated `namespace:N` id the timeline and the renderer address it by. */
   id: string;
   /**
-   * The frame's label: the one written in brackets (`ClassNamespace.label`),
-   * or else the namespace's name as one plain run.
+   * The generated id of the namespace this one is written inside, or `null`
+   * for one at the top level. A parent is listed before its children.
+   */
+  parentId: string | null;
+  /**
+   * The frame's label: the last one written in brackets
+   * (`ClassNamespace.label`) across the blocks that open this namespace, or
+   * else the namespace's own name — the last segment of its qualified
+   * name — as one plain run.
    */
   label: Label;
   classIds: string[];
+  /**
+   * The ids of the notes written directly in this namespace's blocks (each
+   * block's `ClassNamespace.noteIndexes`), drawn inside its frame. A note it
+   * lists is in `ClassModel.notes`.
+   */
+  noteIds: string[];
 }
 
 /** A note after model resolution: assigned id, attachment resolved. */
@@ -2288,7 +2335,10 @@ export interface PositionedClassRelationship {
   toInterfaceLabelAnchor: Point | null;
 }
 
-/** A namespace with a layout-assigned frame enclosing its member classes. */
+/**
+ * A namespace with a layout-assigned frame enclosing its member classes, its
+ * notes and the frames of the namespaces nested in it.
+ */
 export interface PositionedClassNamespace {
   id: string;
   /**
@@ -2341,7 +2391,11 @@ export interface PositionedClassDiagram {
   direction: Direction;
   classes: PositionedClass[];
   relationships: PositionedClassRelationship[];
-  /** Namespace frames, drawn before (behind) the classes they enclose. */
+  /**
+   * Namespace frames, drawn before (behind) the classes they enclose — in
+   * the model's order, so an outer frame comes, and is painted, before the
+   * frames nested in it.
+   */
   namespaces: PositionedClassNamespace[];
   notes: PositionedClassNote[];
   width: number;
