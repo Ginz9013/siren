@@ -1706,17 +1706,22 @@ describe("parseClassDiagram — a namespace block written on one line", () => {
   it("reads a `}` after a block's own `}` as closing the namespace around it, nested too", () => {
     // Measured: each draws A inside M inside N (or inside N alone), the
     // `}`s after the innermost one closing the namespaces around it in turn.
+    // N is recorded first, as the parent of `N.M`.
     for (const [body, namespaces] of [
-      ["  namespace N { namespace M { class A } }", [["M", ["A"]], ["N", []]]],
-      ["  namespace N { namespace M { class A }}", [["M", ["A"]], ["N", []]]],
-      ["  namespace N { namespace M { class A {}}}", [["M", ["A"]], ["N", []]]],
+      ["  namespace N { namespace M { class A } }", [["N", []], ["N.M", ["A"]]]],
+      ["  namespace N { namespace M { class A }}", [["N", []], ["N.M", ["A"]]]],
+      ["  namespace N { namespace M { class A {}}}", [["N", []], ["N.M", ["A"]]]],
       ["  namespace N { class A {\n    +x\n  } }", [["N", ["A"]]]],
       ["  namespace N { class A {\n    +x }}", [["N", ["A"]]]],
-      ["  namespace N {\n    namespace M {\n      class A\n    } }", [["M", ["A"]], ["N", []]]],
-      ["  namespace N {\n    namespace M { class A {\n      +x } } }\n  class B", [["M", ["A"]], ["N", []]]],
+      ["  namespace N {\n    namespace M {\n      class A\n    } }", [["N", []], ["N.M", ["A"]]]],
+      ["  namespace N {\n    namespace M { class A {\n      +x } } }\n  class B", [["N", []], ["N.M", ["A"]]]],
     ] as const) {
       const document = classOk(body);
       expect([body, namespacesOf(document)]).toEqual([body, namespaces]);
+      expect([body, document.namespaces.map((n) => n.parentId ?? null)]).toEqual([
+        body,
+        namespaces.length === 2 ? [null, "N"] : [null],
+      ]);
       expect([body, membersOf(document, "A")]).toEqual([body, body.includes("+x") ? ["+x"] : []]);
     }
   });
@@ -1795,6 +1800,81 @@ describe("parseClassDiagram — a namespace block written on one line", () => {
     // and at the top level alike.
     expect(refused("  namespace N { class A class B }")).toEqual([
       { severity: "error", message: 'Unrecognized classDiagram line: "class A class B"', line: 2, column: 17 },
+    ]);
+  });
+});
+
+/**
+ * A `namespace` block inside another (measured on Mermaid 12.2.0, spec
+ * `class-nested-namespaces`): each block is recorded under its qualified name
+ * — the enclosing block's qualified name, a `.`, its own — with the qualified
+ * name of the block around it, in the order the blocks open.
+ */
+describe("parseClassDiagram — nested namespace blocks", () => {
+  const classOk = (body: string) => parseOk(`classDiagram\n${body}`).document;
+  const nestingOf = (document: ClassDocument) =>
+    document.namespaces.map((n) => [n.id, n.parentId ?? null, n.classIds]);
+
+  it("records a namespace written inside another on lines of their own under its qualified name, outer first", () => {
+    // Measured: the cluster N around the cluster `N.M` around A, and a class
+    // beside the inner block is the outer one's.
+    expect(nestingOf(classOk("  namespace N {\n    namespace M {\n      class A\n    }\n  }"))).toEqual([
+      ["N", null, []],
+      ["N.M", "N", ["A"]],
+    ]);
+    expect(nestingOf(classOk("  namespace N {\n    class X\n    namespace M {\n      class A\n    }\n  }"))).toEqual([
+      ["N", null, ["X"]],
+      ["N.M", "N", ["A"]],
+    ]);
+    // Three levels, and two siblings, each opening in turn.
+    expect(
+      nestingOf(classOk("  namespace N {\n    namespace M {\n      namespace L {\n        class A\n      }\n    }\n  }")),
+    ).toEqual([
+      ["N", null, []],
+      ["N.M", "N", []],
+      ["N.M.L", "N.M", ["A"]],
+    ]);
+    expect(
+      nestingOf(classOk("  namespace N {\n    namespace M {\n      class A\n    }\n    namespace K {\n      class B\n    }\n  }")),
+    ).toEqual([
+      ["N", null, []],
+      ["N.M", "N", ["A"]],
+      ["N.K", "N", ["B"]],
+    ]);
+  });
+
+  it("records a namespace written inside another on one line the same way", () => {
+    // Measured: `namespace N { namespace M { class A } }` draws what the
+    // multi-line spelling draws.
+    for (const body of [
+      "  namespace N { namespace M { class A } }",
+      "  namespace N { namespace M { class A }}",
+      "  namespace N { class X\n    namespace M { class A } }",
+    ]) {
+      expect([body, nestingOf(classOk(body))]).toEqual([
+        body,
+        [
+          ["N", null, body.includes("X") ? ["X"] : []],
+          ["N.M", "N", ["A"]],
+        ],
+      ]);
+    }
+  });
+
+  it("keeps a top-level namespace apart from one of the same name written inside another", () => {
+    // Measured: two frames, `M` and `N.M`.
+    expect(nestingOf(classOk("  namespace N {\n    namespace M {\n      class A\n    }\n  }\n  namespace M {\n    class B\n  }"))).toEqual([
+      ["N", null, []],
+      ["N.M", "N", ["A"]],
+      ["M", null, ["B"]],
+    ]);
+  });
+
+  it("keeps each block's own label", () => {
+    const document = classOk('  namespace N["Outer"] {\n    namespace M["Inner"] {\n      class A\n    }\n  }');
+    expect(document.namespaces.map((n) => [n.id, n.label?.text ?? null])).toEqual([
+      ["N", "Outer"],
+      ["N.M", "Inner"],
     ]);
   });
 });

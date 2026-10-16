@@ -102,8 +102,9 @@ function namespace(
   id: string,
   classIds: string[],
   label: string = id,
+  parentId: string | null = null,
 ): ResolvedClassNamespace {
-  return { id, label: plainLabel(label), classIds };
+  return { id, parentId, label: plainLabel(label), classIds };
 }
 
 function note(
@@ -1708,7 +1709,7 @@ describe("layoutClassDiagram", () => {
         classModel({
           classes: [cls("Lion", [], { namespaceId: "namespace:1" })],
           namespaces: [
-            { id: "namespace:1", label: rowsLabel("Big", "Zoo"), classIds: ["Lion"] },
+            { id: "namespace:1", parentId: null, label: rowsLabel("Big", "Zoo"), classIds: ["Lion"] },
           ],
         }),
         { measureText: fakeMeasurer },
@@ -1741,5 +1742,103 @@ describe("layoutClassDiagram", () => {
       expect(twoRows.height).toBe(oneRow.height + ROW_HEIGHT);
       expect(twoRows.width).toBe(oneRow.width + measuredWidth("can swim") - measuredWidth("can fly"));
     });
+  });
+});
+
+/**
+ * Nested namespaces (spec `class-nested-namespaces`, measured on Mermaid
+ * 12.2.0): `namespace N { namespace M { class A } }` draws the frame N around
+ * the frame `N.M` around A — the outer frame there even when it holds no
+ * class of its own.
+ */
+describe("layoutClassDiagram — nested namespaces", () => {
+  /** Whether `inner` lies wholly inside `outer`, every edge strictly within. */
+  const encloses = (outer: Rect, inner: Rect): boolean =>
+    outer.x < inner.x &&
+    outer.y < inner.y &&
+    inner.x + inner.width < outer.x + outer.width &&
+    inner.y + inner.height < outer.y + outer.height;
+  const frameById = (diagram: PositionedClassDiagram, id: string) => {
+    const frame = diagram.namespaces.find((n) => n.id === id);
+    if (frame === undefined) throw new Error(`no frame ${id} was laid out`);
+    return frame;
+  };
+  const layOut = (partial: Partial<ClassModel>) =>
+    layoutClassDiagram(classModel(partial), { measureText: fakeMeasurer });
+
+  it("frames a namespace holding only a namespace, around the inner frame", () => {
+    const diagram = layOut({
+      classes: [cls("A", [], { namespaceId: "namespace:2" })],
+      namespaces: [namespace("namespace:1", [], "N"), namespace("namespace:2", ["A"], "M", "namespace:1")],
+    });
+
+    // Outer first, the order the renderer paints them in.
+    expect(diagram.namespaces.map((n) => n.id)).toEqual(["namespace:1", "namespace:2"]);
+    const outer = frameById(diagram, "namespace:1");
+    const inner = frameById(diagram, "namespace:2");
+    expect(encloses(outer, inner)).toBe(true);
+    expect(encloses(inner, classById(diagram, "A"))).toBe(true);
+    // Each title in its own frame's band, the inner one below the outer one.
+    expect(outer.label.anchor.y).toBeLessThan(inner.y);
+    expect(inner.label.anchor.y).toBeLessThan(classById(diagram, "A").y);
+  });
+
+  it("frames three levels, each inside the one around it", () => {
+    const diagram = layOut({
+      classes: [cls("A", [], { namespaceId: "namespace:3" })],
+      namespaces: [
+        namespace("namespace:1", [], "N"),
+        namespace("namespace:2", [], "M", "namespace:1"),
+        namespace("namespace:3", ["A"], "L", "namespace:2"),
+      ],
+    });
+
+    const [n, m, l] = ["namespace:1", "namespace:2", "namespace:3"].map((id) => frameById(diagram, id));
+    expect(encloses(n, m)).toBe(true);
+    expect(encloses(m, l)).toBe(true);
+    expect(encloses(l, classById(diagram, "A"))).toBe(true);
+  });
+
+  it("frames two sibling namespaces inside their parent, apart from each other", () => {
+    const diagram = layOut({
+      classes: [cls("A", [], { namespaceId: "namespace:2" }), cls("B", [], { namespaceId: "namespace:3" })],
+      namespaces: [
+        namespace("namespace:1", [], "N"),
+        namespace("namespace:2", ["A"], "M", "namespace:1"),
+        namespace("namespace:3", ["B"], "K", "namespace:1"),
+      ],
+    });
+
+    const [n, m, k] = ["namespace:1", "namespace:2", "namespace:3"].map((id) => frameById(diagram, id));
+    expect(encloses(n, m)).toBe(true);
+    expect(encloses(n, k)).toBe(true);
+    expect(overlaps(m, k)).toBe(false);
+    expect(encloses(k, classById(diagram, "B"))).toBe(true);
+  });
+
+  it("frames an outer namespace around its own classes and its inner frame, with relationships across the levels", () => {
+    // `namespace N { class X; namespace M { class A } }`, `class B`,
+    // `A --> B`, `X --> A`, under TB and LR alike.
+    for (const direction of ["TB", "LR"] as const) {
+      const diagram = layOut({
+        direction,
+        classes: [
+          cls("X", [], { namespaceId: "namespace:1" }),
+          cls("A", [], { namespaceId: "namespace:2" }),
+          cls("B"),
+        ],
+        namespaces: [namespace("namespace:1", ["X"], "N"), namespace("namespace:2", ["A"], "M", "namespace:1")],
+        relationships: [relationship("A", "B"), relationship("X", "A")],
+      });
+
+      const outer = frameById(diagram, "namespace:1");
+      const inner = frameById(diagram, "namespace:2");
+      expect([direction, encloses(outer, inner)]).toEqual([direction, true]);
+      expect([direction, encloses(outer, classById(diagram, "X"))]).toEqual([direction, true]);
+      expect([direction, overlaps(inner, classById(diagram, "X"))]).toEqual([direction, false]);
+      expect([direction, encloses(inner, classById(diagram, "A"))]).toEqual([direction, true]);
+      expect([direction, overlaps(outer, classById(diagram, "B"))]).toEqual([direction, false]);
+      expect([direction, diagram.relationships.map((r) => r.points.length >= 2)]).toEqual([direction, [true, true]]);
+    }
   });
 });

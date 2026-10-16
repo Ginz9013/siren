@@ -1858,7 +1858,20 @@ export interface ClassRelationship {
  * grouping.
  */
 export interface ClassNamespace {
+  /**
+   * The qualified name: the enclosing block's qualified name, a `.`, then
+   * the name this block wrote — the `M` written inside `namespace N` is
+   * `N.M` — or the written name alone at the top level. It is the
+   * namespace's identity, so a top-level `M` is a different namespace from
+   * `N.M` (nook decision `01M51B4M3C`).
+   */
   id: string;
+  /**
+   * The qualified name of the block this one is written inside; absent (or
+   * `null`) for a block at the top level, which is how the parser writes one. Blocks are listed in the order
+   * they open, so a parent always comes before its children.
+   */
+  parentId?: string | null;
   /**
    * The label written in brackets after the name — `namespace Zoo["Big
    * Zoo"] {` — or `null` when the block wrote none, in which case the frame
@@ -2116,8 +2129,14 @@ export interface ResolvedClassRelationship {
 export interface ResolvedClassNamespace {
   id: string;
   /**
+   * The generated id of the namespace this one is written inside, or `null`
+   * for one at the top level. A parent is listed before its children.
+   */
+  parentId: string | null;
+  /**
    * The frame's label: the one written in brackets (`ClassNamespace.label`),
-   * or else the namespace's name as one plain run.
+   * or else the namespace's own name — the last segment of its qualified
+   * name — as one plain run.
    */
   label: Label;
   classIds: string[];
@@ -2341,7 +2360,11 @@ export interface PositionedClassDiagram {
   direction: Direction;
   classes: PositionedClass[];
   relationships: PositionedClassRelationship[];
-  /** Namespace frames, drawn before (behind) the classes they enclose. */
+  /**
+   * Namespace frames, drawn before (behind) the classes they enclose — in
+   * the model's order, so an outer frame comes, and is painted, before the
+   * frames nested in it.
+   */
   namespaces: PositionedClassNamespace[];
   notes: PositionedClassNote[];
   width: number;

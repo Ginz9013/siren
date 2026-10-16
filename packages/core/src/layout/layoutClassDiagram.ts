@@ -314,16 +314,27 @@ export function layoutClassDiagram(
 
   // Membership is read from each namespace's own class list, filtered to the
   // classes this model actually has. That one list drives both the cluster
-  // parentage and the frame, so the two cannot disagree. A namespace left
-  // with no members is dropped entirely: it has nothing to enclose, and the
-  // shared core lays a childless cluster out as an ordinary box, which would
-  // put a stray frame in the middle of the diagram.
+  // parentage and the frame, so the two cannot disagree. A namespace is
+  // framed when it encloses something — a member class, or a namespace
+  // inside it that is framed itself: Mermaid 12.2.0 draws the frame N around
+  // `N.M` for `namespace N { namespace M { class A } }` (measured). One with
+  // nothing to enclose is dropped entirely: the shared core lays a childless
+  // cluster out as an ordinary box, which would put a stray frame in the
+  // middle of the diagram.
+  const memberIdsByNamespace = new Map(
+    model.namespaces.map((ns) => [ns.id, ns.classIds.filter((id) => knownClassIds.has(id))] as const),
+  );
+  const framedNamespaceIds = new Set<string>();
+  // A child is listed after its parent, so walking the list backwards sees
+  // every child before the namespace around it.
+  for (const ns of [...model.namespaces].reverse()) {
+    if (!framedNamespaceIds.has(ns.id) && memberIdsByNamespace.get(ns.id)!.length === 0) continue;
+    framedNamespaceIds.add(ns.id);
+    if (ns.parentId !== null) framedNamespaceIds.add(ns.parentId);
+  }
   const groups = model.namespaces
-    .map((ns) => ({
-      ns,
-      memberIds: ns.classIds.filter((id) => knownClassIds.has(id)),
-    }))
-    .filter((group) => group.memberIds.length > 0);
+    .filter((ns) => framedNamespaceIds.has(ns.id))
+    .map((ns) => ({ ns, memberIds: memberIdsByNamespace.get(ns.id)! }));
 
   const namespaceIdByClassId = new Map<string, string>();
   for (const group of groups) {
@@ -386,10 +397,14 @@ export function layoutClassDiagram(
       // Each framed namespace goes to the core as a cluster: the core sizes
       // and places the frame — around its members, its padding and a band
       // for its title — and nothing here moves a box or a frame afterwards
-      // (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2).
+      // (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2). A nested one
+      // is a cluster inside its parent's, the way a flowchart's nested
+      // subgraph is, so the core grows the outer frame around the inner one;
+      // parents come first, in the order the namespaces open.
       ...groups.map((group) =>
         clusterNode({
           id: namespaceNodeId(group.ns.id),
+          parentId: group.ns.parentId === null ? null : namespaceNodeId(group.ns.parentId),
           title: namespaceLabelBoxById.get(group.ns.id)!,
         }),
       ),

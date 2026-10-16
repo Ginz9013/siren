@@ -212,9 +212,12 @@ function resolveClasses(
 /**
  * Resolves the document's `namespace` blocks: each gets the stable
  * `namespace:${n}` id the timeline and the renderer address it by — a
- * 1-based counter in document order, the same convention
- * `buildSequenceModel` gives its blocks — while the label the author wrote
- * in brackets, or else the name, becomes the frame's `label`.
+ * 1-based counter in document order, which the parser makes the order the
+ * blocks open in, so an outer namespace is numbered before the ones inside
+ * it, as `buildFlowchartModel` numbers `subgraph:N` — while the label the
+ * author wrote in brackets, or else the last segment of its qualified name
+ * (the name the block wrote), becomes the frame's `label`. A nested one
+ * carries the generated id of the namespace around it as its `parentId`.
  *
  * The `:` separator is load-bearing, not decoration: see `generatedId`.
  *
@@ -235,11 +238,21 @@ function resolveNamespaces(
   classesById: Map<string, ClassAccumulator>,
   diagnostics: Diagnostic[],
 ): ResolvedClassNamespace[] {
-  /** The namespace that claimed each class first, by its author-written name. */
+  /** The namespace that claimed each class first, by its qualified name. */
   const claimedBy = new Map<string, string>();
+  /**
+   * Each qualified name's generated id. A parent is listed before its
+   * children, so it is always here by the time a child looks it up.
+   */
+  const idByQualifiedName = new Map<string, string>();
 
   return document.namespaces.map((namespace, index) => {
     const id = generatedId("namespace", index + 1);
+    idByQualifiedName.set(namespace.id, id);
+    const parentId =
+      namespace.parentId === undefined || namespace.parentId === null
+        ? null
+        : (idByQualifiedName.get(namespace.parentId) ?? null);
     const classIds: string[] = [];
 
     for (const classId of namespace.classIds) {
@@ -271,8 +284,11 @@ function resolveNamespaces(
     }
 
     // A name is an identifier and has no tag in it to read, so a namespace
-    // written without a label is labelled by its name as one plain run.
-    return { id, label: namespace.label ?? plainLabel(namespace.id), classIds };
+    // written without a label is labelled by its name as one plain run —
+    // the name the block wrote, not the qualified one: `M` inside N, not
+    // `N.M`.
+    const name = namespace.id.slice(namespace.id.lastIndexOf(".") + 1);
+    return { id, parentId, label: namespace.label ?? plainLabel(name), classIds };
   });
 }
 

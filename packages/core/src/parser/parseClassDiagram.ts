@@ -563,6 +563,11 @@ export function parseClassDiagram(source: string): DiagramParseResult {
   /** How many `namespace` blocks enclose the statement being parsed. */
   let namespaceDepth = 0;
   /**
+   * The qualified name of the `namespace` block enclosing the statement
+   * being parsed, or `null` at the top level.
+   */
+  let enclosingNamespace: string | null = null;
+  /**
    * The `}`s written after a block's own `}` on its line, each closing one
    * of the namespaces around it in turn — `class A {` ⏎ `+x }}` closes A,
    * then its namespace, as Mermaid 12.2.0 reads it (measured). Each
@@ -843,6 +848,24 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       let bodyIndex = startIndex + 1;
       namespaceDepth++;
 
+      // Recorded as it opens, so the blocks inside it follow it: the order
+      // `buildClassModel` numbers `namespace:N` in, outer first. A block is
+      // known by its qualified name — Mermaid 12.2.0's `resolveQualifiedId`
+      // — so the `M` written inside N is `N.M`, a namespace apart from a
+      // top-level `M` (measured: two frames).
+      const parentId = enclosingNamespace;
+      const namespace: ClassNamespace = {
+        id: parentId === null ? namespaceOpenMatch[1] : `${parentId}.${namespaceOpenMatch[1]}`,
+        // Absent at the top level, where there is no block around it.
+        ...(parentId === null ? {} : { parentId }),
+        label: null,
+        classIds,
+        line: lineNumber,
+        column,
+      };
+      namespaces.push(namespace);
+      enclosingNamespace = namespace.id;
+
       /**
        * Reads `text`, standing at `offset` on line `index`, as one of the
        * namespace's statements, up to a `}` closing nothing opened before it
@@ -927,16 +950,11 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         sawError = true;
       }
 
-      namespaces.push({
-        id: namespaceOpenMatch[1],
-        label:
-          namespaceOpenMatch[2] === undefined
-            ? null
-            : readLabelIn(namespaceOpenMatch, 2, lineNumber, column),
-        classIds,
-        line: lineNumber,
-        column,
-      });
+      namespace.label =
+        namespaceOpenMatch[2] === undefined
+          ? null
+          : readLabelIn(namespaceOpenMatch, 2, lineNumber, column);
+      enclosingNamespace = parentId;
       namespaceDepth--;
       return bodyIndex;
     }

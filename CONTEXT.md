@@ -617,11 +617,11 @@ Flowchart nodes likewise double only their original positive text padding, retai
 label geometry and wrap width; other diagram kinds keep their existing padding. The **fourth** grouping construct here,
 and the second spatial one in a graph-shaped diagram after a class diagram's **namespace** — a
 sequence diagram's **box grouping** bands participant lanes and its **control-flow block** wraps
-statements in time. Five things separate it from the namespace it most resembles, and none of them
-is cosmetic:
+statements in time. Both nest — `ResolvedSubgraph` and `ResolvedClassNamespace` each carry a
+`parentId`, handed to the engine as nested clusters, and both number their generated ids in the
+order the blocks open, outer first. Four things separate it from the namespace it most resembles,
+and none of them is cosmetic:
 
-- **It nests.** `ResolvedSubgraph` carries a `parentId`; `ResolvedClassNamespace` has no such
-  field, so the class model has no way to say one group is inside another.
 - **Membership lives on the node**, as `GraphNode.parentId`, in one place — so a node and the
   frame around it cannot disagree about which holds it. A namespace keeps a `classIds` list beside
   the classes and has to promise the two agree.
@@ -878,11 +878,15 @@ draws N1, N2, X from left to right. The third grouping construct in the codebase
 one in a graph-shaped diagram — a sequence diagram's **box grouping** bands participant lanes, and
 its **control-flow block** wraps statements in time. A flowchart's **subgraph** is the fourth and
 draws the same figure deliberately, so a theme or an author who has learned to read one need not
-learn a second vocabulary; that entry lists the four things that are nevertheless not the same,
-starting with nesting, which this construct does not do. It may carry a bracketed `["label"]` after
-its name (`namespace Zoo["Big Zoo"] {`), drawn as the frame's title in place of the name — a
-**Label** in the `html` dialect. Addressable in a `timeline:` block under
-a generated id (`namespace:1`, `namespace:2`, … in source order).
+learn a second vocabulary; that entry lists the four things that are nevertheless not the same.
+It nests, as a subgraph does: a namespace written inside another is framed inside it, and the
+outer frame is drawn even when it holds no class of its own (`ResolvedClassNamespace.parentId`). A
+namespace is known by its **qualified name** — the enclosing namespace's qualified name, a `.`,
+then its own — so the `M` written inside `N` is `N.M`, a different namespace from a top-level `M`
+(nook decision `01M51B4M3C`); its frame is still titled `M`. It may carry a bracketed `["label"]`
+after its name (`namespace Zoo["Big Zoo"] {`), drawn as the frame's title in place of the name — a
+**Label** in the `html` dialect. Addressable in a `timeline:` block under a generated id
+(`namespace:1`, `namespace:2`, … in the order the blocks open, outer before inner).
 _Avoid_: package, module, cluster (that is the word the layout core uses for the mechanism, not
 the authored construct), group, box
 
