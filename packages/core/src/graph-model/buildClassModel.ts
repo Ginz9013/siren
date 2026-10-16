@@ -128,6 +128,43 @@ function emptyClass(id: string, firstLine?: number): ClassAccumulator {
 }
 
 /**
+ * ` on line N` for an error to say where something was written, or nothing
+ * when the declaration that wrote it carried no position.
+ */
+function onLine(line: number | undefined): string {
+  return line === undefined ? "" : ` on line ${line}`;
+}
+
+/**
+ * The error for a declaration annotating a class differently from the
+ * annotation it already keeps, or `null` when it writes none or the same.
+ * Measured on Mermaid 12.2.0 (Chrome): `<<interface>> A` then `<<service>>
+ * A`, or both in one block, draws only «interface», the second gone with
+ * no diagnostic — a picture other than the one written (ADR-0001).
+ */
+function annotationAfterFirst(declaration: ClassDecl, existing: ClassAccumulator): Diagnostic | null {
+  const kept = existing.resolved.annotation;
+  if (declaration.annotation === null || kept === null || declaration.annotation === kept) return null;
+  return {
+    severity: "error",
+    message:
+      `Class "${declaration.id}" is annotated «${declaration.annotation}» here, but it was first annotated ` +
+      `«${kept}»${onLine(existing.annotationLine)}, and a class keeps its first annotation. ` +
+      `Give "${declaration.id}" one annotation.`,
+    line: declaration.line,
+    column: declaration.column,
+  };
+}
+
+/**
+ * A generic as an error quotes it: each line break the parser kept as `\n`
+ * written back as the `<br>` the author wrote for it.
+ */
+function asWritten(generic: string): string {
+  return generic.replaceAll("\n", "<br>");
+}
+
+/**
  * The error for a declaration giving a class a generic other than the one
  * its first naming gave it — none, or a different one — or `null` when it
  * gives none or the same. A class keeps what its first naming gave it:
@@ -140,10 +177,10 @@ function emptyClass(id: string, firstLine?: number): ClassAccumulator {
  * keeps (`noteTargetGenericError`).
  */
 function genericAfterFirstNaming(declaration: ClassDecl, existing: ClassAccumulator): Diagnostic | null {
-  const given = declaration.generic;
-  const kept = existing.resolved.generic;
-  if (given === null || given === kept) return null;
-  const where = existing.firstLine === undefined ? "" : ` on line ${existing.firstLine}`;
+  if (declaration.generic === null || declaration.generic === existing.resolved.generic) return null;
+  const given = asWritten(declaration.generic);
+  const kept = existing.resolved.generic === null ? null : asWritten(existing.resolved.generic);
+  const where = onLine(existing.firstLine);
   const id = declaration.id;
   return {
     severity: "error",
@@ -201,17 +238,9 @@ function resolveClasses(
     if (existing.resolved.annotation === null) {
       existing.resolved.annotation = declaration.annotation;
       if (declaration.annotation !== null) existing.annotationLine = declaration.line;
-    } else if (declaration.annotation !== null && declaration.annotation !== existing.resolved.annotation) {
-      const where = existing.annotationLine === undefined ? "" : ` on line ${existing.annotationLine}`;
-      diagnostics.push({
-        severity: "error",
-        message:
-          `Class "${declaration.id}" is annotated «${declaration.annotation}» here, but it was first annotated ` +
-          `«${existing.resolved.annotation}»${where}, and a class keeps its first annotation. ` +
-          `Give "${declaration.id}" one annotation.`,
-        line: declaration.line,
-        column: declaration.column,
-      });
+    } else {
+      const conflict = annotationAfterFirst(declaration, existing);
+      if (conflict !== null) diagnostics.push(conflict);
     }
     // A generic is kept from the class's first naming, even when that gave
     // none (`genericAfterFirstNaming`), and any other is refused.
@@ -435,15 +464,15 @@ function memberLineText(member: ClassMember): string {
  * so any other generic is a picture other than the one written (ADR-0001).
  */
 function noteTargetGenericError(note: ClassNote, target: ClassAccumulator | undefined): Diagnostic | null {
-  const written = note.targetGeneric;
-  if (written === undefined || target?.resolved.generic === written) return null;
-  const where = target?.firstLine === undefined ? "" : ` on line ${target.firstLine}`;
+  if (note.targetGeneric === undefined || target?.resolved.generic === note.targetGeneric) return null;
+  const written = asWritten(note.targetGeneric);
+  const where = onLine(target?.firstLine);
   const has =
     target === undefined
       ? "is never named"
       : target.resolved.generic === null
         ? `was first named${where} without one`
-        : `was first named${where} with "${target.resolved.generic}"`;
+        : `was first named${where} with "${asWritten(target.resolved.generic)}"`;
   const id = note.targetId;
   return {
     severity: "error",
@@ -492,8 +521,10 @@ function resolveNotes(
         line: note.line,
         column: note.column,
       });
-      targetId = null;
     }
+    // A note naming no class is kept as a free note, whichever diagnostic
+    // it got.
+    if (targetId !== null && !classesById.has(targetId)) targetId = null;
 
     notes.push({
       id: generatedId("note", index + 1),

@@ -718,7 +718,10 @@ warning and is now refused (see **Changed**).
   `A~U~ --> B` or `A~U~ : +x`, `A~T~ --> B` then `class A~U~`, two blocks — where Mermaid 12.2.0
   draws `A<T>`, the `U` gone with no diagnostic. It used to be kept to the first with a warning. The
   check a note's target generic gets now lives beside this one, in the model, and its error names
-  the line the class was first named on.
+  the line the class was first named on. Being a model-stage error now, a mismatched `note for
+  A~T~ "n"` is reported beside a drawn diagram — the class with the generic it keeps, the note
+  attached to it (or free, when no class `A` exists) — where it used to return no SVG. A generic's
+  line break is quoted as `<br>` in these errors.
 - **A second, different class annotation is refused** (nook `01M51TMV71BF1Y0EC2RS2B6ZWG`):
   `<<interface>> A` then `<<service>> A`, or two annotation lines in one block, where Mermaid
   12.2.0 draws only the first. It used to be kept to the first with a warning.
