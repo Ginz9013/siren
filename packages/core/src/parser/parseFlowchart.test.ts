@@ -828,17 +828,84 @@ describe("an id that begins with a keyword", () => {
   });
 
   it.each([
-    ["end-x", "end-x", "endX"],
-    ["end%x", "end%x", "endX"],
-    ["end.x", "end.x", "endX"],
-    ["end&x", "end&x", "endX"],
-  ])("refuses `%s` inside a subgraph, which it would close, and reads the block as closed there", (written, id, fix) => {
+    ["end-x", "end-x", "endX", 5],
+    ["end%x", "end%x", "endX", 5],
+    ["end.x", "end.x", "endX", 5],
+    ["end&x", "end&x", "endX", 5],
+    ["end-x[l]", "end-x", "endX", 5],
+    ["end-x:::c", "end-x", "endX", 5],
+    ["end-x & C", "end-x", "endX", 5],
+    ["A;end-x", "end-x", "endX", 7],
+    ["end-x --> B", "end-x", "endX", 5],
+  ])("refuses `%s` inside a subgraph once, the block still ended by its own `end`", (written, id, fix, column) => {
     // Measured: Mermaid 12.2.0 ends the block at `end` and draws a node
-    // `-x` (`%x`, `.x`, `&x`) outside it — a picture nobody wrote.
-    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  subgraph s\n    A\n    ${written}\n  B`);
+    // `-x` (`%x`, `.x`, `&x`) outside it — a picture nobody wrote. Siren
+    // refuses the id and leaves the block open, so the author's own `end`
+    // below closes it and is not a second mistake.
+    const { document, diagnostics } = parseFlowchart(
+      `flowchart TB\n  subgraph s\n    A\n    ${written}\n    B\n  end`,
+    );
 
     expect(document).toBeNull();
-    expect(diagnostics).toEqual([{ severity: "error", message: keywordIdMessage(id, "end", fix), line: 4, column: 5 }]);
+    expect(diagnostics).toEqual([{ severity: "error", message: keywordIdMessage(id, "end", fix), line: 4, column }]);
+  });
+
+  it.each([
+    ["end-x", 5],
+    ["end-x --> B", 5],
+  ])("refuses `%s` in a subgraph with no `end` of its own, which is then unterminated", (written, column) => {
+    const { diagnostics } = parseFlowchart(`flowchart TB\n  subgraph s\n    A\n    ${written}`);
+
+    expect(diagnostics).toEqual([
+      { severity: "error", message: keywordIdMessage("end-x", "end", "endX"), line: 4, column },
+      { severity: "error", message: 'Unterminated "subgraph s" block: missing matching "end"', line: 2, column: 3 },
+    ]);
+  });
+
+  it.each([
+    ["end B", "B"],
+    ["end   B", "B"],
+    ["end B[x]", "B[x]"],
+    ["end B --> C", "B --> C"],
+  ])("refuses `%s` inside a subgraph, which ends the block and then reads the rest outside it", (written, rest) => {
+    // Measured: Mermaid 12.2.0 ends the block at `end` and draws what
+    // follows outside it, with no diagnostic.
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  subgraph s\n    A\n    ${written}\n  end`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `"end" ends the subgraph here, and "${rest}" after it is read outside the block. Write "end" on a line of its own`,
+        line: 4,
+        column: 5,
+      },
+    ]);
+  });
+
+  it("refuses a subgraph named `end`, which Mermaid reads as the block's own end, once", () => {
+    // Measured: Mermaid 12.2.0 draws `subgraph end` ⏎ `A` ⏎ `end` as an
+    // empty frame without `A`, and refuses it with an edge inside.
+    const { document, diagnostics } = parseFlowchart("flowchart TB\n  subgraph end\n    A\n  end");
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'A subgraph title cannot end with the word "end", which closes the block. ' +
+          'Put the whole title in quotes: subgraph "end"',
+        line: 2,
+        column: 12,
+      },
+    ]);
+  });
+
+  it("reads `click end` as written, which Mermaid reads as an id there", () => {
+    const { document, diagnostics } = parseOk('flowchart TB\n  A\n  click end "https://x.org"');
+
+    expect(diagnostics).toEqual([]);
+    expect(document.interactions.map((interaction) => interaction.targetId)).toEqual(["end"]);
   });
 
   it("still reads `end;B` inside a subgraph as the block's end and then a node", () => {

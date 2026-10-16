@@ -131,8 +131,9 @@ refused (see **Changed**).
   not YAML, a space before the `@`, text after the `}`, a second block, a block never closed and a
   block on a subgraph's id are each refused at the `@` or the text, saying what to write instead;
   another key is ignored with a warning. Each used to be refused as `@{ … }` not supported yet. A
-  node with a block followed by `& B` and no arrow gets the error a bare `A & B` line gets, and a
-  block never closed is read to the end of the document in time linear in its length.
+  node with a block followed by `& B` and no arrow gets the error a bare `A & B` line gets; a
+  block never closed is read to the end of the document, and many blocks written across lines are
+  read, in time linear in the document.
 - A dotted class namespace name (`namespace N.M { class A }`) is read as Mermaid 12.2.0 reads it
   (nook `01M51B43T8`): the `M` inside N, drawn as the frame N around the frame M, the same picture
   as the nested spelling. An `N` no block opens is created, titled `N` and numbered before `N.M`;
@@ -279,10 +280,13 @@ refused (see **Changed**).
   errors there, and inside a subgraph `end-x` ends the block and adds a node `-x` outside it. Siren
   drew each as the id written (and reported such a block as unterminated); it now refuses it at the
   id, naming the keyword and a fix (`endX`), as a node on its own line, at an edge's end, in an `&`
-  group and as a `style` or `class` target, and reads a block as closed at an `end`-prefixed id.
-  An id that only contains the word (`endx`, `end_x`, `End-x`, `A-end`) is unchanged, as are
-  `click-x`, `call-x`, `href-x`, `default-x`, `v-x`, `direction-x`, `click end-x` and
-  `subgraph end-x`, which Mermaid reads as ids.
+  group and as a `style` or `class` target, leaving the block open for its own `end`. Inside a
+  subgraph, `end B` (which Mermaid reads as the block's end and then `B` outside it) is refused
+  saying to write `end` on a line of its own, and `subgraph end` (which Mermaid reads as the
+  block's own end) is refused as a title ending with `end` is. An id that only contains the word
+  (`endx`, `end_x`, `End-x`, `A-end`) is unchanged, as are `click-x`, `call-x`, `href-x`,
+  `default-x`, `v-x`, `direction-x`, `click end-x`, `click end` and `subgraph end-x`, which Mermaid
+  reads as ids.
 - **An entity code in a class member is drawn decoded** (nook `01M51K83X2`): Mermaid 12.2.0
   encodes each `#\w+;` before it parses and decodes it when it draws, so `+#lt; x` draws `+< x`,
   `+int #59;` `+int ;` and `+foo(#9829;)` `+foo(♥)`, in a block and inline alike, in the type, the

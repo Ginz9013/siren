@@ -1220,18 +1220,19 @@ function refuseNode(
   writtenAs: "an edge endpoint" | "a statement",
 ): { message: string; offset: number } | null {
   return (
-    refuseKeywordId(text, writtenAs === "a statement" ? "a statement" : "an id") ??
+    refuseKeywordId(text, writtenAs === "an edge endpoint") ??
     refuseNodeData(text) ??
     refuseNodeLabel(text)
   );
 }
 
-/** `ID_KEYWORD` at the start of a text, the keyword as the group. */
-const KEYWORD_ID_RE = new RegExp(`^(${ID_KEYWORDS.join("|")})(?![A-Za-z0-9_])`);
+/** `ID_KEYWORD` at the start of a text; the match is the keyword, its lookahead being zero-width. */
+const KEYWORD_ID_RE = new RegExp(`^${ID_KEYWORD}`);
 
 /**
- * What an author wrote as an id at the start of a text: up to a space, a
- * bracket, a `:::` or an `@{` — `end&x` whole, as the author wrote it.
+ * What an author wrote as an id at the start of a text: up to whitespace,
+ * any of `[ ] ( ) { }`, a `:` (of `:::`), an `@` (of `@{`) or a `>` (of an
+ * asymmetric node) — so `end&x` is taken whole, as the author wrote it.
  */
 const LEADING_ID_RE = /^[^\s[\](){}:@>]+/;
 
@@ -1239,18 +1240,16 @@ const LEADING_ID_RE = /^[^\s[\](){}:@>]+/;
  * Why a node written as `text` was refused, when the reason is an id that
  * begins with a keyword (`ID_KEYWORDS`): `end-x`, `style.x`, `end[x]`. The
  * keyword must be followed by something other than a space — `end B` is no
- * id, and a statement such as `style A` is not this mistake — or, where
- * the text is an id (an edge's end, a `style` or `class` target), be the
- * whole of it (`A --> end`), which as a statement is a stray `end` instead. The fix offered is the id in camel case
- * (`endX`), or with `Node` after a bare keyword.
+ * id, and a statement such as `style A` is not this mistake — or, when
+ * `wholeTextIsId` (an edge's end, a `style` or `class` target), be the
+ * whole of it (`A --> end`), which as a statement is a stray `end` instead.
+ * The fix offered is the id in camel case (`endX`), or with `Node` after a
+ * bare keyword.
  */
-function refuseKeywordId(
-  text: string,
-  writtenAs: "an id" | "a statement",
-): { message: string; offset: number } | null {
-  const keyword = KEYWORD_ID_RE.exec(text)?.[1];
+function refuseKeywordId(text: string, wholeTextIsId: boolean): { message: string; offset: number } | null {
+  const keyword = KEYWORD_ID_RE.exec(text)?.[0];
   const after = keyword === undefined ? "" : text.slice(keyword.length);
-  if (keyword === undefined || (after === "" && writtenAs === "a statement") || /^\s/.test(after)) {
+  if (keyword === undefined || (after === "" && !wholeTextIsId) || /^\s/.test(after)) {
     return null;
   }
   const id = LEADING_ID_RE.exec(text)![0];
@@ -1625,6 +1624,9 @@ const SUBGRAPH_OPEN_RE = /^subgraph\s+(\S.*)$/d;
 /** The statement that closes a `subgraph` block. Mermaid's own keyword, lowercase. */
 const SUBGRAPH_END = "end";
 
+/** `end` and more after a space (`end B`): the block's end, and what follows it. */
+const END_THEN_MORE_RE = /^end\s+(\S.*)$/;
+
 /**
  * `one[Two Words]` — the spelling that gives a subgraph a handle *and* a
  * title, and the only one where the two differ. Its content is read by the
@@ -1764,7 +1766,7 @@ function refuseSubgraphTitle(tail: string): { message: string; offset: number } 
       offset: titledThenMore.indices![3]![0],
     };
   }
-  if (!/\s/.test(tail)) {
+  if (!/\s/.test(tail) && tail !== SUBGRAPH_END) {
     return null;
   }
   // The fix both refusals below offer: the whole tail as one quoted title,
@@ -2631,9 +2633,14 @@ export function parseFlowchart(source: string): DiagramParseResult {
         let offset = at;
         for (const segment of targets.split(",")) {
           const lead = segment.length - segment.trimStart().length;
-          const refusal = refuseKeywordId(segment.trim(), "an id");
+          const refusal = refuseKeywordId(segment.trim(), true);
           if (refusal !== null) {
-            diagnostics.push({ severity: "error", message: refusal.message, line: lineNumber, column: column + offset + lead });
+            diagnostics.push({
+              severity: "error",
+              message: refusal.message,
+              line: lineNumber,
+              column: column + offset + lead,
+            });
             sawError = true;
             return true;
           }
@@ -2699,7 +2706,10 @@ export function parseFlowchart(source: string): DiagramParseResult {
       // block with a punctuated name, not a malformed edge.
       const subgraphOpenMatch = SUBGRAPH_OPEN_RE.exec(line);
       if (subgraphOpenMatch !== null) {
-        let title = readSubgraphTitle(subgraphOpenMatch[1]);
+        // `subgraph end` is no handle: Mermaid 12.2.0 reads the `end` as the
+        // block's own (measured), so it is refused below as a title ending
+        // with that word is.
+        let title = subgraphOpenMatch[1] === SUBGRAPH_END ? null : readSubgraphTitle(subgraphOpenMatch[1]);
         if (title === null && percentAt !== null) {
           // Refused for its `%%`, but still a block: its `end` closes it, so
           // the one mistake is reported once rather than again at the `end`.
@@ -2757,6 +2767,23 @@ export function parseFlowchart(source: string): DiagramParseResult {
           refusePercent();
         }
         openBlocks.pop();
+        continue;
+      }
+
+      // `end B` inside a block: Mermaid 12.2.0 ends the block at `end` and
+      // reads `B` (`B[x]`, `B --> C`) outside it (measured), a picture of
+      // neither. Refused, the block left open for the author's own `end`.
+      const endThenMore = END_THEN_MORE_RE.exec(beforePercent);
+      if (endThenMore !== null && openBlocks.length > 0) {
+        diagnostics.push({
+          severity: "error",
+          message:
+            `"${SUBGRAPH_END}" ends the subgraph here, and "${endThenMore[1]}" after it is read outside the block. ` +
+            `Write "${SUBGRAPH_END}" on a line of its own`,
+          line: lineNumber,
+          column,
+        });
+        sawError = true;
         continue;
       }
 
@@ -3195,12 +3222,6 @@ export function parseFlowchart(source: string): DiagramParseResult {
       }
 
       const nodeRefusal = refuseNode(line, "a statement");
-      // `end-x` inside a block: refused, and the block ends there, as Mermaid
-      // 12.2.0 ends it (measured), so the one mistake is not reported again
-      // as an unterminated block.
-      if (nodeRefusal !== null && openBlocks.length > 0 && KEYWORD_ID_RE.exec(line)?.[1] === SUBGRAPH_END) {
-        openBlocks.pop();
-      }
       diagnostics.push({
         severity: "error",
         message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${line}"`,
