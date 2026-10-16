@@ -995,6 +995,20 @@ divider and now takes none (see **Changed**).
 
 ### Fixed
 
+- **An icon pack could make a browser fetch at render time.** An icon's body kept any `mask`,
+  `clip-path` or paint value `url(` was not in, so `mask: image-set('https://…' 1x)` (in `style` or
+  as the attribute) and `-webkit-image-set(…)` made Chrome request the image. A paint or reference
+  value in an icon is now kept only when it is a `#hex` colour, a keyword (`none`, `currentColor`),
+  a number or length, or a local `url(#id)` to an id the icon declares; a geometry value only
+  without a function, a transform's own excepted. An author's style value (`style`, `classDef`,
+  a label's `<span style>`) now refuses `image-set(`, `cross-fade(`, `image(`, `element(` and
+  `src(` as it refused `url(`, with or without a vendor prefix and with comments read out first.
+- An icon pack that is not of Iconify JSON's shape (`iconPacks: [null]`, a pack with no `icons`, an
+  icon with no text `body`, a width of 0 or that is not a number) is an error diagnostic naming the
+  icon, where it used to throw or draw nothing; a body nested more than 256 deep is refused rather
+  than overflowing the stack. An icon gradient keeps a local `href` to another gradient it declares.
+  An alias's `hFlip` and `vFlip` combine with its parent's by exclusive or, and its `rotate` adds,
+  as Iconify merges them, so an alias that flips a flipped icon back is drawn.
 - A flowchart `|label|` opening with a quoted run keeps what follows it, as Mermaid 12.2.0 joins
   them (nook `01M51Z206K`): `A -->|"a" b| B` is drawn `a b` and `A -->|"a"b| B` `ab`; they used to
   be drawn with their quotes.

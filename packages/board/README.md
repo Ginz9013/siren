@@ -332,6 +332,7 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `playInterval`  | `number`                                       | `2000`  | Milliseconds between playback steps. Must be finite and greater than 0, or `createBoard` throws a `RangeError`. |
 | `onPlaybackChange` | `(playing: boolean) => void`                |         | Called whenever `playing` changes: playback starts, is paused, reaches the last step, or is stopped. |
 | `measureText`   | `TextMeasurer`                                 | canvas  | Replaces the canvas-based text measurer, for example to match a custom font.        |
+| `iconPacks`     | `readonly IconifyJSON[]`                       |         | Icon packs, as Iconify JSON handed over as data, that a flowchart node's `@{ icon: "prefix:name" }` is drawn from. Nothing is fetched: an icon no pack holds, or a pack not of Iconify JSON's shape, is an error diagnostic. Only shapes and local references in an icon's body are drawn. |
 
 ### `Board`
 
