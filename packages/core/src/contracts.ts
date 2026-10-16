@@ -331,7 +331,8 @@ export type EdgeAnimation = "fast" | "slow";
  * The keys of an edge's `@{ … }` block that change how it is drawn, as
  * written: `animate` read for truth, as Mermaid reads it, `animation` one of
  * the two speeds, and `curve` a name still to be checked against the curves
- * Siren draws. `line`/`column` are where the last block stands.
+ * Siren draws. `line`/`column` are where the block that set `curve`
+ * stands, or the last block when none did.
  */
 export interface SirenEdgeData {
   animate?: boolean;

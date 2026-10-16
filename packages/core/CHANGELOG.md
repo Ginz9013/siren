@@ -10,9 +10,10 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 Breaking for a flowchart `style`, `classDef` or `linkStyle` whose value uses a CSS function —
 `fill:rgb(255,0,0)`, `stroke:rgba(…)`, `fill:hsl(…)`, `stroke:var(--x)` — or holds a `(`, `)`, `[`,
-`]`, `|` or `->`, which is now refused: Mermaid 12.2.0 draws nothing at all for such a document.
-Write the colour as a hex colour or a name instead (`fill:#ff0000`, `fill:red`); for `rgb(r,g,b)`
-the message gives the hex to write. Breaking too for an edge `|label|` beginning with a word that
+`]`, `|`, `->` or a `"` (`font-family:"a b"`), which is now refused: Mermaid 12.2.0 draws nothing
+at all for such a document. Write the colour as a hex colour or a name instead (`fill:#ff0000`,
+`fill:red`), and quotes as single quotes (`font-family:'a b'`); for `rgb(r,g,b)` the message gives
+the hex to write. Breaking too for an edge `|label|` beginning with a word that
 holds an `@` (`A -->|a@b| B`) or with a quote after a space (`A -->| "a" | B`), which is now
 refused (see **Changed**).
 
@@ -198,7 +199,10 @@ divider and now takes none (see **Changed**).
   dashes once every 20s, `animation: slow` every 50s, as Mermaid 12.2.0 draws them, with the march's
   dash beating a dotted line's and a `linkStyle` dash; `animation` names the speed whatever
   `animate` says. The march is the theme's (`.siren-edge-animation-fast`/`-slow`), independent of
-  the timeline, and stops under `prefers-reduced-motion: reduce`. `curve: <name>` draws the edge
+  the timeline: a timeline's enter or exit effect on an animated edge runs beside the march (so
+  `exit e1 fade` takes the edge away), and the march stops under `prefers-reduced-motion: reduce`.
+  Its numbers are tokens: `--siren-edge-march-dash` (`9 5`), `--siren-edge-march-offset` (`900`),
+  `--siren-edge-march-fast-duration` (`20s`) and `--siren-edge-march-slow-duration` (`50s`). `curve: <name>` draws the edge
   with that curve, as `linkStyle … interpolate` does — on ELK too, where Mermaid draws every edge
   rounded — the later of a `curve:` and a `linkStyle N interpolate` winning, and either beating
   `linkStyle default`. An animation other than `fast` or `slow`, a curve Siren does not draw yet

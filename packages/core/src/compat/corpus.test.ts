@@ -1939,7 +1939,7 @@ const SILENTLY_WRONG = 0;
  * `cls-member-empty-line`, new beside it, are `supported`.
  * `silently-wrong` does not move.
  *
- * **72 → 70: two rows supported.** `01M51XAE8BFH3E4K0KPYZ26GC7` drew a
+ * **72 → 70: two rows supported.** The edge-data work drew a
  * flowchart edge's `@{ animate: true }` (`fc-edge-id`) and applied a
  * `classDef` to an edge id (`fc-edge-id-class`), each refused before.
  * `fc-edge-data-animation-and-curve`, new beside them, is `supported`.
@@ -1963,8 +1963,17 @@ const SILENTLY_WRONG = 0;
  * supported yet, with `fc-node-shape-data-icon` the one row to say so; that
  * row stays `rejected`, now for an icon whose pack is not registered. No
  * `supported` row moved. `silently-wrong` does not move.
+ *
+ * **73 → 75: case (2), two refusals written down for the first time.** A
+ * class applied to a flowchart edge that would animate it
+ * (`fc-edge-class-animation`), which Mermaid 12.2.0 animates with keyframes
+ * of its own, and a `class e1 c` written above its edge
+ * (`fc-edge-class-above-edge`), which Mermaid applies to nothing: both
+ * measured in headless Chrome, both refused under ADR-0001 since the edge
+ * work, with no row to say so. No `supported` row moved. `silently-wrong`
+ * does not move.
  */
-const REJECTED = 73;
+const REJECTED = 75;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

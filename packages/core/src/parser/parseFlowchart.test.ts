@@ -2887,6 +2887,17 @@ describe("an edge's `@{ … }` block", () => {
     expect(document.edges[0]!.data).toEqual({ ...data, line: 3, column: 5 });
   });
 
+  it("keeps where the block that set the curve stands, a later block without one leaving it", () => {
+    // The curve's place decides it against a `linkStyle N interpolate`
+    // written between the two blocks: that `linkStyle` is later than the
+    // `curve:`, so it wins, whatever a later `animate` block says.
+    const { document } = parseOk(
+      "flowchart TB\n  A e1@--> B\n  e1@{ curve: step }\n  linkStyle 0 interpolate linear\n  e1@{ animate: true }",
+    );
+
+    expect(document.edges[0]!.data).toEqual({ animate: true, curve: "step", line: 3, column: 5 });
+  });
+
   it("lays a later block's keys over an earlier one's", () => {
     const { document } = parseOk(
       "flowchart TB\n  A e1@--> B\n  e1@{ animate: true, curve: step }\n  e1@{ curve: linear }",
@@ -3619,5 +3630,58 @@ describe("a `<` in an edge's `|label|`", () => {
 
     expect(diagnostics).toEqual([]);
     expect(document.edges.map((edge) => edge.label?.text)).toEqual([label]);
+  });
+});
+
+/**
+ * A `"` in a styling value. Measured on Mermaid 12.2.0:
+ * `style A font-family:"a b"` is a parse error ("got 'STR'"), in a list or
+ * alone, while `font-family:'a b'` and `font-family:a b` are values.
+ */
+describe("a styling value holding a double quote", () => {
+  it.each([
+    ['style A font-family:"a b"', 23, 'font-family:"a b"'],
+    ['classDef c fill:#f00,font-family:"x"', 36, 'fill:#f00,font-family:"x"'],
+  ])("refuses %j at the quote, saying to use single quotes", (written, column, declarations) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> B\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: `A style declaration cannot hold """: ${declarations}. Write the quotes as single quotes`,
+        line: 3,
+        column,
+      },
+    ]);
+  });
+
+  it.each([
+    ["style A font-family:'a b'", "'a b'"],
+    ["style A font-family:a b", "a b"],
+  ])("reads %j as written", (written, value) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  A --> B\n  ${written}`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles[0]!.properties[0]!.value).toBe(value);
+  });
+});
+
+/**
+ * A bold run in a `|label|` written without its closing tag. Measured in
+ * headless Chrome on Mermaid 12.2.0: `A -->|a<b>c| B` draws `a` and then
+ * `c` in bold, the tag closed for it; Siren reads it the same way.
+ */
+describe("an unclosed bold tag in an edge's `|label|`", () => {
+  it("draws the text after it bold", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  A -->|a<b>c| B");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.edges[0]!.label!.rows.map((row) => row.map((run) => [run.text, run.bold]))).toEqual([
+      [
+        ["a", false],
+        ["c", true],
+      ],
+    ]);
   });
 });

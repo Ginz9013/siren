@@ -13383,6 +13383,36 @@ line2\`"]`,
       expectSame("A-B's label", edgeLabel(result, "A-B"), "a");
     },
   },
+  {
+    id: "fc-edge-class-animation",
+    kind: "flowchart",
+    source: `flowchart LR
+      A e1@--> B
+      classDef moving stroke-dasharray:9 5,animation: dash 25s linear infinite
+      class e1 moving`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 animates the edge with the `dash` keyframes of its own " +
+      "stylesheet, 25s a cycle (measured in headless Chrome). Siren's " +
+      "stylesheet carries no such keyframes, so the edge would be drawn " +
+      "still: the class is refused at the statement that applies it, saying " +
+      "to write `e1@{ animate: true }` instead.",
+  },
+  {
+    id: "fc-edge-class-above-edge",
+    kind: "flowchart",
+    source: `flowchart LR
+      classDef c stroke:#f00
+      class e1 c
+      A e1@--> B`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 applies a class to an edge only once the edge exists, " +
+      "so `class e1 c` above `A e1@--> B` paints nothing (measured in " +
+      "headless Chrome). Siren reads the whole document before styling, so " +
+      "it would paint the edge where Mermaid does not: refused, saying to " +
+      "move the statement below the edge.",
+  },
 
   {
     id: "fc-node-icon-form-unknown",

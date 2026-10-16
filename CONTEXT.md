@@ -558,7 +558,11 @@ that alphabet are refused. `e1@{ … }` written below the edge is the edge's dat
 `animate`/`animation` march its dashes (a drawing of its own, independent of the timeline, stopped
 under `prefers-reduced-motion`), and `curve` picks its **Curve** on the terms `linkStyle … interpolate`
 does, the later of the two winning. `class e1 c` paints the edge with a `classDef`, beneath any
-`linkStyle`.
+`linkStyle`. Two class statements stay refused, each a picture Siren cannot draw the way Mermaid
+does: a class that would animate the edge (Mermaid runs keyframes of its own stylesheet, which
+Siren's does not carry — write `e1@{ animate: true }`), and a `class e1 c` written above its
+edge (Mermaid applies it to nothing, while Siren styles a whole document at once). A timeline's
+enter and exit effects on an animated edge run beside its march, never in place of it.
 Two ids the author did not write can still meet — the node `A-B` and the edge `A --> B` — and a
 document like that is drawn; only a `timeline:` action naming such a shared id is refused, since it
 cannot say which of the two it means (nook `01M51XADJK`).

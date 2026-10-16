@@ -155,10 +155,29 @@ export function buildFlowchartModel(
   // own, which this stylesheet does not carry, and the edge's own
   // `e1@{ animate: true }` says the same thing.
   const classDefs = document.styles.filter((declaration) => declaration.styleKind === "classDef");
-  for (const { targetId, style } of resolveStyles([...classDefs, ...edgeClasses], edgeIds, diagnostics)) {
+  // The class definitions were read once already, for the nodes above, so
+  // what reading them again finds is not reported a second time.
+  const edgeClassDiagnostics: Diagnostic[] = [];
+  const resolvedEdgeClasses = resolveStyles([...classDefs, ...edgeClasses], edgeIds, edgeClassDiagnostics);
+  const reported = new Set(diagnostics.map((diagnostic) => JSON.stringify(diagnostic)));
+  diagnostics.push(...edgeClassDiagnostics.filter((diagnostic) => !reported.has(JSON.stringify(diagnostic))));
+  // The class whose definition animates, per class name.
+  const animatingClasses = new Set(
+    classDefs.flatMap(({ name, properties }) =>
+      name !== null && properties.some(({ property }) => property === "animation") ? [name] : [],
+    ),
+  );
+  for (const { targetId, style } of resolvedEdgeClasses) {
     const animating = style.frame.some(({ property }) => property === "animation");
     if (animating) {
-      const applied = edgeClasses.find((declaration) => declaration.targetIds.includes(targetId))!;
+      // The statement that applied an animating class to this edge — the
+      // last, as the one whose `animation` was kept.
+      const applied = [...edgeClasses]
+        .reverse()
+        .find(
+          (declaration) =>
+            declaration.targetIds.includes(targetId) && declaration.name !== null && animatingClasses.has(declaration.name),
+        )!;
       diagnostics.push({
         severity: "error",
         message: `A class cannot animate the edge "${targetId}". Write ${targetId}@{ animate: true } below the edge instead`,

@@ -918,18 +918,24 @@ const DECLARATION_LIST_KEYWORDS = ["style", "classDef", "linkStyle"] as const;
  * bracket or a `|`: `(`, `)`, `[`, `]` and `|` are parse errors there too —
  * which refuses every CSS function, `rgb(255,0,0)` and `var(--x)` included,
  * since Mermaid draws nothing at all for one (measured in headless Chrome).
+ * And no `"`: `font-family:"a b"` is a parse error, `font-family:'a b'` a
+ * value.
  * Each run is matched whole, so a message quotes the arrow or run as
  * written rather than a piece of it.
  */
-const STYLE_VALUE_REFUSED_RE = /@\{|[@{}()[\]|]|-{2,}>?|->|-\.+-*>?|=+>?|~+/;
+const STYLE_VALUE_REFUSED_RE = /@\{|[@{}()[\]|"]|-{2,}>?|->|-\.+-*>?|=+>?|~+/;
 
 /**
  * What to write instead of a style value refused at `refused`: a colour
  * function's colour written as a hex colour, worked out when it is an
  * `rgb(r,g,b)` of whole numbers, and a hex colour or a name otherwise —
- * which is how Mermaid takes a colour; anything else is left out.
+ * which is how Mermaid takes a colour; a `"` as a `'`; anything else is
+ * left out.
  */
 function styleValueFix(text: string, refused: RegExpExecArray): string {
+  if (refused[0] === '"') {
+    return "Write the quotes as single quotes";
+  }
   if (refused[0] !== "(") {
     return "Leave it out";
   }
@@ -2965,7 +2971,12 @@ export function parseFlowchart(source: string): DiagramParseResult {
       // refuse, and leaves this block on the first edge written with it.
       const edge = edges.find((written) => written.id === id);
       if (edge !== undefined) {
-        edge.data = { ...edge.data, ...read.data, ...positionIn(statement, data.at) };
+        // The place kept is the curve's, once a block has set one: it is
+        // what decides the curve against a `linkStyle N interpolate`, and a
+        // later block saying nothing about the curve must not move it.
+        const keepsPlace = edge.data?.curve !== undefined && read.data.curve === undefined;
+        const place = keepsPlace ? { line: edge.data!.line, column: edge.data!.column } : positionIn(statement, data.at);
+        edge.data = { ...edge.data, ...read.data, ...place };
       }
       return;
     }

@@ -116,6 +116,15 @@
   --siren-slide-duration: 500ms;
   --siren-slide-distance: 60px;
   --siren-highlight-duration: 300ms;
+  /* An animated edge's march (`e1@{ animate: true }`), as Mermaid 12.2.0
+     draws it: a 9,5 dash walked from 900 to 0 every 20s, or 50s slow. */
+  --siren-edge-march-dash: 9 5;
+  --siren-edge-march-offset: 900;
+  --siren-edge-march-fast-duration: 20s;
+  --siren-edge-march-slow-duration: 50s;
+  /* The march an animated edge runs, which its speed class names; none
+     until one does. */
+  --siren-edge-march: none;
 }
 
 /*
@@ -300,13 +309,18 @@
 /*
  * An animated edge (`e1@{ animate: true }`, `animation: fast|slow`): its
  * dashes march along it, as Mermaid 12.2.0 draws one (its stylesheet's
- * `.edge-animation-fast`/`-slow`, measured in headless Chrome) — a 9,5
- * dash that beats a dotted line's and an author's `linkStyle` dash alike,
- * walked from an offset of 900 to 0 every 20s or 50s. Mermaid wins those
- * with `!important`; here two classes outrank a line's one, and the model
- * leaves an animated edge no author dash to beat. A drawing of its own,
- * independent of the timeline, and still under `prefers-reduced-motion`
- * (below).
+ * `.edge-animation-fast`/`-slow`, measured in headless Chrome) — the
+ * `--siren-edge-march-*` tokens' dash, beating a dotted line's and an
+ * author's `linkStyle` dash alike, walked from its offset to 0. Mermaid
+ * wins those with `!important`; here two classes outrank a line's one, and
+ * the model leaves an animated edge no author dash to beat.
+ *
+ * The speed only names the march (`--siren-edge-march`), and the one rule
+ * after it runs it. A drawing of its own, independent of the timeline: an
+ * edge runs one `animation` shorthand, so a timeline effect's keyframes on
+ * an animated edge are run beside the march (the rules after the exit
+ * effects below) rather than one taking the property from the other. Under
+ * `prefers-reduced-motion` the march is `none` and the effects still run.
  */
 @keyframes siren-edge-march {
   to {
@@ -314,24 +328,24 @@
   }
 }
 
-.siren-edge.siren-edge-animation-fast {
-  stroke-dasharray: 9 5;
-  stroke-dashoffset: 900;
-  animation: siren-edge-march 20s linear infinite;
-  stroke-linecap: round;
+.siren-edge-animation-fast {
+  --siren-edge-march: siren-edge-march var(--siren-edge-march-fast-duration) linear infinite;
 }
 
-.siren-edge.siren-edge-animation-slow {
-  stroke-dasharray: 9 5;
-  stroke-dashoffset: 900;
-  animation: siren-edge-march 50s linear infinite;
+.siren-edge-animation-slow {
+  --siren-edge-march: siren-edge-march var(--siren-edge-march-slow-duration) linear infinite;
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow) {
+  stroke-dasharray: var(--siren-edge-march-dash);
+  stroke-dashoffset: var(--siren-edge-march-offset);
   stroke-linecap: round;
+  animation: var(--siren-edge-march);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .siren-edge.siren-edge-animation-fast,
-  .siren-edge.siren-edge-animation-slow {
-    animation: none;
+  .siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow) {
+    --siren-edge-march: none;
   }
 }
 
@@ -1215,6 +1229,66 @@
 
 .siren-exit-slide-bottom {
   animation: siren-slide-out-bottom var(--siren-slide-duration) ease-in forwards;
+}
+
+/*
+ * A timeline effect on an animated edge, run beside its march: the effect
+ * rules above are one class each and the march's two, so without these the
+ * march would take the `animation` property and `exit e1 fade` would leave
+ * the edge on screen. Three classes each, exits after enters as above.
+ */
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-enter-slide-left {
+  animation:
+    siren-slide-in-left var(--siren-slide-duration) ease-out forwards,
+    var(--siren-edge-march);
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-enter-slide-right {
+  animation:
+    siren-slide-in-right var(--siren-slide-duration) ease-out forwards,
+    var(--siren-edge-march);
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-enter-slide-top {
+  animation:
+    siren-slide-in-top var(--siren-slide-duration) ease-out forwards,
+    var(--siren-edge-march);
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-enter-slide-bottom {
+  animation:
+    siren-slide-in-bottom var(--siren-slide-duration) ease-out forwards,
+    var(--siren-edge-march);
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-exit-fade {
+  animation:
+    siren-fade-out var(--siren-fade-duration) ease-in forwards,
+    var(--siren-edge-march);
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-exit-slide-left {
+  animation:
+    siren-slide-out-left var(--siren-slide-duration) ease-in forwards,
+    var(--siren-edge-march);
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-exit-slide-right {
+  animation:
+    siren-slide-out-right var(--siren-slide-duration) ease-in forwards,
+    var(--siren-edge-march);
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-exit-slide-top {
+  animation:
+    siren-slide-out-top var(--siren-slide-duration) ease-in forwards,
+    var(--siren-edge-march);
+}
+
+.siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow).siren-exit-slide-bottom {
+  animation:
+    siren-slide-out-bottom var(--siren-slide-duration) ease-in forwards,
+    var(--siren-edge-march);
 }
 
 /*

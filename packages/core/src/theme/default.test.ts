@@ -1900,18 +1900,47 @@ describe("default theme's animated edge", () => {
     // there, so it beats a dotted line and a `linkStyle` dash alike; this
     // theme writes no `!important`, so it beats a line's class by
     // specificity, and the model leaves an animated edge no author dash.
-    const body = ruleBody(`.siren-edge.siren-edge-animation-${speed}`);
+    const body = ruleBody(".siren-edge:is(.siren-edge-animation-fast, .siren-edge-animation-slow)");
 
-    expect(body).toMatch(/stroke-dasharray:\s*9\s*,?\s*5;/);
-    expect(body).toMatch(/stroke-dashoffset:\s*900;/);
-    expect(body).toMatch(new RegExp(`animation:\\s*siren-edge-march\\s+${duration}\\s+linear\\s+infinite;`));
+    expect(body).toMatch(/stroke-dasharray:\s*var\(--siren-edge-march-dash\);/);
+    expect(body).toMatch(/stroke-dashoffset:\s*var\(--siren-edge-march-offset\);/);
+    expect(body).toMatch(/animation:\s*var\(--siren-edge-march\);/);
     expect(body).toMatch(/stroke-linecap:\s*round;/);
+    expect(ruleBody(`.siren-edge-animation-${speed}`)).toMatch(
+      new RegExp(`--siren-edge-march:\\s*siren-edge-march\\s+var\\(--siren-edge-march-${speed}-duration\\)\\s+linear\\s+infinite;`),
+    );
+    expect(themeRules).toMatch(new RegExp(`--siren-edge-march-${speed}-duration:\\s*${duration};`));
+    expect(themeRules).toMatch(/--siren-edge-march-dash:\s*9 5;/);
+    expect(themeRules).toMatch(/--siren-edge-march-offset:\s*900;/);
     expect(defaultThemeCss).toMatch(/@keyframes siren-edge-march\s*\{\s*to\s*\{\s*stroke-dashoffset:\s*0;\s*\}\s*\}/);
   });
 
   it("stops the march for a reader who asked for reduced motion", () => {
     expect(defaultThemeCss).toMatch(
-      /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.siren-edge\.siren-edge-animation-fast,\s*\.siren-edge\.siren-edge-animation-slow\s*\{\s*animation:\s*none;\s*\}\s*\}/,
+      /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.siren-edge:is\(\.siren-edge-animation-fast, \.siren-edge-animation-slow\)\s*\{\s*--siren-edge-march:\s*none;\s*\}\s*\}/,
     );
+  });
+});
+
+describe("default theme's animated edge under a timeline", () => {
+  it.each([
+    ["fast", "siren-exit-fade", "siren-fade-out"],
+    ["slow", "siren-exit-slide-left", "siren-slide-out-left"],
+    ["fast", "siren-enter-slide-top", "siren-slide-in-top"],
+    ["slow", "siren-exit-slide-bottom", "siren-slide-out-bottom"],
+  ])("runs a %s edge's timeline effect %s, still marching beside it", (speed, effect, keyframes) => {
+    // An `exit e1 fade` must take the edge away: the march is an animation
+    // of its own, and an edge carries one `animation` shorthand, so the
+    // effect's keyframes and the march are run together rather than the
+    // march's rule taking the property from the effect.
+    const svg = renderThemedSVG(`flowchart LR\nA e1@--> B\ne1@{ animation: ${speed} }`);
+    const path = svg.querySelector('path.siren-edge[data-siren-id="e1"]')!;
+
+    path.classList.add(effect);
+    const animation = getComputedStyle(path).animation;
+    path.classList.remove(effect);
+
+    expect(animation).toContain(keyframes);
+    expect(animation).toContain("siren-edge-march");
   });
 });

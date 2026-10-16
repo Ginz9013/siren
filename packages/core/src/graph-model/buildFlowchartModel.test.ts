@@ -749,6 +749,44 @@ describe("buildFlowchartModel's node statements naming an edge id", () => {
       },
     ]);
   });
+
+  it("refuses the animation at the class statement that applies it, not the edge's first class", () => {
+    const { diagnostics } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" })],
+        edges: [edge],
+        styles: [
+          { styleKind: "classDef", authoredAs: "classDef", targetIds: [], name: "c", properties: [{ property: "stroke", value: "#f00" }], line: 2, column: 1 },
+          { styleKind: "classDef", authoredAs: "classDef", targetIds: [], name: "moving", properties: [{ property: "animation", value: "dash 25s linear infinite" }], line: 3, column: 1 },
+          { styleKind: "apply", authoredAs: "class", targetIds: ["e1"], name: "c", properties: [], line: 4, column: 1 },
+          { styleKind: "apply", authoredAs: "class", targetIds: ["e1"], name: "moving", properties: [], line: 5, column: 1 },
+        ],
+      }),
+    );
+
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message: 'A class cannot animate the edge "e1". Write e1@{ animate: true } below the edge instead',
+        line: 5,
+        column: 1,
+      },
+    ]);
+  });
+
+  it("reports an unsafe value in a class applied to a node and an edge once", () => {
+    const { diagnostics } = buildFlowchartModel(
+      flowchartDocument({
+        nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" })],
+        edges: [edge],
+        styles: classStatements([{ property: "fill", value: "red;position:fixed" }], 3, ["A", "e1"]),
+      }),
+    );
+
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      'Style value for "fill" contains ";", which would smuggle in a second declaration; dropping the declaration.',
+    ]);
+  });
 });
 
 describe("buildFlowchartModel's invisible edge", () => {
