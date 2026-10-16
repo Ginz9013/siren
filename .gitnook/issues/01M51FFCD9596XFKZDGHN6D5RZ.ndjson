@@ -3,3 +3,4 @@
 {"id":"01M51K8BM77GZ5YSM7VHMC3JE9","t":3,"a":"83a1","op":"comment","body":"由 board class-direction-entities 接手：spec 01M51K83E0，T1 01M51K83NB（不在行首的 direction 改為 error），T2 01M51K83X2（成員裡的 entity code 照 Mermaid 解碼）。"}
 {"id":"01M51NNSN562QEE8X22MF6RZET","t":4,"a":"83a1","op":"comment","body":"由 board class-direction-entities（spec 01M51K83E0MW20506KMKXRF8FW）完成，見 git log --grep 'Ticket: class-direction-entities'。剩下的落差另開 backlog 01M51NNE7H。"}
 {"id":"01M51NNSVN2HQXJX8Y72QPC7YY","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M51NPNFQDT3NSHTWBSHEVHWA","t":6,"a":"83a1","op":"set","k":"archived","v":true}
