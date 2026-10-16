@@ -3395,12 +3395,13 @@ describe("parseClassDiagram — `class C … direction XX` that declares nothing
     // Measured (Mermaid 12.2.0, Chrome): with a `;`, a `%%` comment, a
     // `~generic~` or a `:::style` on the line, `class C direction XX` draws
     // no class `CdirectionXX` but is a lexical or parse error.
-    for (const line of [
-      "class C direction XX;",
-      "class C direction XX %% x",
-      "class C~T~ direction XX",
-      "class C:::foo direction XX",
-    ]) {
+    // A `%%` comment is no part of the statement the error quotes.
+    for (const [line, quoted] of [
+      ["class C direction XX;", "class C direction XX;"],
+      ["class C direction XX %% x", "class C direction XX"],
+      ["class C~T~ direction XX", "class C~T~ direction XX"],
+      ["class C:::foo direction XX", "class C:::foo direction XX"],
+    ] as const) {
       const { document, diagnostics } = parseClassDiagram(`classDiagram\n  ${line}`);
       expect([line, document, diagnostics]).toEqual([
         line,
@@ -3409,7 +3410,7 @@ describe("parseClassDiagram — `class C … direction XX` that declares nothing
           {
             severity: "error",
             message:
-              `\`${line}\` cannot set a direction: a class declaration ends before \`direction\`. ` +
+              `\`${quoted}\` cannot set a direction: a class declaration ends before \`direction\`. ` +
               "Write the direction on a line of its own, such as `direction LR`.",
             line: 2,
             column: 3,

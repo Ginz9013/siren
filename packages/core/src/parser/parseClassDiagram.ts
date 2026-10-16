@@ -290,6 +290,12 @@ function percentOutsideQuotes(line: string): number {
   return match === null ? -1 : match[0].length - 2;
 }
 
+/** `line` up to its first `%%` outside a quoted string (`percentOutsideQuotes`), trimmed at the end. */
+function withoutComment(line: string): string {
+  const percent = percentOutsideQuotes(line);
+  return percent === -1 ? line : line.slice(0, percent).trimEnd();
+}
+
 /** The column `rawLine`'s text starts at, after its indent. */
 function textColumn(rawLine: string): number {
   return rawLine.length - rawLine.trimStart().length + 1;
@@ -375,6 +381,11 @@ const DIRECTION_SEMICOLON_RE = /^(direction\s+(?:TB|BT|RL|LR))\s*;+$/;
 function readDirectionStatement(line: string): Direction | null {
   const semicolons = DIRECTION_SEMICOLON_RE.exec(line);
   return matchClassDirection(semicolons === null ? line : semicolons[1]);
+}
+
+/** The error for a `direction` statement, quoted as `written`, that sets no class-diagram direction. */
+function notAClassDirection(written: string): string {
+  return `\`${written}\` is not a class-diagram direction: write \`direction TB\` for top to bottom.`;
 }
 
 /**
@@ -606,8 +617,10 @@ const INLINE_MEMBER_RE = /^(\w+)(?:\s*~(.*?)~)?\s*:\s*(.+)$/d;
  * only a class block's member can hold, after `A :` it is refused before the
  * name is read (`+int x;` draws as written).
  */
-const MEMBER_NAME_RE =
-  /^[\p{L}\p{N}_?!,[\]=/'"$*&][\p{L}\p{N}_.?!,[\]=/'"$*&-]*(?:<br>[\p{L}\p{N}_.?!,[\]=/'"$*&-]*)*;?$/u;
+const NAME_PUNCTUATION = String.raw`?!,[\]=/'"$*&`;
+const NAME_START = String.raw`[\p{L}\p{N}_${NAME_PUNCTUATION}]`;
+const NAME_REST = String.raw`[\p{L}\p{N}_.${NAME_PUNCTUATION}-]*`;
+const MEMBER_NAME_RE = new RegExp(`^${NAME_START}${NAME_REST}(?:<br>${NAME_REST})*;?$`, "u");
 
 /**
  * A whole member name that looks like an entity code and is none — a `#`,
@@ -1251,7 +1264,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       if (namespaceMembers !== null) return { lastIndex: startIndex, read: "direction" };
       diagnostics.push({
         severity: "error",
-        message: "`direction TD` is not a class-diagram direction: write `direction TB` for top to bottom.",
+        message: notAClassDirection("direction TD"),
         line: lineNumber,
         column,
       });
@@ -1275,7 +1288,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       if (namespaceMembers !== null) return { lastIndex: startIndex, read: "direction" };
       diagnostics.push({
         severity: "error",
-        message: `\`${tdSpelling}\` is not a class-diagram direction: write \`direction TB\` for top to bottom.`,
+        message: notAClassDirection(tdSpelling),
         line: lineNumber,
         column,
       });
@@ -2146,7 +2159,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       diagnostics.push({
         severity: "error",
         message:
-          `\`${line}\` cannot set a direction: a class declaration ends before \`direction\`. ` +
+          `\`${withoutComment(line)}\` cannot set a direction: a class declaration ends before \`direction\`. ` +
           "Write the direction on a line of its own, such as `direction LR`.",
         line: lineNumber,
         column,

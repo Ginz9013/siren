@@ -1819,18 +1819,29 @@ export type ClassMemberVisibility = "+" | "-" | "#" | "~";
 export type ClassMemberClassifier = "*" | "$";
 
 /**
- * One attribute or method line of a class. Every part is kept as written,
- * so the source line can be reconstructed from the parts (that is how the
- * renderer prints it) without the parser having to keep the raw string.
+ * One attribute or method line of a class, split into the parts layout
+ * composes the drawn line from. Each part is kept as written — entity codes
+ * and character references undecoded, generics still `~T~` — except an
+ * attribute's type, its words single-spaced, and a method's last parameter
+ * list, which is trimmed as it is drawn.
  */
 export interface ClassMember {
   memberKind: ClassMemberKind;
   visibility: ClassMemberVisibility | null;
   classifier: ClassMemberClassifier | null;
+  /**
+   * The member's name: an attribute's last word, a method's text before its
+   * first `(`. `""` for a member of nothing but markers (`+`, `$`).
+   */
   name: string;
   /** An attribute's type (`int` in `+int size`), or `null` when untyped. Always `null` for a method. */
   type: string | null;
-  /** A method's parameter text between its parens, `""` for `()`. Always `null` for an attribute. */
+  /**
+   * A method's parameter text: everything between the `(` after its name and
+   * its last `)`, `""` for `()`. Only the last parameter list — the one that
+   * begins at the last `(` with a `)` after it — is trimmed, so `+foo( a )`
+   * keeps `a` and `+foo(a)( b )` keeps `a)(b`. Always `null` for an attribute.
+   */
   parameters: string | null;
   /** A method's return type (`bool` in `+swim() bool`), or `null` when it declares none. */
   returnType: string | null;

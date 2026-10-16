@@ -141,7 +141,8 @@ Breaking for a class document with a second `:` in an inline member (`A : +x : i
 with a member written twice (`A : +x` on two lines), which used to be drawn once and is now drawn
 each time; and for one with a method whose last parameter list is padded or follows another
 (`+foo( a )`, `+foo(a)( b )`), which used to be drawn as written and is now drawn `+foo(a)` and
-`+foo(a)(b)` (see **Changed**).
+`+foo(a)(b)`; and for one with `direction td` or `direction TD x`, which sets no direction and is
+now refused saying to write `direction TB` (see **Changed**).
 
 ### Added
 
