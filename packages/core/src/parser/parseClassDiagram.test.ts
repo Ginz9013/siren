@@ -2045,7 +2045,7 @@ describe("parseClassDiagram — the statements a namespace body refuses", () => 
     return diagnostics.map((d) => [d.severity, d.message, d.line, d.column]);
   };
   const outside = (statement: string, namespace = "N") =>
-    `"${statement}" cannot be written inside "namespace ${namespace}": only classes, notes and namespaces go there. ` +
+    `\`${statement}\` cannot be written inside "namespace ${namespace}": only classes, notes and namespaces go there. ` +
     "Move it outside the namespace.";
 
   it("refuses a relationship or a standalone annotation in a namespace, at the statement", () => {
@@ -2054,6 +2054,14 @@ describe("parseClassDiagram — the statements a namespace body refuses", () => 
         ["error", outside(statement), 4, 5],
       ]);
     }
+  });
+
+  it("quotes the statement in backticks, so a statement holding quotes reads whole", () => {
+    const [[, message]] = refused('  namespace N {\n    class A\n    click A href "x"\n  }');
+    expect(message).toBe(
+      '`click A href "x"` cannot be written inside "namespace N": only classes, notes and namespaces go there. ' +
+        "Move it outside the namespace.",
+    );
   });
 
   it("refuses a direction, style or interaction statement in a namespace, at the statement", () => {
@@ -2095,14 +2103,14 @@ describe("parseClassDiagram — the statements a namespace body refuses", () => 
       ["error", outside("style A fill:#f00", "N.M"), 3, 5],
     ]);
     // With a `%%` after it, the statement is what is quoted, and the `%%`
-    // is refused on its own terms as well.
+    // is refused on its own terms as well, as the statement is read.
     expect(refused("  namespace N {\n    class A\n    A --> B %% x\n  }").map(([, message, line, column]) => [
       message === outside("A --> B") ? "outside" : message,
       line,
       column,
     ])).toEqual([
-      ["outside", 4, 5],
       [expect.stringContaining('"%%" in the middle of a line'), 4, 13],
+      ["outside", 4, 5],
     ]);
   });
 

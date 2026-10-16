@@ -276,6 +276,19 @@ const STATEMENTS_A_COMMENT_MAY_FOLLOW = [
   STANDALONE_ANNOTATION_RE,
 ];
 
+/** The kind of statement the class-diagram statement parser read a line as. */
+type StatementKind =
+  | "direction"
+  | "accessibility"
+  | "namespace"
+  | "note"
+  | "interaction"
+  | "style"
+  | "annotation"
+  | "relationship"
+  | "class"
+  | "member";
+
 /**
  * The statements a `namespace` body may hold: a class declaration in any
  * form, a note, a nested namespace — and a comment, which never reaches
@@ -286,7 +299,7 @@ const STATEMENTS_A_COMMENT_MAY_FOLLOW = [
  * 'NOTE_FOR', 'NOTE', got …"). The one place that rule lives: every other
  * statement is refused where it stands in a namespace (ADR-0017).
  */
-const NAMESPACE_BODY_STATEMENTS = [NAMESPACE_OPEN_RE, CLASS_BLOCK_OPEN_RE, CLASS_DECL_RE, NOTE_FOR_RE, NOTE_RE];
+const NAMESPACE_BODY_KINDS: ReadonlySet<StatementKind> = new Set(["namespace", "class", "note"]);
 
 /** The inline member form, `Bird : +fly()`. */
 const INLINE_MEMBER_RE = /^(\w+)\s*:\s*(.+)$/d;
@@ -581,12 +594,6 @@ export function parseClassDiagram(source: string): DiagramParseResult {
   /** How many `namespace` blocks enclose the statement being parsed. */
   let namespaceDepth = 0;
   /**
-   * The index of the line last refused as no statement at all, or -1: such
-   * a line is not refused as misplaced in a namespace as well, since moving
-   * it out would not make it one.
-   */
-  let unreadLineIndex = -1;
-  /**
    * The innermost `namespace` block enclosing the statement being parsed, or
    * `null` at the top level: what a qualified name is built from, and where
    * a note written there is recorded.
@@ -804,18 +811,22 @@ export function parseClassDiagram(source: string): DiagramParseResult {
 
   /**
    * Parses the statement starting at `startIndex` and returns the index of
-   * the last line it consumed: the same line for a one-line statement, the
-   * closing `}` for a block form. The caller advances past that.
+   * the last line it consumed — the same line for a one-line statement, the
+   * closing `}` for a block form; the caller advances past that — and the
+   * kind of statement it read the line as, `null` when it read none.
    *
    * `namespaceMembers` is the class-id list of the `namespace` block this
    * statement sits inside, or `null` at the top level. A class declared
    * here joins that list.
    */
-  const parseStatement = (startIndex: number, namespaceMembers: string[] | null): number => {
+  const parseStatement = (
+    startIndex: number,
+    namespaceMembers: string[] | null,
+  ): { lastIndex: number; read: StatementKind | null } => {
     const rawLine = lines[startIndex];
     const line = rawLine.trim();
     if (line.length === 0) {
-      return startIndex;
+      return { lastIndex: startIndex, read: null };
     }
 
     const lineNumber = startIndex + 1;
@@ -824,7 +835,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     const directionStatement = matchClassDirection(line);
     if (directionStatement !== null) {
       direction = directionStatement;
-      return startIndex;
+      return { lastIndex: startIndex, read: "direction" };
     }
 
     // The two accessibility statements (01M4WVVN9), read before the member
@@ -835,12 +846,12 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     const accTitleMatch = ACC_TITLE_RE.exec(line);
     if (accTitleMatch !== null) {
       accTitle = accTitleMatch[1].trim();
-      return startIndex;
+      return { lastIndex: startIndex, read: "accessibility" };
     }
     const accDescrMatch = ACC_DESCR_RE.exec(line);
     if (accDescrMatch !== null) {
       accDescr = accDescrMatch[1].trim();
-      return startIndex;
+      return { lastIndex: startIndex, read: "accessibility" };
     }
     if (ACC_DESCR_BLOCK_RE.test(line)) {
       // Read as in every kind (`readAccDescrBlock`), except that a class
@@ -857,12 +868,12 @@ export function parseClassDiagram(source: string): DiagramParseResult {
           column,
         });
         sawError = true;
-        return block.closed ? block.closeIndex : lines.length;
+        return { lastIndex: block.closed ? block.closeIndex : lines.length, read: "accessibility" };
       }
       accDescr = block.description;
-      if (block.rest === null) return block.closeIndex;
+      if (block.rest === null) return { lastIndex: block.closeIndex, read: "accessibility" };
       lines[block.closeIndex] = block.rest;
-      return block.closeIndex - 1;
+      return { lastIndex: block.closeIndex - 1, read: "accessibility" };
     }
 
     const namespaceOpenMatch = NAMESPACE_OPEN_RE.exec(line);
@@ -940,23 +951,22 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         // level, which is what lets a namespace hold block-form classes:
         // the inner call consumes that class's own `}`, so it is never
         // mistaken for the namespace's.
-        const statementLine = lines[index];
-        const statement = statementLine.trim();
-        const holdsStatement = statement.length > 0;
+        const holdsStatement = lines[index].trim().length > 0;
         heldStatement ||= holdsStatement;
         // A statement no namespace may hold is still parsed — so a block
         // form consumes its own lines, its `}` never mistaken for the
-        // namespace's — and the error, which nulls the document, comes first.
-        const percent = percentOutsideQuotes(statement);
-        const written = percent === -1 ? statement : statement.slice(0, percent).trimEnd();
-        const misplaced = holdsStatement && !NAMESPACE_BODY_STATEMENTS.some((pattern) => pattern.test(written));
-        const misplacedAt = diagnostics.length;
-        const lastIndex = holdsStatement ? parseStatement(index, classIds) : index;
-        if (misplaced && unreadLineIndex !== index) {
-          diagnostics.splice(misplacedAt, 0, {
+        // namespace's — and then refused. A line read as no statement is
+        // refused as that alone: moving it out would not make it one.
+        const { lastIndex, read } = holdsStatement
+          ? parseStatement(index, classIds)
+          : { lastIndex: index, read: null };
+        if (read !== null && !NAMESPACE_BODY_KINDS.has(read)) {
+          // The line as the statement parser read it, a `%%` after it cut.
+          const statementLine = lines[index];
+          diagnostics.push({
             severity: "error",
             message:
-              `"${written}" cannot be written inside "namespace ${namespaceOpenMatch[1]}": ` +
+              `\`${statementLine.trim()}\` cannot be written inside "namespace ${namespaceOpenMatch[1]}": ` +
               "only classes, notes and namespaces go there. Move it outside the namespace.",
             line: index + 1,
             column: statementLine.length - statementLine.trimStart().length + 1,
@@ -1036,7 +1046,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
           : readLabelIn(namespaceOpenMatch, 2, lineNumber, column);
       enclosingNamespace = outerNamespace;
       namespaceDepth--;
-      return bodyIndex;
+      return { lastIndex: bodyIndex, read: "namespace" };
     }
 
     // A note written in a namespace is that namespace's, drawn inside its
@@ -1051,7 +1061,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "note" };
     }
 
     const noteMatch = NOTE_RE.exec(line);
@@ -1063,7 +1073,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "note" };
     }
 
     const clickHrefMatch = CLICK_HREF_RE.exec(line);
@@ -1081,7 +1091,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "interaction" };
     }
 
     const clickCallMatch = CLICK_CALL_RE.exec(line);
@@ -1095,7 +1105,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "interaction" };
     }
 
     const callbackMatch = CALLBACK_RE.exec(line);
@@ -1109,7 +1119,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "interaction" };
     }
 
     const linkMatch = LINK_RE.exec(line);
@@ -1123,7 +1133,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "interaction" };
     }
 
     const classDefMatch = CLASS_DEF_RE.exec(line);
@@ -1137,7 +1147,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "style" };
     }
 
     const cssClassMatch = CSS_CLASS_RE.exec(line);
@@ -1157,7 +1167,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "style" };
     }
 
     const styleMatch = STYLE_RE.exec(line);
@@ -1173,7 +1183,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         line: lineNumber,
         column,
       });
-      return startIndex;
+      return { lastIndex: startIndex, read: "style" };
     }
 
     const standaloneAnnotationMatch = STANDALONE_ANNOTATION_RE.exec(line);
@@ -1194,7 +1204,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         },
         namespaceMembers,
       );
-      return startIndex;
+      return { lastIndex: startIndex, read: "annotation" };
     }
 
     // Mermaid's lexer reads `:::` as the style separator wherever it stands
@@ -1245,7 +1255,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       // resolves the lollipop side into its own synthetic node instead.
       if (fromEnd !== "circle") declareImplicitly(from, lineNumber, column, namespaceMembers);
       if (toEnd !== "circle") declareImplicitly(to, lineNumber, column, namespaceMembers);
-      return startIndex;
+      return { lastIndex: startIndex, read: "relationship" };
     }
 
     const blockOpenMatch = CLASS_BLOCK_OPEN_RE.exec(line);
@@ -1408,7 +1418,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       );
       // The `}` this stopped on, or the end of input when the block was
       // never closed.
-      return bodyIndex;
+      return { lastIndex: bodyIndex, read: "class" };
     }
 
     const classDeclMatch = CLASS_DECL_RE.exec(line);
@@ -1429,7 +1439,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         },
         namespaceMembers,
       );
-      return startIndex;
+      return { lastIndex: startIndex, read: "class" };
     }
 
     const inlineMemberMatch = holdsShorthand ? null : INLINE_MEMBER_RE.exec(line);
@@ -1455,7 +1465,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
           column: column + semicolon,
         });
         sawError = true;
-        return startIndex;
+        return { lastIndex: startIndex, read: "member" };
       }
       const member = parseMember(memberText, lineNumber, column);
       if (member === null) {
@@ -1466,7 +1476,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
           column,
         });
         sawError = true;
-        return startIndex;
+        return { lastIndex: startIndex, read: "member" };
       }
       // One declaration per line, carrying that line's single member.
       // Folding repeats of the same id together is `buildClassModel`'s job.
@@ -1482,7 +1492,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         },
         namespaceMembers,
       );
-      return startIndex;
+      return { lastIndex: startIndex, read: "member" };
     }
 
     // A `%%` no statement above holds as text. After a statement in
@@ -1533,8 +1543,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         column,
       });
       sawError = true;
-      unreadLineIndex = startIndex;
-      return startIndex;
+      return { lastIndex: startIndex, read: null };
     }
 
     diagnostics.push({
@@ -1544,8 +1553,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       column,
     });
     sawError = true;
-    unreadLineIndex = startIndex;
-    return startIndex;
+    return { lastIndex: startIndex, read: null };
   };
 
   for (; index < lines.length; index++) {
@@ -1570,7 +1578,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       break;
     }
 
-    index = parseStatement(index, null);
+    index = parseStatement(index, null).lastIndex;
   }
 
   if (sawError) {

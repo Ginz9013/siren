@@ -891,12 +891,12 @@ dotted name is the same nesting on one line: `namespace N.M {` is the `M` inside
 is that namespace's (`ResolvedClassNamespace.noteIds`) and drawn inside its frame, so a namespace
 holding only a note is framed too. A namespace body holds class declarations, notes, nested
 namespaces and comments, and nothing else: a relationship, a `style`, an inline member or any other
-statement written there is refused, to be moved outside the namespace (nook `01M51DSEGE`). A
-namespace may carry a bracketed `["label"]` after its name
-(`namespace Zoo["Big Zoo"] {`), drawn as the frame's title in place of the name — a **Label** in the
-`html` dialect; of a reopened namespace's labels, the last one written wins, and a dotted name's
-label titles its last part only. Addressable in a `timeline:` block under a generated id
-(`namespace:1`, `namespace:2`, … in the order the namespaces first open, outer before inner).
+statement written there is refused, to be moved outside the namespace. A namespace may carry a
+bracketed `["label"]` after its name (`namespace Zoo["Big Zoo"] {`), drawn as the frame's title in
+place of the name — a **Label** in the `html` dialect; of a reopened namespace's labels, the last
+one written wins, and a dotted name's label titles its last part only. Addressable in a
+`timeline:` block under a generated id (`namespace:1`, `namespace:2`, … in the order the
+namespaces first open, outer before inner).
 _Avoid_: package, module, cluster (that is the word the layout core uses for the mechanism, not
 the authored construct), group, box
 
@@ -905,14 +905,13 @@ A free-standing annotation box, in either of the two diagram kinds that have one
 diagram's, either attached to one class (`note for Shelf "..."`, drawn with a connector to that
 class's box) or standing alone (`note "..."`) — a `note for` naming no class of the diagram stands
 alone too, with a warning, since naming a class there does not declare it — its quoted text a
-**Label** in the `html` dialect; a
-sequence diagram's `note over A,B`/`note right of
-A`/`note left of A`, its text a **Label** in the `sequence` dialect and the note as tall as all its
-rows, modeled as one statement with a `left`/`right`/`over` placement axis (the
-same two/one-axis pattern as `SequenceArrow`/`ClassRelationshipEnd`) rather than three statement
-kinds, and drawn with the class diagram's own `siren-note`/`siren-note-frame`/`siren-note-text`
-classes — deliberately reused rather than duplicated, since it is the same idea (a boxed
-annotation) in both kinds. The two differ in layout: a class diagram's note is laid out as an
+**Label** in the `html` dialect; a sequence diagram's `note over A,B`/`note right of A`/
+`note left of A`, its text a **Label** in the `sequence` dialect and the note as tall as all its
+rows, modeled as one statement with a `left`/`right`/`over` placement axis (the same two/one-axis
+pattern as `SequenceArrow`/`ClassRelationshipEnd`) rather than three statement kinds, and drawn
+with the class diagram's own `siren-note`/`siren-note-frame`/`siren-note-text` classes —
+deliberately reused rather than duplicated, since it is the same idea (a boxed annotation) in both
+kinds. The two differ in layout: a class diagram's note is laid out as an
 ordinary graph node, so the layout engine itself guarantees it never overlaps a class box, at the
 cost of occupying a rank — joined from the note to its class, as Mermaid 12 joins it, so an attached
 note sits a layer before the class it is about, and one written inside a **namespace** is laid out
