@@ -297,6 +297,24 @@ function withoutComment(line: string): string {
   return percent === -1 ? line : line.slice(0, percent).trimEnd();
 }
 
+/**
+ * The member a class block's line that is nothing but `%%` is: the text
+ * `%%`, drawn as written.
+ */
+const BARE_PERCENT_MEMBER: ClassMember = {
+  memberKind: "attribute",
+  visibility: null,
+  classifier: null,
+  name: "%%",
+  type: null,
+  parameters: null,
+  returnType: null,
+};
+
+const BARE_PERCENT_IN_NAMESPACE =
+  'A line that is nothing but "%%" is not a comment in a namespace: a comment needs text after its "%%". ' +
+  'Write "%% text", or leave the line blank.';
+
 /** The column `rawLine`'s text starts at, after its indent. */
 function textColumn(rawLine: string): number {
   return rawLine.length - rawLine.trimStart().length + 1;
@@ -1297,6 +1315,18 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     const lineNumber = startIndex + 1;
     const column = textColumn(rawLine);
 
+    // A line that is nothing but `%%` is no comment line — one needs a
+    // character after its `%%` — and the class lexer reads it as a comment
+    // between statements (measured, Chrome: `class A` ⏎ `%%` ⏎ `class B`
+    // draws both), but not in a namespace's body, where it is a parse error.
+    if (rawLine.trimStart() === "%%") {
+      if (namespaceMembers !== null) {
+        diagnostics.push({ severity: "error", message: BARE_PERCENT_IN_NAMESPACE, line: lineNumber, column });
+        sawError = true;
+      }
+      return { lastIndex: startIndex, read: null };
+    }
+
     // `TD` is a flowchart's alias, not a class diagram's: refused saying
     // which spelling to write. Inside a namespace the placement is the
     // problem, as for any `direction` there, so the namespace's one error
@@ -1983,6 +2013,12 @@ export function parseClassDiagram(source: string): DiagramParseResult {
         // parser alone gets the same reading. A `%%` later in a member, or
         // after the block's `{` on its line, is member text (`+x %% c`).
         if (bodyLine.startsWith("%%")) {
+          // Unless it is nothing but `%%`: a comment needs a character after
+          // it, a space will do, and a bare `%%` is the block's member `%%`
+          // (measured, Chrome: `class A {` ⏎ `%%` ⏎ `}` draws `%%`).
+          if (bodyRawLine.trimStart() === "%%") {
+            members.push({ ...BARE_PERCENT_MEMBER, line: bodyIndex + 1, column: textColumn(bodyRawLine) });
+          }
           continue;
         }
         const bodyColumn = bodyRawLine.length - bodyRawLine.trimStart().length + 1;

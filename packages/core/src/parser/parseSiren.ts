@@ -310,7 +310,9 @@ const BARE_COMMENT_REFUSED = `${BARE_COMMENT_IS_NOT}.${BARE_COMMENT_HINT}`;
  * give for it (measured on 12.2.0), given whether the line stands below the
  * kind's header. `null` where the kind's grammar reads the line as a
  * comment after all (sequence, class and state: their lexers have a `%%`
- * rule of their own), so it means here what it means there. A flowchart
+ * rule of their own), so it means here what it means there — save that a
+ * class diagram's parser is handed the line to decide by where it stands
+ * (`BARE_COMMENT_HANDED_TO_KIND`). A flowchart
  * draws the line as a node below its header and refuses the document above
  * it; an ER diagram refuses it anywhere. A record rather than a switch, as
  * `PARSE_KIND` is, so a new kind cannot arrive without this decision.
@@ -322,6 +324,43 @@ const BARE_COMMENT_MESSAGE: Record<DiagramKind, (belowHeader: boolean) => string
   state: () => null,
   er: () => BARE_COMMENT_REFUSED,
 };
+
+/**
+ * Whether a kind's own parser is handed its bare `%%` lines below its
+ * header, rather than blank lines. A class diagram's grammar reads one by
+ * where it stands (measured on 12.2.0): a class block's member `%%`,
+ * nothing between statements, a parse error in a namespace's body — so the
+ * line goes to `parseClassDiagram`, which knows where it stands. Every
+ * other kind reads it the same wherever it stands, which
+ * `BARE_COMMENT_MESSAGE` says. A record for the reason that one is.
+ */
+const BARE_COMMENT_HANDED_TO_KIND: Record<DiagramKind, boolean> = {
+  flowchart: false,
+  sequence: false,
+  class: true,
+  state: false,
+  er: false,
+};
+
+/**
+ * `lines` with each bare `%%` line in `bareCommentLines` below `header` and
+ * above `timelineStart` put back, at its column, when `header`'s kind is
+ * handed them (`BARE_COMMENT_HANDED_TO_KIND`); `lines` itself otherwise.
+ */
+function withBareCommentLines(
+  lines: readonly string[],
+  header: Header | null,
+  timelineStart: number,
+  bareCommentLines: readonly BareCommentLine[],
+): readonly string[] {
+  if (header?.kind == null || !BARE_COMMENT_HANDED_TO_KIND[header.kind]) return lines;
+  const restored = [...lines];
+  for (const at of bareCommentLines) {
+    const index = at.line - 1;
+    if (index > header.index && index < timelineStart) restored[index] = `${" ".repeat(at.column - 1)}%%`;
+  }
+  return restored;
+}
 
 /** `BARE_COMMENT_MESSAGE` for the line `at`, in a document of `header`'s kind. */
 function bareCommentMessage(header: Header | null, at: BareCommentLine): string | null {
@@ -379,7 +418,7 @@ export function parseSiren(source: string): ParseResult {
     return { document: null, diagnostics: bareCommentRefusals, config: {} };
   }
   const documentConfig = documentConfigOf(frontmatter, directives, header?.kind ?? null);
-  const parsed = dispatch(lines, header);
+  const parsed = dispatch(withBareCommentLines(lines, header, timelineStart, bareCommentLines), header);
   const { document, diagnostics } = asWritten({
     ...parsed,
     diagnostics: explainCommentedTargets(parsed.diagnostics, commentedTargets),

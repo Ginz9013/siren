@@ -149,6 +149,12 @@ which used to take a line's height and now takes none (see **Changed**). Breakin
 that composes a member's text from a `ClassMember`'s parts: the new `spaceAfterVisibility` flag,
 when `true`, means one space follows the visibility marker (`+ x`), which such code must now draw.
 
+Breaking for a class document with a line that is nothing but `%%` inside a class block, which
+used to be dropped and is now drawn as the member `%%`, or in a namespace's body outside a class
+block, which used to be dropped and is now refused; and for one whose attribute compartment holds
+only lines that draw no text (`$` beside methods), which used to take a compartment's room and
+divider and now takes none (see **Changed**).
+
 ### Added
 
 - A flowchart node's `@{ shape: … }` block draws the shapes Mermaid 12.2.0 draws at a fixed size
@@ -395,6 +401,13 @@ when `true`, means one space follows the visibility marker (`+ x`), which such c
 - A refused `@{ shape: … }` name now offers the fourteen bracket shapes as examples ("Use a shape
   such as: …") rather than as the only choices.
 - A flowchart `datastore` is wider by twice Mermaid's 15px node padding, as Mermaid sizes it.
+- **A class diagram's bare `%%` line is read by where it stands** (nook `01M521P5NA`, measured in
+  Chrome): a comment line needs a character after its `%%`, so Mermaid 12.2.0 draws a class
+  block's `%%` line as the member `%%`, reads one between statements as nothing, and refuses one
+  in a namespace's body. Siren dropped it everywhere; `parseSiren` now hands it to the class
+  parser, which draws, skips or refuses it the same way, with an error saying to write `%% text`
+  or leave the line blank. A compartment whose every line draws no text (`$`, `*`) now takes no
+  room, its padding and divider included, as Mermaid draws `$` ⏎ `+f()` exactly as `+f()`.
 - **The rest of a class member's text is drawn as Mermaid 12.2.0 draws it** (nook `01M51Z1XFF`,
   measured in Chrome): a space after the visibility marker is drawn, one however many were written
   (`+ x`, `+  x` draw `+ x`); a method may have no name after its marker (`+(a)`, `-( b ) int`

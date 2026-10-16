@@ -1180,6 +1180,33 @@ classDiagram
       }
     });
 
+    it("hands a class diagram its bare `%%` lines, a class block reading one as the member `%%`", () => {
+      // Measured (Chrome): `class A {` ⏎ `%%` ⏎ `+x` ⏎ `}` draws the members
+      // `%%` and `+x`; `%% hi` and `%%   ` there are comments; a bare `%%` in
+      // a namespace's body, outside a class block, is a parse error.
+      const members = (source: string) => {
+        const { document, diagnostics } = parseSiren(source);
+        return {
+          diagnostics,
+          members: document?.kind === "class" ? document.classes.flatMap((c) => c.members.map((m) => m.name)) : null,
+        };
+      };
+      expect(members("classDiagram\n  class A {\n%%\n    %% hi\n    %%   \n    +x\n  }")).toEqual({
+        diagnostics: [],
+        members: ["%%", "x"],
+      });
+      expect(parseSiren("classDiagram\n  namespace N {\n    %%\n    class A\n  }").diagnostics).toEqual([
+        {
+          severity: "error",
+          message:
+            'A line that is nothing but "%%" is not a comment in a namespace: a comment needs text after its "%%". ' +
+            'Write "%% text", or leave the line blank.',
+          line: 3,
+          column: 5,
+        },
+      ]);
+    });
+
     it("still reads `%%` followed by nothing but spaces or a tab as a comment, as Mermaid does — any character after `%%` makes one", () => {
       // `[^\n]+` matches a space as well as a word: measured, `%%   `, `%%\t`
       // and `%%%` vanish in a flowchart and in an ER diagram alike.

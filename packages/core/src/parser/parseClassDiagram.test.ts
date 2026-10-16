@@ -3570,3 +3570,47 @@ describe("parseClassDiagram — a `direction` with a value it does not set", () 
     }
   });
 });
+
+describe("parseClassDiagram — a line that is nothing but `%%`", () => {
+  const membersOf = (source: string) => {
+    const { document, diagnostics } = parseClassDiagram(source);
+    return { diagnostics, members: document?.kind === "class" ? document.classes.flatMap((c) => c.members.map(reconstruct)) : null };
+  };
+
+  it("reads it as the member `%%` inside a class block, indented or not, and a `%%` with spaces after it as a comment", () => {
+    // Measured (Mermaid 12.2.0, Chrome): `class A {` ⏎ `%%` ⏎ `+x` ⏎ `}`
+    // draws the members `%%` and `+x`, the `%%` indented too, while `%%`
+    // followed by spaces is a comment line and draws nothing.
+    expect(membersOf("classDiagram\n  class A {\n%%\n    +x\n  }")).toEqual({ diagnostics: [], members: ["%%", "+x"] });
+    expect(membersOf("classDiagram\n  class A {\n    %%\n  }")).toEqual({ diagnostics: [], members: ["%%"] });
+    expect(membersOf("classDiagram\n  class A {\n    %%   \n    +x\n  }")).toEqual({ diagnostics: [], members: ["+x"] });
+  });
+
+  it("reads it as nothing between statements", () => {
+    // Measured (Chrome): `class A` ⏎ `%%` ⏎ `class B` draws A and B, and a
+    // last line `%%` draws nothing more.
+    for (const source of ["classDiagram\n  class A\n%%\n  class B", "classDiagram\n  class A\n  %%"]) {
+      expect([source, parseClassDiagram(source).diagnostics]).toEqual([source, []]);
+    }
+  });
+
+  it("refuses it in a namespace's body, outside a class block", () => {
+    // Measured (Chrome): `namespace N {` ⏎ `%%` ⏎ `class A` ⏎ `}` is a parse
+    // error at the `%%`; inside the class block there, it is a member.
+    const { document, diagnostics } = parseClassDiagram("classDiagram\n  namespace N {\n    %%\n    class A\n  }");
+    expect([document, diagnostics]).toEqual([
+      null,
+      [
+        {
+          severity: "error",
+          message:
+            'A line that is nothing but "%%" is not a comment in a namespace: a comment needs text after its "%%". ' +
+            'Write "%% text", or leave the line blank.',
+          line: 3,
+          column: 5,
+        },
+      ],
+    ]);
+    expect(membersOf("classDiagram\n  namespace N {\n    class A {\n      %%\n    }\n  }")).toEqual({ diagnostics: [], members: ["%%"] });
+  });
+});

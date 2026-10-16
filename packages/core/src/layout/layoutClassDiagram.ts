@@ -257,7 +257,10 @@ function planClassBox(
    * with no attributes (or no methods) ends up with no divider drawn.
    */
   function planCompartment(members: ClassMember[]): CompartmentPlan | null {
-    if (members.length === 0) return null;
+    // A compartment whose every line draws no text (`$`, `*`) takes no
+    // room at all, its padding and divider included: Mermaid 12.2.0 draws
+    // `$` ⏎ `+f()` exactly as `+f()` alone (measured, Chrome).
+    if (members.every((member) => memberText(member) === "")) return null;
     const dividerY = bottom;
     bottom += CLASS_PADDING_Y;
     const planned = members.map((member) => {

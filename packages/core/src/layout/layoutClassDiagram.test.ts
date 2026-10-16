@@ -478,6 +478,24 @@ describe("layoutClassDiagram", () => {
       expect(ys(withEmpty)).toEqual(ys(without));
     });
 
+    it("lays out a compartment whose every line draws no text as no compartment at all", () => {
+      // Measured (Mermaid 12.2.0, Chrome): `class A {` ⏎ `$` ⏎ `+f()` ⏎ `}`
+      // is exactly as tall as `class A {` ⏎ `+f()` ⏎ `}`, its dividers where
+      // that one's are — the `$` adds no room, not even the padding of a
+      // compartment of its own.
+      const layout = (members: ClassMember[]) =>
+        classById(layoutClassDiagram(classModel({ classes: [cls("A", members)] }), { measureText: fakeMeasurer }), "A");
+      const empty = attribute({ name: "", classifier: "$" });
+      const f = method({ visibility: "+", name: "f" });
+      const summary = (box: ReturnType<typeof layout>) => [
+        box.height,
+        box.attributes?.dividerY ?? null,
+        box.methods?.dividerY ?? null,
+      ];
+      expect(summary(layout([empty, f]))).toEqual(summary(layout([f])));
+      expect(summary(layout([empty, attribute({ name: "", classifier: "*" })]))).toEqual(summary(layout([])));
+    });
+
     it("draws one space after the visibility marker when the member wrote one", () => {
       // Measured (Mermaid 12.2.0, Chrome): `+ x` draws `+ x`, `- int x`
       // `- int x` and `+ foo() bool` `+ foo() : bool`.

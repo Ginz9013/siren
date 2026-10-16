@@ -6756,6 +6756,51 @@ line2\`"]`,
       expectSame("line gaps equal", ys[1]! - ys[0]! === ys[2]! - ys[1]!, true);
     },
   },
+  {
+    id: "cls-member-bare-percent",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        %%
+        %% a comment
+        +x
+      }
+      %%
+      class B`,
+    status: "supported",
+    meaning:
+      "A line that is nothing but `%%` is no comment line — one needs a " +
+      "character after its `%%` — so in a class block it is the member " +
+      "`%%`: Mermaid 12.2.0 draws `%%` and `+x` in A, the `%% a comment` " +
+      "line gone, and reads the bare `%%` between statements as nothing " +
+      "(measured, Chrome). Siren used to drop it in the block too " +
+      "(nook 01M521P5NA).",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["A", "B"]);
+      expectSame("members", members(result, "A"), ["%%", "+x"]);
+    },
+  },
+  {
+    id: "cls-compartment-textless",
+    kind: "class",
+    source: `classDiagram
+      class A {
+        $
+        +f()
+      }`,
+    status: "supported",
+    meaning:
+      "An attribute compartment whose every line draws no text takes no " +
+      "room: Mermaid 12.2.0 draws `$` ⏎ `+f()` exactly as tall as `+f()` " +
+      "alone, its dividers in the same places (measured, Chrome). Siren " +
+      "used to give the `$` a compartment of its own, padding and divider " +
+      "included (nook 01M521P5NA).",
+    assert: (result) => {
+      const box = svgOf(result).querySelector('g.siren-class[data-siren-id="A"]');
+      expectSame("members", members(result, "A"), ["+f()"]);
+      expectSame("dividers", box?.querySelectorAll("line.siren-class-divider").length ?? 0, 1);
+    },
+  },
   // -------------------------------------------------------------------------
   // sequenceDiagram
   // -------------------------------------------------------------------------
