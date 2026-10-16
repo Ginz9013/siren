@@ -435,29 +435,11 @@ describe("a node's `@{ … }` block written across lines", () => {
 const SHAPE_CHOICES = "rect, rounded, stadium, fr-rect, cyl, circle, diam, hex, lean-r, lean-l, trap-b, trap-t, dbl-circ, odd";
 
 /**
- * A `shape:` Siren does not draw. Measured on Mermaid 12.2.0: it draws
- * `icon`, the undocumented shape Siren has no geometry for yet; it refuses `foo` ("No such shape"),
+ * A `shape:` Siren does not draw. Measured on Mermaid 12.2.0: it refuses `foo` ("No such shape"),
  * and any name with an upper-case letter or a `_` ("Shape names should be
  * lowercase"); `shape: 1` throws.
  */
 describe("a `shape:` Siren does not draw", () => {
-  it.each(["icon"])(
-    "refuses `shape: %s` at the `@`, as a shape not drawn yet",
-    (name) => {
-      const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A --> Bc@{ shape: ${name} }`);
-
-      expect(document).toBeNull();
-      expect(diagnostics).toEqual([
-        {
-          severity: "error",
-          message: `Siren does not draw the shape "${name}" yet. Use a shape such as: ${SHAPE_CHOICES}`,
-          line: 2,
-          column: 11,
-        },
-      ]);
-    },
-  );
-
   it.each([
     ["foo", `There is no shape "foo". Use a shape such as: ${SHAPE_CHOICES}`],
     ["Rect", 'There is no shape "Rect". Shape names are lower-case, with "-" between words: rect'],
@@ -477,14 +459,14 @@ describe("a `shape:` Siren does not draw", () => {
 
 /**
  * The keys of an `@{ … }` block other than `shape`, `label` and
- * `labelType`. Measured on Mermaid 12.2.0: `icon`, `img`, `form`, `pos`,
- * `w`, `h` and `constraint` change what a node draws (an icon or image
- * node, its size); any other key is read and ignored (`A@{ foo: 1 }` is a
+ * `labelType`. Measured on Mermaid 12.2.0: `img`, `w` and `constraint`
+ * change what a node draws (an image node, its size; the icon keys are
+ * read, below); any other key is read and ignored (`A@{ foo: 1 }` is a
  * plain node). What is not YAML is refused ("missed comma between flow
  * collection entries").
  */
 describe("the other keys of a node's `@{ … }` block", () => {
-  it.each(["icon", "img", "form", "pos", "w", "h", "constraint"])("refuses `%s` at the `@`, as not supported yet", (key) => {
+  it.each(["img", "w", "constraint"])("refuses `%s` at the `@`, as not supported yet", (key) => {
     const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A@{ shape: circle, ${key}: x }`);
 
     expect(document).toBeNull();
@@ -3188,16 +3170,15 @@ describe("a styling value holding an `@`, a brace or an arrow", () => {
 });
 
 describe("the three lists of `shape:` names", () => {
-  it("name each shape name once: drawn by a bracket shape, drawn from the shape table, or not drawn yet", () => {
+  it("name each shape name once: drawn by a bracket shape, or drawn from the shape table — none is left not drawn", () => {
     const { bracket, table, undrawn } = SHAPE_NAME_LISTS;
     const names = [...bracket, ...table, ...undrawn];
     const repeated = names.filter((name, i) => names.indexOf(name) !== i);
     expect(repeated).toEqual([]);
     expect(bracket.length).toBeGreaterThan(0);
     expect(table.length).toBeGreaterThan(0);
-    // Not vacuous while a name is still undrawn; the day the last one is
-    // drawn (`icon`), this line goes with the list.
-    expect(undrawn.length).toBeGreaterThan(0);
+    // The last name not drawn (`icon`) is drawn now, so the list is empty.
+    expect(undrawn).toEqual([]);
   });
 });
 
@@ -3340,6 +3321,104 @@ describe("an invisible edge", () => {
 
     expect(document).toBeNull();
     expect(diagnostics.map((diagnostic) => diagnostic.severity)).toEqual(["error"]);
+  });
+});
+
+/**
+ * A node's `icon:` and the keys that shape an icon node: `form`, `pos` and
+ * `h`. Measured on Mermaid 12.2.0 (Chrome, a registered test pack): an
+ * `icon:` draws the node as an icon whatever its `shape:`, in the form
+ * `form` names (none, `square`, `circle`, `rounded`), its label below it or,
+ * with `pos: t`, above; `h` is the icon's size (48 when absent). An icon
+ * node given no label and no bracket text draws no label; `shape: icon` with
+ * no `icon:` is an empty 48px box with the id below it. `form`, `pos` and
+ * `h` on a node that is no icon change nothing.
+ */
+describe("an icon node's `@{ … }` keys", () => {
+  const nodeOf = (source: string, id = "A") => {
+    const { document, diagnostics } = parseOk(source);
+    return { node: document.nodes.find((node) => node.id === id)!, diagnostics };
+  };
+
+  it("draws a node with an `icon:` as an icon, reading its form, label position and size", () => {
+    const { node, diagnostics } = nodeOf(
+      'flowchart TB\n  A@{ shape: circle, icon: "fa:user", form: square, pos: t, h: 60, label: "User" }',
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(node.shape).toBe("icon");
+    expect(node.label.text).toBe("User");
+    expect(node.icon).toEqual({ name: "fa:user", form: "square", pos: "t", size: 60, line: 2, column: 4 });
+  });
+
+  it.each([
+    ["square", "square"],
+    ["circle", "circle"],
+    ["rounded", "rounded"],
+  ])("reads `form: %s`", (form, read) => {
+    expect(nodeOf(`flowchart TB\n  A@{ icon: "fa:user", form: ${form} }`).node.icon?.form).toBe(read);
+  });
+
+  it("defaults to no form, the label below and a 48px icon", () => {
+    const { node } = nodeOf('flowchart TB\n  A@{ icon: "fa:user", label: "x" }');
+
+    expect(node.icon).toEqual({ name: "fa:user", form: null, pos: "b", size: 48, line: 2, column: 4 });
+  });
+
+  it("draws no label for an icon node given none, and keeps a label written in brackets", () => {
+    expect(nodeOf('flowchart TB\n  A@{ icon: "fa:user" }').node.label.text).toBe("");
+    expect(nodeOf('flowchart TB\n  A[Text]@{ icon: "fa:user" }').node.label.text).toBe("Text");
+  });
+
+  it("draws `shape: icon` as an icon node with no icon, labelled with its id", () => {
+    const { node, diagnostics } = nodeOf("flowchart TB\n  A@{ shape: icon, h: 70 }");
+
+    expect(diagnostics).toEqual([]);
+    expect(node.shape).toBe("icon");
+    expect(node.label.text).toBe("A");
+    expect(node.icon).toEqual({ name: null, form: null, pos: "b", size: 70, line: 2, column: 4 });
+  });
+
+  it.each([
+    ['icon: "user"', 'An icon is named by its pack and its name, such as icon: "fa:user"'],
+    ["icon: 3", 'An icon is named by its pack and its name, such as icon: "fa:user"'],
+    ['icon: "fa:user", form: blob', 'There is no icon form "blob". Use square, circle or rounded'],
+    ['icon: "fa:user", pos: x', 'An icon\'s label goes above it ("pos: t") or below it ("pos: b"), not "x"'],
+    ['icon: "fa:user", h: 0', 'An icon\'s size is a number of pixels above 0, such as "h: 64"'],
+    ['icon: "fa:user", h: -4', 'An icon\'s size is a number of pixels above 0, such as "h: 64"'],
+    ['icon: "fa:user", h: big', 'An icon\'s size is a number of pixels above 0, such as "h: 64"'],
+  ])("refuses `%s` at the `@`", (written, message) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  A@{ ${written} }`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message, line: 2, column: 4 }]);
+  });
+
+  it.each([
+    ["form: square", "form"],
+    ["pos: t", "pos"],
+    ["h: 60", "h"],
+  ])("warns that `%s` on a node that is no icon is ignored", (written, key) => {
+    const { node, diagnostics } = nodeOf(`flowchart TB\n  A@{ shape: circle, ${written} }`);
+
+    expect(node.shape).toBe("circle");
+    expect(node.icon).toBeUndefined();
+    expect(diagnostics).toEqual([
+      {
+        severity: "warning",
+        message: `"${key}" only shapes an icon node, and is ignored here. Remove it, or give the node an icon`,
+        line: 2,
+        column: 4,
+      },
+    ]);
+  });
+
+  it("warns that `form` on `shape: icon` with no `icon:` is ignored", () => {
+    const { diagnostics } = nodeOf("flowchart TB\n  A@{ shape: icon, form: square }");
+
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      '"form" only shapes an icon node, and is ignored here. Remove it, or give the node an icon',
+    ]);
   });
 });
 

@@ -8741,6 +8741,103 @@ describe("render() — a figure a `@{ shape: … }` block names", () => {
   });
 });
 
+/**
+ * An icon node through `render()`: the icon is looked up in the packs the
+ * caller registered with `iconPacks` (Iconify JSON, handed over as data),
+ * and an icon no registered pack holds is an error — Mermaid 12.2.0 draws a
+ * "?" in its place (measured), a picture silently wrong.
+ */
+describe("render() — an icon from a registered pack", () => {
+  const PACK = {
+    prefix: "t",
+    width: 24,
+    height: 24,
+    icons: {
+      sq: { body: '<path d="M0 0h24v24H0z" fill="currentColor"/>' },
+      evil: {
+        body:
+          '<script>alert(1)</script><path d="M0 0h1" onclick="alert(1)" fill="url(https://example.com/x)"/>' +
+          '<a href="javascript:alert(1)"><path d="M1 1"/></a><use href="https://example.com/i.svg#x"/>' +
+          '<foreignObject><div xmlns="http://www.w3.org/1999/xhtml">x</div></foreignObject>',
+      },
+    },
+  };
+
+  it("draws the icon's glyph inside the node, with its label below", () => {
+    const container = document.createElement("div");
+    const result = render('flowchart TB\n  A@{ icon: "t:sq", form: square, label: "User" }', container, {
+      iconPacks: [PACK],
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    const group = result.svg!.querySelector('g.siren-node[data-siren-id="A"]')!;
+    expect(group.getAttribute("data-siren-shape")).toBe("icon");
+    expect(Array.from(group.querySelectorAll(":scope > g > path")).map((path) => path.getAttribute("d"))).toEqual([
+      "M0 0h24v24H0z",
+    ]);
+    expect(group.querySelector("text")!.textContent).toBe("User");
+  });
+
+  it("refuses an icon whose pack is not registered, at its block, saying how to register one", () => {
+    const container = document.createElement("div");
+    const result = render('flowchart TB\n  A --> B@{ icon: "fa:user" }', container);
+
+    expect(result.svg).toBeNull();
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'No icon pack "fa" is registered, so the icon "fa:user" cannot be drawn. ' +
+          'Pass the pack\'s Iconify JSON in the "iconPacks" render option',
+        line: 2,
+        column: 10,
+      },
+    ]);
+  });
+
+  it("refuses an icon the registered pack does not hold", () => {
+    const result = render('flowchart TB\n  A@{ icon: "t:nope" }', document.createElement("div"), { iconPacks: [PACK] });
+
+    expect(result.svg).toBeNull();
+    expect(result.diagnostics.map((d) => d.message)).toEqual([
+      'The icon pack "t" has no icon "nope". Use an icon the pack holds, or register a pack that holds it',
+    ]);
+  });
+
+  it("draws `shape: icon`, which names no icon, with no pack registered", () => {
+    const result = render("flowchart TB\n  A@{ shape: icon }", document.createElement("div"));
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.svg!.querySelector('g.siren-node[data-siren-id="A"] text')!.textContent).toBe("A");
+  });
+
+  it("draws none of a pack's script, handlers, links or embedded content", () => {
+    const result = render('flowchart TB\n  A@{ icon: "t:evil" }', document.createElement("div"), { iconPacks: [PACK] });
+
+    expect(result.diagnostics).toEqual([]);
+    const glyph = result.svg!.querySelector('g.siren-node[data-siren-id="A"] > g')!;
+    expect(glyph.innerHTML).toBe('<path d="M0 0h1"></path>');
+    expect(result.svg!.querySelectorAll("script, a, use, foreignObject, [onclick]")).toHaveLength(0);
+  });
+
+  it("gives two icons with ids of their own different ids, and points each one's references at its own", () => {
+    const pack = {
+      prefix: "g",
+      icons: {
+        i: { body: '<defs><linearGradient id="a"><stop offset="0"/></linearGradient></defs><path d="M0 0" fill="url(#a)"/>' },
+      },
+    };
+    const result = render('flowchart TB\n  A@{ icon: "g:i" }\n  B@{ icon: "g:i" }', document.createElement("div"), {
+      iconPacks: [pack],
+    });
+
+    const ids = Array.from(result.svg!.querySelectorAll("linearGradient")).map((gradient) => gradient.id);
+    const fills = Array.from(result.svg!.querySelectorAll("g.siren-node > g > path")).map((path) => path.getAttribute("fill"));
+    expect(new Set(ids).size).toBe(2);
+    expect(fills).toEqual(ids.map((id) => `url(#${id})`));
+  });
+});
+
 describe("render() of a flowchart with subgraphs nested inside one that keeps a direction", () => {
   it("draws an edge between a node and one in a subgraph nested below it, side by side as the direction says", () => {
     // Measured (Mermaid 12.2.0, Chrome): `F` and the subgraph `C` holding

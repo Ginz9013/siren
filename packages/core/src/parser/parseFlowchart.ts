@@ -2925,6 +2925,14 @@ export function parseFlowchart(source: string): DiagramParseResult {
       node.label = label;
       labelWrittenAt.set(id, positionIn(statement, data.at));
     }
+    if (read.icon !== null) {
+      node.icon = { ...read.icon, ...positionIn(statement, data.at) };
+      // An icon node given no label draws none (Mermaid 12.2.0's
+      // `addVertex`: no `label:`, and no text but the id).
+      if (read.icon.name !== null && read.label === null && node.label.text === id) {
+        node.label = plainLabel("");
+      }
+    }
   };
 
   const addNodeAsWritten = (

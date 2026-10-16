@@ -1,4 +1,4 @@
-import type { Direction, StyleProperty } from "../../contracts";
+import type { Direction, GraphNode, PositionedNode, StyleProperty } from "../../contracts";
 
 /**
  * The vocabulary of the **shape table**: what one flowchart node shape is,
@@ -43,7 +43,7 @@ export interface Rect extends Size {
  * strokes a bar because it strokes a frame.
  */
 export interface ShapeFrame {
-  element: "rect" | "path" | "circle" | "line";
+  element: "rect" | "path" | "circle" | "line" | "g";
   attributes: ReadonlyArray<readonly [name: string, value: number | string]>;
   /** Declarations the shape owns, written inline before the author's. */
   style?: readonly StyleProperty[];
@@ -56,6 +56,37 @@ export interface ShapeFrame {
    * author's declarations follow the shape's own on this frame.
    */
   authorStyle?: false;
+  /**
+   * What a `g` frame holds: a **figure** drawn inside the node, such as an
+   * icon's glyph. A frame with children is painted by the shape alone — it
+   * wears neither `siren-node-frame` nor the author's declarations, which
+   * the shape has already read for the colour it asks for.
+   */
+  children?: readonly FigureElement[];
+}
+
+/** The SVG elements a figure may be drawn with (`ShapeFrame.children`). */
+export type FigureElementName =
+  | "g"
+  | "path"
+  | "circle"
+  | "ellipse"
+  | "rect"
+  | "line"
+  | "polyline"
+  | "polygon"
+  | "defs"
+  | "linearGradient"
+  | "radialGradient"
+  | "stop"
+  | "clipPath"
+  | "mask";
+
+/** One element of a figure, as data: drawn with `createElementNS`, never parsed. */
+export interface FigureElement {
+  element: FigureElementName;
+  attributes: ReadonlyArray<readonly [name: string, value: string]>;
+  children: readonly FigureElement[];
 }
 
 /**
@@ -70,16 +101,17 @@ export interface ShapeSpec {
    * The bounding box this shape needs to hold `label`. `padding` is what
    * the padded label adds to the text on each side — the node padding — for
    * a shape whose handler pads the text its own way rather than as a
-   * rectangle does. Absent, it is Mermaid's 15px each way.
+   * rectangle does. Absent, it is Mermaid's 15px each way. `node` is the
+   * node being sized, for a shape drawn from more than its label (an icon).
    */
-  box(label: Size, direction: Direction, padding?: Size): Size;
+  box(label: Size, direction: Direction, padding?: Size, node?: GraphNode): Size;
   /**
    * Where the padded label sits inside `box`. Absent, the label is centred
    * on the box, which is where every shape but a handful puts it.
    */
-  labelRect?(box: Rect, label: Size): Rect;
-  /** The elements the outline is drawn with, inscribed in `box`. */
-  frames(box: Rect): ShapeFrame[];
+  labelRect?(box: Rect, label: Size, node?: GraphNode): Rect;
+  /** The elements the outline is drawn with, inscribed in `box` — `node`'s box, when it is given. */
+  frames(box: Rect, node?: PositionedNode): ShapeFrame[];
   /**
    * `false` for a shape that draws no text at all (a fork, a small circle):
    * the renderer leaves the label out. Absent, the label is drawn. The

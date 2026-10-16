@@ -1,5 +1,5 @@
 import { JSON_SCHEMA, load, YAMLException } from "js-yaml";
-import type { NodeShape } from "../contracts";
+import type { NodeIcon, NodeShape } from "../contracts";
 import { SHAPES_DRAWN_WITHOUT_TEXT, SHAPES_TAKING_NO_STYLE } from "../nodeShapeTraits";
 
 /**
@@ -10,7 +10,7 @@ import { SHAPES_DRAWN_WITHOUT_TEXT, SHAPES_TAKING_NO_STYLE } from "../nodeShapeT
  * `pnpm --filter siren-core probe`).
  *
  * Only what Siren can draw is read here: the shape names of the shapes
- * Siren draws, and a label.
+ * Siren draws, a label, and an icon with its form, label position and size.
  */
 
 /**
@@ -94,6 +94,9 @@ const TABLE_SHAPE_NAMES: ReadonlyArray<readonly [NodeShape, readonly [string, ..
   ["browser", ["browser"]],
   ["cloud", ["cloud"]],
   ["bang", ["bang"]],
+  // An icon node's shape, which `icon:` also draws: Mermaid's shape map
+  // accepts the name, undocumented, and draws an empty icon box.
+  ["icon", ["icon"]],
 ];
 
 const SHAPE_NAMES = [...BRACKET_SHAPE_NAMES, ...TABLE_SHAPE_NAMES];
@@ -105,15 +108,11 @@ export const NODE_DATA_SHAPES: ReadonlyMap<string, NodeShape> = new Map(
 
 /**
  * The shape names Mermaid 12.2.0 draws and Siren does not yet: every name of
- * the shapes `shapesDefs` documents that neither list above holds, and the
- * undocumented lowercase name its shape map also accepts (`icon`; measured)
- * that Siren does not draw yet. Told apart
- * from a name that is no shape at all only so the message can say which.
+ * the shapes `shapesDefs` documents, and of the undocumented ones its shape
+ * map accepts, that neither list above holds — none, now. Told apart from a
+ * name that is no shape at all only so the message can say which.
  */
-const UNDRAWN_SHAPE_NAMES: ReadonlySet<string> = new Set([
-  // An icon
-  ...["icon"],
-]);
+const UNDRAWN_SHAPE_NAMES: ReadonlySet<string> = new Set<string>([]);
 
 /**
  * Every name in each of the three lists, for the test that keeps them
@@ -159,18 +158,32 @@ export interface NodeData {
    * is a Markdown label; `null` when it gives none.
    */
   label: { text: string; markdown: boolean } | null;
+  /**
+   * The icon it draws — from `icon:`, or for `shape: icon` — or `null` when
+   * it draws none. Where the block stands is the caller's to add.
+   */
+  icon: Omit<NodeIcon, "line" | "column" | "glyph"> | null;
 }
 
 /** The keys this reader draws. */
-const READ_KEYS: ReadonlySet<string> = new Set(["shape", "label", "labelType"]);
+const READ_KEYS: ReadonlySet<string> = new Set(["shape", "label", "labelType", "icon", "form", "pos", "h"]);
 
 /**
  * The keys that change what Mermaid 12.2.0 draws for a node and that Siren
- * does not draw yet: an icon or an image node, its form, its label's
- * position and its size (`FlowDB.addVertex`). Any other key is read by
- * Mermaid and ignored for a node (`A@{ foo: 1 }`, measured).
+ * does not draw yet: an image node and its size (`FlowDB.addVertex`). Any
+ * other key is read by Mermaid and ignored for a node (`A@{ foo: 1 }`,
+ * measured).
  */
-const UNSUPPORTED_KEYS: ReadonlySet<string> = new Set(["icon", "img", "form", "pos", "w", "h", "constraint"]);
+const UNSUPPORTED_KEYS: ReadonlySet<string> = new Set(["img", "w", "constraint"]);
+
+/** An icon's size when its block gives none: Mermaid's `assetHeight ?? 48`. */
+const DEFAULT_ICON_SIZE = 48;
+
+/** The forms an icon is drawn in, beside none (Mermaid's `getTypeFromVertex`). */
+const ICON_FORMS: ReadonlySet<unknown> = new Set(["square", "circle", "rounded"]);
+
+/** An icon's name: its pack's prefix and its own name, `prefix:name`. */
+const ICON_NAME = /^[^\s:]+:[^\s:]+$/;
 
 /**
  * The `labelType` values that make a block's label an ordinary one rather
@@ -234,7 +247,7 @@ export function loadDataBlock(
 export function readNodeData(written: string): NodeData {
   const loaded = loadDataBlock(written, "shape: circle");
   if ("problem" in loaded) {
-    return { problems: [loaded.problem], shape: null, label: null };
+    return { problems: [loaded.problem], shape: null, label: null, icon: null };
   }
   const { doc } = loaded;
   const problems: DataBlockProblem[] = [];
@@ -251,14 +264,75 @@ export function readNodeData(written: string): NodeData {
       });
     }
   }
-  const shape = doc.shape ? readShape(doc.shape, problems) : null;
+  let shape = doc.shape ? readShape(doc.shape, problems) : null;
   let label: NodeData["label"] = null;
   if (doc.label && typeof doc.label === "object") {
     problems.push({ severity: "error", message: 'A label is text, such as "label: Start"' });
   } else if (doc.label) {
     label = { text: String(doc.label), markdown: !PLAIN_LABEL_TYPES.has(doc.labelType) };
   }
-  return { problems, shape, label };
+  const icon = readIcon(doc, shape, problems);
+  if (icon !== null) {
+    // An icon draws the node as an icon, whatever its `shape:` says.
+    shape = "icon";
+  }
+  return { problems, shape, label, icon };
+}
+
+/**
+ * The icon a block draws, read as Mermaid 12.2.0 reads it: `icon:` makes
+ * the node an icon (`getTypeFromVertex`), `form` picks what is drawn behind
+ * it, `pos: t` puts the label above it and anything else below, and `h` is
+ * its size. `shape: icon` with no `icon:` is an icon node drawing no icon,
+ * which `pos` and `h` still shape and `form` does not.
+ *
+ * A value Mermaid would draw silently wrong is refused: a form it does not
+ * know falls back to none, a `pos` it does not know to below, and an `h`
+ * that is no positive number breaks the size. A key for a node that is no
+ * icon is warned about, since Mermaid ignores it.
+ */
+function readIcon(doc: Record<string, unknown>, shape: NodeShape | null, problems: DataBlockProblem[]): NodeData["icon"] {
+  const named = Boolean(doc.icon);
+  const ignored = (key: string) =>
+    problems.push({
+      severity: "warning",
+      message: `"${key}" only shapes an icon node, and is ignored here. Remove it, or give the node an icon`,
+    });
+  if (named && (typeof doc.icon !== "string" || !ICON_NAME.test(doc.icon))) {
+    problems.push({ severity: "error", message: 'An icon is named by its pack and its name, such as icon: "fa:user"' });
+  }
+  let form: NodeIcon["form"] = null;
+  if (doc.form && !named) {
+    ignored("form");
+  } else if (doc.form && !ICON_FORMS.has(doc.form)) {
+    problems.push({ severity: "error", message: `There is no icon form "${String(doc.form)}". Use square, circle or rounded` });
+  } else if (doc.form) {
+    form = doc.form as NonNullable<NodeIcon["form"]>;
+  }
+  if (!named && shape !== "icon") {
+    for (const key of ["pos", "h"]) {
+      if (doc[key] !== undefined && doc[key] !== null) {
+        ignored(key);
+      }
+    }
+    return null;
+  }
+  if (doc.pos && doc.pos !== "t" && doc.pos !== "b") {
+    problems.push({
+      severity: "error",
+      message: `An icon's label goes above it ("pos: t") or below it ("pos: b"), not "${String(doc.pos)}"`,
+    });
+  }
+  const written = doc.h === undefined || doc.h === null ? DEFAULT_ICON_SIZE : Number(doc.h);
+  if (!(written > 0) || !Number.isFinite(written)) {
+    problems.push({ severity: "error", message: 'An icon\'s size is a number of pixels above 0, such as "h: 64"' });
+  }
+  return {
+    name: named && typeof doc.icon === "string" ? doc.icon : null,
+    form,
+    pos: doc.pos === "t" ? "t" : "b",
+    size: written,
+  };
 }
 
 /**

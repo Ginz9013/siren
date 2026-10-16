@@ -3863,13 +3863,25 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     kind: "flowchart",
     source: `flowchart TB
       A@{ shape: icon, label: "x" } --> B`,
-    status: "rejected",
+    status: "supported",
     meaning:
-      "Mermaid 12.2.0 draws `A` as an icon node (measured), a shape its " +
-      "`@{ … }` names that Siren has no geometry for yet. Refused at the `@`, " +
-      "saying the shape is not drawn yet and naming shapes it can draw as " +
-      "examples. **Was `shape: cloud`** until Siren drew the cloud (nook " +
-      "01M51XACRX).",
+      "Mermaid 12.2.0 draws `A` as an icon node with no icon (measured), " +
+      "an undocumented name its shape map accepts: an empty 48px box, its " +
+      "label 8px below it. Siren draws it from its shape table, a frame " +
+      "neither filled nor stroked with the label below (nook " +
+      "01M51XACZJ8QSCSGEDZE7M4XDK). **Was refused** as a shape not drawn " +
+      "yet, and before that **was `shape: cloud`** until Siren drew the " +
+      "cloud (nook 01M51XACRX).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[x]", "B[B]"]);
+      const group = svgOf(result).querySelector('g.siren-node[data-siren-id="A"]')!;
+      expectSame("shape", group.getAttribute("data-siren-shape"), "icon");
+      const frame = group.querySelector(".siren-node-frame")!;
+      expectSame("frame", frame.getAttribute("class"), "siren-node-frame siren-node-bare");
+      // The label below the 48px box.
+      const top = Number(frame.getAttribute("y"));
+      expectSame("label below the icon", Number(group.querySelector("text")!.getAttribute("y")) > top + 48, true);
+    },
   },
   {
     id: "fc-node-shape-data-icon",
@@ -3878,9 +3890,13 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       A@{ icon: "fa:user", label: "x" } --> B`,
     status: "rejected",
     meaning:
-      "Mermaid 12.2.0 draws `A` as an icon node labelled `x` (measured). " +
-      "Siren draws no icons: `icon`, `img`, `form`, `pos`, `w`, `h` and " +
-      "`constraint` are refused at the `@`, saying to leave the key out.",
+      "Mermaid 12.2.0 draws `A` as an icon node labelled `x` when a pack " +
+      "named `fa` is registered, and a `?` in its place when none is " +
+      "(measured): a picture silently wrong, refused under ADR-0001. Siren " +
+      "draws an icon from a pack its caller registers with the `iconPacks` " +
+      "render option, which this corpus registers none of: refused at the " +
+      "`@`, saying how to register the pack (nook 01M51XACZJ8QSCSGEDZE7M4XDK). " +
+      "**Was refused** as a key not supported yet.",
   },
   {
     id: "fc-node-shape-data-in-edge-label",
@@ -13365,6 +13381,68 @@ line2\`"]`,
       "so does Siren.",
     assert: (result) => {
       expectSame("A-B's label", edgeLabel(result, "A-B"), "a");
+    },
+  },
+
+  {
+    id: "fc-node-icon-form-unknown",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ icon: "fa:user", form: blob }`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 draws an icon with a `form` it does not know as an " +
+      "icon with no form (measured, Chrome): the author's word silently " +
+      "dropped, refused under ADR-0001, naming square, circle and rounded " +
+      "(nook 01M51XACZJ8QSCSGEDZE7M4XDK).",
+  },
+  {
+    id: "fc-node-icon-pos-unknown",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ icon: "fa:user", label: "x", pos: top }`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 puts an icon's label above it only for `pos: t`, and " +
+      "below it for any other value (`node.pos === 't'`): `pos: top` is " +
+      "silently drawn below, refused under ADR-0001, naming `t` and `b` " +
+      "(nook 01M51XACZJ8QSCSGEDZE7M4XDK).",
+  },
+  {
+    id: "fc-node-icon-size-invalid",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ icon: "fa:user", h: big }`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 reads `h` as `Number(h)`, so `h: big` is `NaN` and " +
+      "the icon's size and box are `NaN`: a picture silently broken, " +
+      "refused under ADR-0001, asking for a number of pixels above 0 (nook " +
+      "01M51XACZJ8QSCSGEDZE7M4XDK).",
+  },
+  {
+    id: "fc-node-icon-keys-without-icon",
+    kind: "flowchart",
+    source: `flowchart TB
+      A@{ shape: circle, form: square, pos: t, h: 90 }`,
+    status: "supported",
+    meaning:
+      "Mermaid 12.2.0 reads `form`, `pos` and `h` for a node that is no " +
+      "icon and draws nothing different (measured: a plain rectangle " +
+      "`A`). Siren draws the circle and warns that each key is ignored " +
+      "(nook 01M51XACZJ8QSCSGEDZE7M4XDK).",
+    warnings: [
+      '"form" only shapes an icon node, and is ignored here. Remove it, or give the node an icon',
+      '"pos" only shapes an icon node, and is ignored here. Remove it, or give the node an icon',
+      '"h" only shapes an icon node, and is ignored here. Remove it, or give the node an icon',
+    ],
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]"]);
+      expectSame(
+        "shape",
+        svgOf(result).querySelector('g.siren-node[data-siren-id="A"]')!.getAttribute("data-siren-shape"),
+        "circle",
+      );
     },
   },
 

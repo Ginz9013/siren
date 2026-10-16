@@ -1,8 +1,8 @@
 import type {
   Direction,
   GraphModel,
+  GraphNode,
   LayoutOptions,
-  NodeShape,
   PositionedGraph,
   PositionedSubgraph,
 } from "../contracts";
@@ -21,8 +21,8 @@ import type { Rect, Size } from "./shapes/shape";
  * `labelRect` says where the padded label goes in the box layout placed;
  * this turns that into the one number the renderer needs.
  */
-function labelOffsetOf(shape: NodeShape, box: Rect, label: Size): { labelOffset?: { x: number; y: number } } {
-  const placed = SHAPES[shape].labelRect?.(box, label);
+function labelOffsetOf(node: GraphNode, box: Rect, label: Size): { labelOffset?: { x: number; y: number } } {
+  const placed = SHAPES[node.shape].labelRect?.(box, label, node);
   if (placed === undefined) {
     return {};
   }
@@ -149,7 +149,7 @@ export function layoutGraph(
         // The shape decides how much box the measured label needs; the
         // shared layout core is handed sizes and never learns a shape
         // exists.
-        ...SHAPES[node.shape].box(paddedLabelOf(node.id), directionOf(node.parentId), extraPadding),
+        ...SHAPES[node.shape].box(paddedLabelOf(node.id), directionOf(node.parentId), extraPadding, node),
         // Membership, and the only thing about a subgraph a member tells the
         // core. `undefined` rather than `null` when the node is in no
         // subgraph, matching the core's optional field.
@@ -195,7 +195,7 @@ export function layoutGraph(
       // The wrapped label and the box it was measured into: what the
       // shape was sized around and what the renderer draws.
       ...wrappedById.get(node.id)!,
-      ...labelOffsetOf(node.shape, box, paddedLabelOf(node.id)),
+      ...labelOffsetOf(node, box, paddedLabelOf(node.id)),
     };
   });
 

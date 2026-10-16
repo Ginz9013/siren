@@ -419,6 +419,22 @@ divider and now takes none (see **Changed**).
 - A `<br>` in a class name's generic is drawn as a line break (nook `01M51TMV71BF1Y0EC2RS2B6ZWG`),
   as Mermaid 12.2.0 draws it: `class A~a<br>b~` draws `A<a` over `b>`, in any spelling the browser
   reads as a break (`<br/>`, `<BR>`, `<br />`). It used to be refused as a tag.
+- Icon nodes (nook `01M51XACZJ8QSCSGEDZE7M4XDK`, measured in headless Chrome with a registered
+  pack): `render()` takes an `iconPacks` option — Iconify JSON (`prefix`, `icons`, `aliases`, a
+  default `width`/`height`) handed over as data, never loaded or fetched — and a flowchart node's
+  `@{ icon: "prefix:name" }` draws that icon, 48px or `h` pixels square, in a `form` of `square`,
+  `rounded` or `circle` (or none), its label below or, with `pos: t`, above. The glyph is drawn in
+  the node's line colour (an author's `stroke`), the form in its fill. An icon node given no label
+  draws none; the undocumented `shape: icon` draws an empty icon box with its label. An icon no
+  registered pack holds is an error naming how to register one, where Mermaid draws a `?`; an
+  unknown `form`, a `pos` other than `t` or `b` and an `h` that is no positive number are refused;
+  `form`, `pos` and `h` on a node that is no icon are ignored with a warning. An icon's SVG is read
+  through an allowlist (shapes, groups, gradients, clips and masks, with their geometry and paint)
+  and drawn element by element, so a pack's script, event handlers, links, embedded content and
+  references outside the icon are never drawn; its ids are renamed per drawing. A circle form's
+  diameter is computed from the icon's square rather than from the ink its glyph covers. `icon`,
+  `form`, `pos` and `h` used to be refused as not supported yet, and `shape: icon` as a shape not
+  drawn yet. `siren-board` passes a board's `iconPacks` option to `render()`.
 
 ### Changed
 

@@ -2,6 +2,7 @@ import type { NodeShape } from "../../contracts";
 import { BASIC_SHAPES } from "./basicShapes";
 import { COMPOSITE_SHAPES } from "./compositeShapes";
 import { CURVED_SHAPES } from "./curvedShapes";
+import { ICON_SHAPES } from "./iconShapes";
 import { LABELLESS_SHAPES } from "./labellessShapes";
 import { POLYGON_SHAPES } from "./polygonShapes";
 import type { ShapeSpec } from "./shape";
@@ -22,4 +23,5 @@ export const SHAPES: { readonly [Shape in NodeShape]: ShapeSpec } = {
   ...LABELLESS_SHAPES,
   ...CURVED_SHAPES,
   ...COMPOSITE_SHAPES,
+  ...ICON_SHAPES,
 };

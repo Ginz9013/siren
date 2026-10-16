@@ -1952,8 +1952,19 @@ const SILENTLY_WRONG = 0;
  * (`fc-node-shape-data-own-paint-style`). Siren drew it before, with the
  * declaration applied, and no row said so. No `supported` row moved.
  * `silently-wrong` does not move.
+ *
+ * **71 → 73: one row falls, three refusals written down for the first
+ * time.** `01M51XACZJ8QSCSGEDZE7M4XDK` drew icon nodes from packs the
+ * caller registers: `fc-node-shape-data-undrawn` (`shape: icon`) moved from
+ * `rejected` to `supported` (71 → 70). It refused an icon `form`, a `pos`
+ * and an `h` Mermaid 12.2.0 draws silently wrong (`fc-node-icon-form-unknown`,
+ * `fc-node-icon-pos-unknown`, `fc-node-icon-size-invalid`; measured, Chrome),
+ * under ADR-0001 (70 → 73). Siren refused every icon key before, as not
+ * supported yet, with `fc-node-shape-data-icon` the one row to say so; that
+ * row stays `rejected`, now for an icon whose pack is not registered. No
+ * `supported` row moved. `silently-wrong` does not move.
  */
-const REJECTED = 71;
+const REJECTED = 73;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

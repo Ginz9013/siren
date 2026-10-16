@@ -11,7 +11,7 @@ import { FLOWCHART_DEFAULT_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel, type DrawnLabel } from "../label/drawLabel";
 import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { SHAPES } from "../layout/shapes/shapeTable";
-import type { ShapeFrame } from "../layout/shapes/shape";
+import type { FigureElement, ShapeFrame } from "../layout/shapes/shape";
 import { drawConnectorRoute } from "./connectorCurve";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
@@ -342,7 +342,15 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     // an author's `style A stroke:#00f` that reached the box and not the
     // bars would leave the bars looking detached from the shape they mark.
     // Nothing here has to know which shape drew how many.
-    for (const { element, classes, geometry, takesAuthorStyle } of frames) {
+    for (const { element, classes, geometry, takesAuthorStyle, figure } of frames) {
+      // A figure (an icon's glyph) is painted by its shape alone, which has
+      // already read the author's declarations for the colour it asks for:
+      // a frame's class or the author's `fill` would repaint its insides.
+      if (figure) {
+        applyInlineStyle(element, geometry);
+        g.appendChild(element);
+        continue;
+      }
       element.setAttribute("class", ["siren-node-frame", ...classes].join(" "));
       // Two writers, one attribute — and the order is the authority. The
       // shape's own geometry goes first and the author's declarations
@@ -505,11 +513,12 @@ function buildSubgraph(subgraph: PositionedSubgraph): SVGGElement {
  * that is drawn.
  */
 function buildNodeFrames(node: PositionedNode): DrawnFrame[] {
-  return SHAPES[node.shape].frames(node).map((frame) => ({
+  return SHAPES[node.shape].frames(node, node).map((frame) => ({
     element: drawFrame(frame),
     classes: frame.classes ?? [],
     geometry: frame.style ?? [],
     takesAuthorStyle: frame.authorStyle !== false,
+    figure: frame.children !== undefined,
   }));
 }
 
@@ -526,6 +535,8 @@ interface DrawnFrame {
   geometry: readonly StyleProperty[];
   /** Whether the author's `style` reaches this frame (`ShapeFrame.authorStyle`). */
   takesAuthorStyle: boolean;
+  /** Whether it is a figure drawn inside the node (`ShapeFrame.children`), not part of its outline. */
+  figure: boolean;
 }
 
 /** The SVG element one shape-table frame describes, with its geometry attributes. */
@@ -534,6 +545,20 @@ function drawFrame(frame: ShapeFrame): SVGElement {
   for (const [name, value] of frame.attributes) {
     element.setAttribute(name, String(value));
   }
+  frame.children?.forEach((child) => element.appendChild(drawFigureElement(child)));
+  return element;
+}
+
+/**
+ * One element of a figure, built from its data — its name and attributes
+ * set one by one, never parsed from markup — with what it holds.
+ */
+function drawFigureElement(figure: FigureElement): SVGElement {
+  const element = document.createElementNS(SVG_NS, figure.element);
+  for (const [name, value] of figure.attributes) {
+    element.setAttribute(name, value);
+  }
+  figure.children.forEach((child) => element.appendChild(drawFigureElement(child)));
   return element;
 }
 

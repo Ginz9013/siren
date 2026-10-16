@@ -16,6 +16,8 @@ import { renderClassDiagramToSVG } from "./renderer/renderClassDiagramToSVG";
 import { renderStateDiagramToSVG } from "./renderer/renderStateDiagramToSVG";
 import { renderErDiagramToSVG } from "./renderer/renderErDiagramToSVG";
 import { createAnimationController } from "./animation/createAnimationController";
+import { type IconifyJSON, resolveIcon } from "./icon/iconPacks";
+import { mintIdScope } from "./renderer/mintIdScope";
 import type {
   AnimationController,
   Diagnostic,
@@ -26,6 +28,7 @@ import type {
 } from "./contracts";
 
 export type { AnimationController, Diagnostic, SirenRenderResult, TextMeasurer } from "./contracts";
+export type { IconifyIcon, IconifyJSON } from "./icon/iconPacks";
 
 /**
  * The class a reader clicked, handed to `RenderOptions.onClick`.
@@ -96,6 +99,19 @@ export interface RenderOptions {
    * appear or vanish.
    */
   timeline?: boolean | string;
+
+  /**
+   * The icon packs a flowchart's icon nodes (`A@{ icon: "fa:user" }`) are
+   * drawn from: Iconify JSON — a `prefix`, its `icons` — handed over as
+   * data. Nothing is loaded or fetched: an icon whose pack is not here is
+   * an error diagnostic naming it. Packs are searched in order, so two
+   * sharing a prefix add to each other.
+   *
+   * An icon's SVG is drawn through an allowlist — shapes, groups, gradients,
+   * clips and masks, with their geometry and paint — so a pack's script,
+   * event handlers, links and anything that fetches are never drawn.
+   */
+  iconPacks?: readonly IconifyJSON[];
 }
 
 const DEFAULT_CHAR_WIDTH = 8;
@@ -360,6 +376,42 @@ function attemptLayout<T>(
 }
 
 /**
+ * `graph` with each icon node's icon looked up in the packs the caller
+ * registered, or the reason one cannot be drawn — an error at the node's
+ * `@{ … }` block for each icon no registered pack holds. A pack is the
+ * caller's data, not the document's, so this is the first point an icon
+ * can be found: nothing before `render()` knows the packs.
+ *
+ * Each icon's ids are renamed with a scope of its own, minted per drawing
+ * as the renderer mints its markers' (`mintIdScope`), so neither two icons
+ * nor two diagrams on one page answer each other's references.
+ */
+function withIcons(
+  graph: GraphModel,
+  packs: readonly IconifyJSON[],
+): { graph: GraphModel; diagnostics: Diagnostic[] } {
+  const diagnostics: Diagnostic[] = [];
+  const nodes = graph.nodes.map((node, index) => {
+    const icon = node.icon;
+    if (icon === undefined || icon.name === null) {
+      return node;
+    }
+    const resolved = resolveIcon(icon.name, packs, `siren-icon${mintIdScope()}-${index}-`);
+    if ("problem" in resolved) {
+      diagnostics.push({
+        severity: "error",
+        message: resolved.problem,
+        ...(icon.line === undefined ? {} : { line: icon.line }),
+        ...(icon.column === undefined ? {} : { column: icon.column }),
+      });
+      return node;
+    }
+    return { ...node, icon: { ...icon, glyph: resolved.glyph } };
+  });
+  return { graph: { ...graph, nodes }, diagnostics };
+}
+
+/**
  * What `render()` returns when there is no diagram to mount: no SVG, no
  * controller (the two are null together), and no timelines to offer. One
  * place, so a field the result gains is added to every failure at once.
@@ -533,7 +585,12 @@ export function render(
   // what forced a local rather than a `!`, but narrowing a `const` on its own
   // discriminant survives into one — so `graphResult.model` would read
   // correctly there too. One more hand-written step the tag took over.
-  const graph = graphResult.model;
+  const iconed = withIcons(graphResult.model, options.iconPacks ?? []);
+  diagnostics.push(...iconed.diagnostics);
+  if (iconed.diagnostics.length > 0) {
+    return failedRender(diagnostics);
+  }
+  const graph = iconed.graph;
   // A subgraph is laid out by its generated id (`subgraph:2`); the author
   // knows it by its title. A node's and an edge's ids are the author's own.
   const subgraphTitles = new Map(graph.subgraphs.map((subgraph) => [subgraph.id, subgraph.label.text]));

@@ -129,7 +129,9 @@ export type NodeShape =
   | "console"
   | "browser"
   | "cloud"
-  | "bang";
+  | "bang"
+  // An icon from a registered pack, in one of its forms (`NodeIcon`).
+  | "icon";
 
 /** Effect names accepted by `enter`/`exit` timeline actions. */
 export type EnterExitEffect =
@@ -154,6 +156,7 @@ export type TimelineActionKind = "enter" | "exit" | "highlight" | "unhighlight";
  */
 import type { Label, LabelBox, PlacedLabel } from "./label/label";
 import type { Curve } from "./curve/curve";
+import type { IconGlyph } from "./icon/iconPacks";
 
 export type {
   Label,
@@ -191,6 +194,33 @@ export interface SirenNode {
    * fold into `"rect"` for itself, and one of them eventually would not.
    */
   shape: NodeShape;
+  /**
+   * What an `icon` node draws, from its `@{ icon, form, pos, h }`; absent
+   * for every other shape.
+   */
+  icon?: NodeIcon;
+  line?: number;
+  column?: number;
+}
+
+/**
+ * An icon node's icon, as its `@{ … }` block wrote it: the icon it names
+ * (`prefix:name`), the form drawn behind it, which side of it its label goes
+ * on, and its size in pixels.
+ *
+ * `name` is `null` for `shape: icon` written with no `icon:` — an empty box
+ * with the label below it, as Mermaid draws it. `glyph` is what `render()`
+ * found for `name` in the packs its caller registered (`iconPacks`): the
+ * parser knows no packs, so it is absent until then, and an icon drawn
+ * without one draws its box and label only. `line`/`column` are where the
+ * block stands, for the diagnostic about an icon no pack holds.
+ */
+export interface NodeIcon {
+  name: string | null;
+  form: "square" | "circle" | "rounded" | null;
+  pos: "t" | "b";
+  size: number;
+  glyph?: IconGlyph;
   line?: number;
   column?: number;
 }
@@ -1366,6 +1396,8 @@ export interface GraphNode {
    * draw. Neither of them re-derives it from the source.
    */
   shape: NodeShape;
+  /** Carried unchanged from `SirenNode.icon`: what an `icon` node draws. */
+  icon?: NodeIcon;
   /**
    * Author declarations to emit as this node's inline `style` attributes, in
    * declaration order, with rejected values already dropped and each half

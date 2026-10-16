@@ -1364,3 +1364,12 @@ _Avoid_: link (one of several spellings, not a fourth kind of interaction), hand
 (that is the callback-name field of one, not the whole thing), hotspot, target (alone, for
 `linkTarget` — this entry's own `targetId` already uses "target" for the authored thing an
 interaction is attached to, a different concept)
+
+**Icon pack**:
+A set of icons a caller hands `render()` through its `iconPacks` option, as Iconify JSON — a
+`prefix` and its `icons`, each an SVG body. A flowchart **icon node**
+(`A@{ icon: "prefix:name", form, pos, h }`, and `shape: icon`) draws an icon from one. Packs are
+data, never loaded or fetched, so an icon no registered pack holds is an error rather than the
+`?` Mermaid draws. An icon's body is read through an allowlist into figure data and drawn
+element by element: no markup from a pack reaches a parser in the page.
+_Avoid_: icon set, icon library, icon font
