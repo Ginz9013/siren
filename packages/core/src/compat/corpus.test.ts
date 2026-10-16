@@ -1876,9 +1876,20 @@ const SILENTLY_WRONG = 0;
  * diagnostic (measured, Chrome), refused under ADR-0001. Siren used to
  * draw the first with a warning, with no row to say so. No `supported` row
  * moved: `cls-generic-break`, new beside them, is `supported`.
+ *
+ * **58 → 60: case (2), two refusals written down for the first time.**
+ * `01M51Q7FSSKCM7EH7K2SB1NKR8` read a flowchart class name as Mermaid
+ * 12.2.0 styles it, measured in headless Chrome: a name that makes the CSS
+ * rule `.<name> > *` parse is drawn styled, one that does not stops the
+ * diagram rendering. `fc-class-name-not-css` (`classDef 1c`), which Siren
+ * drew before, is refused now (ADR-0017); `fc-class-name-comma`
+ * (`class A c,d`), the one class `c,d` Mermaid draws unstyled, is refused
+ * under ADR-0001 where Siren refused it before as an unrecognized line, with
+ * no row to say so. No `supported` row moved: none used such a name.
+ * `fc-class-name-punctuation`, new beside them, is `supported`.
  * `silently-wrong` does not move.
  */
-const REJECTED = 58;
+const REJECTED = 60;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

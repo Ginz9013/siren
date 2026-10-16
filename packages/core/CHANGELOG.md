@@ -8,6 +8,9 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+Breaking for a flowchart document with a class name that begins with a digit (`classDef 1c`,
+`A:::1c`) or holds a `.` with no word after it, which is now refused (see **Changed**).
+
 Breaking for a flowchart document with a node id that begins with a keyword such as `end`,
 `style`, `class` or `graph` followed by a character other than a letter, digit or `_` (`end-x`,
 `style.x`, `A --> end`), which is now refused (see **Changed**).
@@ -122,6 +125,11 @@ warning and is now refused (see **Changed**).
 
 ### Added
 
+- A flowchart class name may hold what Mermaid 12.2.0 styles (nook `01M51Q7FSS`, measured in
+  headless Chrome): a `-` (`c-d`, `-c`, `c-`), a `.`, `#` or `+` between words (`c.d`, `c#d`,
+  `c+d`), a non-ASCII letter (`cé`) or a `\`, in `classDef`, `class` and `:::` alike, each applied
+  as its name says; and `classDef c,d …` defines both `c` and `d`. Each used to be refused as an
+  unrecognized line.
 - More flowchart lines are read as Mermaid 12.2.0 reads them (nook `01M51Q7FK5`): a `%%` where an
   endpoint begins — after an arrow, its `|label|`, or an `&` with a space on each side — is the
   start of an id, not a comment (`A --> %%B`, `A -->|l| %%B`, `A & %%B --> C`, `A --> %%`), and a
@@ -289,6 +297,12 @@ warning and is now refused (see **Changed**).
 
 ### Changed
 
+- **A flowchart class name Mermaid cannot style is refused** (nook `01M51Q7FSS`): Mermaid 12.2.0
+  writes each `classDef` as the CSS rule `.<name> > *`, and a name that makes it fail to parse
+  (`1c`, `c.`, `c..d`, `c:d`, `c%`, `c!`, `c/d` and the like) stops the whole diagram rendering in a
+  browser. Siren drew a digit-first name such as `1c`; it now refuses every such name at the name,
+  saying what a class name may hold. `class A c,d` and `A:::c,d`, which Mermaid draws unstyled as
+  the one class `c,d`, are refused saying to apply one class at a time.
 - A flowchart `%%` that begins a statement after a `;` (`A;%%B`, `A --> B; %%c`), which Mermaid
   12.2.0 draws as a node, is refused saying so and to move the comment to a line of its own, where
   it was told only that a mid-line `%%` is not a comment (nook `01M51Q7FK5`).

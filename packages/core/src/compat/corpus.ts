@@ -3693,6 +3693,57 @@ line2\`"]`,
     },
   },
   {
+    id: "fc-class-name-punctuation",
+    kind: "flowchart",
+    source: `flowchart TB
+      classDef c-d fill:#f00
+      classDef x.y,z#w fill:#0f0
+      A:::c-d --> B
+      class B x.y
+      C:::z#w`,
+    status: "supported",
+    meaning:
+      "A class name may hold `-`, and `.`, `#` or `+` between words; " +
+      "`classDef x.y,z#w` defines both names. Measured in headless Chrome on " +
+      "Mermaid 12.2.0: A is filled red, B and C green. Siren applies each " +
+      "class by its name and paints the same fills.",
+    assert: (result) => {
+      expectSame("A's frame", nodeStyle(result, "A"), "fill:#f00");
+      expectSame("B's frame", nodeStyle(result, "B"), "fill:#0f0");
+      expectSame("C's frame", nodeStyle(result, "C"), "fill:#0f0");
+    },
+  },
+  {
+    id: "fc-class-name-comma",
+    kind: "flowchart",
+    source: `flowchart TB
+      classDef c fill:#f00
+      A
+      class A c,d`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** `class A c,d` " +
+      "gives A the one class `c,d`, which no `classDef` defines, so Mermaid " +
+      "12.2.0 draws A unfilled, with no diagnostic (measured in headless " +
+      "Chrome; `A:::c,d` the same). Siren refuses it (ADR-0001), at the name, " +
+      "saying to apply one class at a time.",
+  },
+  {
+    id: "fc-class-name-not-css",
+    kind: "flowchart",
+    source: `flowchart TB
+      classDef 1c fill:#f00
+      A:::1c`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid in a browser, and here for that reason.** Mermaid " +
+      "12.2.0 parses it, then writes the CSS rule `.1c > * { … }`, which the " +
+      "browser cannot parse, and draws nothing (measured in headless Chrome; " +
+      "the same for `c%`, `c.`, `c..d`, `c:d` and the like). Siren drew it " +
+      "before; it refuses it now (ADR-0017), at the name, saying what a class " +
+      "name may hold.",
+  },
+  {
     id: "fc-style-classdef-default",
     kind: "flowchart",
     source: `flowchart TB

@@ -2579,3 +2579,98 @@ describe("the text a flowchart line holds, which no separator cuts", () => {
     ]);
   });
 });
+
+/**
+ * A class name beyond `\w`. Measured in headless Chrome on Mermaid 12.2.0:
+ * Mermaid writes each `classDef` as the CSS rule `.<name> > *` and paints the
+ * node with its style, so every name that makes that rule parse is drawn
+ * styled — `c-d`, `c.d`, `c#d`, `c+d`, `-c`, `c-`, `_c`, `cé`, `日本`, `c\d`
+ * — in `:::`, in `class` and in `classDef` alike.
+ */
+describe("a flowchart class name beyond letters, digits and `_`", () => {
+  it.each(["c-d", "c.d", "c#d", "c+d", "-c", "c-", "_c", "cé", "日本", "c\\d"])(
+    "reads `%s` in `classDef`, `:::` and `class`",
+    (name) => {
+      const { document, diagnostics } = parseOk(
+        `flowchart TB\n  classDef ${name} fill:#f00\n  A:::${name} --> B\n  C:::${name}\n  class B ${name}`,
+      );
+
+      expect(diagnostics).toEqual([]);
+      expect(document.styles.map((style) => [style.styleKind, style.targetIds, style.name])).toEqual([
+        ["classDef", [], name],
+        ["apply", ["A"], name],
+        ["apply", ["C"], name],
+        ["apply", ["B"], name],
+      ]);
+    },
+  );
+});
+
+/**
+ * A class name Mermaid 12.2.0 cannot style. Measured in headless Chrome:
+ * each of these makes the CSS rule `.<name> > *` fail to parse, and Mermaid
+ * then draws nothing at all (a `classDef` defining one does so even when no
+ * node uses it).
+ */
+describe("a flowchart class name Mermaid cannot style", () => {
+  const message = (name: string) =>
+    `"${name}" cannot be a class name. Use letters, digits, "_" and "-", with no digit first, ` +
+    'and ".", "#" or "+" only between such words.';
+
+  it.each(["c%", "1c", "-1c", "c.", "c..d", "c.1", "c#", "c#1", "#c", ".c", "c+", "+c", "c:d", "c!", "c$", "c*", "c?", "c/d", "c'd", "c`d", "%c"])(
+    "refuses `%s` in `classDef`, `:::` and `class`, at the name",
+    (name) => {
+      const { document, diagnostics } = parseFlowchart(
+        `flowchart TB\n  classDef ${name} fill:#f00\n  A:::${name} --> B\n  class B ${name}`,
+      );
+
+      expect(document).toBeNull();
+      expect(diagnostics).toEqual([
+        { severity: "error", message: message(name), line: 2, column: 12 },
+        { severity: "error", message: message(name), line: 3, column: 7 },
+        { severity: "error", message: message(name), line: 4, column: 11 },
+      ]);
+    },
+  );
+});
+
+/**
+ * A `,` in a class name. Measured in headless Chrome on Mermaid 12.2.0:
+ * `classDef c,d fill:#f00` defines both `c` and `d`, each node it styles
+ * drawn filled; `class A c,d` and `A:::c,d` give the node the one class
+ * `c,d`, which no `classDef` defines, so it is drawn unstyled with no
+ * diagnostic.
+ */
+describe("a `,` in a flowchart class name", () => {
+  it("defines each name of a `classDef c,d`", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  classDef c,d fill:#f00\n  A:::c\n  B:::d");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.styles.map((style) => [style.styleKind, style.name])).toEqual([
+      ["classDef", "c"],
+      ["classDef", "d"],
+      ["apply", "c"],
+      ["apply", "d"],
+    ]);
+  });
+
+  it.each([
+    ["A\n  class A c,d", 3, 11],
+    ["A:::c,d", 2, 7],
+  ])("refuses %j, which applies one class `c,d` that styles nothing", (written, line, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  classDef c fill:#f00\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          '"c,d" is read as one class name, which no classDef defines, so no style reaches the node. ' +
+          "Apply one class at a time.",
+        line: line + 1,
+        column,
+      },
+    ]);
+  });
+});
+

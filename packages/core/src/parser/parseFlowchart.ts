@@ -187,6 +187,23 @@ const ID_KEYWORDS = [
   "_top",
 ] as const;
 
+/**
+ * A class name, in `classDef`, `class` and `:::` alike: one or more words
+ * joined by `.`, `#` or `+`, each word an optional `-`, then a letter, `_`,
+ * a non-ASCII character or a `\`, then any of those, digits and `-`.
+ *
+ * Measured in headless Chrome on Mermaid 12.2.0: Mermaid writes each
+ * `classDef` as the CSS rule `.<name> > *`, and a name that makes that rule
+ * parse is drawn styled (`c-d`, `c.d`, `c#d`, `c+d`, `-c`, `c-`, `cé`,
+ * `c\d`), while one that does not stops the whole diagram from rendering
+ * (`c%`, `1c`, `c.`, `c..d`, `c:d`, `c!` and the rest). Siren applies a class
+ * by its name and writes no CSS for it, so this pattern is the whole of the
+ * rule. A `-` before `>`, `-` or `.` begins an arrow there, as in an id
+ * (`ID_DASH`).
+ */
+const CLASS_WORD = String.raw`-?[A-Za-z_\u0080-\uFFFF\\](?:[\w\u0080-\uFFFF\\]|-(?=[^>\-.]|$))*`;
+const CLASS_NAME = String.raw`${CLASS_WORD}(?:[.#+]${CLASS_WORD})*`;
+
 /** One of `ID_KEYWORDS`, read as the keyword: not followed by `[A-Za-z0-9_]`. */
 const ID_KEYWORD = `(?:${ID_KEYWORDS.join("|")})(?![A-Za-z0-9_])`;
 
@@ -299,7 +316,7 @@ const NODE_SPELLINGS: ReadonlyArray<NodeSpelling> = [
  */
 const NODE_PATTERNS = NODE_SPELLINGS.map((spelling) => ({
   shape: spelling.shape,
-  re: new RegExp(String.raw`^(${NODE_ID})\s*${bracketOf(spelling)}\s*(?::::(\w+))?\s*$`, "d"),
+  re: new RegExp(String.raw`^(${NODE_ID})\s*${bracketOf(spelling)}\s*(?::::(${CLASS_NAME}))?\s*$`, "d"),
 }));
 
 /**
@@ -417,7 +434,7 @@ function readLabelAt(span: LabelSpan, options: Parameters<typeof readLabel>[1]):
  * itself keeps being an unrecognized line rather than silently declaring a
  * node: what makes this a declaration is the `:::`.
  */
-const NODE_CLASS_RE = new RegExp(String.raw`^(${NODE_ID})\s*:::(\w+)\s*$`);
+const NODE_CLASS_RE = new RegExp(String.raw`^(${NODE_ID})\s*:::(${CLASS_NAME})\s*$`);
 
 /**
  * **One** endpoint of an edge line, in each bracket spelling: an id, free to
@@ -449,7 +466,7 @@ const NODE_CLASS_RE = new RegExp(String.raw`^(${NODE_ID})\s*:::(\w+)\s*$`);
 const ENDPOINT_PATTERNS = NODE_SPELLINGS.map((spelling) => ({
   shape: spelling.shape,
   // `d` for the label's own index, which `labelAt` is measured from.
-  re: new RegExp(String.raw`^(${NODE_ID})\s*${bracketOf(spelling)}(?:\s*:::(\w+))?$`, "d"),
+  re: new RegExp(String.raw`^(${NODE_ID})\s*${bracketOf(spelling)}(?:\s*:::(${CLASS_NAME}))?$`, "d"),
 }));
 
 /**
@@ -461,7 +478,7 @@ const ENDPOINT_PATTERNS = NODE_SPELLINGS.map((spelling) => ({
  * means — declaring the node only when nothing else has — is
  * `addNodeAsWritten`'s, as it has always been.
  */
-const BARE_ENDPOINT_RE = new RegExp(String.raw`^(${NODE_ID})(?:\s*:::(\w+))?$`);
+const BARE_ENDPOINT_RE = new RegExp(String.raw`^(${NODE_ID})(?:\s*:::(${CLASS_NAME}))?$`);
 
 /**
  * What may lie between the two `|` of an edge label: the same two
@@ -1106,7 +1123,7 @@ const ANY_LABEL_PATTERNS = NODE_SPELLINGS.map((spelling) => ({
   // there: `A[x] B[y]` is two nodes, not the label `x] B[y` (sticky, asked
   // at each character).
   closedThenSpace: new RegExp(String.raw`${spelling.close}\s`, "y"),
-  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracketOf(spelling, ".*")}\s*(?::::(\w+))?\s*$`, "d"),
+  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracketOf(spelling, ".*")}\s*(?::::(${CLASS_NAME}))?\s*$`, "d"),
 }));
 
 /** The characters a bracket spelling is made of, which a label can hold only quoted. */
@@ -1222,8 +1239,58 @@ function refuseNode(
   return (
     refuseKeywordId(text, writtenAs === "an edge endpoint") ??
     refuseNodeData(text) ??
+    refuseClassName(text) ??
     refuseNodeLabel(text)
   );
+}
+
+/** `CLASS_NAME`, anchored at both ends. */
+const CLASS_NAME_RE = new RegExp(`^${CLASS_NAME}$`);
+
+/**
+ * Where a class name stands in a text, read loosely — any run without a
+ * space — so a name `CLASS_NAME` refuses can be named: in a `classDef`, in
+ * a `class` statement's last word, or after a `:::` that ends the text.
+ */
+const LOOSE_CLASS_NAME_RES = [
+  /^classDef\s+(\S+)\s+\S/d,
+  new RegExp(String.raw`^class\s+[${ID_ALPHABET_SET}\s,]*[${ID_ALPHABET_SET},]\s+(\S+)\s*$`, "d"),
+  /:::(\S+)\s*$/d,
+];
+
+/**
+ * Why a statement or a node written as `text` was refused, when the reason
+ * is a class name `CLASS_NAME` does not read (`c%`, `1c`, `c..d`), and
+ * where in `text` that name stands. Measured in headless Chrome on Mermaid
+ * 12.2.0: each makes the CSS rule `.<name> > *` it writes fail to parse,
+ * and the diagram is not drawn.
+ */
+function refuseClassName(text: string): { message: string; offset: number } | null {
+  for (const [index, re] of LOOSE_CLASS_NAME_RES.entries()) {
+    const match = re.exec(text);
+    if (match === null || CLASS_NAME_RE.test(match[1]!)) {
+      continue;
+    }
+    // `class A c,d`, `A:::c,d`: the one class `c,d`, which no `classDef`
+    // defines (`classDef c,d` defines `c` and `d`), so Mermaid 12.2.0 draws
+    // the node unstyled with no diagnostic (measured).
+    const appliesOne = index > 0 && match[1]!.split(",").every((name) => CLASS_NAME_RE.test(name));
+    if (appliesOne) {
+      return {
+        message:
+          `"${match[1]}" is read as one class name, which no classDef defines, so no style reaches the node. ` +
+          "Apply one class at a time.",
+        offset: match.indices![1]![0],
+      };
+    }
+    return {
+      message:
+        `"${match[1]}" cannot be a class name. Use letters, digits, "_" and "-", with no digit first, ` +
+        'and ".", "#" or "+" only between such words.',
+      offset: match.indices![1]![0],
+    };
+  }
+  return null;
 }
 
 /** `ID_KEYWORD` at the start of a text; the match is the keyword, its lookahead being zero-width. */
@@ -1300,7 +1367,7 @@ function refuseNodeData(text: string): { message: string; offset: number } | nul
   }
   const rest = text.slice(block.end);
   const restAt = block.end + rest.length - rest.trimStart().length;
-  const definition = /^\s*:::(\w+)/.exec(rest);
+  const definition = new RegExp(String.raw`^\s*:::(${CLASS_NAME})`).exec(rest);
   if (definition !== null) {
     return {
       message: `Write ":::${definition[1]}" before the "${NODE_DATA_OPENER} … }" block: ${head}:::${definition[1]}${written}`,
@@ -2132,9 +2199,10 @@ const STYLE_RE = new RegExp(String.raw`^style\s+(${ID_RUN})\s+(.+)$`, "d");
 
 /**
  * `classDef emphasis fill:#fdd` — a named set of declarations, applied to
- * nothing on its own, spelled exactly as a class diagram spells it.
+ * nothing on its own, spelled exactly as a class diagram spells it; or
+ * several names joined by `,` (`classDef a,b fill:#fdd`), each defined.
  */
-const CLASS_DEF_RE = /^classDef\s+(\w+)\s+(.+)$/;
+const CLASS_DEF_RE = new RegExp(String.raw`^classDef\s+(${CLASS_NAME}(?:,${CLASS_NAME})*)\s+(.+)$`);
 
 /**
  * `linkStyle 0 stroke:#f00` — the one styling statement that reaches an
@@ -2211,7 +2279,7 @@ const LINK_STYLE_INTERPOLATE_RE = /^linkStyle\s+([\w,\s]*?[\w,])\s+interpolate\s
  * 01M4ZWT8PR).
  */
 const CLASS_APPLY_RE = new RegExp(
-  String.raw`^class\s+([${ID_ALPHABET_SET}\s,]*[${ID_ALPHABET_SET},])\s+(\w+)\s*$`,
+  String.raw`^class\s+([${ID_ALPHABET_SET}\s,]*[${ID_ALPHABET_SET},])\s+(${CLASS_NAME})\s*$`,
   "d",
 );
 
@@ -3226,15 +3294,20 @@ export function parseFlowchart(source: string): DiagramParseResult {
         // by whoever applies it, in `resolveStyles`' own pass. Checked before
         // `style` and before a node declaration only because it is the more
         // specific keyword, not because the order can matter.
-        styles.push({
-          styleKind: "classDef",
-          authoredAs: "classDef",
-          targetIds: [],
-          name: classDefMatch[1],
-          properties: readStyleProperties(classDefMatch[2], lineNumber, column),
-          line: lineNumber,
-          column,
-        });
+        // `classDef c,d …` defines each name with the one declaration list,
+        // as Mermaid 12.2.0 does (measured: both `c` and `d` are styled).
+        const properties = readStyleProperties(classDefMatch[2], lineNumber, column);
+        for (const name of classDefMatch[1].split(",")) {
+          styles.push({
+            styleKind: "classDef",
+            authoredAs: "classDef",
+            targetIds: [],
+            name,
+            properties,
+            line: lineNumber,
+            column,
+          });
+        }
         continue;
       }
 
