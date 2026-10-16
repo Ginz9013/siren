@@ -262,6 +262,11 @@ function percentOutsideQuotes(line: string): number {
   return match === null ? -1 : match[0].length - 2;
 }
 
+/** The column `rawLine`'s text starts at, after its indent. */
+function textColumn(rawLine: string): number {
+  return rawLine.length - rawLine.trimStart().length + 1;
+}
+
 /**
  * A direction anywhere in a line. Mermaid 12.2.0's class lexer opens with
  * `.*direction\s+TB[^\n]*` and the same for `BT`, `RL` and `LR`, tried
@@ -274,21 +279,81 @@ function percentOutsideQuotes(line: string): number {
  * the diagram out left to right and draw nothing else of their line). Case
  * sensitive, and `TD` is no part of it: `class A direction TD` is the class
  * `AdirectionTD`, as `class A direction lr` is `Adirectionlr`. A class
- * block's or a namespace's body, and an `accDescr { }` block, is read in a
+ * block's or a namespace's body, and an `accDescr { }` block, are read in a
  * lexer state these rules are not part of, so a member `+int direction LR`
  * there is drawn as written.
+ *
+ * The rules are tried in that order, so the first of them to match anywhere
+ * in the line decides the direction: `class C direction LR direction TB` is
+ * TB. `appliedDirection` answers with that one, and where it stands.
  */
-const DIRECTION_ANYWHERE_RE = /direction\s+(?:TB|BT|RL|LR)/;
+const DIRECTION_RULES = (["TB", "BT", "RL", "LR"] as const).map(
+  (value) => [value, new RegExp(`direction\\s+${value}`)] as const,
+);
+
+function appliedDirection(line: string): { direction: Direction; index: number } | null {
+  for (const [direction, rule] of DIRECTION_RULES) {
+    const match = rule.exec(line);
+    if (match !== null) return { direction, index: match.index };
+  }
+  return null;
+}
 
 /**
- * Whether `line` is a `direction` statement as this parser reads one: bare,
- * or with a `%%` comment after it, which Mermaid reads as part of the
- * statement wherever it stands.
+ * The same rule across a line break: its `\s+` matches one, blank lines
+ * too, so a line ending in `direction` (`DIRECTION_AT_END_RE`) and the next
+ * non-blank line starting with a value (`DIRECTION_CONTINUED_RE`, `TBD`
+ * included) are one direction statement, both lines lost (measured, Chrome:
+ * `A : +int direction` then `LRClass --> B` lays the diagram out left to
+ * right and draws neither line). In a class block's body they are read as
+ * written, as on one line.
+ */
+const DIRECTION_AT_END_RE = /direction$/;
+const DIRECTION_CONTINUED_RE = /^(?:TB|BT|RL|LR)/;
+
+/**
+ * A `direction` statement and the `;`s after it, which Mermaid's rule takes
+ * with it (`[^\n]*`) and nothing else needs: `direction LR;`, `direction LR
+ * ;` and `direction LR;;` are laid out left to right, the next line read as
+ * usual (measured). `TD` is no value to that rule, and `direction TD;` is a
+ * lexical error (measured), so it is not one here either.
+ */
+const DIRECTION_SEMICOLON_RE = /^(direction\s+(?:TB|BT|RL|LR))\s*;+$/;
+
+/**
+ * The direction `line` sets as a `direction` statement, bare or with its
+ * `;`s (`DIRECTION_SEMICOLON_RE`), or `null` when it is not one.
+ */
+function readDirectionStatement(line: string): Direction | null {
+  const semicolons = DIRECTION_SEMICOLON_RE.exec(line);
+  return matchClassDirection(semicolons === null ? line : semicolons[1]);
+}
+
+/**
+ * Whether `line`, with a `%%` at `percent`, is a `direction` statement and a
+ * comment: Mermaid reads `direction LR %% x` as the direction alone,
+ * wherever it stands (measured) — unless the comment names a direction the
+ * lexer applies instead, its `.*` reaching it (`appliedDirection`):
+ * `direction LR %% direction RL` lays the diagram out right to left, while
+ * `direction RL %% direction LR` is RL either way (measured). `direction TD`
+ * names no direction to that rule; with nothing after it that does, it is
+ * read as written.
+ */
+function isDirectionWithComment(line: string, percent: number): boolean {
+  const own = readDirectionStatement(line.slice(0, percent).trimEnd());
+  const applied = appliedDirection(line);
+  return own !== null && (applied === null || applied.direction === own);
+}
+
+/**
+ * Whether `line` is a `direction` statement as this parser reads one: bare
+ * or with its `;`s (`readDirectionStatement`), or with a comment after it
+ * (`isDirectionWithComment`).
  */
 function isDirectionStatement(line: string): boolean {
-  if (matchClassDirection(line) !== null) return true;
+  if (readDirectionStatement(line) !== null) return true;
   const percent = percentOutsideQuotes(line);
-  return percent !== -1 && matchClassDirection(line.slice(0, percent).trimEnd()) !== null;
+  return percent !== -1 && isDirectionWithComment(line, percent);
 }
 
 /**
@@ -896,9 +961,9 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     }
 
     const lineNumber = startIndex + 1;
-    const column = rawLine.length - rawLine.trimStart().length + 1;
+    const column = textColumn(rawLine);
 
-    const directionStatement = matchClassDirection(line);
+    const directionStatement = readDirectionStatement(line);
     if (directionStatement !== null) {
       direction = directionStatement;
       return { lastIndex: startIndex, read: "direction" };
@@ -1585,8 +1650,8 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     // A `%%` no statement above holds as text. After a statement in
     // `STATEMENTS_A_COMMENT_MAY_FOLLOW` it is a comment on the last line and
     // refused on any other; after `direction` it is a comment wherever it
-    // stands (measured:
-    // `direction LR %% x` then `class A` draws); after a class declaration
+    // stands, unless it names a direction itself (`isDirectionWithComment`);
+    // after a class declaration
     // or a namespace's `{` it is refused always (measured: `class A %% x`,
     // `class A~T~ %% x`, `class A:::c %% x` and `namespace N { %% x` are
     // parse errors even on the last line, the lexer reading its `%` as
@@ -1598,7 +1663,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       const followsCommentable =
         !before.includes(":::") && STATEMENTS_A_COMMENT_MAY_FOLLOW.some((pattern) => pattern.test(before));
       const isComment =
-        matchClassDirection(before) !== null || (followsCommentable && startIndex === lastStatementIndex);
+        isDirectionWithComment(line, percent) || (followsCommentable && startIndex === lastStatementIndex);
       const isRefused =
         !isComment && (followsCommentable || CLASS_DECL_RE.test(before) || NAMESPACE_OPEN_RE.test(before));
       if (isComment || isRefused) {
@@ -1665,32 +1730,55 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       break;
     }
 
-    // A line Mermaid reads as one direction statement for the `direction`
-    // inside it (`DIRECTION_ANYWHERE_RE`) is refused there (ADR-0001): the
-    // rest of the line would vanish with no diagnostic. The statement is
-    // still read, so a block it opens is consumed rather than refused line
-    // by line, but its own problems on this line are dropped: the line has
-    // one, and this is it.
-    const swallowed = isDirectionStatement(line) ? null : DIRECTION_ANYWHERE_RE.exec(line);
-    if (swallowed !== null) {
-      const lineNumber = index + 1;
-      const written = swallowed[0].replace(/\s+/, " ");
-      const readFrom = diagnostics.length;
-      index = parseStatement(index, null).lastIndex;
-      diagnostics.splice(
-        readFrom,
-        diagnostics.length - readFrom,
-        {
+    // A line ending in `direction` before one starting with a direction
+    // value (`DIRECTION_CONTINUED_RE`) is one direction statement to
+    // Mermaid, every line from it to the value gone, so it is refused at
+    // that `direction` and they are passed over. Asked first: it is the
+    // rule Mermaid tries first when the line holds a later value as well.
+    const ending = DIRECTION_AT_END_RE.exec(line);
+    if (ending !== null) {
+      let valueIndex = index + 1;
+      while (valueIndex < lines.length && lines[valueIndex].trim().length === 0) valueIndex++;
+      const value = valueIndex < lines.length ? DIRECTION_CONTINUED_RE.exec(lines[valueIndex].trimStart()) : null;
+      if (value !== null) {
+        diagnostics.push({
           severity: "error",
           message:
-            `This line contains \`${written}\`, so the whole line would be read as a direction statement ` +
-            "and everything else on it would be lost. Write the direction on a line of its own, " +
-            `or reword the text so it does not contain \`${written}\`.`,
-          line: lineNumber,
-          column: rawLine.length - rawLine.trimStart().length + 1 + swallowed.index,
-        },
-        ...diagnostics.slice(readFrom).filter((diagnostic) => diagnostic.line !== lineNumber),
-      );
+            `This line ends with \`direction\` and line ${valueIndex + 1} starts with \`${value[0]}\`, so together ` +
+            `they would be read as the direction statement \`direction ${value[0]}\`, and everything else on ` +
+            "those lines would be lost. Write the direction on a line of its own, or reword the text so that " +
+            "no line ends with `direction`.",
+          line: index + 1,
+          column: textColumn(rawLine) + ending.index,
+        });
+        sawError = true;
+        index = valueIndex;
+        continue;
+      }
+    }
+
+    // A line Mermaid reads as one direction statement for the `direction`
+    // inside it (`DIRECTION_RULES`) is refused there (ADR-0001): the
+    // rest of the line would vanish with no diagnostic. The statement is
+    // still read, so a block it opens is consumed rather than refused line
+    // by line, but its own problems are dropped: the line has one, and this
+    // is it.
+    const swallowed = isDirectionStatement(line) ? null : appliedDirection(line);
+    if (swallowed !== null) {
+      const written = `direction ${swallowed.direction}`;
+      const readFrom = diagnostics.length;
+      const lineNumber = index + 1;
+      index = parseStatement(index, null).lastIndex;
+      diagnostics.length = readFrom;
+      diagnostics.push({
+        severity: "error",
+        message:
+          `This line contains \`${written}\`, so the whole line would be read as a direction statement ` +
+          "and everything else on it would be lost. Write the direction on a line of its own, " +
+          `or reword the text so it does not contain \`${written}\`.`,
+        line: lineNumber,
+        column: textColumn(rawLine) + swallowed.index,
+      });
       sawError = true;
       continue;
     }

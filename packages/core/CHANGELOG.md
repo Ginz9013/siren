@@ -81,9 +81,13 @@ Breaking for a class document with a `;` in an inline member (`A : +int x; y`, `
 which is now refused (see **Changed**).
 
 Breaking for a class document with `direction TB`, `BT`, `RL` or `LR` inside a top-level line
-other than a `direction` statement — in a class label or an inline member
-(`class A["direction LR"]`, `A : +direction LR`), a note, `accTitle` or `click` string — which is
-now refused (see **Changed**).
+that used to be drawn — a class label (`class A["direction LR"]`), an inline member
+(`A : +direction LR`), a relationship label, a `~generic~`, a `<<annotation>>`, a note's text,
+`accTitle`, `accDescr`, a `click`, `link` or `callback` string, or a `style` line; in the `%%`
+comment after a `direction` statement, where it changes the direction applied
+(`direction LR %% direction RL`); or split across lines, a line ending in `direction` before one
+starting with the value (`A : +int direction` then `LRClass --> B`). Each is now refused (see
+**Changed**).
 
 ### Added
 
@@ -220,10 +224,23 @@ now refused (see **Changed**).
   the rest of the line is lost with no diagnostic — a class declaration, a label, an inline
   member, a relationship, a note, `accTitle`, a `click` url or tooltip. Each such line gets one
   error at its `direction`, saying to write the direction on a line of its own or reword the text.
-  A class block's members, a namespace body and an `accDescr { }` block are untouched: Mermaid
-  draws a `direction LR` there as written. `direction LR %% note` still reads as a direction. A
-  label or inline member holding one used to be drawn; the other positions were refused as
-  unrecognized lines.
+  The rule crosses line breaks, blank lines too: a line ending in `direction` and the next line
+  starting with `TB`, `BT`, `RL` or `LR` (`TBD` included) are refused together, at that
+  `direction`. A class block's members, a namespace body and an `accDescr { }` block are
+  untouched: Mermaid draws a `direction LR` there as written. Mermaid tries `TB`, `BT`, `RL`, `LR`
+  in that order, the first found anywhere in the line winning, and the error quotes that one.
+  `direction LR %% note` still reads as a direction, and so does a comment naming a direction
+  that is not applied over the statement's own (`direction RL %% direction LR` is RL either way);
+  one that is (`direction LR %% direction RL`, laid out right to left by Mermaid) is refused.
+  `direction LR;` (and `direction LR ;`, `direction LR;;`) now reads as `direction LR`, as
+  Mermaid draws it; it used to be refused as an unrecognized line, and `direction LR; class C`,
+  which loses the class, is refused as above. A label, an inline member, a relationship label, a
+  generic, an annotation, a note's text, `accTitle`, `accDescr`, a `click`, `link` or `callback`
+  string and a `style` line holding one used to be drawn, as did a commented direction whose
+  comment changes it (as the first) and a split one whose two lines each read as a statement. A
+  class declaration, a relationship or `note "x"` followed by one, a glued form, `classDef`,
+  `cssClass`, a mid-line `%%` and a one-line namespace were already refused, as unrecognized
+  lines, a `classDef` for its declaration, a mid-line `%%` for the `%%`.
 - **A space in a class namespace name is refused once, saying how to write it** (nook
   `01M51DSEXR`): Mermaid 12.2.0 drops the space, drawing `namespace N M {` as the one frame `NM`.
   The error stands at the word after the space and offers `NM` or `N_M`; the block is still read,

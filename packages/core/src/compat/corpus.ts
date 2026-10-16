@@ -4823,9 +4823,10 @@ line2\`"]`,
       "direction on a line of its own or reword the text. A class block's " +
       "members, a namespace body and an `accDescr { }` block are read in " +
       "another lexer state, so a `direction LR` there is drawn as written, " +
-      "in both. Siren used to draw the label and the member, top to bottom, " +
-      "and refused `class A direction LR` and a relationship followed by one " +
-      "as unrecognized lines.",
+      "in both. The rule crosses line breaks too, a line ending in " +
+      "`direction` taking the next one starting with `LR` with it; Siren " +
+      "refuses that pair the same way. Siren used to draw the label and the " +
+      "member, top to bottom.",
   },
   {
     id: "cls-namespace-body-statement",

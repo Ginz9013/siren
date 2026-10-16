@@ -1786,11 +1786,16 @@ const SILENTLY_WRONG = 0;
  * `01M51K83NB` refused a top-level class-diagram line holding `direction
  * TB|BT|RL|LR` anywhere in it, which Mermaid 12.2.0's lexer reads as one
  * direction statement, the rest of the line gone with no diagnostic
- * (measured: a label, an inline member, a relationship). Siren used to
- * draw a label or member holding one, and refuse the other positions as
- * unrecognized lines, with no row to say so: `cls-direction-inside-line`
- * writes it down. No `supported` row moved: none wrote a direction inside
- * a line. `silently-wrong` does not move.
+ * (measured: a label, an inline member, a relationship), across a line
+ * break too. Siren used to draw a label, an inline member, a relationship
+ * label, a generic, an annotation, a note's text, `accTitle`, `accDescr`, a
+ * `click`, `link` or `callback` string and a `style` line holding one, and
+ * refused a class declaration, a relationship or `note "x"` followed by
+ * one, a glued form, `classDef`, `cssClass`, a mid-line `%%` and a one-line
+ * namespace (as unrecognized lines, a `classDef` for its declaration, a
+ * mid-line `%%` for the `%%`), with no row to say so:
+ * `cls-direction-inside-line` writes it down. No `supported` row moved:
+ * none wrote a direction inside a line. `silently-wrong` does not move.
  */
 const REJECTED = 46;
 
