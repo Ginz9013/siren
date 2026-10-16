@@ -1832,8 +1832,19 @@ const SILENTLY_WRONG = 0;
  * so: `cls-lollipop-generic` writes it down. No `supported` row moved:
  * `cls-relationship-generic`, new beside it, is `supported`.
  * `silently-wrong` does not move.
+ *
+ * **51 → 52: case (2), a refusal written down for the first time.**
+ * `01M51Q7FCNVAMK9FKX5BPC8BNZ` refused a flowchart id that begins with a
+ * keyword Mermaid 12.2.0's lexer reads before an id (`end`, `style`,
+ * `class`, `graph`, …) followed by a character that is not
+ * `[A-Za-z0-9_]`. At the top level Mermaid refuses each, so no row records
+ * them; inside a subgraph `end-x` is the block's end and then a node `-x`
+ * (measured), a picture nobody wrote, refused under ADR-0001. Siren used to
+ * report that block as unterminated, with no row to say so:
+ * `fc-id-end-prefix-in-subgraph` writes it down. No `supported` row moved:
+ * none wrote such an id. `silently-wrong` does not move.
  */
-const REJECTED = 51;
+const REJECTED = 52;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

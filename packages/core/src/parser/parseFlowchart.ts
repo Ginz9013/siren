@@ -155,6 +155,45 @@ const NOT_AFTER_ID = `(?<![${ID_ALPHABET_SET}])`;
 const ID_RUN = String.raw`(?:-(?=${ID_CHAR}))?${ID_CHAR}+(?:\.+-?${ID_CHAR}*|${ID_DASH}${ID_CHAR}*)*`;
 
 /**
+ * The words Mermaid 12.2.0's flowchart lexer reads as a keyword wherever an
+ * id could begin, when the next character is not `[A-Za-z0-9_]` (its rules
+ * are `style\b`, `class\b`, `end\b\s*` and the rest, tried before the id
+ * rule, first match wins; measured with `pnpm --filter siren-core probe`).
+ * `end-x` there is the keyword `end` and then `-x`: a parse error at the top
+ * level, and inside a `subgraph` the block's end and then a node `-x`.
+ * Longest first, so a regular expression alternating them names
+ * `flowchart-elk` before `flowchart` and `classDef` before `class`.
+ *
+ * Not here: `click`, `call` and `href`, read as keywords only before a
+ * space (`click-x` is an id), and `default`, `v` and `direction`, which the
+ * grammar takes back as an id (`default-x`, `v-x`, `direction-x` are
+ * nodes, measured).
+ */
+const ID_KEYWORDS = [
+  "flowchart-elk",
+  "swimlane-beta",
+  "linkStyle",
+  "interpolate",
+  "classDef",
+  "class",
+  "style",
+  "graph",
+  "flowchart",
+  "subgraph",
+  "end",
+  "_self",
+  "_blank",
+  "_parent",
+  "_top",
+] as const;
+
+/** One of `ID_KEYWORDS`, read as the keyword: not followed by `[A-Za-z0-9_]`. */
+const ID_KEYWORD = `(?:${ID_KEYWORDS.join("|")})(?![A-Za-z0-9_])`;
+
+/** A node's id: `ID_RUN`, unless it begins with a keyword (`ID_KEYWORD`). */
+const NODE_ID = `(?!${ID_KEYWORD})${ID_RUN}`;
+
+/**
  * Every bracket spelling of a node, paired with the shape it names — the
  * one place a spelling and a shape are associated, read by the standalone
  * declaration and by an edge endpoint alike.
@@ -260,7 +299,7 @@ const NODE_SPELLINGS: ReadonlyArray<NodeSpelling> = [
  */
 const NODE_PATTERNS = NODE_SPELLINGS.map((spelling) => ({
   shape: spelling.shape,
-  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracketOf(spelling)}\s*(?::::(\w+))?\s*$`, "d"),
+  re: new RegExp(String.raw`^(${NODE_ID})\s*${bracketOf(spelling)}\s*(?::::(\w+))?\s*$`, "d"),
 }));
 
 /**
@@ -378,7 +417,7 @@ function readLabelAt(span: LabelSpan, options: Parameters<typeof readLabel>[1]):
  * itself keeps being an unrecognized line rather than silently declaring a
  * node: what makes this a declaration is the `:::`.
  */
-const NODE_CLASS_RE = new RegExp(String.raw`^(${ID_RUN})\s*:::(\w+)\s*$`);
+const NODE_CLASS_RE = new RegExp(String.raw`^(${NODE_ID})\s*:::(\w+)\s*$`);
 
 /**
  * **One** endpoint of an edge line, in each bracket spelling: an id, free to
@@ -410,7 +449,7 @@ const NODE_CLASS_RE = new RegExp(String.raw`^(${ID_RUN})\s*:::(\w+)\s*$`);
 const ENDPOINT_PATTERNS = NODE_SPELLINGS.map((spelling) => ({
   shape: spelling.shape,
   // `d` for the label's own index, which `labelAt` is measured from.
-  re: new RegExp(String.raw`^(${ID_RUN})\s*${bracketOf(spelling)}(?:\s*:::(\w+))?$`, "d"),
+  re: new RegExp(String.raw`^(${NODE_ID})\s*${bracketOf(spelling)}(?:\s*:::(\w+))?$`, "d"),
 }));
 
 /**
@@ -422,7 +461,7 @@ const ENDPOINT_PATTERNS = NODE_SPELLINGS.map((spelling) => ({
  * means — declaring the node only when nothing else has — is
  * `addNodeAsWritten`'s, as it has always been.
  */
-const BARE_ENDPOINT_RE = new RegExp(String.raw`^(${ID_RUN})(?:\s*:::(\w+))?$`);
+const BARE_ENDPOINT_RE = new RegExp(String.raw`^(${NODE_ID})(?:\s*:::(\w+))?$`);
 
 /**
  * What may lie between the two `|` of an edge label: the same two
@@ -1171,12 +1210,57 @@ function refuseEdgeId(
 
 /**
  * Why a node written as `text` — one declaration or one endpoint, trimmed —
- * was refused, and where in `text` to point, for the two reasons this
- * parser can name: where its `@{ … }` block stands, or an unquoted bracket
- * in its label. `null` leaves it to the generic "Unrecognized" error.
+ * was refused, and where in `text` to point, for the three reasons this
+ * parser can name: an id that begins with a keyword, where its `@{ … }`
+ * block stands, or an unquoted bracket in its label. `null` leaves it to
+ * the generic "Unrecognized" error.
  */
-function refuseNode(text: string): { message: string; offset: number } | null {
-  return refuseNodeData(text) ?? refuseNodeLabel(text);
+function refuseNode(
+  text: string,
+  writtenAs: "an edge endpoint" | "a statement",
+): { message: string; offset: number } | null {
+  return (
+    refuseKeywordId(text, writtenAs === "a statement" ? "a statement" : "an id") ??
+    refuseNodeData(text) ??
+    refuseNodeLabel(text)
+  );
+}
+
+/** `ID_KEYWORD` at the start of a text, the keyword as the group. */
+const KEYWORD_ID_RE = new RegExp(`^(${ID_KEYWORDS.join("|")})(?![A-Za-z0-9_])`);
+
+/**
+ * What an author wrote as an id at the start of a text: up to a space, a
+ * bracket, a `:::` or an `@{` — `end&x` whole, as the author wrote it.
+ */
+const LEADING_ID_RE = /^[^\s[\](){}:@>]+/;
+
+/**
+ * Why a node written as `text` was refused, when the reason is an id that
+ * begins with a keyword (`ID_KEYWORDS`): `end-x`, `style.x`, `end[x]`. The
+ * keyword must be followed by something other than a space — `end B` is no
+ * id, and a statement such as `style A` is not this mistake — or, where
+ * the text is an id (an edge's end, a `style` or `class` target), be the
+ * whole of it (`A --> end`), which as a statement is a stray `end` instead. The fix offered is the id in camel case
+ * (`endX`), or with `Node` after a bare keyword.
+ */
+function refuseKeywordId(
+  text: string,
+  writtenAs: "an id" | "a statement",
+): { message: string; offset: number } | null {
+  const keyword = KEYWORD_ID_RE.exec(text)?.[1];
+  const after = keyword === undefined ? "" : text.slice(keyword.length);
+  if (keyword === undefined || (after === "" && writtenAs === "a statement") || /^\s/.test(after)) {
+    return null;
+  }
+  const id = LEADING_ID_RE.exec(text)![0];
+  const [first, ...rest] = id.split(/[^A-Za-z0-9_]+/).filter((part) => part !== "");
+  const fix =
+    rest.length === 0 ? `${first}Node` : first + rest.map((part) => part[0]!.toUpperCase() + part.slice(1)).join("");
+  return {
+    message: `"${id}" begins with the keyword "${keyword}", and is read as that keyword. Rename it, such as ${fix}`,
+    offset: 0,
+  };
 }
 
 /**
@@ -1561,6 +1645,9 @@ const SUBGRAPH_TITLED_RE = new RegExp(String.raw`^(${ID_RUN})\s*\[(${LABEL_CONTE
  * its id inside a block.
  */
 const AUTHORED_ID_RE = new RegExp(`^${ID_RUN}$`);
+
+/** A node written as nothing but its id: `AUTHORED_ID_RE`, unless it begins with a keyword. */
+const AUTHORED_NODE_ID_RE = new RegExp(`^${NODE_ID}$`);
 
 /**
  * What the tail of a `subgraph` statement names — the author's handle and
@@ -1984,7 +2071,7 @@ function callArgument(raw: string): string | null {
  * `style A fill:#fdd,stroke:#c00` — author styling applied directly to one
  * node, spelled exactly as a class diagram spells it.
  */
-const STYLE_RE = new RegExp(String.raw`^style\s+(${ID_RUN})\s+(.+)$`);
+const STYLE_RE = new RegExp(String.raw`^style\s+(${ID_RUN})\s+(.+)$`, "d");
 
 /**
  * `classDef emphasis fill:#fdd` — a named set of declarations, applied to
@@ -2068,6 +2155,7 @@ const LINK_STYLE_INTERPOLATE_RE = /^linkStyle\s+([\w,\s]*?[\w,])\s+interpolate\s
  */
 const CLASS_APPLY_RE = new RegExp(
   String.raw`^class\s+([${ID_ALPHABET_SET}\s,]*[${ID_ALPHABET_SET},])\s+(\w+)\s*$`,
+  "d",
 );
 
 /**
@@ -2535,6 +2623,24 @@ export function parseFlowchart(source: string): DiagramParseResult {
         ranOn.add(i);
         return true;
       };
+      // The ids a `style` or `class` statement targets, `targets` standing
+      // at `at` in it, refused when one begins with a keyword (`style end-x
+      // fill:red` is a parse error in Mermaid 12.2.0, measured) — true when
+      // one was, which ends the statement.
+      const refuseKeywordTargets = (targets: string, at: number): boolean => {
+        let offset = at;
+        for (const segment of targets.split(",")) {
+          const lead = segment.length - segment.trimStart().length;
+          const refusal = refuseKeywordId(segment.trim(), "an id");
+          if (refusal !== null) {
+            diagnostics.push({ severity: "error", message: refusal.message, line: lineNumber, column: column + offset + lead });
+            sawError = true;
+            return true;
+          }
+          offset += segment.length + 1;
+        }
+        return false;
+      };
       const refusePercent = () => {
         diagnostics.push({
           severity: "error",
@@ -2815,7 +2921,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
             sawError = true;
             continue;
           }
-          const nodeRefusal = refuseNode(piece.text.trim());
+          const nodeRefusal = refuseNode(piece.text.trim(), "an edge endpoint");
           diagnostics.push({
             severity: "error",
             message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${line}"`,
@@ -2976,6 +3082,9 @@ export function parseFlowchart(source: string): DiagramParseResult {
 
       const classApplyMatch = CLASS_APPLY_RE.exec(line);
       if (classApplyMatch !== null) {
+        if (refuseKeywordTargets(classApplyMatch[1], classApplyMatch.indices![1]![0])) {
+          continue;
+        }
         styles.push({
           styleKind: "apply",
           authoredAs: "class",
@@ -3004,6 +3113,9 @@ export function parseFlowchart(source: string): DiagramParseResult {
 
       const styleMatch = STYLE_RE.exec(line);
       if (styleMatch !== null) {
+        if (refuseKeywordTargets(styleMatch[1], styleMatch.indices![1]![0])) {
+          continue;
+        }
         // Naming a node in a `style` statement does not declare it: styling is
         // about something that already exists, and whether it does is
         // `resolveStyles`' question, asked once against the model's ids.
@@ -3074,7 +3186,7 @@ export function parseFlowchart(source: string): DiagramParseResult {
       // hide a mistyped or dangling `end` behind a silent, useless vertex
       // instead of the diagnostic below — so it is excluded by name, not by
       // block state.
-      if (line !== SUBGRAPH_END && AUTHORED_ID_RE.test(line)) {
+      if (line !== SUBGRAPH_END && AUTHORED_NODE_ID_RE.test(line)) {
         addNodeAsWritten(
           { id: line, label: undefined, labelAt: 0, definitionName: undefined, shape: "rect" },
           statement,
@@ -3082,7 +3194,13 @@ export function parseFlowchart(source: string): DiagramParseResult {
         continue;
       }
 
-      const nodeRefusal = refuseNode(line);
+      const nodeRefusal = refuseNode(line, "a statement");
+      // `end-x` inside a block: refused, and the block ends there, as Mermaid
+      // 12.2.0 ends it (measured), so the one mistake is not reported again
+      // as an unterminated block.
+      if (nodeRefusal !== null && openBlocks.length > 0 && KEYWORD_ID_RE.exec(line)?.[1] === SUBGRAPH_END) {
+        openBlocks.pop();
+      }
       diagnostics.push({
         severity: "error",
         message: nodeRefusal?.message ?? `Unrecognized flowchart line: "${line}"`,

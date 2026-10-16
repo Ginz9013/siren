@@ -2925,6 +2925,26 @@ export const COMPAT_CASES: readonly CompatCase[] = [
       "word in both.",
   },
   {
+    id: "fc-id-end-prefix-in-subgraph",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph s
+        A
+        end-x
+      B --> A`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** Its lexer reads " +
+      "a keyword before an id wherever the next character is not " +
+      "`[A-Za-z0-9_]`, so `end-x` is the block's `end` and then a node `-x`: " +
+      "Mermaid 12.2.0 draws the frame `s` around `A`, and `-x` and `B` " +
+      "outside it (measured), with no diagnostic. Siren refuses it (ADR-0001), " +
+      "at the id, saying it begins with the keyword `end` and to rename it " +
+      "(`endX`), and reads the block as closed there. The same id at the top " +
+      "level, and every other keyword (`style-x`, `class.x`, `graph%x`, …), " +
+      "is a parse error in Mermaid and refused the same way.",
+  },
+  {
     id: "fc-direction-top-level",
     kind: "flowchart",
     source: `flowchart TB

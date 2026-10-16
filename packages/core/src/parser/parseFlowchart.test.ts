@@ -763,6 +763,138 @@ describe("an `@{` in a statement that writes no node", () => {
   });
 });
 
+/** The refusal of an id that begins with a keyword, as the tests below expect it. */
+function keywordIdMessage(id: string, keyword: string, fix: string): string {
+  return `"${id}" begins with the keyword "${keyword}", and is read as that keyword. Rename it, such as ${fix}`;
+}
+
+/**
+ * An id that begins with one of the flowchart lexer's keywords followed by a
+ * character that is not `[A-Za-z0-9_]`. Measured on Mermaid 12.2.0: its
+ * lexer tries `style\b`, `linkStyle\b`, `interpolate\b`, `classDef\b`,
+ * `class\b`, `flowchart-elk\b`, `swimlane-beta\b`, `graph\b`, `flowchart\b`,
+ * `subgraph\b`, `end\b`, `_self\b`, `_blank\b`, `_parent\b` and `_top\b`
+ * before an id, first match wins, so `end-x`, `style.x`, `graph%x` and the
+ * rest are a keyword and then text — a parse error at the top level. An id
+ * that only contains the word (`endx`, `end_x`, `End-x`, `A-end`), or begins
+ * with a word the lexer reads only before a space (`click`, `call`, `href`)
+ * or reads as an id after all (`default`, `v`, `direction`), is an id.
+ */
+describe("an id that begins with a keyword", () => {
+  it.each([
+    ["end-x", "end", "endX"],
+    ["end%x", "end", "endX"],
+    ["end[x]", "end", "endNode"],
+    ["end(x)", "end", "endNode"],
+    ["end:::c", "end", "endNode"],
+    ["style-x", "style", "styleX"],
+    ["linkStyle.x", "linkStyle", "linkStyleX"],
+    ["interpolate-x", "interpolate", "interpolateX"],
+    ["classDef-x", "classDef", "classDefX"],
+    ["class.x", "class", "classX"],
+    ["graph-x", "graph", "graphX"],
+    ["flowchart-x", "flowchart", "flowchartX"],
+    ["flowchart-elkx", "flowchart", "flowchartElkx"],
+    ["flowchart-elk-x", "flowchart-elk", "flowchartElkX"],
+    ["swimlane-beta-x", "swimlane-beta", "swimlaneBetaX"],
+    ["subgraph-x", "subgraph", "subgraphX"],
+    ["_self-x", "_self", "_selfX"],
+    ["_blank.x", "_blank", "_blankX"],
+    ["_parent%x", "_parent", "_parentX"],
+    ["_top-x", "_top", "_topX"],
+  ])("refuses `%s` on a line of its own, at the id", (written, keyword, fix) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+    const id = /^[^[(:]*/.exec(written)![0];
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([
+      { severity: "error", message: keywordIdMessage(id, keyword, fix), line: 2, column: 3 },
+    ]);
+  });
+
+  it.each([
+    ["A --> end-x", "end-x", "end", "endX", 9],
+    ["A --> end", "end", "end", "endNode", 9],
+    ["A --> style", "style", "style", "styleNode", 9],
+    ["A --> class:::c", "class", "class", "classNode", 9],
+    ["A & end-x --> B", "end-x", "end", "endX", 7],
+    ["end.x@{ shape: circle } --> B", "end.x", "end", "endX", 3],
+    ["A -->|yes| _top[x]", "_top", "_top", "_topNode", 14],
+  ])("refuses %s, at the endpoint's id", (written, id, keyword, fix, column) => {
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: keywordIdMessage(id, keyword, fix), line: 2, column }]);
+  });
+
+  it.each([
+    ["end-x", "end-x", "endX"],
+    ["end%x", "end%x", "endX"],
+    ["end.x", "end.x", "endX"],
+    ["end&x", "end&x", "endX"],
+  ])("refuses `%s` inside a subgraph, which it would close, and reads the block as closed there", (written, id, fix) => {
+    // Measured: Mermaid 12.2.0 ends the block at `end` and draws a node
+    // `-x` (`%x`, `.x`, `&x`) outside it — a picture nobody wrote.
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  subgraph s\n    A\n    ${written}\n  B`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: keywordIdMessage(id, "end", fix), line: 4, column: 5 }]);
+  });
+
+  it("still reads `end;B` inside a subgraph as the block's end and then a node", () => {
+    const { document, diagnostics } = parseOk("flowchart TB\n  subgraph s\n    A\n    end;B");
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs.map((block) => block.nodeIds)).toEqual([["A"]]);
+    expect(document.nodes.map((node) => node.id)).toEqual(["A", "B"]);
+  });
+
+  it.each([
+    ["A\n  style end-x fill:red", "end-x", "endX", 3, 9],
+    ["A\n  class end-x hot", "end-x", "endX", 3, 9],
+    ["A\n  class A,end.x hot", "end.x", "endX", 3, 11],
+  ])("refuses %j, at the styled id", (written, id, fix, line, column) => {
+    // Measured: both are parse errors in Mermaid 12.2.0.
+    const { document, diagnostics } = parseFlowchart(`flowchart TB\n  ${written}`);
+
+    expect(document).toBeNull();
+    expect(diagnostics).toEqual([{ severity: "error", message: keywordIdMessage(id, "end", fix), line, column }]);
+  });
+
+  it("reads `click end-x` and `subgraph end-x` as written, which Mermaid reads as ids there", () => {
+    const { document, diagnostics } = parseOk('flowchart TB\n  subgraph end-x\n    A\n  end\n  click A "https://x.org"\n  click end-x "https://x.org"');
+
+    expect(diagnostics).toEqual([]);
+    expect(document.subgraphs.map((block) => block.name)).toEqual(["end-x"]);
+    expect(document.interactions.map((interaction) => interaction.targetId)).toEqual(["A", "end-x"]);
+  });
+
+  it.each([
+    "endx",
+    "end_x",
+    "ends",
+    "stylex",
+    "style_x",
+    "End-x",
+    "swimlane-x",
+    "swimlane-betax",
+    "click-x",
+    "call-x",
+    "href-x",
+    "direction-x",
+    "default-x",
+    "v-x",
+    "A-end",
+    "x-end-y",
+    "A.end",
+  ])("draws `%s` as a node", (written) => {
+    const { document, diagnostics } = parseOk(`flowchart TB\n  ${written} --> B`);
+
+    expect(diagnostics).toEqual([]);
+    expect(document.nodes.map((node) => node.id)).toEqual([written, "B"]);
+  });
+});
+
 /**
  * An edge id, `A e1@--> B`, which Siren does not support yet (the same board
  * as `@{ … }`). Measured on Mermaid 12.2.0: accepted before every arrow

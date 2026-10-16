@@ -8,6 +8,10 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+Breaking for a flowchart document with a node id that begins with a keyword such as `end`,
+`style`, `class` or `graph` followed by a character other than a letter, digit or `_` (`end-x`,
+`style.x`, `A --> end`), which is now refused (see **Changed**).
+
 Breaking for a flowchart or ER document with a line that is nothing but `%%` outside its timeline
 blocks, which is now refused (see **Changed**).
 
@@ -257,6 +261,18 @@ Breaking for a class document with a method that declares a return type, which u
 
 ### Changed
 
+- **A flowchart node id that begins with a keyword is refused** (nook `01M51Q7FCN`): Mermaid
+  12.2.0's lexer reads `style`, `linkStyle`, `interpolate`, `classDef`, `class`, `graph`,
+  `flowchart`, `flowchart-elk`, `swimlane-beta`, `subgraph`, `end`, `_self`, `_blank`, `_parent`
+  and `_top` as the keyword wherever an id could begin and the next character is not
+  `[A-Za-z0-9_]`, so `end-x`, `style.x`, `graph%x`, `end[x]`, `end:::c` and `A --> end` are parse
+  errors there, and inside a subgraph `end-x` ends the block and adds a node `-x` outside it. Siren
+  drew each as the id written (and reported such a block as unterminated); it now refuses it at the
+  id, naming the keyword and a fix (`endX`), as a node on its own line, at an edge's end, in an `&`
+  group and as a `style` or `class` target, and reads a block as closed at an `end`-prefixed id.
+  An id that only contains the word (`endx`, `end_x`, `End-x`, `A-end`) is unchanged, as are
+  `click-x`, `call-x`, `href-x`, `default-x`, `v-x`, `direction-x`, `click end-x` and
+  `subgraph end-x`, which Mermaid reads as ids.
 - **An entity code in a class member is drawn decoded** (nook `01M51K83X2`): Mermaid 12.2.0
   encodes each `#\w+;` before it parses and decodes it when it draws, so `+#lt; x` draws `+< x`,
   `+int #59;` `+int ;` and `+foo(#9829;)` `+foo(♥)`, in a block and inline alike, in the type, the
