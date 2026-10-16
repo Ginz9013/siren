@@ -1781,8 +1781,23 @@ const SILENTLY_WRONG = 0;
  * with a second error at its `}`, with no row to say so:
  * `cls-namespace-name-with-space` writes it down. No `supported` row
  * moved. `silently-wrong` does not move.
+ *
+ * **45 → 46: case (2), a refusal written down for the first time.**
+ * `01M51K83NB` refused a top-level class-diagram line holding `direction
+ * TB|BT|RL|LR` anywhere in it, which Mermaid 12.2.0's lexer reads as one
+ * direction statement, the rest of the line gone with no diagnostic
+ * (measured: a label, an inline member, a relationship), across a line
+ * break too. Siren used to draw a label, an inline member, a relationship
+ * label, a generic, an annotation, a note's text, `accTitle`, `accDescr`, a
+ * `click`, `link` or `callback` string and a `style` line holding one, and
+ * refused a class declaration, a relationship or `note "x"` followed by
+ * one, a glued form, `classDef`, `cssClass`, a mid-line `%%` and a one-line
+ * namespace (as unrecognized lines, a `classDef` for its declaration, a
+ * mid-line `%%` for the `%%`), with no row to say so:
+ * `cls-direction-inside-line` writes it down. No `supported` row moved:
+ * none wrote a direction inside a line. `silently-wrong` does not move.
  */
-const REJECTED = 45;
+const REJECTED = 46;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

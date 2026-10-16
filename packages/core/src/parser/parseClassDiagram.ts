@@ -18,6 +18,7 @@ import type {
   StyleDecl,
   StyleProperty,
 } from "../contracts";
+import { entityCodeAt, replaceEntityCodes } from "../label/characterReferences";
 import { readLabelAt } from "../label/readLabelAt";
 import { parseStyleProperties } from "./parseDeclarationList";
 import { listAcceptedHeaders, matchClassDirection, matchDiagramHeader } from "./parseDirection";
@@ -262,6 +263,100 @@ function percentOutsideQuotes(line: string): number {
   return match === null ? -1 : match[0].length - 2;
 }
 
+/** The column `rawLine`'s text starts at, after its indent. */
+function textColumn(rawLine: string): number {
+  return rawLine.length - rawLine.trimStart().length + 1;
+}
+
+/**
+ * A direction anywhere in a line. Mermaid 12.2.0's class lexer opens with
+ * `.*direction\s+TB[^\n]*` and the same for `BT`, `RL` and `LR`, tried
+ * before every other rule wherever it starts reading a line at the top
+ * level: such a line is one direction statement, whatever else it says —
+ * a class declaration, a label, an inline member, a relationship, a note,
+ * `accTitle`, a `click` url, all gone (measured, Chrome: `class A direction
+ * LR`, `A --> B direction LR`, `class A["direction LR"]`, `A : +direction
+ * LR`, `note "direction LR"`, `xdirection LR` and `direction LRx` each lay
+ * the diagram out left to right and draw nothing else of their line). Case
+ * sensitive, and `TD` is no part of it: `class A direction TD` is the class
+ * `AdirectionTD`, as `class A direction lr` is `Adirectionlr`. A class
+ * block's or a namespace's body, and an `accDescr { }` block, are read in a
+ * lexer state these rules are not part of, so a member `+int direction LR`
+ * there is drawn as written.
+ *
+ * The rules are tried in that order, so the first of them to match anywhere
+ * in the line decides the direction: `class C direction LR direction TB` is
+ * TB. `appliedDirection` answers with that one, and where it stands.
+ */
+const DIRECTION_RULES = (["TB", "BT", "RL", "LR"] as const).map(
+  (value) => [value, new RegExp(`direction\\s+${value}`)] as const,
+);
+
+function appliedDirection(line: string): { direction: Direction; index: number } | null {
+  for (const [direction, rule] of DIRECTION_RULES) {
+    const match = rule.exec(line);
+    if (match !== null) return { direction, index: match.index };
+  }
+  return null;
+}
+
+/**
+ * The same rule across a line break: its `\s+` matches one, blank lines
+ * too, so a line ending in `direction` (`DIRECTION_AT_END_RE`) and the next
+ * non-blank line starting with a value (`DIRECTION_CONTINUED_RE`, `TBD`
+ * included) are one direction statement, both lines lost (measured, Chrome:
+ * `A : +int direction` then `LRClass --> B` lays the diagram out left to
+ * right and draws neither line). In a class block's body they are read as
+ * written, as on one line.
+ */
+const DIRECTION_AT_END_RE = /direction$/;
+const DIRECTION_CONTINUED_RE = /^(?:TB|BT|RL|LR)/;
+
+/**
+ * A `direction` statement and the `;`s after it, which Mermaid's rule takes
+ * with it (`[^\n]*`) and nothing else needs: `direction LR;`, `direction LR
+ * ;` and `direction LR;;` are laid out left to right, the next line read as
+ * usual (measured). `TD` is no value to that rule, and `direction TD;` is a
+ * lexical error (measured), so it is not one here either.
+ */
+const DIRECTION_SEMICOLON_RE = /^(direction\s+(?:TB|BT|RL|LR))\s*;+$/;
+
+/**
+ * The direction `line` sets as a `direction` statement, bare or with its
+ * `;`s (`DIRECTION_SEMICOLON_RE`), or `null` when it is not one.
+ */
+function readDirectionStatement(line: string): Direction | null {
+  const semicolons = DIRECTION_SEMICOLON_RE.exec(line);
+  return matchClassDirection(semicolons === null ? line : semicolons[1]);
+}
+
+/**
+ * Whether `line`, with a `%%` at `percent`, is a `direction` statement and a
+ * comment: Mermaid reads `direction LR %% x` as the direction alone,
+ * wherever it stands (measured) — unless the comment names a direction the
+ * lexer applies instead, its `.*` reaching it (`appliedDirection`):
+ * `direction LR %% direction RL` lays the diagram out right to left, while
+ * `direction RL %% direction LR` is RL either way (measured). `direction TD`
+ * names no direction to that rule; with nothing after it that does, it is
+ * read as written.
+ */
+function isDirectionWithComment(line: string, percent: number): boolean {
+  const own = readDirectionStatement(line.slice(0, percent).trimEnd());
+  const applied = appliedDirection(line);
+  return own !== null && (applied === null || applied.direction === own);
+}
+
+/**
+ * Whether `line` is a `direction` statement as this parser reads one: bare
+ * or with its `;`s (`readDirectionStatement`), or with a comment after it
+ * (`isDirectionWithComment`).
+ */
+function isDirectionStatement(line: string): boolean {
+  if (readDirectionStatement(line) !== null) return true;
+  const percent = percentOutsideQuotes(line);
+  return percent !== -1 && isDirectionWithComment(line, percent);
+}
+
 /**
  * `text` as a Markdown code span: fenced by one backtick more than the
  * longest run of them inside it, and padded with a space when it starts or
@@ -282,7 +377,7 @@ function codeSpan(text: string): string {
  * and `class A { +x #59; y }` each draw one member). Positions are kept.
  */
 function maskEntityCodes(text: string): string {
-  return text.replace(/#\w+;/g, (code) => "#".repeat(code.length));
+  return replaceEntityCodes(text, (code) => "#".repeat(code.length));
 }
 
 /**
@@ -341,6 +436,17 @@ const INLINE_MEMBER_RE = /^(\w+)\s*:\s*(.+)$/d;
  * stand inside — `+id<br>int` is one name, as Mermaid reads it.
  */
 const MEMBER_NAME_RE = /^[A-Za-z_]\w*(?:<br>\w*)*$/;
+
+/**
+ * Whether `name` may be a member's own name: `MEMBER_NAME_RE`, with an
+ * entity code standing wherever a word character may — Mermaid 12.2.0
+ * encodes each `#\w+;` into word-like text before it parses, so `+x #lt;`,
+ * `+int a#lt;b` and `+#lt;foo()` are members (measured), their codes
+ * decoded when drawn.
+ */
+function isMemberName(name: string): boolean {
+  return MEMBER_NAME_RE.test(replaceEntityCodes(name, () => "_"));
+}
 /**
  * Mermaid's own row-break pattern, which it applies to a member's text and
  * then escapes the result rather than reading it as markup — measured
@@ -396,20 +502,23 @@ function endpointFor(marker: string | undefined): ClassRelationshipEnd {
  * `+swim() bool`, `draw()*` — into its parts, or returns `null` when the
  * line is not a member at all (the caller turns that into a diagnostic).
  *
- * Each part is kept as the author wrote it, so the renderer can print the
- * line back verbatim: a `+` stays a `+`, a type stays whatever text stood
- * before the name, and a parameter list stays the raw text between the
- * parens.
+ * Each part is kept as the author wrote it, entity codes and character
+ * references undecoded, so layout can compose the line from them: a `+`
+ * stays a `+`, a type stays whatever text stood before the name, and a
+ * parameter list stays the raw text between the parens. Layout decodes the
+ * composed line (`memberText`) — `+#lt; x` is drawn `+< x`.
  *
  * A leading `~` is read as the package-visibility marker, never as the
  * opening of a `~generic~` — that ambiguity is Mermaid's own, and Mermaid
- * resolves it the same way.
+ * resolves it the same way. A leading `#` that opens an entity code is the
+ * code's, never the protected marker (`#lt; x` has no visibility).
  *
  * **A member is not a label** (ADR-0015), so nothing here goes through
- * `readLabel`: Mermaid escapes a member's text in both label modes, and the
- * one thing it does to it first — respelling `<br/>`, `<br />` and `<BR>`
- * as `<br>` — is done here too (`MEMBER_BREAK_RE`), so `+id<br/>int` is drawn as the
- * characters `+id<br>int` and `+<b>id</b> int` as written.
+ * `readLabel`: Mermaid escapes a member's `<` and `>` in both label modes,
+ * so no tag in it is read, and the one thing it does to it first —
+ * respelling `<br/>`, `<br />` and `<BR>` as `<br>` — is done here too
+ * (`MEMBER_BREAK_RE`), so `+id<br/>int` is drawn as the characters
+ * `+id<br>int` and `+<b>id</b> int` as written.
  */
 function parseMember(text: string, line: number, column: number): ClassMember | null {
   let rest = text.trim().replace(MEMBER_BREAK_RE, "<br>");
@@ -423,7 +532,9 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
 
   let visibility: ClassMemberVisibility | null = null;
   const firstChar = rest.slice(0, 1);
-  if (VISIBILITY_MARKERS.has(firstChar)) {
+  // A `#` opening an entity code is the code's: Mermaid 12.2.0 encodes
+  // `#lt; x` before it looks for a marker, and draws `< x` (measured).
+  if (VISIBILITY_MARKERS.has(firstChar) && !entityCodeAt(rest, 0)) {
     visibility = firstChar as ClassMemberVisibility;
     rest = rest.slice(1).trim();
   }
@@ -435,7 +546,7 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
       return null;
     }
     const name = rest.slice(0, openParen).trim();
-    if (!MEMBER_NAME_RE.test(name)) {
+    if (!isMemberName(name)) {
       return null;
     }
     const returnType = rest.slice(closeParen + 1).trim();
@@ -457,7 +568,7 @@ function parseMember(text: string, line: number, column: number): ClassMember | 
     return null;
   }
   const name = tokens[tokens.length - 1];
-  if (!MEMBER_NAME_RE.test(name)) {
+  if (!isMemberName(name)) {
     return null;
   }
   return {
@@ -867,9 +978,9 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     }
 
     const lineNumber = startIndex + 1;
-    const column = rawLine.length - rawLine.trimStart().length + 1;
+    const column = textColumn(rawLine);
 
-    const directionStatement = matchClassDirection(line);
+    const directionStatement = readDirectionStatement(line);
     if (directionStatement !== null) {
       direction = directionStatement;
       return { lastIndex: startIndex, read: "direction" };
@@ -1556,8 +1667,8 @@ export function parseClassDiagram(source: string): DiagramParseResult {
     // A `%%` no statement above holds as text. After a statement in
     // `STATEMENTS_A_COMMENT_MAY_FOLLOW` it is a comment on the last line and
     // refused on any other; after `direction` it is a comment wherever it
-    // stands (measured:
-    // `direction LR %% x` then `class A` draws); after a class declaration
+    // stands, unless it names a direction itself (`isDirectionWithComment`);
+    // after a class declaration
     // or a namespace's `{` it is refused always (measured: `class A %% x`,
     // `class A~T~ %% x`, `class A:::c %% x` and `namespace N { %% x` are
     // parse errors even on the last line, the lexer reading its `%` as
@@ -1569,7 +1680,7 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       const followsCommentable =
         !before.includes(":::") && STATEMENTS_A_COMMENT_MAY_FOLLOW.some((pattern) => pattern.test(before));
       const isComment =
-        matchClassDirection(before) !== null || (followsCommentable && startIndex === lastStatementIndex);
+        isDirectionWithComment(line, percent) || (followsCommentable && startIndex === lastStatementIndex);
       const isRefused =
         !isComment && (followsCommentable || CLASS_DECL_RE.test(before) || NAMESPACE_OPEN_RE.test(before));
       if (isComment || isRefused) {
@@ -1634,6 +1745,59 @@ export function parseClassDiagram(source: string): DiagramParseResult {
       timeline = blocks.timeline;
       namedTimelines = blocks.namedTimelines;
       break;
+    }
+
+    // A line ending in `direction` before one starting with a direction
+    // value (`DIRECTION_CONTINUED_RE`) is one direction statement to
+    // Mermaid, every line from it to the value gone, so it is refused at
+    // that `direction` and they are passed over. Asked first: it is the
+    // rule Mermaid tries first when the line holds a later value as well.
+    const ending = DIRECTION_AT_END_RE.exec(line);
+    if (ending !== null) {
+      let valueIndex = index + 1;
+      while (valueIndex < lines.length && lines[valueIndex].trim().length === 0) valueIndex++;
+      const value = valueIndex < lines.length ? DIRECTION_CONTINUED_RE.exec(lines[valueIndex].trimStart()) : null;
+      if (value !== null) {
+        diagnostics.push({
+          severity: "error",
+          message:
+            `This line ends with \`direction\` and line ${valueIndex + 1} starts with \`${value[0]}\`, so together ` +
+            `they would be read as the direction statement \`direction ${value[0]}\`, and everything else on ` +
+            "those lines would be lost. Write the direction on a line of its own, or reword the text so that " +
+            "no line ends with `direction`.",
+          line: index + 1,
+          column: textColumn(rawLine) + ending.index,
+        });
+        sawError = true;
+        index = valueIndex;
+        continue;
+      }
+    }
+
+    // A line Mermaid reads as one direction statement for the `direction`
+    // inside it (`DIRECTION_RULES`) is refused there (ADR-0001): the
+    // rest of the line would vanish with no diagnostic. The statement is
+    // still read, so a block it opens is consumed rather than refused line
+    // by line, but its own problems are dropped: the line has one, and this
+    // is it.
+    const swallowed = isDirectionStatement(line) ? null : appliedDirection(line);
+    if (swallowed !== null) {
+      const written = `direction ${swallowed.direction}`;
+      const readFrom = diagnostics.length;
+      const lineNumber = index + 1;
+      index = parseStatement(index, null).lastIndex;
+      diagnostics.length = readFrom;
+      diagnostics.push({
+        severity: "error",
+        message:
+          `This line contains \`${written}\`, so the whole line would be read as a direction statement ` +
+          "and everything else on it would be lost. Write the direction on a line of its own, " +
+          `or reword the text so it does not contain \`${written}\`.`,
+        line: lineNumber,
+        column: textColumn(rawLine) + swallowed.index,
+      });
+      sawError = true;
+      continue;
     }
 
     index = parseStatement(index, null).lastIndex;

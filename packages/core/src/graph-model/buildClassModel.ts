@@ -365,9 +365,12 @@ function addMembers(target: ClassAccumulator, members: ClassMember[]): void {
  *
  * The one visible consequence: a class declaring both `+List~int~ items`
  * and `+List<int> items` keeps two members here, because they are two
- * keys, and layout then draws the same line twice. Collapsing that would
- * mean keying on the drawn spelling, which means composing the line once
- * in this stage and carrying it on the contract for layout to draw.
+ * keys, and layout then draws the same line twice. The same holds for an
+ * entity code, which layout decodes: `+#lt; x` and `+< x` are two keys,
+ * both drawn `+< x` — as Mermaid 12.2.0 draws both (measured). Collapsing
+ * that would mean keying on the drawn spelling, which means composing the
+ * line once in this stage and carrying it on the contract for layout to
+ * draw.
  */
 function memberLineText(member: ClassMember): string {
   const visibility = member.visibility ?? "";

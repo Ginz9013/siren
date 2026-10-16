@@ -476,6 +476,100 @@ describe("layoutClassDiagram", () => {
     });
   });
 
+  /**
+   * Entity codes in a member, decoded as Mermaid 12.2.0 draws them (spec
+   * `class-direction-entities`, T2, measured in Chrome): `+#lt; x` draws
+   * `+< x`, `+#9829; x` `+♥ x`, and an unknown name is left as the
+   * reference the browser was handed (`+#zz; x` draws `+&zz; x`).
+   */
+  describe("entity codes in member text", () => {
+    const drawn = (...members: ClassMember[]) => {
+      const box = classById(layoutClassDiagram(classModel({ classes: [cls("A", members)] }), { measureText: fakeMeasurer }), "A");
+      return [...(box.attributes?.members ?? []), ...(box.methods?.members ?? [])].map((m) => m.text);
+    };
+
+    it("draws an attribute's type decoded, and measures the box from the decoded text", () => {
+      expect(drawn(attribute({ visibility: "+", type: "#lt;", name: "x" }))).toEqual(["+< x"]);
+      expect(drawn(attribute({ visibility: "+", type: "#9829;", name: "x" }))).toEqual(["+♥ x"]);
+      expect(drawn(attribute({ visibility: "+", type: "#zz;", name: "x" }))).toEqual(["+&zz; x"]);
+      const width = (member: ClassMember) =>
+        classById(layoutClassDiagram(classModel({ classes: [cls("A", [member])] }), { measureText: fakeMeasurer }), "A").width;
+      expect(width(attribute({ visibility: "+", type: "#lt;", name: "longername" }))).toBe(
+        width(attribute({ visibility: "+", type: "<", name: "longername" })),
+      );
+    });
+
+    it("draws an entity code decoded in every other position of a member", () => {
+      // Measured: each as Mermaid 12.2.0 draws it, its return-type ` : ` and
+      // its classifier aside (both drawn differently already).
+      expect(
+        drawn(
+          attribute({ visibility: "+", type: "x", name: "#lt;" }),
+          attribute({ visibility: "+", type: "int", name: "#59;" }),
+          attribute({ visibility: "+", type: "x", name: "#amp;" }),
+          attribute({ visibility: "+", type: "int", name: "a#lt;b" }),
+          attribute({ type: "#lt;", name: "x" }),
+          attribute({ visibility: "+", type: "#copy;", name: "x" }),
+          attribute({ visibility: "+", type: "#notit;", name: "x" }),
+          attribute({ visibility: "+", type: "#lt;br#gt;", name: "x" }),
+          method({ visibility: "+", name: "foo", parameters: "int #lt; a, #9829; b", returnType: "bool" }),
+          method({ visibility: "+", name: "foo", parameters: "", returnType: "#lt;T" }),
+          method({ visibility: "+", name: "f#lt;oo", parameters: "int a" }),
+        ),
+      ).toEqual([
+        "+x <",
+        "+int ;",
+        "+x &",
+        "+int a<b",
+        "< x",
+        "+© x",
+        "+¬it; x",
+        "+<br> x",
+        "+foo(int < a, ♥ b) bool",
+        "+foo() <T",
+        "+f<oo(int a)",
+      ]);
+    });
+
+    it("resolves an HTML character reference the author wrote, as the label path does", () => {
+      // Measured: Mermaid escapes a member's `<` and `>` but not its `&`, so
+      // the browser resolves `+&lt x` to `+< x`, `+&amp x` to `+& x`,
+      // `+&#60 x` to `+< x` and `+a&copyb x` to `+a©b x` — in one pass with
+      // the entity codes, so `+#amp;lt#59; x` draws `+&lt; x`.
+      expect(
+        drawn(
+          attribute({ visibility: "+", type: "&lt", name: "x" }),
+          attribute({ visibility: "+", type: "&amp", name: "x" }),
+          attribute({ visibility: "+", type: "&#60", name: "x" }),
+          attribute({ visibility: "+", type: "a&copyb", name: "x" }),
+          attribute({ visibility: "+", type: "#amp;lt#59;", name: "x" }),
+        ),
+      ).toEqual(["+< x", "+& x", "+< x", "+a©b x", "+&lt; x"]);
+    });
+
+    it("opens a generic at an entity code, as at a type name", () => {
+      // Measured: `+List~#lt;~ x` draws `+List<<> x`, `+List~int#lt;~ x`
+      // `+List<int<> x`, and `+foo(Map~#9829;~ m)` `+foo(Map<♥> m)` —
+      // Mermaid pairs the tildes before it decodes.
+      expect(
+        drawn(
+          attribute({ visibility: "+", type: "List~#lt;~", name: "x" }),
+          attribute({ visibility: "+", type: "List~int#lt;~", name: "x" }),
+          method({ visibility: "+", name: "foo", parameters: "Map~#9829;~ m" }),
+        ),
+      ).toEqual(["+List<<> x", "+List<int<> x", "+foo(Map<♥> m)"]);
+    });
+
+    it("decodes an entity code beside a classifier, which stays last", () => {
+      expect(
+        drawn(
+          attribute({ visibility: "+", type: "int", name: "#lt;", classifier: "$" }),
+          method({ visibility: "+", name: "foo", parameters: "#lt;", classifier: "*" }),
+        ),
+      ).toEqual(["+int <$", "+foo(<)*"]);
+    });
+  });
+
   describe("annotation", () => {
     it("gives an annotated class a line of its own above the name and a box wide enough for it", () => {
       const plain = layoutClassDiagram(

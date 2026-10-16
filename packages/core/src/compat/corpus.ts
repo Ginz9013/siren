@@ -4410,6 +4410,37 @@ line2\`"]`,
     },
   },
   {
+    id: "cls-member-entity-codes",
+    kind: "class",
+    source: `classDiagram
+      class Heart {
+        +#9829; love
+        +List~#lt;~ items
+        +less(int #lt; a)
+        #lt; x
+      }
+      Heart : +int #59;`,
+    status: "supported",
+    meaning:
+      "An entity code in a member is drawn decoded: Mermaid 12.2.0 encodes " +
+      "each `#\\w+;` before it parses and decodes it when it draws, so " +
+      "`+#9829; love` draws `+♥ love` and `+int #59;` `+int ;` — a code may " +
+      "stand where the name does (measured, Chrome). A generic opens at a " +
+      "code (`+List<<> items`), and a `#` opening one is no visibility " +
+      "marker (`< x`). Siren used to draw the codes as written and refuse a " +
+      "member named by one.",
+    assert: (result) => {
+      expectSame("classes", classes(result), ["Heart"]);
+      expectSame("Heart's members", members(result, "Heart"), [
+        "+♥ love",
+        "+List<<> items",
+        "< x",
+        "+int ;",
+        "+less(int < a)",
+      ]);
+    },
+  },
+  {
     id: "cls-rel-inheritance",
     kind: "class",
     source: `classDiagram
@@ -4802,6 +4833,31 @@ line2\`"]`,
       "or `Big_Zoo`; the block is still read, so its `}` is not refused as " +
       "well. A space beside a dot (`Zoo . Cats`) is none, in both. Siren used " +
       "to refuse the line and its `}` each as an unrecognized line.",
+  },
+  {
+    id: "cls-direction-inside-line",
+    kind: "class",
+    source: `classDiagram
+      class Order["direction LR"]
+      Order : +direction LR
+      Order --> Item`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** Mermaid 12.2.0's " +
+      "class lexer reads any top-level line holding `direction TB`, `BT`, " +
+      "`RL` or `LR` — glued to the text around it or not, inside a quoted " +
+      "label, note, `accTitle` or `click` string too — as one direction " +
+      "statement, and the rest of the line is gone with no diagnostic " +
+      "(measured, Chrome: here the label and the member vanish and the " +
+      "diagram is laid out left to right). Siren refuses each such line " +
+      "(ADR-0001), with one error at its `direction` saying to write the " +
+      "direction on a line of its own or reword the text. A class block's " +
+      "members, a namespace body and an `accDescr { }` block are read in " +
+      "another lexer state, so a `direction LR` there is drawn as written, " +
+      "in both. The rule crosses line breaks too, a line ending in " +
+      "`direction` taking the next one starting with `LR` with it; Siren " +
+      "refuses that pair the same way. Siren used to draw the label and the " +
+      "member, top to bottom.",
   },
   {
     id: "cls-namespace-body-statement",
