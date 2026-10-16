@@ -3,3 +3,4 @@
 {"id":"01M521TRAEAGZDNFY445ZHQZBY","t":3,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M52SZP7Z9T4AYC9HF28F58P9","t":4,"a":"83a1","op":"comment","body":"review 後重新打開：高度比仍偏離 rect，brace 的測試值不是實測；見 ticket 檔的「重新打開」段落。"}
 {"id":"01M52TBKWS66V7J3A5TF64C0DF","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M52WZ3NE9T7AMA4P5FQS9YSW","t":6,"a":"83a1","op":"set","k":"archived","v":true}

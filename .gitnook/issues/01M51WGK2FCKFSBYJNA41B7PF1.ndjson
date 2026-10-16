@@ -3,3 +3,4 @@
 {"id":"01M51XB91YKVEYM1G5R6C6DNH3","t":3,"a":"83a1","op":"comment","body":"由 board backlog-clear-1016（spec 01M51XABY67X1Z8AFJ5M7SY9KJ）接手，落地時關閉。"}
 {"id":"01M52VP9ZMNH2FK7PM4T54K8JH","t":4,"a":"83a1","op":"comment","body":"由 board backlog-clear-1016 完成：形狀 T1–T4、T17，icon T5，img T6，邊 id／animate／curve T7、T10，id 碰撞 T7。連線裁切到外框移到 01M52VP231，作者樣式 allowlist 與安全性驗證移到 01M52VP2B9，neo look 移到 01M52VP2KM。"}
 {"id":"01M52VPB1B1Q4PJW8WQ3M8Z33F","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M52WZ4EB8348MC6429YHP5FW","t":6,"a":"83a1","op":"set","k":"archived","v":true}

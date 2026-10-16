@@ -3,3 +3,4 @@
 {"id":"01M51XB9EX6X40RH67FAA06JCD","t":3,"a":"83a1","op":"comment","body":"由 board backlog-clear-1016（spec 01M51XABY67X1Z8AFJ5M7SY9KJ）接手，落地時關閉。"}
 {"id":"01M52VPAFT40HTMHX4YJNH3EC9","t":4,"a":"83a1","op":"comment","body":"由 board backlog-clear-1016 完成：T8、T9、T13、T15。"}
 {"id":"01M52VPBHKB6BFK2MK15RMADFA","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M52WZ4YXMFT81XZEHM55F293","t":6,"a":"83a1","op":"set","k":"archived","v":true}
