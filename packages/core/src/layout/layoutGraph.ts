@@ -149,7 +149,7 @@ export function layoutGraph(
         // The shape decides how much box the measured label needs; the
         // shared layout core is handed sizes and never learns a shape
         // exists.
-        ...SHAPES[node.shape].box(paddedLabelOf(node.id), directionOf(node.parentId)),
+        ...SHAPES[node.shape].box(paddedLabelOf(node.id), directionOf(node.parentId), extraPadding),
         // Membership, and the only thing about a subgraph a member tells the
         // core. `undefined` rather than `null` when the node is in no
         // subgraph, matching the core's optional field.

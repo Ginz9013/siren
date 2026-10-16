@@ -14,16 +14,26 @@ import { edgesOf, FRAME_PAINT, pathFrame, type Rect, type ShapeFrame, type Shape
  * contract, not its exact outline).
  *
  * Each handler pads its text its own way, so each record starts from the
- * text: the padded label less Mermaid's 15px node padding on each side
- * (`textOf`), the padding a rectangle's box stands for.
+ * text: the padded label less the node padding on each side (`textOf`),
+ * the padding a rectangle's box stands for.
  */
 
-/** Mermaid's flowchart node padding, `p` in the formulas below. */
-const PADDING = 15;
+/** Mermaid's flowchart node padding: `p` when a record is told no padding of its own. */
+const MERMAID_PADDING: Size = { width: 15, height: 15 };
 
-/** The text Mermaid measures, before its padding: the padded label less `PADDING` a side. */
-function textOf(label: Size): Size {
-  return { width: Math.max(label.width - 2 * PADDING, 0), height: Math.max(label.height - 2 * PADDING, 0) };
+/**
+ * The text and the node padding `p` a record's formula starts from: the
+ * padded label less `padding` on each side, and `padding` itself, across
+ * and up. Laid out, `padding` is Siren's own (`layoutGraph`), so a shape
+ * pads Siren's text as its handler pads Mermaid's and stands to a
+ * rectangle as Mermaid's does.
+ */
+function textOf(label: Size, padding: Size = MERMAID_PADDING): { text: Size; px: number; py: number } {
+  return {
+    text: { width: Math.max(label.width - 2 * padding.width, 0), height: Math.max(label.height - 2 * padding.height, 0) },
+    px: padding.width,
+    py: padding.height,
+  };
 }
 
 /**
@@ -116,6 +126,16 @@ function documentLabel(dx: number, dy: number): (box: Rect, label: Size) => Rect
 /** Mermaid's `rectOffset` for a stacked document: how far each sheet stands from the next. */
 const SHEET = 10;
 
+/**
+ * The `w x h` a curly brace is drawn about: the text padded by the node
+ * padding once each way, half what a rectangle has (Mermaid's
+ * `curlyBraceLeft`, `curlyBraceRight` and `curlyBraces`).
+ */
+function braceText(label: Size, padding?: Size): Size {
+  const { text, px, py } = textOf(label, padding);
+  return { width: text.width + px, height: text.height + py };
+}
+
 /** A curly brace's curl radius for a label `height` tall: Mermaid's `max(5, 0.1 x h)`. */
 function curlRadius(height: number): number {
   return Math.max(5, 0.1 * height);
@@ -159,11 +179,11 @@ export const CURVED_SHAPES = {
   // is a half circle of radius `h/2`, widened on both sides by the cap's
   // depth at the text's corners so the label stays centred.
   "half-rounded-rectangle": {
-    box: (label) => {
+    box: (label, _direction, padding) => {
       // `h = max(10, text) + 2p`, `w = max(15, text) + 2 x capClearance + 2p`.
-      const text = textOf(label);
-      const height = Math.max(10, text.height) + 2 * PADDING;
-      const width = Math.max(15, text.width) + 2 * capClearance(height / 2, text.height) + 2 * PADDING;
+      const { text, px, py } = textOf(label, padding);
+      const height = Math.max(10, text.height) + 2 * py;
+      const width = Math.max(15, text.width) + 2 * capClearance(height / 2, text.height) + 2 * px;
       return { width, height };
     },
     frames: (box) => {
@@ -177,13 +197,13 @@ export const CURVED_SHAPES = {
   // least a quarter wider than the padded text, and wide enough for the
   // deeper of the point and the cap at the text's corners on each side.
   "curved-trapezoid": {
-    box: (label) => {
+    box: (label, _direction, padding) => {
       // `h = max(5, text + 2p)`, `side = max(h/4, capClearance)`, `w =
       // max(text + 2p + 2 x side, 1.25 x (text + 2p))`.
-      const text = textOf(label);
-      const height = Math.max(5, text.height + 2 * PADDING);
+      const { text, px, py } = textOf(label, padding);
+      const height = Math.max(5, text.height + 2 * py);
       const side = Math.max(height / 4, capClearance(height / 2, text.height));
-      const padded = text.width + 2 * PADDING;
+      const padded = text.width + 2 * px;
       return { width: Math.max(padded + 2 * side, 1.25 * padded), height };
     },
     frames: (box) => {
@@ -200,13 +220,20 @@ export const CURVED_SHAPES = {
   },
   // `h-cyl` (Mermaid's `tiltedCylinder`, direct access storage): a
   // cylinder lying on its side, its ends ellipses of radii `rx` across and
-  // `h/2` up. The body is `label + rx` wide between the ends' centres and
-  // the label is centred on what lies left of the lid at the right end.
+  // `h/2` up. Padded by half the node padding each way, not the whole: it
+  // is the text plus `p/2` tall, and `text + p/2 + rx` wide between the
+  // ends' centres. The label is centred on what lies left of the lid at the
+  // right end.
   //
   // Drawn as the bracket cylinder is: the tube, then the whole lid over
   // it, wound the same way so the nonzero fill adds them.
   "horizontal-cylinder": {
-    box: (label) => ({ width: label.width + 3 * ellipseRadius(label.height / 2), height: label.height }),
+    box: (label, _direction, padding) => {
+      // `h = text + p/2`, `w = text + p/2 + rx` between the ends' centres.
+      const { text, px, py } = textOf(label, padding);
+      const height = text.height + py / 2;
+      return { width: text.width + px / 2 + 3 * ellipseRadius(height / 2), height };
+    },
     labelRect: (box, label) => {
       const rx = ellipseRadius(box.height / 2);
       return {
@@ -259,10 +286,16 @@ export const CURVED_SHAPES = {
   },
   // `bow-rect` (Mermaid's `bowTieRect`, stored data): a rectangle whose
   // left end bulges out and whose right end curves in, each half an
-  // ellipse of radii `rx` across and `h/2` up. The box is the label's width
-  // plus the arcs' sagitta, which for a half ellipse is `rx`.
+  // ellipse of radii `rx` across and `h/2` up. Padded by the node padding
+  // once in height and on both sides in width: `text + p` tall and `text +
+  // 2p` wide plus the arcs' sagitta, which for a half ellipse is `rx`.
   "bow-tie-rectangle": {
-    box: (label) => ({ width: label.width + ellipseRadius(label.height / 2), height: label.height }),
+    box: (label, _direction, padding) => {
+      // `h = text + p`, `w = text + 2p + sagitta`.
+      const { text, px, py } = textOf(label, padding);
+      const height = text.height + py;
+      return { width: text.width + 2 * px + ellipseRadius(height / 2), height };
+    },
     frames: (box) => {
       const { left, right, top, bottom } = edgesOf(box);
       const ry = box.height / 2;
@@ -320,19 +353,28 @@ export const CURVED_SHAPES = {
   },
   // `docs` (Mermaid's `multiWaveEdgedRectangle`, documents): three sheets
   // `SHEET` apart, the front one at the bottom left — a body `h + h/16`
-  // tall over a wave of amplitude `h/8` — so the box is `2 x SHEET` wider
-  // and `h/16 + h/8 + 2 x SHEET` taller than a rectangle. The label moves
-  // `SHEET` left and `SHEET - h/8` down, onto the front sheet. Drawn as
+  // tall over a wave of amplitude `h/8`, `h` the text plus three times the
+  // node padding (half again what a rectangle has) — so the box is
+  // `text + 2p + 2 x SHEET` wide and `1.1875 x h + 2 x SHEET` tall. The
+  // label moves `SHEET` left and `SHEET - h/8` down, onto the front sheet. Drawn as
   // Mermaid draws it: the stack's silhouette, then the middle sheet's
   // visible edges over it, both filled.
   "stacked-document": {
-    box: (label) => ({ width: label.width + 2 * SHEET, height: label.height * (1 + 1 / 16 + 1 / 8) + 2 * SHEET }),
-    labelRect: (box, label) => ({
-      x: box.x + (box.width - label.width) / 2 - SHEET,
-      y: box.y + (box.height - label.height) / 2 + SHEET - label.height / 8,
-      width: label.width,
-      height: label.height,
-    }),
+    box: (label, _direction, padding) => {
+      // `w = text + 2p`, `h = text + 3p` — padded half again in height.
+      const { text, px, py } = textOf(label, padding);
+      const body = text.height + 3 * py;
+      return { width: text.width + 2 * px + 2 * SHEET, height: body * (1 + 1 / 16 + 1 / 8) + 2 * SHEET };
+    },
+    labelRect: (box, label) => {
+      const body = (box.height - 2 * SHEET) / (1 + 1 / 16 + 1 / 8);
+      return {
+        x: box.x + (box.width - label.width) / 2 - SHEET,
+        y: box.y + (box.height - label.height) / 2 + SHEET - body / 8,
+        width: label.width,
+        height: label.height,
+      };
+    },
     frames: (box) => {
       const { left, top } = edgesOf(box);
       const o = SHEET;
@@ -369,11 +411,16 @@ export const CURVED_SHAPES = {
     },
   },
   // `flag` (Mermaid's `waveRectangle`, a paper tape): as wide as a
-  // rectangle, its top and bottom each a whole cycle of a sine wave of
-  // amplitude `h/8` about lines `h/2 + h/8` either side of the centre, so
-  // the box is `1.5 x h` tall; the label is centred.
+  // rectangle, `h` the text plus the node padding once, its top and bottom
+  // each a whole cycle of a sine wave of amplitude `h/8` about lines `h/2 +
+  // h/8` either side of the centre, so the box is `1.5 x h` tall; the label
+  // is centred.
   flag: {
-    box: (label) => ({ width: label.width, height: label.height * 1.5 }),
+    box: (label, _direction, padding) => {
+      // `w = text + 2p`, `h = text + p`, the box `1.5 x h` tall.
+      const { text, px, py } = textOf(label, padding);
+      return { width: text.width + 2 * px, height: (text.height + py) * 1.5 };
+    },
     frames: (box) => {
       const { left, right, midY } = edgesOf(box);
       const h = box.height / 1.5;
@@ -388,16 +435,20 @@ export const CURVED_SHAPES = {
     },
   },
   // `brace` (Mermaid's `curlyBraceLeft`, a comment): a brace left of the
-  // label, curls of radius `r = max(5, 0.1 x h)` making the box `h + 2r`
-  // tall. Mermaid's box is the larger of the brace and label (`w + 2r`) and
-  // the hit area it draws behind them, which reaches `0.1 x w` left of the
-  // label rather than `2r`; the label starts at the brace's tips, at the
-  // right of the box.
+  // text, `w x h` the text padded once each way (`braceText`), curls of
+  // radius `r = max(5, 0.1 x h)` making the box `h + 2r` tall. Mermaid's box
+  // is the larger of the brace and text (`w + 2r`) and the hit area it draws
+  // behind them, which reaches `0.1 x w` left of it rather than `2r`; the
+  // text starts at the brace's tips.
   "brace-left": {
-    box: (label) => {
-      const r = curlRadius(label.height);
-      return { width: Math.max(label.width * 1.1, label.width + 2 * r), height: label.height + 2 * r };
+    box: (label, _direction, padding) => {
+      const { width, height } = braceText(label, padding);
+      const r = curlRadius(height);
+      return { width: Math.max(width * 1.1, width + 2 * r), height: height + 2 * r };
     },
+    // The text starts where the brace's tips stand, `w` in from the right,
+    // and ends `p` short of it; the padded label, which is the text and `p`
+    // either side, therefore ends at the right edge.
     labelRect: (box, label) => ({
       x: box.x + box.width - label.width,
       y: box.y + (box.height - label.height) / 2,
@@ -414,9 +465,10 @@ export const CURVED_SHAPES = {
   // `brace-r` (Mermaid's `curlyBraceRight`): a brace along the right of a
   // centred label, the box `w + 2r` by `h + 2r`.
   "brace-right": {
-    box: (label) => {
-      const r = curlRadius(label.height);
-      return { width: label.width + 2 * r, height: label.height + 2 * r };
+    box: (label, _direction, padding) => {
+      const { width, height } = braceText(label, padding);
+      const r = curlRadius(height);
+      return { width: width + 2 * r, height: height + 2 * r };
     },
     frames: (box) => {
       const { right, top, bottom } = edgesOf(box);
@@ -428,9 +480,10 @@ export const CURVED_SHAPES = {
   // label, the box `w + 2.5r` by `h + 2r` — each brace reaches `3r/4` in
   // over the padded label.
   braces: {
-    box: (label) => {
-      const r = curlRadius(label.height);
-      return { width: label.width + 2.5 * r, height: label.height + 2 * r };
+    box: (label, _direction, padding) => {
+      const { width, height } = braceText(label, padding);
+      const r = curlRadius(height);
+      return { width: width + 2.5 * r, height: height + 2 * r };
     },
     frames: (box) => {
       const { left, right, top, bottom } = edgesOf(box);

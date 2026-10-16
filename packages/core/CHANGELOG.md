@@ -414,6 +414,16 @@ divider and now takes none (see **Changed**).
 
 ### Changed
 
+- The curved flowchart shapes are sized by each one's own Mermaid 12.2.0 padding rule (nook
+  `01M521T9NX`, measured in headless Chrome at one and three rows), with Siren's node padding in
+  place of Mermaid's: `h-cyl` is padded by half the node padding, `bow-rect`, `flag` and the three
+  curly braces once, `docs` three times in height, `delay` and `curv-trap` clear their round end by
+  the cap's depth at the text's own corners. Each used to take a rectangle's padding, so `h-cyl`,
+  `bow-rect` and the braces drew taller than Mermaid's and `docs` shorter.
+- A browser's bar line, dots and address bar, a console's prompt, and an anchor take none of an
+  author's `style`, as in Mermaid 12.2.0; a `style`, `class` or `:::` naming a small circle
+  (`sm-circ`) or an anchor is refused where it is written, since it would change nothing.
+- A cloud's outline is fitted to its box exactly, however tall its label.
 - A label written for a flowchart shape that draws no text — in brackets (`A[Ready]@{ shape: fork
   }`), as the block's `label:`, or on another line for the same node — is refused where it was
   written (nook `01M51XACB6`): Mermaid 12.2.0 drops it and draws the bare shape.

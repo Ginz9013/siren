@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { Direction, GraphModel, NodeShape, PositionedGraph, TextMeasurer } from "../../contracts";
+import type { NodeShape, PositionedGraph } from "../../contracts";
 import { plainLabel } from "../../label/label";
 import { layoutLabel } from "../../label/layoutLabel";
-import { readLabel } from "../../label/readLabel";
 import { renderToSVG } from "../../renderer/renderToSVG";
-import { layoutGraph } from "../layoutGraph";
 import { SHAPES } from "./shapeTable";
+import { layoutGraph } from "../layoutGraph";
 
 /**
  * The shapes a node's `@{ shape: … }` block names whose outline is curved,
@@ -15,32 +14,11 @@ import { SHAPES } from "./shapeTable";
  * Every number below is Mermaid 12.2.0's formula for that shape (classic
  * look, its handler in `rendering-elements/shapes`), measured in headless
  * Chrome and applied to the box a rectangle would draw — the padded label —
- * rather than copied from a run of this code. Where a handler sizes a
- * clearance from the unpadded text, which a shape record never sees, the
- * padded label stands in for it: the outline then holds the padded label.
+ * rather than copied from a run of this code. Each handler pads the text
+ * its own way, so a record starts from the text: the padded label less
+ * Mermaid's 15px node padding on each side. `MEASURED` holds Mermaid's own
+ * boxes around a one-row and a three-row text.
  */
-
-/** 8px a character, 24px a line, no padding of its own: "x" pads to 8 x 27. */
-const fakeMeasurer: TextMeasurer = {
-  measure: (text: string) => ({ width: text.length * 8, height: 24 }),
-};
-
-/** The one node `shape` lays out as, labelled `text` (a `<br>` breaks a row). */
-function laidOut(shape: NodeShape, text: string, direction: Direction = "TB") {
-  const graph: GraphModel = {
-    direction,
-    nodes: [{ id: "A", label: readLabel(text, { dialect: "html" }).label, shape, style: { frame: [], text: [] }, parentId: null, interaction: null }],
-    edges: [],
-    subgraphs: [],
-    accTitle: null,
-    accDescr: null,
-    timeline: { totalSteps: 0, entries: [] },
-  };
-  return layoutGraph(graph, { measureText: fakeMeasurer }).nodes[0]!;
-}
-
-/** "A rather long label" pads to 152 x 27, the box a rectangle would be. */
-const LONG = "A rather long label";
 
 /**
  * The node `shape` draws in the box `10,20 200x60` (or `width x height`),
@@ -134,17 +112,11 @@ describe("a curved trapezoid (`curv-trap`, a display)", () => {
 });
 
 describe("a horizontal cylinder (`h-cyl`, direct access storage)", () => {
-  it("lies on its side: as tall as a rectangle, wider by three of its ends' horizontal radii", () => {
-    // `tiltedCylinder`: `ry = h/2`, `rx = ry / (2.5 + h/50)`, the body
-    // `label + rx` wide and an end of `rx` either side of it.
-    const node = laidOut("horizontal-cylinder", LONG);
-    const rx = 13.5 / (2.5 + 27 / 50);
-    expect(node.width).toBeCloseTo(152 + 3 * rx, 9);
-    expect(node.height).toBe(27);
-    // Mermaid moves the label `rx` left: centred on what lies left of the
-    // lid at the right end.
-    expect(node.labelOffset?.x).toBeCloseTo(-rx, 9);
-    expect(node.labelOffset?.y).toBe(0);
+  it.each(measured("h-cyl"))("is as big as Mermaid draws it around a %s, its label where Mermaid puts it", (_, { padded, box, offset }) => {
+    // `tiltedCylinder`: `h = text + p/2`, `ry = h/2`, `rx = ry / (2.5 + h/50)`,
+    // `w = text + p/2 + rx` between the ends' centres and an end `rx` either
+    // side; the label moves `rx` left, off the lid at the right end.
+    expectSized("horizontal-cylinder", padded, box, offset);
   });
 
   it("draws a tube bulging at both ends and, over it, the whole lid at its right end", () => {
@@ -160,16 +132,11 @@ describe("a horizontal cylinder (`h-cyl`, direct access storage)", () => {
 });
 
 describe("a lined cylinder (`lin-cyl`, disk storage)", () => {
-  it("is as wide as a rectangle, and taller by three of its lid's vertical radii", () => {
-    // `linedCylinder`: `rx = w/2`, `ry = rx / (2.5 + w/50)`, a body
-    // `label + ry` tall and a lid and a base of `ry` above and below it.
-    const node = laidOut("lined-cylinder", LONG);
-    const ry = 76 / (2.5 + 152 / 50);
-    expect(node.width).toBe(152);
-    expect(node.height).toBeCloseTo(27 + 3 * ry, 9);
-    // The label moves `ry` down, off the lid.
-    expect(node.labelOffset?.x).toBe(0);
-    expect(node.labelOffset?.y).toBeCloseTo(ry, 9);
+  it.each(measured("lin-cyl"))("is as big as Mermaid draws it around a %s, its label where Mermaid puts it", (_, { padded, box, offset }) => {
+    // `linedCylinder`: `w = text + 2p`, `rx = w/2`, `ry = rx / (2.5 + w/50)`,
+    // a body `text + 2p + ry` tall and a lid and a base of `ry` above and
+    // below it; the label moves `ry` down, off the lid.
+    expectSized("lined-cylinder", padded, box, offset);
   });
 
   it("draws a cylinder with its lid and a line a tenth of the body down from it", () => {
@@ -187,13 +154,11 @@ describe("a lined cylinder (`lin-cyl`, disk storage)", () => {
 });
 
 describe("a bow-tie rectangle (`bow-rect`, stored data)", () => {
-  it("is as tall as a rectangle and wider by its ends' horizontal radius, and centres its label", () => {
-    // `bowTieRect`: `ry = h/2`, `rx = ry / (2.5 + h/50)`, and the box the
-    // label's width plus the arc's sagitta, which for a half ellipse is `rx`.
-    const node = laidOut("bow-tie-rectangle", LONG);
-    expect(node.width).toBeCloseTo(152 + 13.5 / (2.5 + 27 / 50), 9);
-    expect(node.height).toBe(27);
-    expect(node.labelOffset).toBeUndefined();
+  it.each(measured("bow-rect"))("is as big as Mermaid draws it around a %s, its label where Mermaid puts it", (_, { padded, box, offset }) => {
+    // `bowTieRect`: `h = text + p`, `ry = h/2`, `rx = ry / (2.5 + h/50)`,
+    // `w = text + 2p + rx` — the arcs' sagitta, which for a half ellipse is
+    // `rx`. The label is centred.
+    expectSized("bow-tie-rectangle", padded, box, offset);
   });
 
   it("bulges its left end out and curves its right end in, by half an ellipse each", () => {
@@ -206,13 +171,11 @@ describe("a bow-tie rectangle (`bow-rect`, stored data)", () => {
 });
 
 describe("a document (`doc`)", () => {
-  it("is as wide as a rectangle and a quarter taller, for its wavy bottom, with its label at the top", () => {
-    // `waveEdgedRectangle`: a wave of amplitude `h/8` along the bottom of
-    // a body `h + h/8` tall, so the box is `1.25 x h`; the label is moved
-    // `h/8` up, which puts the padded label at the top of the box.
-    const node = laidOut("document", LONG);
-    expect([node.width, node.height]).toEqual([152, 33.75]);
-    expect(node.labelOffset).toEqual({ x: 0, y: -3.375 });
+  it.each(measured("doc"))("is as big as Mermaid draws it around a %s, its label where Mermaid puts it", (_, { padded, box, offset }) => {
+    // `waveEdgedRectangle`: `w = text + 2p`, `h = text + 2p`, a wave of
+    // amplitude `h/8` below a body `h` tall, so the box is `1.25 x h`; the
+    // label moves `h/8` up.
+    expectSized("document", padded, box, offset);
   });
 
   it("draws its bottom as Mermaid's sine wave, 0.8 of a cycle in 51 points, under a straight top", () => {
@@ -229,15 +192,10 @@ describe("a document (`doc`)", () => {
 });
 
 describe("a lined document (`lin-doc`)", () => {
-  it("is a tenth wider than a document, and its label sits right of the line", () => {
-    // `linedWaveEdgedRect`: the outline spans `1.1 x w`, a line down it
-    // `0.05 x w` in from the left, and the label moves `0.025 x w` right
-    // and, as a document's does, `h/8` up.
-    const node = laidOut("lined-document", LONG);
-    expect(node.width).toBeCloseTo(167.2, 9);
-    expect(node.height).toBe(33.75);
-    expect(node.labelOffset?.x).toBeCloseTo(3.8, 9);
-    expect(node.labelOffset?.y).toBe(-3.375);
+  it.each(measured("lin-doc"))("is as big as Mermaid draws it around a %s, its label where Mermaid puts it", (_, { padded, box, offset }) => {
+    // `linedWaveEdgedRect`: a document `1.1 x w` wide, the label moved as a
+    // document's is and `0.025 x w` right, clear of the line.
+    expectSized("lined-document", padded, box, offset);
   });
 
   it("draws a document's outline with a line down from its top to its wave", () => {
@@ -254,13 +212,10 @@ describe("a lined document (`lin-doc`)", () => {
 });
 
 describe("a tagged document (`tag-doc`)", () => {
-  it("is a tenth wider than a document, and its label sits half as far up", () => {
-    // `taggedWaveEdgedRectangle`: the outline spans `1.1 x w` and the
-    // label moves `h/16` up.
-    const node = laidOut("tagged-document", LONG);
-    expect(node.width).toBeCloseTo(167.2, 9);
-    expect(node.height).toBe(33.75);
-    expect(node.labelOffset).toEqual({ x: 0, y: -1.6875 });
+  it.each(measured("tag-doc"))("is as big as Mermaid draws it around a %s, its label where Mermaid puts it", (_, { padded, box, offset }) => {
+    // `taggedWaveEdgedRectangle`: a document `1.1 x w` wide, the label
+    // moved `h/16` up.
+    expectSized("tagged-document", padded, box, offset);
   });
 
   it("draws a document's outline and, over its bottom right, a filled tag with a wavy edge", () => {
@@ -280,14 +235,11 @@ describe("a tagged document (`tag-doc`)", () => {
 });
 
 describe("a stacked document (`docs`, documents)", () => {
-  it("adds 10px a sheet behind it each way, and a wave, with its label on the front sheet", () => {
-    // `multiWaveEdgedRectangle`: three sheets `rectOffset = 10` apart, the
-    // front one at the bottom left, its body `h + h/16` and a wave of
-    // amplitude `h/8` under it: `W = w + 20`, `H = 1.1875 x h + 20`.
-    // The label moves 10px left and `10 - h/8` down, onto the front sheet.
-    const node = laidOut("stacked-document", LONG);
-    expect([node.width, node.height]).toEqual([172, 52.0625]);
-    expect(node.labelOffset).toEqual({ x: -10, y: 6.625 });
+  it.each(measured("docs"))("is as big as Mermaid draws it around a %s, its label where Mermaid puts it", (_, { padded, box, offset }) => {
+    // `multiWaveEdgedRectangle`: `w = text + 2p`, `h = text + 3p`, a body
+    // `h + h/16` over a wave of amplitude `h/8`, three sheets 10px apart; the
+    // label moves 10px left and `10 - h/8` down, onto the front sheet.
+    expectSized("stacked-document", padded, box, offset);
   });
 
   it("draws the stack's silhouette with a wavy bottom and, over it, the middle sheet's edges, both filled", () => {
@@ -305,12 +257,10 @@ describe("a stacked document (`docs`, documents)", () => {
 });
 
 describe("a flag (`flag`, a paper tape)", () => {
-  it("is as wide as a rectangle and half again as tall, for its two waves, and centres its label", () => {
-    // `waveRectangle`: a body `h + 2 x h/8` tall whose top and bottom are
-    // each a whole cycle of a sine wave of amplitude `h/8`: `1.5 x h`.
-    const node = laidOut("flag", LONG);
-    expect([node.width, node.height]).toEqual([152, 40.5]);
-    expect(node.labelOffset).toBeUndefined();
+  it.each(measured("flag"))("is as big as Mermaid draws it around a %s, its label where Mermaid puts it", (_, { padded, box, offset }) => {
+    // `waveRectangle`: `w = text + 2p`, `h = text + p`, waves of amplitude
+    // `h/8` top and bottom, so the box is `1.5 x h`; the label is centred.
+    expectSized("flag", padded, box, offset);
   });
 
   it("draws a wave along its bottom and the same wave back along its top, in Mermaid's 51 points each", () => {
@@ -326,19 +276,11 @@ describe("a flag (`flag`, a paper tape)", () => {
 });
 
 describe("a left curly brace (`brace`, a comment)", () => {
-  it("is taller by its curls and a tenth wider than its label, which stands right of the brace", () => {
-    // `curlyBraceLeft`: curls of radius `r = max(5, 0.1 x h)`, the box
-    // `h + 2r` tall and as wide as the larger of the brace and label
-    // (`w + 2r`) and the hit area Mermaid draws behind it (`1.1 x w`). The
-    // label starts at the brace's tips, the right of the box.
-    const long = laidOut("brace-left", LONG);
-    expect(long.width).toBeCloseTo(167.2, 9);
-    expect(long.height).toBe(37);
-    expect(long.labelOffset?.x).toBeCloseTo(7.6, 9);
-    expect(long.labelOffset?.y).toBe(0);
-    const short = laidOut("brace-left", "x");
-    expect([short.width, short.height]).toEqual([18, 37]);
-    expect(short.labelOffset).toEqual({ x: 5, y: 0 });
+  it.each(measured("brace"))("is as big as Mermaid draws it around a %s, its label where Mermaid puts it", (_, { padded, box, offset }) => {
+    // `curlyBraceLeft`: `w = text + p`, `h = text + p`, `r = max(5, 0.1h)`,
+    // the box `max(1.1w, w + 2r)` by `h + 2r`, the text starting `(box - w)`
+    // from its left.
+    expectSized("brace-left", padded, box, offset);
   });
 
   it("draws an open, unfilled brace of quarter-circle curls left of its label", () => {
@@ -354,11 +296,10 @@ describe("a left curly brace (`brace`, a comment)", () => {
 });
 
 describe("a right curly brace (`brace-r`)", () => {
-  it("is wider and taller by its curls, and centres its label", () => {
-    // `curlyBraceRight`: the box `w + 2r` by `h + 2r`.
-    const node = laidOut("brace-right", LONG);
-    expect([node.width, node.height]).toEqual([162, 37]);
-    expect(node.labelOffset).toBeUndefined();
+  it.each(measured("brace-r"))("is as big as Mermaid draws it around a %s, its label where Mermaid puts it", (_, { padded, box, offset }) => {
+    // `curlyBraceRight`: `w = text + p`, `h = text + p`, the box `w + 2r`
+    // by `h + 2r`, the label centred.
+    expectSized("brace-right", padded, box, offset);
   });
 
   it("draws an open, unfilled brace along its right edge", () => {
@@ -373,11 +314,10 @@ describe("a right curly brace (`brace-r`)", () => {
 });
 
 describe("curly braces (`braces`)", () => {
-  it("is wider by two and a half curls and taller by two, and centres its label", () => {
-    // `curlyBraces`: the box `w + 2.5r` by `h + 2r`.
-    const node = laidOut("braces", LONG);
-    expect([node.width, node.height]).toEqual([164.5, 37]);
-    expect(node.labelOffset).toBeUndefined();
+  it.each(measured("braces"))("is as big as Mermaid draws it around a %s, its label where Mermaid puts it", (_, { padded, box, offset }) => {
+    // `curlyBraces`: `w = text + p`, `h = text + p`, the box `w + 2.5r` by
+    // `h + 2r`, the label centred.
+    expectSized("braces", padded, box, offset);
   });
 
   it("draws an open, unfilled brace along each side", () => {
@@ -417,6 +357,39 @@ const MEASURED: Record<string, ReadonlyArray<{ rows: number; box: [number, numbe
     { rows: 1, box: [187.49, 51], offset: [0, 0] },
     { rows: 3, box: [196.48, 93], offset: [0, 0] },
   ],
+  "h-cyl": [
+    { rows: 1, box: [141.43, 28.5], offset: [-4.65, 0] },
+    { rows: 3, box: [154.54, 70.5], offset: [-9.02, 0] },  ],
+  "bow-rect": [
+    { rows: 1, box: [155.57, 36], offset: [0, 0] },
+    { rows: 3, box: [159.57, 78], offset: [-0.02, 0] },  ],
+  "lin-cyl": [
+    { rows: 1, box: [150, 91.91], offset: [0, 13.64] },
+    { rows: 3, box: [150, 133.91], offset: [0, 13.64] },  ],
+  "doc": [
+    { rows: 1, box: [150, 63.75], offset: [0, -6.38] },
+    { rows: 3, box: [150, 116.24], offset: [0, -11.62] },  ],
+  "lin-doc": [
+    { rows: 1, box: [165, 63.75], offset: [3.75, -6.38] },
+    { rows: 3, box: [165, 116.24], offset: [3.75, -11.62] },  ],
+  "tag-doc": [
+    { rows: 1, box: [165, 63.75], offset: [0, -3.19] },
+    { rows: 3, box: [165, 116.24], offset: [0, -5.81] },  ],
+  "docs": [
+    { rows: 1, box: [170, 98.37], offset: [-10.0, 1.75] },
+    { rows: 3, box: [170, 148.24], offset: [-10.0, -3.5] },  ],
+  "flag": [
+    { rows: 1, box: [150, 53.98], offset: [0, 0] },
+    { rows: 3, box: [150, 116.96], offset: [0, 0] },  ],
+  "brace": [
+    { rows: 1, box: [148.5, 46], offset: [-0.75, 0] },
+    { rows: 3, box: [150.6, 93.6], offset: [0.3, 0] },  ],
+  "brace-r": [
+    { rows: 1, box: [145, 46], offset: [0, 0] },
+    { rows: 3, box: [150.6, 93.6], offset: [0, 0] },  ],
+  "braces": [
+    { rows: 1, box: [147.5, 46], offset: [0, 0] },
+    { rows: 3, box: [154.5, 93.6], offset: [0, 0] },  ],
 };
 
 /** The measured cases for `name`, as `it.each` rows: a description, and the padded label, box and offset. */
@@ -445,3 +418,46 @@ function expectSized(
   expect(placed.x + placed.width / 2 - size.width / 2).toBeCloseTo(offset[0], 1);
   expect(placed.y + placed.height / 2 - size.height / 2).toBeCloseTo(offset[1], 1);
 }
+
+/**
+ * Laid out by `layoutGraph`, a curved shape pads the text with Siren's own
+ * node padding — what the padded label adds to the text on each side, the
+ * measurer's padding — wherever its handler pads with Mermaid's, so that it
+ * stands to a rectangle as Mermaid's stands to Mermaid's.
+ */
+describe("a curved shape padded with Siren's own node padding", () => {
+  /** 8px a character plus 24px of padding, 32px a line: a text pads 24px a side across and 11px up and down. */
+  const paddedMeasurer = { measure: (text: string) => ({ width: text.length * 8 + 24, height: 32 }) };
+  const laidOut = (shape: NodeShape) =>
+    layoutGraph(
+      {
+        direction: "TB",
+        nodes: [{ id: "A", label: plainLabel("Label text"), shape, style: { frame: [], text: [] }, parentId: null, interaction: null }],
+        edges: [],
+        subgraphs: [],
+        accTitle: null,
+        accDescr: null,
+        timeline: { totalSteps: 0, entries: [] },
+      },
+      { measureText: paddedMeasurer },
+    ).nodes[0]!;
+
+  it("is the rectangle's own size for a rectangle: the 80 x 21 text plus 24 and 11 a side", () => {
+    const rect = laidOut("rect");
+    expect([rect.width, rect.height]).toEqual([128, 43]);
+  });
+
+  it("pads a horizontal cylinder by half the vertical padding: `h = text + p/2`, `w = text + p/2 + 3rx`", () => {
+    const node = laidOut("horizontal-cylinder");
+    const height = 21 + 11 / 2;
+    const rx = height / 2 / (2.5 + height / 50);
+    expect(node.height).toBeCloseTo(height, 9);
+    expect(node.width).toBeCloseTo(80 + 24 / 2 + 3 * rx, 9);
+  });
+
+  it("pads a flag once in height, `1.5 x (text + p)`, and a curly brace once each way", () => {
+    expect(laidOut("flag").height).toBeCloseTo(1.5 * (21 + 11), 9);
+    const brace = laidOut("brace-right");
+    expect([brace.width, brace.height]).toEqual([80 + 24 + 10, 21 + 11 + 10]);
+  });
+});

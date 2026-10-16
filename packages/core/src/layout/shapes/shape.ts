@@ -66,8 +66,13 @@ export interface ShapeFrame {
  * shape's arithmetic starts from the box a plain `A[text]` would have.
  */
 export interface ShapeSpec {
-  /** The bounding box this shape needs to hold `label`. */
-  box(label: Size, direction: Direction): Size;
+  /**
+   * The bounding box this shape needs to hold `label`. `padding` is what
+   * the padded label adds to the text on each side — the node padding — for
+   * a shape whose handler pads the text its own way rather than as a
+   * rectangle does. Absent, it is Mermaid's 15px each way.
+   */
+  box(label: Size, direction: Direction, padding?: Size): Size;
   /**
    * Where the padded label sits inside `box`. Absent, the label is centred
    * on the box, which is where every shape but a handful puts it.
