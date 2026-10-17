@@ -252,6 +252,25 @@ describe("endsOffOutline", () => {
 
     expect(endsOffOutline(svg)).toEqual([{ edge: "corner-C", node: "C" }]);
   });
+
+  it("checks a node drawn with a square rect and a part sticking out of it, whose box is more than the rect", () => {
+    const svg = svgOf(
+      // A square rect 0..40 by 0..20 and a point 40..60 off its right side:
+      // the node's box is 0..60 by 0..20.
+      `<g class="siren-node" data-siren-id="P"><rect class="siren-node-frame" x="0" y="0" width="40" height="20"/>` +
+        `<polygon class="siren-node-frame" points="40,0 60,10 40,20"/></g>` +
+        // A rect drawn with a bar inside it: its box is the rect's.
+        `<g class="siren-node" data-siren-id="S"><rect class="siren-node-frame" x="100" y="0" width="40" height="20"/>` +
+        `<line class="siren-node-frame" x1="105" y1="0" x2="105" y2="20"/></g>` +
+        // On the rect's top side: on the figure.
+        edge("onto-rect", [[20, -30], [20, 0]]) +
+        // On the box's top side above the point's slope, 6.7px off it.
+        edge("over-point", [[55, -30], [55, 0]]) +
+        edge("onto-S", [[120, -30], [120, 0]]),
+    );
+
+    expect(endsOffOutline(svg)).toEqual([{ edge: "over-point", node: "P" }]);
+  });
 });
 
 /** A state-diagram connector as the renderer draws one, by class: its route in `data-siren-points`. */
@@ -350,6 +369,35 @@ describe("endsOffOutline, where a shape's end is off its figure on purpose", () 
     );
 
     expect(endsOffOutline(svg)).toEqual([{ edge: "to-T", node: "T" }]);
+  });
+
+  it("passes an end on a brace only on the box it stands in, not inside it", () => {
+    // Drawn over 0..10 by 0..40, its stem down x = 5 and its point at (0,20).
+    const svg = svgOf(
+      shaped("B", "braces", "M10,0 L5,5 L5,15 L0,20 L5,25 L5,35 L10,40") +
+        // On the box's top, 5px from the curl: on the box.
+        edge("onto-box", [[3, -30], [3, 0]]) +
+        // 2px in from the box's right side, 5.8px from the stem's bend.
+        edge("inside-box", [[60, 20], [8, 20]]),
+    );
+
+    expect(endsOffOutline(svg)).toEqual([{ edge: "inside-box", node: "B" }]);
+  });
+
+  it("passes an end on a self-crossing bang only on its box or no deeper than its scallops dip", () => {
+    // A bow tie whose diagonals cross at (10,10), over 0..20 by 0..20, its
+    // top drawn as a scallop dipping 3px to (10,3).
+    const svg = svgOf(
+      shaped("X", "bang", "M0,0 L10,3 L20,0 L0,20 L20,20 Z") +
+        // On the box's top, 2.9px from the scallop.
+        edge("onto-box", [[10, -30], [10, 0]]) +
+        // 2.8px from the diagonals: no further from the outline than the scallop dips.
+        edge("in-scallop", [[10, -30], [10, 6]]) +
+        // 5.7px from either diagonal and 2px in from the box's left side.
+        edge("deep", [[-30, 10], [2, 10]]),
+    );
+
+    expect(endsOffOutline(svg)).toEqual([{ edge: "deep", node: "X" }]);
   });
 });
 

@@ -192,6 +192,13 @@ describe("frameOutline, of a frame drawn with curves", () => {
     expect(offOutline(pt(40, 20), outline)).toBeGreaterThan(1);
   });
 
+  it("takes the last radius a rect's style declares, as the cascade does", () => {
+    // The shape's own radius first, an author's declaration after it.
+    const outline = frameOutline(elementOf(`<rect x="0" y="0" width="40" height="20" style="rx:4px; rx:0"/>`));
+
+    expect(outline).toEqual([[pt(0, 0), pt(40, 0), pt(40, 20), pt(0, 20), pt(0, 0)]]);
+  });
+
   it.each([
     ["absolute", `<path d="M0,10 A10,10 0 0 1 20,10"/>`],
     ["relative", `<path d="M0,10 a10,10 0 0,1 20,0"/>`],
@@ -202,6 +209,13 @@ describe("frameOutline, of a frame drawn with curves", () => {
     expect(offOutline(pt(10, 0), outline)).toBeLessThan(NEAR);
     expect(offOutline(onCircle(10, 10, 10, 225), outline)).toBeLessThan(NEAR);
     expect(offOutline(pt(10, 20), outline)).toBeGreaterThan(1);
+  });
+
+  it("reads an arc that ends where it starts as no curve at all", () => {
+    // SVG 1.1 F.6.2: an arc whose endpoints are identical is omitted.
+    expect(frameOutline(elementOf(`<path d="M0,0 A5,5 0 0 1 0,0 L10,0"/>`))).toEqual([
+      [pt(0, 0), pt(0, 0), pt(10, 0)],
+    ]);
   });
 
   it("grows an arc whose radii cannot span its ends until they just do", () => {

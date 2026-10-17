@@ -177,9 +177,8 @@ export function frameOutline(frame: Element): Point[][] {
   switch (frame.tagName.toLowerCase()) {
     case "rect": {
       const { top, bottom, left, right } = rectBox(frame);
-      const rx = Math.min(cornerRadius(frame, "rx") ?? cornerRadius(frame, "ry") ?? 0, (right - left) / 2);
-      const ry = Math.min(cornerRadius(frame, "ry") ?? cornerRadius(frame, "rx") ?? 0, (bottom - top) / 2);
-      if (rx <= 0 || ry <= 0) {
+      const { rx, ry } = cornerRadii(frame);
+      if (squareCornered(frame)) {
         return [[pt(left, top), pt(right, top), pt(right, bottom), pt(left, bottom), pt(left, top)]];
       }
       const corner = (x: number, y: number) => `A${rx},${ry} 0 0 1 ${x},${y}`;
@@ -215,13 +214,37 @@ function pt(x: number, y: number): Point {
 }
 
 /**
+ * Whether a `<rect>` is drawn with square corners: neither radius given, or
+ * either one zero — so its outline is exactly its box.
+ */
+export function squareCornered(rect: Element): boolean {
+  const { rx, ry } = cornerRadii(rect);
+  return rx <= 0 || ry <= 0;
+}
+
+/**
+ * The radii a rect's corners are rounded by: each one as given, or else
+ * the other one, or else none — and no more than half the side it rounds.
+ */
+function cornerRadii(rect: Element): { rx: number; ry: number } {
+  const { top, bottom, left, right } = rectBox(rect);
+  return {
+    rx: Math.min(cornerRadius(rect, "rx") ?? cornerRadius(rect, "ry") ?? 0, (right - left) / 2),
+    ry: Math.min(cornerRadius(rect, "ry") ?? cornerRadius(rect, "rx") ?? 0, (bottom - top) / 2),
+  };
+}
+
+/**
  * A rect's `rx` or `ry`, from its inline style (where a shape writes it, so
  * an author's declaration can override it) or else its attribute, or `null`
- * when it has neither.
+ * when it has neither. The last declaration wins, as in the cascade: the
+ * renderer writes an author's declarations after the shape's own.
  */
 function cornerRadius(rect: Element, name: "rx" | "ry"): number | null {
-  const declared = (rect.getAttribute("style") ?? "").match(new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([\\d.]+)`));
-  const value = declared?.[1] ?? rect.getAttribute(name);
+  const declarations = [
+    ...(rect.getAttribute("style") ?? "").matchAll(new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([\\d.]+)`, "g")),
+  ];
+  const value = declarations.at(-1)?.[1] ?? rect.getAttribute(name);
   return value === null ? null : Number(value);
 }
 
@@ -241,6 +264,8 @@ function arcPoints(
 ): Point[] {
   let rx = Math.abs(radiusX);
   let ry = Math.abs(radiusY);
+  // An arc ending where it starts is omitted (F.6.2); one with a zero radius is a line (F.6.6).
+  if (from.x === to.x && from.y === to.y) return [to];
   if (rx === 0 || ry === 0) return [to];
   const phi = (rotation * Math.PI) / 180;
   const [cos, sin] = [Math.cos(phi), Math.sin(phi)];

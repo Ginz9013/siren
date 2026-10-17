@@ -27,6 +27,7 @@ import {
   type Point,
   rectBox,
   routeOf,
+  squareCornered,
   subgraphFrames,
 } from "./svgGeometry";
 
@@ -338,8 +339,9 @@ interface Figure {
  * Every drawn node or state whose figure is not simply its box, with its box (the
  * extent of everything it is drawn with, curves' bulges included) and the
  * outline it is drawn with, read off each frame with `frameOutline`. A node
- * one of whose frames is a square-cornered `<rect>` is left out: its box is
- * its figure, so an end on the box is an end on the figure.
+ * one of whose frames is a square-cornered `<rect>` as big as the whole box
+ * is left out: its box is its figure, so an end on the box is an end on the
+ * figure. A square rect with something sticking out of it is not.
  */
 function drawnFigures(svg: SVGSVGElement): Figure[] {
   return Array.from(svg.querySelectorAll("g.siren-node, g.siren-state")).flatMap((group) => {
@@ -348,28 +350,39 @@ function drawnFigures(svg: SVGSVGElement): Figure[] {
     const frames = Array.from(group.children).filter((child) =>
       FIGURE_CLASSES.some((name) => child.classList.contains(name)),
     );
-    const outlines = frames.map(frameOutline);
-    // `frameOutline` reads a rect with no rounding as its four corners, closed.
-    const square = frames.some(
-      (frame, i) => frame.tagName.toLowerCase() === "rect" && outlines[i].length === 1 && outlines[i][0].length === 5,
-    );
-    const outline = outlines.flat();
+    const outline = frames.flatMap(frameOutline);
     const points = outline.flat();
-    if (square || points.length === 0) return [];
+    if (points.length === 0) return [];
+    const box = {
+      top: Math.min(...points.map(({ y }) => y)),
+      bottom: Math.max(...points.map(({ y }) => y)),
+      left: Math.min(...points.map(({ x }) => x)),
+      right: Math.max(...points.map(({ x }) => x)),
+    };
+    const square = frames.some(
+      (frame) =>
+        frame.tagName.toLowerCase() === "rect" && squareCornered(frame) && sameBox(rectBox(frame), box),
+    );
+    if (square) return [];
     return [
       {
         id: group.getAttribute("data-siren-id") ?? "<no id>",
         shape: group.getAttribute("data-siren-shape"),
-        box: {
-          top: Math.min(...points.map(({ y }) => y)),
-          bottom: Math.max(...points.map(({ y }) => y)),
-          left: Math.min(...points.map(({ x }) => x)),
-          right: Math.max(...points.map(({ x }) => x)),
-        },
+        box,
         outline,
       },
     ];
   });
+}
+
+/** Whether two boxes are the same to within `TOLERANCE` on every side. */
+function sameBox(a: Box, b: Box): boolean {
+  return (
+    Math.abs(a.top - b.top) <= TOLERANCE &&
+    Math.abs(a.bottom - b.bottom) <= TOLERANCE &&
+    Math.abs(a.left - b.left) <= TOLERANCE &&
+    Math.abs(a.right - b.right) <= TOLERANCE
+  );
 }
 
 /**
@@ -391,7 +404,7 @@ export function endsOffOutline(svg: SVGSVGElement): { edge: string; node: string
         ends.some(
           (end) =>
             holds(grown(figure.box, TOLERANCE), end, 0) &&
-            Math.min(...figure.outline.map((line) => distanceToPolyline(end, line))) > TOLERANCE &&
+            distanceToOutline(end, figure.outline) > TOLERANCE &&
             !offOnPurpose(figure, end),
         ),
       )
@@ -406,7 +419,7 @@ export function endsOffOutline(svg: SVGSVGElement): { edge: string; node: string
  * - **A brace** (`brace-left`, `brace-right`, `braces`) meets the box it
  *   stands in, an invisible hit rectangle, as Mermaid's handler for it
  *   does: the brace is drawn down one side or two, and a
- *   line from anywhere else stops on the box.
+ *   line from anywhere else stops on the box — on it, not inside it.
  * - **An hourglass**, on its left or right side: its outline is two
  *   triangles meeting at the pinch, drawn along the top, the bottom and
  *   both diagonals. A line meeting it from the side would cross the outline
@@ -415,23 +428,55 @@ export function endsOffOutline(svg: SVGSVGElement): { edge: string; node: string
  * - **A bang whose drawn outline crosses itself** — one so narrow for its
  *   height that the scallops down its two sides dip past each other. The
  *   clip skips crossings of an outline with itself, so an end there can
- *   stop where no arc is drawn.
+ *   stop where no arc is drawn: on the box, or among the scallops — no
+ *   further from what is drawn than the deepest scallop dips in from the
+ *   box.
  */
 function offOnPurpose(figure: Figure, end: Point): boolean {
   switch (figure.shape) {
     case "brace-left":
     case "brace-right":
     case "braces":
-      return true;
+      return onBoxSide(figure.box, end);
     case "hourglass":
       return (
         Math.abs(end.x - figure.box.left) <= TOLERANCE || Math.abs(end.x - figure.box.right) <= TOLERANCE
       );
     case "bang":
-      return crossesItself(figure.outline);
+      return (
+        crossesItself(figure.outline) &&
+        (onBoxSide(figure.box, end) || distanceToOutline(end, figure.outline) <= scallopDepth(figure))
+      );
     default:
       return false;
   }
+}
+
+/** The closed polyline round `box`'s four sides. */
+function sidesOf({ top, bottom, left, right }: Box): Point[] {
+  return [
+    { x: left, y: top },
+    { x: right, y: top },
+    { x: right, y: bottom },
+    { x: left, y: bottom },
+    { x: left, y: top },
+  ];
+}
+
+/** Whether `end` stands within `TOLERANCE` of one of `box`'s sides. */
+function onBoxSide(box: Box, end: Point): boolean {
+  return distanceToPolyline(end, sidesOf(box)) <= TOLERANCE;
+}
+
+/** How far `point` stands from the nearest of `outline`'s polylines. */
+function distanceToOutline(point: Point, outline: Point[][]): number {
+  return Math.min(...outline.map((line) => distanceToPolyline(point, line)));
+}
+
+/** How far in from its box the deepest point of `figure`'s outline dips. */
+function scallopDepth(figure: Figure): number {
+  const sides = sidesOf(figure.box);
+  return Math.max(...figure.outline.flat().map((point) => distanceToPolyline(point, sides)));
 }
 
 /**
