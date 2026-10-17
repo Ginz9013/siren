@@ -470,6 +470,14 @@ can carry one.
 
 ### Changed
 
+- A flowchart edge now ends on its node's outline rather than on the box the shape is inscribed
+  in: an arrow into a diamond, a circle, a hexagon, a triangle on its side, a slanted or curved
+  shape, a bolt or an hourglass meets the shape itself instead of stopping in the empty corner
+  beside it. Each end slides along the run that reaches it, so an edge that comes down beside a
+  diamond's top corner lands on its slanted side, straight below its last bend, as Mermaid 12.2.0
+  draws it. Only the end and its arrowhead move: the route's bends, its label and its line hops stay
+  where they were. A rectangle's edges, an end at a subgraph's frame, and a line level with an
+  hourglass's pinch (which the outline is open around) are unchanged (backlog `01M52VP231`).
 - A document config `look: classic`, in a frontmatter or an `init` directive, is accepted without
   a warning: Siren draws in the classic look, so the setting is honoured as written. `neo`,
   `handDrawn` and any other value are still read, kept and reported as not applied; Mermaid 12.2.0

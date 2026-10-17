@@ -401,6 +401,15 @@ left-to-right flow. A frame
 may wear a **paint** beside `siren-node-frame` — hollow, ink (the stroke colour), bare (no paint)
 or note — a class rather than an inline declaration, so a highlight still outlines it and an
 author's `style` still wins.
+A flowchart edge **ends on the shape's outline**, not on its box: ELK routes every edge to the
+node's bounding box, and `layoutGraph` then slides each end along the run that reaches it — the
+route's first or last segment, carried on or cut short — to the first place it meets the shape's
+outline (`clipToOutline.ts`, reading each record's `outline`). The crossing is found side by side,
+never by asking which side of the outline is inside, because an outline may cross itself (an
+hourglass); the point where it does is not a place a line ends, so a line level with an hourglass's
+pinch keeps its end on the box, as Mermaid 12.2.0 draws it. An end at a subgraph stays on the
+frame; a self-loop's two ends both meet the outline. Only the end points move — bends, labels and
+line hops stay put.
 The shapes with a **curved outline** (`curvedShapes.ts`, nook `01M51XACHP`) are
 records too — `delay`, `curv-trap`, `h-cyl`, `lin-cyl`, `bow-rect`, `doc`, `lin-doc`, `tag-doc`,
 `docs`, `flag`, `brace`, `brace-r` and `braces`. A round end, a cylinder's end and a brace's curl

@@ -2697,6 +2697,70 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
 
+  {
+    id: "fc-edge-ends-on-outline",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[aaaa] --> D{decide here}
+      B[bbbb] --> D
+      C[cccc] --> D
+      D --> E[eeee]`,
+    status: "supported",
+    meaning:
+      "An edge into a shape that is not a rectangle ends **on the shape**, " +
+      "not on the box it is inscribed in: an arrow left on the box points at " +
+      "the empty corner beside a diamond. Each end slides along the run that " +
+      "reaches it, so an edge that bends above the diamond and comes down " +
+      "beside its top corner lands on the slanted side, straight below its " +
+      "last bend. Measured in Mermaid 12.2.0 in headless Chrome (classic " +
+      "look): the outer two of these three edges end 37.75px below the " +
+      "diamond's box, on its sides, each at the x of its last bend " +
+      "(backlog 01M52VP231).",
+    assert: (result) => {
+      const frame = svgOf(result).querySelector(
+        'g.siren-node[data-siren-id="D"] path.siren-node-frame',
+      );
+      if (frame === null) throw new Error('no diamond "D" was drawn');
+      const corners = Array.from((frame.getAttribute("d") ?? "").matchAll(/(-?[\d.]+),(-?[\d.]+)/g), (m) => ({
+        x: Number(m[1]),
+        y: Number(m[2]),
+      }));
+      expectSame("the diamond is drawn through four corners", corners.length, 4);
+      const offDiamond = (point: Point) =>
+        Math.min(
+          ...corners.map((a, i) => {
+            const b = corners[(i + 1) % corners.length];
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy)));
+            return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
+          }),
+        );
+      const top = Math.min(...corners.map((corner) => corner.y));
+      const ends = [
+        ...["A-D", "B-D", "C-D"].map((id) => edgePoints(result, id).slice(-2).reverse()),
+        edgePoints(result, "D-E").slice(0, 2),
+      ];
+      for (const [end, before] of ends) {
+        expectSame(
+          `the edge ends on the diamond (at ${JSON.stringify(end)})`,
+          offDiamond(end) <= 0.5,
+          true,
+        );
+        expectSame(
+          `and on the run that reaches it (from ${JSON.stringify(before)})`,
+          Math.abs(end.x - before.x) < 1e-6 || Math.abs(end.y - before.y) < 1e-6,
+          true,
+        );
+      }
+      expectSame(
+        "at least one edge comes down beside the top corner, onto a slanted side",
+        ends.some(([end]) => end.y > top + 1),
+        true,
+      );
+    },
+  },
+
   // -------------------------------------------------------------------------
   // flowchart — statement composition
   // -------------------------------------------------------------------------

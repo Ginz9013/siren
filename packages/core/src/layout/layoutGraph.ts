@@ -14,6 +14,7 @@ import { BASE_FONT_SIZE_PX } from "../label/label";
 import { LINE_HEIGHT_RATIO } from "../label/layoutLabel";
 import { SHAPES } from "./shapes/shapeTable";
 import type { Rect, Size } from "./shapes/shape";
+import { clipRouteToOutlines } from "./clipToOutline";
 
 /**
  * Where a node's label sits, as the offset of its centre from the box's
@@ -199,11 +200,22 @@ export function layoutGraph(
     };
   });
 
+  // Where each end of an edge stops: on the outline of the shape it meets,
+  // not on the box layout routed it to (`clipRouteToOutlines`). An end at a
+  // subgraph has no shape to meet and stays on the frame. The line hops were
+  // read off the routes before this, and still hold: an end only slides
+  // along the run it is on, into its own node's box.
+  const placedById = new Map(nodes.map((node) => [node.id, node]));
+  const outlineOf = (id: string) => {
+    const placed = placedById.get(id);
+    return placed === undefined ? null : SHAPES[placed.shape].outline(placed);
+  };
+
   const edges = graph.edges.map((edge) => {
     const route = routeById.get(edge.id)!;
     return {
       ...edge,
-      points: route.points,
+      points: clipRouteToOutlines(route.points, outlineOf(edge.from), outlineOf(edge.to)),
       hops: route.hops,
       // `null` rather than absent: an edge that asked for no space has
       // nowhere to draw text, and one state is easier to read than a

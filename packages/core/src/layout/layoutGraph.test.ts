@@ -4,6 +4,7 @@ import { layoutDirectedGraph } from "./layoutDirectedGraph";
 import { CONNECTOR_LABEL_SCALE, plainLabel, plainRun } from "../label/label";
 import { readLabel } from "../label/readLabel";
 import { layoutGraph } from "./layoutGraph";
+import { SHAPES } from "./shapes/shapeTable";
 
 /** Deterministic fake measurer per the ticket: width = text.length * 8, height = 24. */
 const fakeMeasurer: TextMeasurer = {
@@ -1520,6 +1521,171 @@ describe("an edge's line hops", () => {
       expect(b.y).toBe(hop.y);
       expect(Math.min(a.x, b.x)).toBeLessThan(hop.x);
       expect(Math.max(a.x, b.x)).toBeGreaterThan(hop.x);
+    }
+  });
+});
+
+describe("where an edge meets a node that is not a rectangle", () => {
+  type Shape = GraphModel["nodes"][number]["shape"];
+  const node = (id: string, shape: Shape, label = id) => ({
+    id,
+    label: plainLabel(label),
+    shape,
+    style: { frame: [], text: [] },
+    parentId: null,
+    interaction: null,
+  });
+  const edge = (from: string, to: string) => ({
+    id: `${from}-${to}`,
+    from,
+    to,
+    ...PLAIN_ARROW,
+    style: { frame: [], text: [] },
+  });
+  const graphOf = (direction: GraphModel["direction"], nodes: GraphModel["nodes"], edges: GraphModel["edges"]): GraphModel => ({
+    direction,
+    nodes,
+    edges,
+    subgraphs: [],
+    accTitle: null,
+    accDescr: null,
+    timeline: { totalSteps: 0, entries: [] },
+  });
+  /** `X --> S --> Y`, with `S` drawn as `shape`. */
+  const through = (direction: GraphModel["direction"], shape: Shape, label = "label") =>
+    graphOf(direction, [node("X", "rect", "aaa"), node("S", shape, label), node("Y", "rect", "bbb")], [edge("X", "S"), edge("S", "Y")]);
+
+  /** How far `point` is from the closed polygon `outline`. */
+  const distanceToOutline = (point: { x: number; y: number }, outline: readonly { x: number; y: number }[]) =>
+    Math.min(
+      ...outline.map((a, i) => {
+        const b = outline[(i + 1) % outline.length]!;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const length2 = dx * dx + dy * dy;
+        const t = length2 === 0 ? 0 : Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / length2));
+        return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
+      }),
+    );
+
+  /**
+   * Every end of an edge at `id`: the end point, the point before it, and
+   * the node as placed.
+   */
+  const endsAt = (positioned: ReturnType<typeof layoutGraph>, id: string) => {
+    const placed = positioned.nodes.find((candidate) => candidate.id === id)!;
+    return positioned.edges.flatMap((drawn) => [
+      ...(drawn.from === id ? [{ end: drawn.points[0]!, before: drawn.points[1]! }] : []),
+      ...(drawn.to === id ? [{ end: drawn.points.at(-1)!, before: drawn.points.at(-2)! }] : []),
+    ]).map((ends) => ({ ...ends, placed }));
+  };
+
+  /** The end is on the shape's outline, inside its box, and the run into it is still straight across or down. */
+  const expectOnOutline = (positioned: ReturnType<typeof layoutGraph>, id: string) => {
+    const ends = endsAt(positioned, id);
+    expect(ends.length).toBeGreaterThan(0);
+    for (const { end, before, placed } of ends) {
+      expect(distanceToOutline(end, SHAPES[placed.shape].outline(placed))).toBeLessThanOrEqual(0.5);
+      expect(end.x).toBeGreaterThanOrEqual(placed.x - 1e-9);
+      expect(end.x).toBeLessThanOrEqual(placed.x + placed.width + 1e-9);
+      expect(end.y).toBeGreaterThanOrEqual(placed.y - 1e-9);
+      expect(end.y).toBeLessThanOrEqual(placed.y + placed.height + 1e-9);
+      // On the line the last run was already on: an orthogonal run stays one.
+      expect(Math.min(Math.abs(end.x - before.x), Math.abs(end.y - before.y))).toBeLessThan(1e-9);
+    }
+  };
+
+  it.each([
+    ["TB", "rhombus"],
+    ["LR", "rhombus"],
+    ["TB", "circle"],
+    ["LR", "hexagon"],
+    ["LR", "triangle"],
+    ["LR", "flipped-triangle"],
+    ["TB", "triangle"],
+    ["TB", "double-circle"],
+    ["LR", "parallelogram"],
+    ["TB", "cylinder"],
+    ["LR", "document"],
+    ["TB", "bolt"],
+    ["LR", "bolt"],
+  ] as const)("stops each end of an edge on a %s %s's outline, along the run that meets it", (direction, shape) => {
+    const label = shape === "bolt" ? "" : "label";
+    expectOnOutline(layoutGraph(through(direction, shape, label), { measureText: fakeMeasurer }), "S");
+  });
+
+  it("stops three edges fanning into a rhombus on its slanted sides, each straight down from where it bent", () => {
+    // Measured in Mermaid 12.2.0 (classic look): the outer two of three
+    // edges into a diamond meet it beside its top corner, run straight down
+    // from their last bend onto the slanted side.
+    const graph = graphOf(
+      "TB",
+      [node("A", "rect", "aaaa"), node("B", "rect", "bbbb"), node("C", "rect", "cccc"), node("D", "rhombus", "decide here")],
+      [edge("A", "D"), edge("B", "D"), edge("C", "D")],
+    );
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+    expectOnOutline(positioned, "D");
+    const off = endsAt(positioned, "D").filter(({ end, placed }) => Math.abs(end.x - (placed.x + placed.width / 2)) > 1);
+    expect(off.length).toBeGreaterThan(0);
+    for (const { end, placed } of off) expect(end.y).toBeGreaterThan(placed.y + 1);
+  });
+
+  it("stops three edges fanning out of a circle on its rim", () => {
+    const graph = graphOf(
+      "TB",
+      [node("D", "circle", "circle"), node("A", "rect", "a"), node("B", "rect", "b"), node("C", "rect", "c")],
+      [edge("D", "A"), edge("D", "B"), edge("D", "C")],
+    );
+    expectOnOutline(layoutGraph(graph, { measureText: fakeMeasurer }), "D");
+  });
+
+  it("stops an edge into an hourglass from above on its top edge", () => {
+    const positioned = layoutGraph(through("TB", "hourglass", ""), { measureText: fakeMeasurer });
+    expectOnOutline(positioned, "S");
+    for (const { end, placed } of endsAt(positioned, "S")) {
+      expect([placed.y, placed.y + placed.height]).toContain(end.y);
+    }
+  });
+
+  it("leaves an edge into an hourglass from the side where it was, rather than at the pinch where its two halves meet", () => {
+    // Measured in Mermaid 12.2.0 (classic look): under LR the line meets a
+    // 30 x 30 hourglass at its box's side, level with its centre — the
+    // outline there is open, and the only place the line touches it is the
+    // pinch, which no line ends at.
+    const positioned = layoutGraph(through("LR", "hourglass", ""), { measureText: fakeMeasurer });
+    for (const { end, placed } of endsAt(positioned, "S")) {
+      expect([placed.x, placed.x + placed.width]).toContain(end.x);
+      expect(end.y).toBe(placed.y + placed.height / 2);
+    }
+  });
+
+  it("stops both ends of a rhombus's loop onto itself on its outline", () => {
+    // Measured in Mermaid 12.2.0 (classic look): `D{decide here} --> D`
+    // leaves and re-enters the diamond's left side, both ends on the diamond.
+    const graph = graphOf("TB", [node("D", "rhombus", "decide here")], [edge("D", "D")]);
+    expectOnOutline(layoutGraph(graph, { measureText: fakeMeasurer }), "D");
+  });
+
+  it("stops an edge between a rhombus and a subgraph on the rhombus, and leaves its other end on the frame", () => {
+    // Measured in Mermaid 12.2.0 (classic look): the node's end meets the
+    // diamond, the subgraph's end the frame's side.
+    const graph = graphOf("TB", [node("D", "rhombus", "decide"), { ...node("Q", "rect", "q"), parentId: "subgraph:1" }], [edge("D", "subgraph:1")]);
+    graph.subgraphs = [{ id: "subgraph:1", label: plainLabel("group"), parentId: null, direction: null }];
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+    expectOnOutline(positioned, "D");
+    const frame = positioned.subgraphs[0]!;
+    const end = positioned.edges[0]!.points.at(-1)!;
+    expect(end.y).toBeCloseTo(frame.y, 9);
+  });
+
+  it("does not move the ends of an edge between two rectangles", () => {
+    const graph = chainGraph("LR");
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+    for (const drawn of positioned.edges) {
+      const from = positioned.nodes.find((n) => n.id === drawn.from)!;
+      const to = positioned.nodes.find((n) => n.id === drawn.to)!;
+      expect(drawn.points[0]!.x).toBe(from.x + from.width);
+      expect(drawn.points.at(-1)!.x).toBe(to.x);
     }
   });
 });
