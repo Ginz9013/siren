@@ -17,6 +17,22 @@ the hex to write. Breaking too for an edge `|label|` beginning with a word that
 holds an `@` (`A -->|a@b| B`) or with a quote after a space (`A -->| "a" | B`), which is now
 refused (see **Changed**).
 
+Breaking for an ER `style` or `classDef` whose value holds a character other than a letter, a
+digit, a non-ASCII character, a space, `-`, `_`, `*`, `#`, `:` or `,` — `fill:rgb(255,153,102)`,
+`stroke-width:1.5px`, `fill:#f96 !important` — or a `;` with anything after it on the line
+(`fill:red;stroke:blue`), which is now refused (see **Changed**).
+
+Breaking for an ER `style` or `classDef` line that ends in a space or a tab, whose list holds an
+empty declaration (`fill:red,`, `fill:red,;`, `fill:red,,stroke:blue`, `,fill:red`) or none at all
+(`style A ;`), a declaration with a second
+`:` (`fill:red:blue`, and `fill:#f96;stroke:#333`, read as one declaration), or a `;` after a `#`
+color that is not the line's last (`fill:#f96;;`), which is now refused (see **Changed**).
+
+Breaking for an ER `style` or `classDef` declaration holding a space or a tab between two words —
+`stroke-dasharray:5 5`, `font-family:Noto Sans`, `stroke-width:4 px`, `fill:#f96 C`, `fi ll:red`
+— which is now refused (see **Changed**). A value with a space in it cannot be written in this
+kind; a space beside `:` or `,` still reads as before.
+
 Breaking for a flowchart `style`, `classDef` or `linkStyle` whose declarations hold an `@`, a `{`
 or `}`, an arrow, or any run an arrow is made of — two dashes (`stroke:var(--x)`, `stroke:a--b`),
 a dash and a dot (`fill:a-.b`), an `=` or a `~` (`fill:a=b`, `fill:a~b`) — and for an edge
@@ -470,6 +486,63 @@ can carry one.
 
 ### Changed
 
+- A state note's connector now starts on the figure its state is drawn as when that state is a
+  `[*]` start or a `<<choice>>`: `note right of [*]` meets the start's disc and a note beside a
+  choice meets the diamond, rather than the box around either, as Mermaid 12.2.0 draws them. The
+  note's own end stays on its box, and the line hops are read again off the moved connector
+  (backlog `01M548R9CB`).
+- A flowchart edge into or out of a `cloud` or a `bang` now ends on the arcs the shape is drawn
+  with rather than on its box, so the arrow touches a cloud's bulge or a bang's scallop instead of
+  stopping short of it. Mermaid 12.2.0 meets both at their box; Siren departs from it here so the
+  arrow reaches the figure, as it does a state diagram's end circle. The shapes are drawn exactly
+  as before (backlog `01M548R9CB`).
+- An ER `style` or `classDef` value is now read in the characters Mermaid 12.2.0 reads it in:
+  letters, digits, non-ASCII characters, spaces, `-`, `_`, `*`, `#`, `:` and `,`, with a `;` only
+  at the end of the line (see the next entry). Any other character — a function's `(`, a
+  decimal `.`, `!important`'s `!`, a quote, `$`, `%`, `/` — refuses the document with an error at
+  that character saying to write the color as a hex code and a size as a whole number; Siren used
+  to draw it. Measured one character apiece; Mermaid draws nothing at all for such a document
+  (backlog `01M5482HPJ`).
+- An ER `style` or `classDef` declaration list is now read in the structure Mermaid 12.2.0 reads
+  it in, and refused, at the place, where Mermaid refuses it or draws it wrong without a word:
+  a line ending in a space or a tab (the list runs on into the next line and swallows it, or is a
+  parse error when last); an empty declaration before, between or after the commas (a parse error,
+  or the first property lost); a declaration with a second `:` (`fill:red:blue` paints only
+  `fill:red`); and a `;` after a `#` color that is not the line's last, which is painted as the
+  code it is rewritten into. `fill:#f96;stroke:#333`, which the style-line rule reads as the one
+  declaration `fill:#f96stroke:#333`, paints neither color and is refused for its second `:` —
+  so the `#word;` exception above no longer holds anywhere but at the end of the line. Siren drew
+  each before. Measured in Chrome; a declaration with no `:` was already refused, and one with an
+  empty value (`fill:`) still draws nothing (backlog `01M5482HPJ`).
+- An ER `style` or `classDef` declaration holding a space or a tab between two words is now
+  refused, at the whitespace, with an error naming the two words and what they would become.
+  Mermaid 12.2.0 skips that whitespace and glues the words together without a word:
+  `stroke-dasharray:5 5` paints `55`, `font-family:Noto Sans` sets `NotoSans`, `fill:#f96 C`
+  paints `#f96C`, `fi ll:red` paints `fill:red`. Siren drew the value as written before. Whitespace
+  beside a `:`, a `,` or the line's last `;` (`fill: red`, `fill:red , stroke:blue`) has nothing
+  to glue and still draws. Measured in Chrome (backlog `01M5482HPJ`).
+- An ER `style` or `classDef` whose target or name list ends in a `,` before the declarations
+  (`style A ,fill:red`, `classDef u, fill:red`) is now refused with an error at the `,` saying it
+  adds the next word to the list and to separate the list from the declarations with a space.
+  Mermaid 12.2.0 reads `fill` as a second target and `:red` as a declaration with no property.
+  Siren already refused `style A ,fill:red`, but said that `fill:red` named a relationship
+  (backlog `01M5482HPJ`).
+- An ER `style` or `classDef` line ending in a `;` — right after the value or after a space or a
+  tab (`fill:red;`, `fill:red ;`, `fill:red\t;`) — now paints the value before it, as Mermaid
+  12.2.0 does. The `;` used to be read into the last value, which was then dropped with an error
+  saying it would start a second declaration (backlog `01M5482HPJ`).
+- An ER `style` or `classDef` list left empty once its closing `;` is set aside — an empty
+  declaration before the `;` (`fill:red,;`, `fill:red , ;`) or no declaration at all
+  (`style A ;`, `classDef u ;`) — is now refused, at the `,` or at the `;`. Mermaid 12.2.0 stops
+  at the `;` with a parse error; Siren drew it, reading the `;` as a declaration (backlog
+  `01M5482HPJ`).
+- An ER `style` or `classDef` line holding a `#` color with a space or a tab before its closing
+  `;` (`fill:#f96 ;`, `fill:#f96, stroke:blue ;`, `fill:#f96 ; `) is still refused, as Mermaid
+  12.2.0 refuses it, but the error now names the whitespace before the `;` and quotes the line as
+  written. It used to ask to remove whitespace after the value from a line quoted without its
+  `;`, which the style-line rule drops before the line is read. One with the whitespace after
+  that `;` instead (`fill:#f96; `) is refused as before, for the whitespace after `fill:#f96;`,
+  now quoting the line with its `;` (backlog `01M5482HPJ`).
 - A flowchart edge now ends on its node's outline rather than on the box the shape is inscribed
   in: an arrow into a diamond, a circle, a hexagon, a triangle on its side, a slanted or curved
   shape, a bolt or an hourglass meets the shape itself instead of stopping in the empty corner

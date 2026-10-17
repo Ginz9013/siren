@@ -40,10 +40,18 @@ export function styleLine(line: string): { text: string; dropped: number[] } {
 }
 
 /**
+ * By 1-based line number, where in the line as written each `;` the
+ * style-line rule dropped from it was (0-based, in order). Lines it dropped
+ * none from are absent.
+ */
+export type DroppedSemicolons = ReadonlyMap<number, readonly number[]>;
+
+/**
  * A document as Mermaid parses it — each of its lines read by `styleLine` —
- * for a parser to read in place of `source`; and `asWritten`, which moves
+ * for a parser to read in place of `source`; `asWritten`, which moves
  * every source position in what the parser made of it back to where the
- * author wrote it.
+ * author wrote it; and `droppedOn`, where each dropped `;` was, for a
+ * parser whose diagnostics must name one.
  *
  * A dropped `;` shifts every later column on its line one to the left, so
  * a position the parser found past it would point one character early.
@@ -56,6 +64,7 @@ export function styleLine(line: string): { text: string; dropped: number[] } {
 export function styleLines(source: string): {
   source: string;
   asWritten: <T>(result: T) => T;
+  droppedOn: DroppedSemicolons;
 } {
   const lines = source.split(/\r\n|\r|\n/).map(styleLine);
   /** By 1-based line number, where each `;` dropped from it was, in order. */
@@ -67,6 +76,7 @@ export function styleLines(source: string): {
   });
   return {
     source: lines.map(({ text }) => text).join("\n"),
+    droppedOn,
     asWritten: (result) => (droppedOn.size === 0 ? result : positionsAsWritten(result, droppedOn)),
   };
 }

@@ -14,7 +14,7 @@ import { parseFlowchart } from "./parseFlowchart";
 import { parseSequenceDiagram } from "./parseSequenceDiagram";
 import { parseStateDiagram } from "./parseStateDiagram";
 import { isTimelineHeader, isTimelineVerb, unrecognizedActionMessage } from "./parseTimelineBlock";
-import { styleLines } from "./styleLines";
+import { styleLines, type DroppedSemicolons } from "./styleLines";
 import { tagQuotesRewritten } from "./tagQuotes";
 
 /**
@@ -30,7 +30,7 @@ const HEADER_SPELLINGS = listAcceptedHeaders();
  * only says who parses it, so the two facts cannot disagree about which
  * spellings exist.
  */
-const PARSE_KIND: Record<DiagramKind, (source: string) => DiagramParseResult> = {
+const PARSE_KIND: Record<DiagramKind, (source: string, dropped: DroppedSemicolons) => DiagramParseResult> = {
   flowchart: parseFlowchart,
   sequence: parseSequenceDiagram,
   class: parseClassDiagram,
@@ -112,6 +112,7 @@ function asMermaidReads(source: string): {
   header: Header | null;
   timelineStart: number;
   asWritten: <T>(result: T) => T;
+  droppedOn: DroppedSemicolons;
   frontmatter: FrontmatterRead;
   directives: DirectivesRead;
   bareCommentLines: BareCommentLine[];
@@ -152,6 +153,7 @@ function asMermaidReads(source: string): {
     header,
     timelineStart,
     asWritten: read.asWritten,
+    droppedOn: read.droppedOn,
     frontmatter,
     directives,
     bareCommentLines,
@@ -380,8 +382,17 @@ function withBareCommentLines(
  * Mermaid does not read it as a comment there.
  */
 export function parseSiren(source: string): ParseResult {
-  const { lines, header, timelineStart, asWritten, frontmatter, directives, bareCommentLines, commentedTargets } =
-    asMermaidReads(source);
+  const {
+    lines,
+    header,
+    timelineStart,
+    asWritten,
+    droppedOn,
+    frontmatter,
+    directives,
+    bareCommentLines,
+    commentedTargets,
+  } = asMermaidReads(source);
   for (const read of [frontmatter, directives]) {
     if (read.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
       return { document: null, diagnostics: read.diagnostics, config: {} };
@@ -403,7 +414,7 @@ export function parseSiren(source: string): ParseResult {
     return { document: null, diagnostics: bareCommentRefusals, config: {} };
   }
   const documentConfig = documentConfigOf(frontmatter, directives, header?.kind ?? null);
-  const parsed = dispatch(withBareCommentLines(lines, header, timelineStart, bareCommentLines), header);
+  const parsed = dispatch(withBareCommentLines(lines, header, timelineStart, bareCommentLines), header, droppedOn);
   const { document, diagnostics } = asWritten({
     ...parsed,
     diagnostics: explainCommentedTargets(parsed.diagnostics, commentedTargets),
@@ -441,7 +452,7 @@ function firstTimelineHeader(lines: readonly string[], headerIndex: number): num
  * with Mermaid's style-line rule applied, whose `header` is `asMermaidReads`':
  * every position it finds is in those lines.
  */
-function dispatch(lines: readonly string[], header: Header | null): DiagramParseResult {
+function dispatch(lines: readonly string[], header: Header | null, dropped: DroppedSemicolons): DiagramParseResult {
   if (header === null) {
     const diagnostics: Diagnostic[] = [
       {
@@ -457,8 +468,10 @@ function dispatch(lines: readonly string[], header: Header | null): DiagramParse
   if (header.kind !== null) {
     // The source every per-kind parser sees, whole-line comments removed. Line count and
     // line order are untouched, so their diagnostics' line numbers still
-    // match the document the author wrote.
-    return PARSE_KIND[header.kind](lines.join("\n"));
+    // match the document the author wrote. `dropped` says where the
+    // style-line rule took a `;` out of a line, for a kind whose refusal
+    // must name one; the text it hands over is the same either way.
+    return PARSE_KIND[header.kind](lines.join("\n"), dropped);
   }
 
   const rawLine = lines[header.index]!;

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { Curve } from "../curve/curve";
 import { buildGraphModel } from "../graph-model/buildGraphModel";
 import { render } from "../index";
+import { SHAPES } from "../layout/shapes/shapeTable";
+import { NODE_DATA_SHAPES } from "../parser/flowchartNodeData";
 import { parseSiren } from "../parser/parseSiren";
 import { connectorPathData } from "../renderer/connectorCurve";
 import { labelRows } from "./labelCorpus";
@@ -10,6 +12,8 @@ import { measurerPadding } from "../label/layoutLabel";
 import type { TextMeasurer } from "../contracts";
 import {
   edgesThroughNodes,
+  endsOffOutline,
+  endsOffTheirFigures,
   labelsOverNodes,
   overlappingFrames,
   overlappingLabels,
@@ -216,6 +220,378 @@ describe("edgesThroughNodes under a curve", () => {
     );
 
     expect(edgesThroughNodes(svg)).toEqual([{ edge: "bend", node: "X" }]);
+  });
+});
+
+describe("endsOffOutline", () => {
+  it("names an end that stops on a drawn shape's box but off the shape itself", () => {
+    const svg = svgOf(
+      box("A", 0, 0, 40, 20) +
+        // A diamond in the box 100..140 by 0..40, drawn as a `<path>`.
+        `<g class="siren-node" data-siren-id="D"><path class="siren-node-frame" ` +
+        `d="M120,0 L140,20 L120,40 L100,20 Z"/></g>` +
+        // Ends on the diamond's left corner: on the figure.
+        edge("A-D", [[40, 10], [100, 20]]) +
+        // Ends on the box's top side above the diamond's left slope: on the
+        // box, nowhere near the figure.
+        edge("over-D", [[20, 0], [20, -30], [105, -30], [105, 0]]) +
+        // Ends on a rectangle's side: a rectangle's box is its figure.
+        edge("into-A", [[20, -30], [20, 0]]),
+    );
+
+    expect(endsOffOutline(svg)).toEqual([{ edge: "over-D", node: "D" }]);
+  });
+
+  it("reads a node's figure as every frame it is drawn with, a circle's curve included", () => {
+    const svg = svgOf(
+      `<g class="siren-node" data-siren-id="C"><circle class="siren-node-frame" cx="50" cy="50" r="10"/></g>` +
+        // Within a tenth of a pixel of the circle, at 45 degrees.
+        edge("on-C", [[100, 100], [57.1, 57.1]]) +
+        // The box's corner: on the box, 4px off the circle.
+        edge("corner-C", [[100, 0], [60, 40]]),
+    );
+
+    expect(endsOffOutline(svg)).toEqual([{ edge: "corner-C", node: "C" }]);
+  });
+
+  it("checks a node drawn with a square rect and a part sticking out of it, whose box is more than the rect", () => {
+    const svg = svgOf(
+      // A square rect 0..40 by 0..20 and a point 40..60 off its right side:
+      // the node's box is 0..60 by 0..20.
+      `<g class="siren-node" data-siren-id="P"><rect class="siren-node-frame" x="0" y="0" width="40" height="20"/>` +
+        `<polygon class="siren-node-frame" points="40,0 60,10 40,20"/></g>` +
+        // A rect drawn with a bar inside it: its box is the rect's.
+        `<g class="siren-node" data-siren-id="S"><rect class="siren-node-frame" x="100" y="0" width="40" height="20"/>` +
+        `<line class="siren-node-frame" x1="105" y1="0" x2="105" y2="20"/></g>` +
+        // On the rect's top side: on the figure.
+        edge("onto-rect", [[20, -30], [20, 0]]) +
+        // On the box's top side above the point's slope, 6.7px off it.
+        edge("over-point", [[55, -30], [55, 0]]) +
+        edge("onto-S", [[120, -30], [120, 0]]),
+    );
+
+    expect(endsOffOutline(svg)).toEqual([{ edge: "over-point", node: "P" }]);
+  });
+});
+
+/** A state-diagram connector as the renderer draws one, by class: its route in `data-siren-points`. */
+function connector(className: string, id: string | null, points: [number, number][]): string {
+  return (
+    `<path class="${className}"${id === null ? "" : ` data-siren-id="${id}"`} ` +
+    `data-siren-points="${points.map(([x, y]) => `${x},${y}`).join(" ")}"/>`
+  );
+}
+
+describe("endsOffOutline in a state diagram", () => {
+  it("reads a choice's diamond, a start's disc and an end's ring, and the lines that meet them", () => {
+    const svg = svgOf(
+      // A start disc in the box 0..20 by 0..20, with a note hanging off it.
+      `<g class="siren-state" data-siren-id="start:1">` +
+        `<circle class="siren-state-start" cx="10" cy="10" r="10"/>` +
+        connector("siren-note-link", null, [[0, 10], [-40, 10]]) +
+        `<rect class="siren-note-frame" x="-80" y="0" width="40" height="20"/></g>` +
+        // A choice's diamond in the box 100..140 by 0..40.
+        `<g class="siren-state" data-siren-id="Pick"><polygon class="siren-state-frame" ` +
+        `points="120,0 140,20 120,40 100,20"/></g>` +
+        // An end's ring in the box 200..220 by 0..20.
+        `<g class="siren-state" data-siren-id="end:1">` +
+        `<circle class="siren-state-end" cx="210" cy="10" r="10"/>` +
+        `<circle class="siren-state-end-inner" cx="210" cy="10" r="5"/></g>` +
+        // A plain state, its box its figure.
+        `<g class="siren-state" data-siren-id="Idle"><rect class="siren-state-frame" x="0" y="100" width="40" height="20"/></g>` +
+        // From the disc's right into the diamond's box, some 6px above its
+        // top-left slope: off the figure.
+        connector("siren-transition-line", "start-Pick", [[20, 10], [107, 5]]) +
+        // From the diamond's right corner to the ring's outer circle: on both.
+        connector("siren-transition-line", "Pick-end", [[140, 20], [200, 10]]) +
+        // From the plain state's top to the disc's bottom: on both.
+        connector("siren-transition-line", "Idle-start", [[10, 100], [10, 20]]),
+    );
+
+    expect(endsOffOutline(svg)).toEqual([{ edge: "start-Pick", node: "Pick" }]);
+  });
+
+  it("names a note's connector that stops on a start's box but off its disc", () => {
+    const svg = svgOf(
+      `<g class="siren-state" data-siren-id="start:1">` +
+        `<circle class="siren-state-start" cx="10" cy="10" r="10"/>` +
+        connector("siren-note-link", null, [[0, 0], [-40, 0]]) +
+        `<rect class="siren-note-frame" x="-80" y="-10" width="40" height="20"/></g>`,
+    );
+
+    expect(endsOffOutline(svg)).toEqual([{ edge: "note on start:1", node: "start:1" }]);
+  });
+});
+
+/** A flowchart node of `shape` drawn with one `<path>` frame. */
+function shaped(id: string, shape: string, d: string): string {
+  return `<g class="siren-node" data-siren-id="${id}" data-siren-shape="${shape}"><path class="siren-node-frame" d="${d}"/></g>`;
+}
+
+describe("endsOffOutline, where a shape's end is off its figure on purpose", () => {
+  it("passes an end on an hourglass's open left or right side, and no other end off it", () => {
+    // Two triangles meeting at the pinch: drawn along the top and the bottom
+    // and across both diagonals, with nothing down either side.
+    const svg = svgOf(
+      shaped("H", "hourglass", "M0,0 L30,0 L0,30 L30,30 Z") +
+        edge("right", [[60, 15], [30, 15]]) +
+        edge("left", [[-30, 15], [0, 15]]) +
+        edge("inside", [[5, -30], [5, 15]]),
+    );
+
+    expect(endsOffOutline(svg)).toEqual([{ edge: "inside", node: "H" }]);
+  });
+
+  it("passes every end on a brace, which meets the box it stands in", () => {
+    const brace = "M10,0 L5,5 L5,15 L0,20 L5,25 L5,35 L10,40";
+    const svg = svgOf(
+      shaped("L", "brace-left", brace) +
+        shaped("R", "brace-right", brace.replace(/(\d+),/g, (_, x) => `${Number(x) + 100},`)) +
+        shaped("B", "braces", brace.replace(/(\d+),/g, (_, x) => `${Number(x) + 200},`)) +
+        // The same figure as some other shape: counted.
+        shaped("O", "bolt", brace.replace(/(\d+),/g, (_, x) => `${Number(x) + 300},`)) +
+        edge("to-L", [[-30, 5], [0, 5]]) +
+        edge("to-R", [[70, 5], [100, 5]]) +
+        edge("to-B", [[170, 5], [200, 5]]) +
+        edge("to-O", [[270, 5], [300, 5]]),
+    );
+
+    expect(endsOffOutline(svg)).toEqual([{ edge: "to-O", node: "O" }]);
+  });
+
+  it("passes an end on a bang only where its drawn outline crosses itself", () => {
+    const svg = svgOf(
+      // A bow tie: its two diagonals cross, its top and bottom are not drawn.
+      shaped("X", "bang", "M0,0 L20,20 L20,0 L0,20 Z") +
+        // A triangle: no crossing.
+        shaped("T", "bang", "M100,0 L120,10 L100,20 Z") +
+        edge("to-X", [[10, -30], [10, 0]]) +
+        edge("to-T", [[120, -30], [120, 0]]),
+    );
+
+    expect(endsOffOutline(svg)).toEqual([{ edge: "to-T", node: "T" }]);
+  });
+
+  it("passes an end on a brace only on the box it stands in, not inside it", () => {
+    // Drawn over 0..10 by 0..40, its stem down x = 5 and its point at (0,20).
+    const svg = svgOf(
+      shaped("B", "braces", "M10,0 L5,5 L5,15 L0,20 L5,25 L5,35 L10,40") +
+        // On the box's top, 5px from the curl: on the box.
+        edge("onto-box", [[3, -30], [3, 0]]) +
+        // 2px in from the box's right side, 5.8px from the stem's bend.
+        edge("inside-box", [[60, 20], [8, 20]]),
+    );
+
+    expect(endsOffOutline(svg)).toEqual([{ edge: "inside-box", node: "B" }]);
+  });
+
+  it("passes an end on a self-crossing bang only on its box or no deeper than its scallops dip", () => {
+    // A bow tie whose diagonals cross at (10,10), over 0..20 by 0..20, its
+    // top drawn as a scallop dipping 3px to (10,3).
+    const svg = svgOf(
+      shaped("X", "bang", "M0,0 L10,3 L20,0 L0,20 L20,20 Z") +
+        // On the box's top, 2.9px from the scallop.
+        edge("onto-box", [[10, -30], [10, 0]]) +
+        // 2.8px from the diagonals: no further from the outline than the scallop dips.
+        edge("in-scallop", [[10, -30], [10, 6]]) +
+        // 5.7px from either diagonal and 2px in from the box's left side.
+        edge("deep", [[-30, 10], [2, 10]]),
+    );
+
+    expect(endsOffOutline(svg)).toEqual([{ edge: "deep", node: "X" }]);
+  });
+});
+
+describe("endsOffTheirFigures", () => {
+  it("names an end that stops short of the figure of the node it belongs to, a rectangle's included", () => {
+    const svg = svgOf(
+      `<g class="siren-node" data-siren-id="C"><circle class="siren-node-frame" cx="50" cy="50" r="10"/></g>` +
+        `<g class="siren-node" data-siren-id="D"><path class="siren-node-frame" d="M120,0 L140,20 L120,40 L100,20 Z"/></g>` +
+        box("R", 0, 100, 40, 20) +
+        // Into the circle from below, stopping 3px short of its bottom.
+        edge("R-C", [[20, 100], [20, 80], [50, 80], [50, 63]]) +
+        // From the circle's right to 3px before the diamond's left tip.
+        edge("C-D", [[60, 50], [97, 20]]) +
+        // From the diamond's bottom tip onto the rectangle's right side.
+        edge("D-R", [[120, 40], [40, 110]]) +
+        // From the diamond's right tip to 3px above the rectangle.
+        edge("D-R#2", [[140, 20], [140, 90], [10, 90], [10, 97]]),
+    );
+    const lines = [
+      { id: "R-C", from: "R", to: "C" },
+      { id: "C-D", from: "C", to: "D" },
+      { id: "D-R", from: "D", to: "R" },
+      { id: "D-R#2", from: "D", to: "R" },
+    ];
+
+    expect(endsOffTheirFigures(svg, lines)).toEqual([
+      { edge: "R-C", node: "C" },
+      { edge: "C-D", node: "D" },
+      { edge: "D-R#2", node: "R" },
+    ]);
+  });
+});
+
+describe("endsOffTheirFigures in a state diagram, and at a group", () => {
+  it("holds a transition to its states' figures and a note's connector to its state and its note", () => {
+    const svg = svgOf(
+      `<g class="siren-state" data-siren-id="start:1"><circle class="siren-state-start" cx="10" cy="10" r="10"/></g>` +
+        // A state 0..40 by 100..120, its note 40px to its left.
+        `<g class="siren-state" data-siren-id="Idle"><rect class="siren-state-frame" x="0" y="100" width="40" height="20"/>` +
+        connector("siren-note-link", null, [[0, 110], [-40, 110]]) +
+        `<rect class="siren-note-frame" x="-80" y="100" width="40" height="20"/></g>` +
+        // A state 200..240 by 100..120, its connector stopping 3px short of its note.
+        `<g class="siren-state" data-siren-id="Busy"><rect class="siren-state-frame" x="200" y="100" width="40" height="20"/>` +
+        connector("siren-note-link", null, [[200, 110], [163, 110]]) +
+        `<rect class="siren-note-frame" x="120" y="100" width="40" height="20"/></g>` +
+        `<g class="siren-transition" data-siren-id="start:1-Idle">` +
+        // From 3px below the disc to the state's top.
+        connector("siren-transition-line", null, [[10, 23], [10, 100]]) +
+        `</g>` +
+        `<g class="siren-transition" data-siren-id="Idle-Busy">` +
+        connector("siren-transition-line", null, [[40, 110], [200, 110]]) +
+        `</g>`,
+    );
+    const transitions = [
+      { id: "start:1-Idle", from: "start:1", to: "Idle" },
+      { id: "Idle-Busy", from: "Idle", to: "Busy" },
+    ];
+
+    expect(endsOffTheirFigures(svg, transitions)).toEqual([
+      { edge: "start:1-Idle", node: "start:1" },
+      { edge: "note on Busy", node: "note on Busy" },
+    ]);
+  });
+
+  it("holds a line that names a group to the group's frame", () => {
+    const svg = svgOf(
+      `<g class="siren-subgraph" data-siren-id="subgraph:1">` +
+        `<rect class="siren-subgraph-frame" x="0" y="0" width="100" height="100"/>` +
+        `<text class="siren-subgraph-label">one</text></g>` +
+        box("X", 200, 40, 40, 20) +
+        box("Y", 200, 140, 40, 20) +
+        // Onto the frame's right side.
+        edge("X-one", [[200, 50], [100, 50]]) +
+        // 3px short of the frame's bottom.
+        edge("Y-one", [[200, 150], [50, 150], [50, 103]]),
+    );
+    const edges = [
+      { id: "X-one", from: "X", to: "subgraph:1" },
+      { id: "Y-one", from: "Y", to: "subgraph:1" },
+    ];
+
+    expect(endsOffTheirFigures(svg, edges)).toEqual([{ edge: "Y-one", node: "subgraph:1" }]);
+  });
+});
+
+describe("endsOffTheirFigures, where a shape's end is off its figure on purpose", () => {
+  it("passes an end on a one-sided brace's box, which reaches past the side the brace is not drawn on", () => {
+    // A left brace drawn over 0..10 by 0..40, its tips at x = 10: the box it
+    // stands in shares its top and bottom and reaches right, past the tips,
+    // over the label.
+    const svg = svgOf(
+      shaped("L", "brace-left", "M10,0 L5,5 L5,15 L0,20 L5,25 L5,35 L10,40") +
+        box("A", 0, -80, 40, 20) +
+        // Onto the box's top, right of the tips.
+        edge("onto-top", [[25, -60], [25, 0]]) +
+        // Onto the box's right side, which nothing drawn marks.
+        edge("onto-side", [[30, -60], [30, -40], [80, -40], [80, 20], [40, 20]]) +
+        // 3px above the box's top.
+        edge("short-of-top", [[35, -60], [35, -3]]),
+    );
+    const edges = [
+      { id: "onto-top", from: "A", to: "L" },
+      { id: "onto-side", from: "A", to: "L" },
+      { id: "short-of-top", from: "A", to: "L" },
+    ];
+
+    expect(endsOffTheirFigures(svg, edges)).toEqual([{ edge: "short-of-top", node: "L" }]);
+  });
+
+  it("passes an end on an hourglass's open side only between its top and its bottom", () => {
+    const svg = svgOf(
+      shaped("H", "hourglass", "M0,0 L30,0 L0,30 L30,30 Z") +
+        box("A", 100, 0, 40, 20) +
+        // Onto the open right side, level with the pinch.
+        edge("onto-side", [[100, 15], [30, 15]]) +
+        // Level with the right side but 10px below the hourglass.
+        edge("below", [[100, 15], [30, 40]]),
+    );
+    const edges = [
+      { id: "onto-side", from: "A", to: "H" },
+      { id: "below", from: "A", to: "H" },
+    ];
+
+    expect(endsOffTheirFigures(svg, edges)).toEqual([{ edge: "below", node: "H" }]);
+  });
+
+  it("passes an end on an image's box, which reaches over its label, and no end short of the image itself", () => {
+    // An image 0..40 by 0..20 with its label below it: its box reaches down
+    // over the label, which no frame draws.
+    const svg = svgOf(
+      `<g class="siren-node" data-siren-id="I" data-siren-shape="image">` +
+        `<rect class="siren-node-frame" x="0" y="0" width="40" height="20"/>` +
+        `<image x="0" y="0" width="40" height="20"/><text x="20" y="35">Pic</text></g>` +
+        box("A", 0, -80, 40, 20) +
+        box("B", 0, 100, 40, 20) +
+        // Onto the box's bottom, below the label.
+        edge("I-B", [[20, 45], [20, 100]]) +
+        // 3px above the image, on the side away from the label.
+        edge("A-I", [[20, -60], [20, -3]]),
+    );
+    const edges = [
+      { id: "I-B", from: "I", to: "B" },
+      { id: "A-I", from: "A", to: "I" },
+    ];
+
+    expect(endsOffTheirFigures(svg, edges)).toEqual([{ edge: "A-I", node: "I" }]);
+  });
+});
+
+/** Which two nodes each edge of a flowchart joins, as its model says. */
+function flowchartEdges(source: string): { id: string; from: string; to: string }[] {
+  const built = buildGraphModel(parseSiren(source).document!);
+  if (built.kind !== "flowchart") throw new Error("not a flowchart");
+  return built.model.edges;
+}
+
+describe("every flowchart shape's line ends, under the default measurer", () => {
+  // One spelling of each shape. An icon and an image are left out: each
+  // needs data of its own to be drawn at all, and both meet their box.
+  const spellings = new Map<string, string>();
+  for (const [name, shape] of NODE_DATA_SHAPES) {
+    if (shape !== "icon" && shape !== "image" && !spellings.has(shape)) spellings.set(shape, name);
+  }
+  const cases = [...spellings].flatMap(([shape, name]) =>
+    ["TB", "LR", "BT", "RL"].map((direction) => [shape, direction, name] as const),
+  );
+
+  it.each(cases)("%s, flowing %s, takes every line on its figure", (shape, direction, name) => {
+    // A label short, long and tall, where the shape draws one.
+    const labels =
+      SHAPES[shape as keyof typeof SHAPES].drawsLabel === false
+        ? [null]
+        : ["x", "A rather long label", "tall<br>b<br>c<br>d"];
+    for (const text of labels) {
+      // Lines fanning in and out, a loop, and a line with no arrowhead.
+      const source = [
+        `flowchart ${direction}`,
+        `S@{ shape: ${name}${text === null ? "" : `, label: "${text}"`} }`,
+        "A --> S",
+        "B --> S",
+        "C --> S",
+        "S --> D",
+        "S --> E",
+        "S --> F",
+        "S --> S",
+        "G --- S",
+      ].join("\n");
+      const { svg, diagnostics } = render(source, document.createElement("div"));
+      expect(diagnostics).toEqual([]);
+
+      expect(endsOffOutline(svg!)).toEqual([]);
+      expect(endsOffTheirFigures(svg!, flowchartEdges(source))).toEqual([]);
+    }
   });
 });
 

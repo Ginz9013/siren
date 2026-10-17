@@ -22,6 +22,7 @@ import { parseStyleProperties } from "./parseDeclarationList";
 import { headerPercentError, MID_LINE_PERCENT_MESSAGE, midLinePercentError } from "./midLinePercent";
 import { listAcceptedHeaders, matchDiagramHeader } from "./parseDirection";
 import { readAccDescrBlock } from "./readAccDescrBlock";
+import type { DroppedSemicolons } from "./styleLines";
 import { isTimelineHeader, namedTimelinesField, parseTimelineBlocks } from "./parseTimelineBlock";
 
 /** The headers a diagnostic here names, asked of the one registry that accepts them. */
@@ -271,6 +272,27 @@ const CLASS_DEF_RE = new RegExp(
  */
 const STYLE_RELATIONSHIP_TARGET_RE = new RegExp(
   `^style\\b\\s+(?:${STYLE_NAME_SOURCE}\\s*,\\s*)*(${STYLE_NAME_SOURCE}):(${STYLE_NAME_SOURCE})`,
+  "iu",
+);
+
+/**
+ * `style A ,fill:red` — a `,` between the target list and the
+ * declarations, refused by name.
+ *
+ * The target list is an `idList`, whose commas may have whitespace on
+ * either side, so Mermaid reads `A ,fill` as two targets and `:red` as a
+ * declaration with no property: measured in Chrome, `A` is painted nothing
+ * and an entity called `fill`, if there is one, gets the broken style.
+ * `classDef u ,fill:red` defines `u` and `fill` the same way. Read before
+ * `STYLE_RELATIONSHIP_TARGET_RE`, which would otherwise call `fill:red` a
+ * relationship id — but only when what follows the name reads as one
+ * declaration list on its own: `style A,B:C fill:#f96` has whitespace
+ * between two words after `B:` and is the relationship spelling.
+ *
+ * Group 3 runs from the `,` to the end of `rest`, which places the comma.
+ */
+const STYLING_COMMA_BEFORE_DECLARATIONS_RE = new RegExp(
+  `^(style|classDef)\\b\\s+(${idListSource(STYLE_NAME_SOURCE)})\\s*(,\\s*(${STYLE_NAME_SOURCE})\\s*:(.*))$`,
   "iu",
 );
 
@@ -1351,6 +1373,206 @@ const midLinePercentAt = (text: string, at: SourcePosition): ErLineRefusal =>
   midLinePercentRefusal(firstPercentIn(text, at), false);
 
 /**
+ * The characters a `style` or `classDef` declaration list may hold: the
+ * rules of the lexer condition both statements switch into — whitespace,
+ * `:`, `,`, `#`, and a word of letters, digits, `_`, `-`, `*` and non-ASCII
+ * characters. Measured one character apiece (`style A fill:re<c>d`,
+ * `classDef u fill:re<c>d`, 12.2.0): every other printable ASCII character
+ * is a lexical error that refuses the document — so `rgb(…)`, `1.5px` and
+ * `!important` are refused here even where Siren's style allowlist would
+ * have drawn them. `;` is the condition's statement separator and is asked
+ * about separately, in `declarationListRefusal`.
+ */
+const DECLARATION_LIST_CHAR_RE = /[\w\s:,#*-]|[^\x00-\x7F]/u;
+
+/**
+ * A declaration list without the `;` that may close it and any whitespace
+ * before that `;`. The `;` ends the
+ * statement rather than belonging to the last value: measured in Chrome,
+ * `fill:red;`, `fill:red ;` and `fill:red\t;` all paint `fill:red`, and
+ * `fill:red , stroke:blue ;` paints both. Left on, it would reach the style
+ * layer as part of the value and be dropped there as an attempt to start a
+ * second declaration.
+ */
+const withoutClosingSemicolon = (value: string): string => value.replace(/\s*;$/u, "");
+
+/**
+ * A line whose closing `;` the style-line rule dropped: the line as
+ * written, trimmed, and whether a space or a tab stood right before that
+ * `;`.
+ */
+interface DroppedClosingSemicolon {
+  written: string;
+  spaceBefore: boolean;
+}
+
+/**
+ * The refusal for the first character of a `style` or `classDef`
+ * declaration list, `value`, beginning at `at`, that the list cannot hold —
+ * or `null` when it holds none. A `;` may end the line but not be followed
+ * by anything (measured: `fill:red;` and `fill:red ;` draw,
+ * `fill:red;stroke:blue` and `fill:red;;` are parse errors). Nor may it
+ * close a `#word;` code: Mermaid rewrites each into non-ASCII characters
+ * before its lexer runs and paints the code itself, so the color is lost
+ * (measured in Chrome: `fill:#f96;;` paints `fill:ﬂ°f96¶ß`). The one such
+ * `;` that draws is the line's last, which the style-line rule drops
+ * before this is asked.
+ *
+ * Every `,` has a declaration on each side of it: a list with nothing
+ * between two commas or after its last is a parse error (`fill:red,`,
+ * `fill:red, ,stroke:blue`), and one beginning with `,` loses its first
+ * property (`classDef u ,fill:red` paints `:red`) — measured. That one is
+ * refused before this is asked, for the comma after the names: see
+ * `STYLING_COMMA_BEFORE_DECLARATIONS_RE`.
+ *
+ * A declaration holds at most one `:`. The list is split at its colons
+ * and only the first two parts kept, so `fill:red:blue` paints `fill:red`
+ * and `fill::red` an empty `fill` (measured). The usual way to write a
+ * second is a `;` between two declarations after a `#` color, which the
+ * style-line rule drops: `fill:#f96;stroke:#333` arrives here as
+ * `fill:#f96stroke:#333`, and paints neither color (measured in Chrome).
+ *
+ * Nor may a declaration hold whitespace between two words, where a word is
+ * a run of anything but whitespace, `:`, `,` and `;`. The condition skips
+ * whitespace and glues the words on either side of it into one, so
+ * `stroke-dasharray:5 5` paints `55`, `font-family:Noto Sans` `NotoSans`,
+ * `fill:#f96 C` `#f96C` and `fi ll:red` `fill:red` (measured in Chrome, a
+ * tab the same as a space). Whitespace beside `:`, `,` or a closing `;` has
+ * nothing to glue and draws as written. A value with a space in it cannot
+ * be written in this kind at all.
+ *
+ * Nor may the line end in whitespace, `spaceAfter`, which the line handed
+ * to the reader has lost: the list's condition reads a space or a tab
+ * together with the line break after it, so the list runs on into the next
+ * line — a parse error when there is none, and otherwise that line
+ * swallowed into the last declaration (measured: `style A fill:red ` then
+ * `B` paints `fill:redB` and draws no `B`). No other ER line minds it.
+ *
+ * That whitespace is often one the author put before a closing `;`: on a
+ * line holding a `#` color the style-line rule drops the line's last `;`,
+ * so `fill:#f96 ;` reaches the list as `fill:#f96 ` (measured: a parse
+ * error, as are a tab, two spaces, and `fill:#f96, stroke:blue ;`). The
+ * line as read is the same as for `fill:#f96; `, so only `closedBy` — the
+ * line as written, when a dropped `;` closed it — tells the two apart: the
+ * refusal then names the whitespace before that `;`, or after it, and
+ * quotes the line as written rather than as read.
+ *
+ * The `;` that may close the list is set aside before the declarations are
+ * read, so a list empty without it is refused like any other empty
+ * declaration (measured: `fill:red,;`, `fill:red , ;`, `style A ;` and
+ * `classDef u ;` are parse errors at the `;`).
+ *
+ * Runs on the line as `parseSiren` hands it over, after the style-line rule
+ * in `parser/styleLines.ts` has dropped the `;` it drops; `parseErDiagram`
+ * called on its own does not apply that rule.
+ */
+function declarationListRefusal(
+  value: string,
+  at: SourcePosition,
+  keyword: "style" | "classDef",
+  line: string,
+  spaceAfter: boolean,
+  closedBy: DroppedClosingSemicolon | null,
+): ErLineRefusal | null {
+  const codes = new Map([...value.matchAll(/(#\w+);/g)].map((code) => [code.index + code[0].length - 1, code[1]!]));
+  let offset = 0;
+  for (const char of value) {
+    if (char === ";") {
+      const color = codes.get(offset);
+      if (color !== undefined) {
+        return {
+          refusal:
+            `A ";" after "${color}" in a \`${keyword}\` declaration list in erDiagram is read as part of the color: ` +
+            `end the line with at most one ";", and separate declarations with ",", in "${line}"`,
+          at: columnsAfter(at, offset),
+        };
+      }
+      if (offset + 1 < value.length) {
+        return {
+          refusal:
+            `A ";" in a \`${keyword}\` declaration list in erDiagram can only end the line: ` +
+            `separate declarations with "," instead, in "${line}"`,
+          at: columnsAfter(at, offset),
+        };
+      }
+    } else if (!DECLARATION_LIST_CHAR_RE.test(char)) {
+      return {
+        refusal:
+          `Character "${char}" cannot appear in a \`${keyword}\` declaration list in erDiagram: only letters, ` +
+          'digits, spaces and "-", "_", "*", "#", ":", "," can. Write a color as a hex code such as "#f96", ' +
+          `a size as a whole number such as "2px", and leave out "!important", in "${line}"`,
+        at: columnsAfter(at, offset),
+      };
+    }
+    offset += char.length;
+  }
+  const list = withoutClosingSemicolon(value);
+  if (list.trim() === "") {
+    return {
+      refusal:
+        `A \`${keyword}\` declaration list in erDiagram cannot be empty: write at least one declaration ` +
+        `before the closing ";", in "${line}"`,
+      at,
+    };
+  }
+  const declarations = list.split(",");
+  let commaAt = -1;
+  for (const [index, declaration] of declarations.entries()) {
+    if (declaration.trim() === "") {
+      return {
+        refusal:
+          `A \`${keyword}\` declaration list in erDiagram cannot hold an empty declaration: write a declaration ` +
+          `on each side of every "," and none after the last, in "${line}"`,
+        at: columnsAfter(at, index === 0 ? declaration.length : commaAt),
+      };
+    }
+    const first = declaration.indexOf(":");
+    const second = first < 0 ? -1 : declaration.indexOf(":", first + 1);
+    if (second >= 0) {
+      return {
+        refusal:
+          `Declaration "${declaration.trim()}" in a \`${keyword}\` declaration list in erDiagram holds more than ` +
+          'one ":": write one property and one value in each declaration, and separate declarations with ",", ' +
+          `in "${line}"`,
+        at: columnsAfter(at, commaAt + 1 + second),
+      };
+    }
+    const gap = /(?<before>[^\s:,;]+)(?<space>\s+)(?<after>[^\s:,;]+)/u.exec(declaration);
+    if (gap?.groups !== undefined) {
+      const { before, space, after } = gap.groups as { before: string; space: string; after: string };
+      const kind = space.startsWith("\t") ? "tab" : "space";
+      return {
+        refusal:
+          `Declaration "${declaration.trim()}" in a \`${keyword}\` declaration list in erDiagram holds a ${kind} ` +
+          `between "${before}" and "${after}", which would join them into "${before}${after}": a space or a tab ` +
+          `can stand only beside ":" or ",", or before the line's closing ";", so a value with a space in it, ` +
+          `such as a font name or a dash pattern, cannot be written. Remove the ${kind}, or the declaration, in "${line}"`,
+        at: columnsAfter(at, commaAt + 1 + gap.index + before.length),
+      };
+    }
+    commaAt += declaration.length + 1;
+  }
+  if (spaceAfter && closedBy?.spaceBefore === true) {
+    return {
+      refusal:
+        `A \`${keyword}\` line in erDiagram holding a "#" color cannot have a space or a tab before its closing ";": ` +
+        `that ";" is dropped before the line is read, so the line ends in the whitespace. Remove the whitespace ` +
+        `between "${value}" and ";", in "${closedBy.written}"`,
+      at: columnsAfter(at, value.length),
+    };
+  }
+  if (spaceAfter) {
+    return {
+      refusal:
+        `A \`${keyword}\` line in erDiagram cannot end in a space or a tab: remove the whitespace after ` +
+        `"${closedBy === null ? value : `${value};`}", in "${closedBy?.written ?? line}"`,
+      at: columnsAfter(at, value.length),
+    };
+  }
+  return null;
+}
+
+/**
  * Everything `line` declares, given the block it began inside — or `null`
  * when any part of it is unreadable.
  *
@@ -1392,6 +1614,10 @@ const midLinePercentAt = (text: string, at: SourcePosition): ErLineRefusal =>
  * `after` is the source past the end of `line` (`textAfter`), read only by
  * the one name rule whose lookahead crosses a line break: a bare `1` ending
  * the line is a name or a token of its own depending on what comes next.
+ * `spaceAfter` says whether the line as written ended in whitespace, which
+ * `line` no longer holds, and `closedBy` is the line as written when a `;`
+ * the style-line rule dropped closed it — both read only by
+ * `declarationListRefusal`.
  */
 function readLine(
   line: string,
@@ -1399,6 +1625,8 @@ function readLine(
   where: SourcePosition,
   openBlocks: readonly ErSubgraph[],
   after: string,
+  spaceAfter: boolean,
+  closedBy: DroppedClosingSemicolon | null,
 ): ErLineReading | ErLineRefusal | typeof CONTINUES | null {
   const entities: ErEntityDecl[] = [];
   const plainEndpoints: ErEntityDecl[] = [];
@@ -1471,6 +1699,21 @@ function readLine(
     // same words are still refused where a *name* belongs (`A ||--o{ style :
     // x` is a parse error), so the reservation is what a word falls back to
     // once no statement here has claimed it.
+    const commaBefore = STYLING_COMMA_BEFORE_DECLARATIONS_RE.exec(rest);
+    if (commaBefore !== null && !/[^\s:,;]\s+[^\s:,;]/u.test(`${commaBefore[4]}:${commaBefore[5]}`)) {
+      const [, keywordWritten, list, fromComma, word] = commaBefore as unknown as [string, string, string, string, string];
+      const isStyle = keywordWritten.toLowerCase() === "style";
+      const keyword = isStyle ? "style" : "classDef";
+      const listName = isStyle ? "targets" : "names";
+      const last = splitIdList(list).at(-1);
+      return {
+        refusal:
+          `The "," after "${last}" adds "${word}" to the ${listName} of \`${keyword}\` in erDiagram, so its ` +
+          `declaration loses its property: separate the ${listName} from the declarations with a space, not a ",", ` +
+          `in "${line}"`,
+        at: columnsAfter(restAt(), rest.length - fromComma.length),
+      };
+    }
     const relationshipTarget = STYLE_RELATIONSHIP_TARGET_RE.exec(rest);
     if (relationshipTarget !== null) {
       const [, from, to] = relationshipTarget;
@@ -1489,7 +1732,18 @@ function readLine(
       return midLinePercentAt(rest, restAt());
     }
     if (style !== null) {
-      const { properties, malformed } = parseStyleProperties(style[2]);
+      const refused = declarationListRefusal(
+        style[2],
+        columnsAfter(restAt(), rest.length - style[2].length),
+        "style",
+        line,
+        spaceAfter,
+        closedBy,
+      );
+      if (refused !== null) {
+        return refused;
+      }
+      const { properties, malformed } = parseStyleProperties(withoutClosingSemicolon(style[2]));
       malformedStyles.push(...malformed);
       styles.push({
         styleKind: "style",
@@ -1517,7 +1771,18 @@ function readLine(
       if (names.includes(DEFAULT_CLASS_NAME)) {
         return null;
       }
-      const { properties, malformed } = parseStyleProperties(classDef[2]);
+      const refused = declarationListRefusal(
+        classDef[2],
+        columnsAfter(restAt(), rest.length - classDef[2].length),
+        "classDef",
+        line,
+        spaceAfter,
+        closedBy,
+      );
+      if (refused !== null) {
+        return refused;
+      }
+      const { properties, malformed } = parseStyleProperties(withoutClosingSemicolon(classDef[2]));
       malformedStyles.push(...malformed);
       // One `StyleDecl` per name, because `name` is a single string in the
       // shared contract and `classDef a,b fill:red` defines two — measured.
@@ -2087,11 +2352,35 @@ interface PendingLine {
 }
 
 /**
+ * `line` as written — `line` as read with each `;` in `dropped` (its
+ * 0-based columns as written) put back — trimmed, when the last of them is
+ * the last character of the line but for whitespace, with whether a space
+ * or a tab stands right before it; otherwise `null`.
+ */
+function droppedClosingSemicolon(
+  line: string,
+  dropped: readonly number[] | undefined,
+): DroppedClosingSemicolon | null {
+  if (dropped === undefined || dropped.length === 0) return null;
+  let written = line;
+  for (const at of dropped) {
+    written = `${written.slice(0, at)};${written.slice(at)}`;
+  }
+  const last = dropped.at(-1)!;
+  if (last !== written.trimEnd().length - 1) return null;
+  return { written: written.trim(), spaceBefore: /\s/u.test(written[last - 1] ?? "") };
+}
+
+/**
  * Parses Siren ER-diagram source text — an `erDiagram` header and the
  * entities declared under it. Never throws: a malformed line is reported as
  * a diagnostic and costs the document.
+ *
+ * `dropped` is where `parseSiren`'s style-line rule took a `;` out of each
+ * line of `source` (`parser/styleLines.ts`); it changes no reading, only
+ * what a refusal of a `style` or `classDef` line says.
  */
-export function parseErDiagram(source: string): DiagramParseResult {
+export function parseErDiagram(source: string, dropped: DroppedSemicolons = new Map()): DiagramParseResult {
   const diagnostics: Diagnostic[] = [];
   const entities: ErEntityDecl[] = [];
   const relationships: ErRelationshipDecl[] = [];
@@ -2345,6 +2634,8 @@ export function parseErDiagram(source: string): DiagramParseResult {
       continue;
     }
     let line = rawLine.trim();
+    const spaceAfter = rawLine.length > rawLine.trimEnd().length;
+    const closedBy = droppedClosingSemicolon(rawLine, dropped.get(index + 1));
     let lineNumber = index + 1;
     let column = rawLine.length - rawLine.trimStart().length + 1;
     const continuing: boolean = pending !== null;
@@ -2402,7 +2693,7 @@ export function parseErDiagram(source: string): DiagramParseResult {
     // and that an unreadable line is reported as an **attribute** rather
     // than as a line, which is what an author who is inside a block wrote.
     if (openEntity !== null) {
-      const reading = readLine(line, openEntity, { line: lineNumber, column }, openBlocks, textAfter(index));
+      const reading = readLine(line, openEntity, { line: lineNumber, column }, openBlocks, textAfter(index), spaceAfter, closedBy);
       if (reading === CONTINUES) {
         pending = carried(`Unrecognized erDiagram attribute: "${line.split("\n")[0]}"`);
         continue;
@@ -2604,7 +2895,7 @@ export function parseErDiagram(source: string): DiagramParseResult {
     // Every remaining statement, read left to right across the line — see
     // `readLine`. All or nothing: a line it cannot finish reading
     // contributes none of its boxes rather than some of them.
-    const reading = readLine(line, null, { line: lineNumber, column }, openBlocks, textAfter(index));
+    const reading = readLine(line, null, { line: lineNumber, column }, openBlocks, textAfter(index), spaceAfter, closedBy);
     if (reading === CONTINUES) {
       const first = line.split("\n")[0];
       pending = carried(unimplementedIn(first) ?? `Unrecognized erDiagram line: "${first}"`);

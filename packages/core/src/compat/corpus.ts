@@ -12349,15 +12349,18 @@ line2\`"]`,
     id: "er-style-statement-swallows-line",
     kind: "er",
     source: `erDiagram
-      A style B fill:#f96 C`,
+      A style B fill:#f96`,
     status: "supported",
     meaning:
       "The half of `style` that parts it from every other statement in this " +
       "kind. Mermaid's `style\\b` rule calls `this.begin(\"style\")`, and the " +
       "only rule leaving that condition is `[\\n]+` — so the declaration list " +
-      "runs to the newline. Measured: `A style B fill:#f96 C` reports **one** " +
-      "entity, `A`. `C` is another `styleComponent` and not a statement, and " +
-      "`B` is a target rather than a declaration, so neither becomes a box.\n\n" +
+      "runs to the newline. Measured: `A style B fill:#f96` reports **one** " +
+      "entity, `A`: `B` is a target rather than a declaration, so it does not " +
+      "become a box. A word after the declarations (`fill:#f96 C`) is another " +
+      "`styleComponent` glued onto the value rather than a statement; Siren " +
+      "refuses that line now (`er-style-value-space-glues-next-word`), so this " +
+      "row's source no longer carries one (nook 01M5482HPJ).\n\n" +
       "Its own row because the failure is silent in both directions: a " +
       "reader returning to the statement stream draws a `C` Mermaid draws " +
       "none for, and one treating the target as a declaration draws a `B`. " +
@@ -13659,6 +13662,234 @@ line2\`"]`,
       "functions, `var(`, the gradients, and plain tokens — so that no value " +
       "can name a resource to fetch, and refuses the declaration with an " +
       "error, drawing the rest: a deliberate departure (nook 01M52VP2B9).",
+  },
+  {
+    id: "er-style-value-function",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places
+      style ORDER fill:rgb(255,153,102),stroke:#333`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** Mermaid 12.2.0 " +
+      "reads an ER `style` or `classDef` declaration list in a lexer " +
+      "condition holding only whitespace, `:`, `,`, `#`, `;` and words of " +
+      "letters, digits, `_`, `-`, `*` and non-ASCII characters, so the `(` " +
+      "of `rgb(` is a lexical error that refuses the document (measured, " +
+      "every printable ASCII character one probe apiece). Siren drew it " +
+      "before; it refuses it now (ADR-0017), at the `(`, saying to write the " +
+      "color as a hex code (nook 01M5482HPJ).",
+  },
+  {
+    id: "er-classdef-value-decimal",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places
+      classDef thick stroke-width:1.5px
+      class ORDER thick`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A `classDef` " +
+      "shares `style`'s lexer condition (`er-style-value-function`), which " +
+      "has no rule for `.`, so `1.5px` refuses the document (\"Lexical " +
+      "error … Unrecognized text\", measured). Siren drew it before; it " +
+      "refuses it now (ADR-0017), at the `.`, saying to write a whole number " +
+      "(nook 01M5482HPJ).",
+  },
+  {
+    id: "er-style-value-semicolon",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places
+      style ORDER fill:red;stroke:blue`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** In an ER " +
+      "declaration list `;` ends the statement, so a declaration after it is " +
+      "a parse error (measured). `fill:red;` at the end of the line draws, " +
+      "and so does `fill:#f96;stroke:blue`, whose `#f96;` Mermaid rewrites " +
+      "into an entity code before reading the line. Siren drew it before, " +
+      "as one declaration; it refuses it now (ADR-0017), at the `;`, saying " +
+      "to separate declarations with `,` (nook 01M5482HPJ).",
+  },
+  {
+    id: "er-style-code-semicolon-runs-on",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places
+      style ORDER fill:#f96;stroke:#333`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** On a style " +
+      "line holding a `#`, Mermaid 12.2.0 drops the line's last `;` before " +
+      "reading it, so the two declarations run together into " +
+      "`fill:#f96stroke:#333`, which no browser paints: the box keeps its " +
+      "theme fill and stroke (measured in Chrome), with no diagnostic. Siren " +
+      "drew the same uncolored box before, as silently; it refuses it now " +
+      "(ADR-0001), at the second `:`, saying to separate declarations with " +
+      "`,` (nook 01M5482HPJ).",
+  },
+  {
+    id: "er-style-value-second-colon",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places
+      style ORDER fill:red:blue`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** Mermaid " +
+      "12.2.0 splits a declaration at its colons and keeps the first two " +
+      "parts, so it paints `fill:red` and drops `:blue` without a word " +
+      "(measured in Chrome). Siren drew no fill before, `red:blue` being no " +
+      "color; it refuses it now (ADR-0001), at the second `:` " +
+      "(nook 01M5482HPJ).",
+  },
+  {
+    id: "er-classdef-trailing-comma",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places
+      classDef warm fill:#f96,
+      class ORDER warm`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A `,` with no " +
+      "declaration after it is a parse error in an ER `style` or `classDef` " +
+      "list, and so is one between two commas (`fill:red,,stroke:blue`), " +
+      "measured. Siren drew it before, skipping the empty declaration; it " +
+      "refuses it now (ADR-0017), at the `,` (nook 01M5482HPJ).",
+  },
+  {
+    id: "er-style-trailing-space",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places
+      style ORDER fill:#f96\u0020
+      LINE-ITEM`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** An ER " +
+      "declaration list reads a space or tab at the end of its line together " +
+      "with the line break, so it runs on into the next line: Mermaid 12.2.0 " +
+      "paints `fill:#f96LINE-ITEM` here, which is no color, and draws no " +
+      "`LINE-ITEM` box (measured). Last in the document, the same space is a " +
+      "parse error. No other ER line minds trailing whitespace. Siren drew " +
+      "it before; it refuses it now (ADR-0001), at the whitespace, saying to " +
+      "remove it (nook 01M5482HPJ).",
+  },
+  {
+    id: "er-style-value-space",
+    kind: "er",
+    source: `erDiagram
+      A ||--o{ B : has
+      style A stroke-dasharray:5 5`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** An ER " +
+      "declaration list skips whitespace and glues the words on either side " +
+      "of it into one, so Mermaid 12.2.0 paints `stroke-dasharray:55` here, " +
+      "a dash pattern the author did not write (measured in Chrome). A space " +
+      "beside `:` or `,` has nothing to glue and draws as written. Siren drew " +
+      "`5 5` before; it refuses it now (ADR-0001), at the space " +
+      "(nook 01M5482HPJ).",
+  },
+  {
+    id: "er-classdef-value-space",
+    kind: "er",
+    source: `erDiagram
+      A ||--o{ B : has
+      classDef serif font-family:Noto Sans
+      class A serif`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** The same glue " +
+      "under `classDef`: Mermaid 12.2.0 sets `font-family:NotoSans`, a font " +
+      "no machine has (measured in Chrome), so a font name with a space in it " +
+      "cannot be written in this kind. Siren drew `Noto Sans` before; it " +
+      "refuses it now (ADR-0001), at the space (nook 01M5482HPJ).",
+  },
+  {
+    id: "er-style-value-space-glues-next-word",
+    kind: "er",
+    source: `erDiagram
+      B
+      A style B fill:#f96 C`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A word after " +
+      "the declarations is not a statement but another piece of the value: " +
+      "Mermaid 12.2.0 paints `B` with `fill:#f96C`, the four-digit hex for " +
+      "the color at 80% opacity, and draws no `C` (measured in Chrome). " +
+      "Siren drew `#f96 C`, no color at all, before; it refuses it now " +
+      "(ADR-0001), at the space (nook 01M5482HPJ).",
+  },
+  {
+    id: "er-style-comma-before-declarations",
+    kind: "er",
+    source: `erDiagram
+      A ||--o{ B : has
+      style A ,fill:red`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** The target " +
+      "list's commas may have whitespace on either side, so Mermaid 12.2.0 " +
+      "reads `A ,fill` as two targets and `:red` as a declaration with no " +
+      "property, and paints `A` nothing (measured in Chrome). Siren refused " +
+      "it before, calling `fill:red` a relationship id; it refuses it now " +
+      "(ADR-0001) at the `,`, saying to separate the targets from the " +
+      "declarations with a space (nook 01M5482HPJ).",
+  },
+  {
+    id: "er-style-code-space-before-semicolon",
+    kind: "er",
+    source: `erDiagram
+      A ||--o{ B : has
+      style A fill:#f96 ;`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** On a style line " +
+      "holding a `#`, Mermaid 12.2.0 drops the line's last `;` before reading " +
+      "it, so this list ends in the space before that `;`, which runs it on " +
+      "past the line break: a parse error (measured; a tab, two spaces and " +
+      "`fill:#f96, stroke:blue ;` too). Siren refused it already, but asked " +
+      "to remove whitespace after `fill:#f96` from a line quoted without its " +
+      "`;`; it now names the whitespace before the `;` and quotes the line " +
+      "as written (ADR-0017, nook 01M5482HPJ).",
+  },
+  {
+    id: "er-style-empty-before-closing-semicolon",
+    kind: "er",
+    source: `erDiagram
+      A ||--o{ B : has
+      style A fill:red,;`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** The closing `;` " +
+      "ends the statement, so the `,` before it leaves an empty declaration: " +
+      "Mermaid 12.2.0 stops at the `;` with a parse error (measured; " +
+      "`fill:red , ;`, `style A ;` and `classDef u ;` too). Siren drew it, " +
+      "reading the `;` as the declaration after the `,`; it now refuses the " +
+      "empty declaration at the `,` (ADR-0017, nook 01M5482HPJ).",
+  },
+  {
+    id: "er-style-closing-semicolon",
+    kind: "er",
+    source: `erDiagram
+      A ||--o{ B : has
+      B:::u
+      style A fill:red ;
+      classDef u fill:red\t;`,
+    status: "supported",
+    meaning:
+      "A `;` at the end of an ER `style` or `classDef` line ends the " +
+      "statement, after the value or after a space or a tab: Mermaid 12.2.0 " +
+      "paints both boxes `fill:red` (measured in Chrome). Siren read the `;` " +
+      "into the value and refused it as starting a second declaration, so " +
+      "it drew neither; it draws both now (ADR-0001, nook 01M5482HPJ).",
+    assert: (result) => {
+      expectSame("A's inline style", erEntityStyle(result, "A"), "fill:red");
+      expectSame("B's inline style", erEntityStyle(result, "B"), "fill:red");
+    },
   },
   {
     id: "state-classdef-value-function-off-allowlist",

@@ -430,7 +430,12 @@ reaches all of them. An author's `style` reaches those Mermaid paints with it (a
 rim) and not those it keeps in the border colour (a browser's bar line, dots and address bar, a
 console's prompt), which say `authorStyle: false` and wear a paint (hollow or ink) rather than a
 colour of their own. A cloud and a bang pad their text with the node padding as their handlers do. A cloud's and a bang's box is the extent of
-Mermaid's arcs rather than the `w x h` they join, and their label is centred on that `w x h`.
+Mermaid's arcs rather than the `w x h` they join, and their label is centred on that `w x h`. An
+edge ends on a cloud's and a bang's arcs, not on the box: a deliberate departure from Mermaid,
+which meets both at their box and so leaves the arrow short of a bulge or a scallop's dip. The
+outline is sampled from the very arcs the frame is written from, so an arrow touches the figure, as
+it touches a state diagram's end circle. A bang so narrow for its height that its two sides'
+scallops dip past each other is drawn crossing itself, and its outline crosses itself there too.
 
 **A node's label is a Label** (below), like every flowchart label: an edge's and a subgraph
 title's too. `SirenNode`/`GraphNode`/`PositionedNode` carry it as `label`, and `PositionedNode` adds

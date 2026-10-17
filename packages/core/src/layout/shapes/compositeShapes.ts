@@ -1,5 +1,5 @@
-import type { NodeShape } from "../../contracts";
-import { arcPoints, boxOutline, closedOutline, edgesOf, FRAME_PAINT, pathFrame, type Rect, rectFrame, type ShapeFrame, type ShapeSpec, type Size } from "./shape";
+import type { NodeShape, Point } from "../../contracts";
+import { arcPoints, boxOutline, closedOutline, edgesOf, FRAME_PAINT, OUTLINE_TOLERANCE, pathFrame, type Rect, rectFrame, type ShapeFrame, type ShapeSpec, type Size } from "./shape";
 
 /**
  * Shape-table records for the shapes Mermaid 12.2.0 draws as a figure plus
@@ -114,11 +114,50 @@ function bangCorners(label: Size, padding?: Size): Size {
 /** How much bigger a bang's outline is than the `w x h` its corners span, each way. */
 const BANG_SPREAD = 1.25;
 
-/** One relative elliptical arc (`a`) of an outline, as SVG writes it: radii, x-axis rotation in degrees, and where it ends. */
+/**
+ * Mermaid's bang in `box`: where it starts, a tenth of its `w x h` in from
+ * the box's top left, and its fourteen concave arcs of radius `0.15 x w`
+ * (`0.12 x w` for the two at the middle of each side), each turned 1
+ * degree as Mermaid writes them.
+ */
+function bangOf(box: Rect): { x: number; y: number; arcs: Arc[] } {
+  const w = box.width / BANG_SPREAD;
+  const h = box.height / BANG_SPREAD;
+  const r = 0.15 * w;
+  const end = 0.8 * 0.15 * w;
+  const arc = (radius: number, dx: number, dy: number): Arc => ({ rx: radius, ry: radius, rotation: 1, sweep: 0, dx, dy });
+  return {
+    x: box.x + 0.1 * w,
+    y: box.y + 0.1 * h,
+    arcs: [
+      arc(r, 0.25 * w, -0.1 * h),
+      arc(r, 0.25 * w, 0),
+      arc(r, 0.25 * w, 0),
+      arc(r, 0.25 * w, 0.1 * h),
+      arc(r, 0.15 * w, 0.33 * h),
+      arc(end, 0, 0.34 * h),
+      arc(r, -0.15 * w, 0.33 * h),
+      arc(r, -0.25 * w, 0.15 * h),
+      arc(r, -0.25 * w, 0),
+      arc(r, -0.25 * w, 0),
+      arc(r, -0.25 * w, -0.15 * h),
+      arc(r, -0.1 * w, -0.33 * h),
+      arc(end, 0, -0.34 * h),
+      arc(r, 0.1 * w, -0.33 * h),
+    ],
+  };
+}
+
+/**
+ * One relative small elliptical arc (`a`) of an outline, as SVG writes it:
+ * radii, x-axis rotation in degrees, its sweep flag (1 clockwise, 0
+ * anticlockwise) and where it ends.
+ */
 interface Arc {
   rx: number;
   ry: number;
   rotation: number;
+  sweep: 0 | 1;
   dx: number;
   dy: number;
 }
@@ -142,14 +181,26 @@ function onArc(angle: number, start: number, sweep: number): boolean {
   return (along + turn) % turn <= Math.abs(sweep);
 }
 
+/** An arc's ellipse, worked out from where it starts and how SVG writes it: centre, radii, rotation, start angle and signed sweep. */
+interface ArcEllipse {
+  cx: number;
+  cy: number;
+  rx: number;
+  ry: number;
+  cos: number;
+  sin: number;
+  start: number;
+  sweep: number;
+}
+
 /**
- * The points of a small-arc, clockwise (`0,1`) elliptical arc from `from`
- * that bound it: both ends, and each point where it turns back in x or in
- * y. Follows the SVG arc implementation notes — radii too small to reach
- * the end are scaled up until they do, which is what makes a cloud's sides
- * bulge further the taller it is.
+ * The ellipse a small-arc elliptical arc from `from` is cut from, clockwise
+ * (`0,1`) or anticlockwise (`0,0`) as `arc.sweep` says. Follows the SVG
+ * arc implementation notes — radii too small to reach the end are scaled
+ * up until they do, which is what makes a cloud's sides bulge further the
+ * taller it is.
  */
-function arcBounds(from: readonly [number, number], arc: Arc): Array<[number, number]> {
+function arcEllipse(from: readonly [number, number], arc: Arc): ArcEllipse {
   const [x1, y1] = from;
   const x2 = x1 + arc.dx;
   const y2 = y1 + arc.dy;
@@ -163,22 +214,65 @@ function arcBounds(from: readonly [number, number], arc: Arc): Array<[number, nu
   const reach = (px * px) / (arc.rx * arc.rx) + (py * py) / (arc.ry * arc.ry);
   const rx = reach > 1 ? arc.rx * Math.sqrt(reach) : arc.rx;
   const ry = reach > 1 ? arc.ry * Math.sqrt(reach) : arc.ry;
-  // Large-arc 0 and sweep 1 disagree, which puts the centre on the positive side.
+  // Large-arc 0 and sweep 1 disagree, which puts the centre on the positive side; sweep 0 agrees.
+  const side = arc.sweep === 1 ? 1 : -1;
   const numerator = rx * rx * ry * ry - rx * rx * py * py - ry * ry * px * px;
-  const coefficient = Math.sqrt(Math.max(0, numerator / (rx * rx * py * py + ry * ry * px * px)));
+  const coefficient = side * Math.sqrt(Math.max(0, numerator / (rx * rx * py * py + ry * ry * px * px)));
   const cxp = (coefficient * rx * py) / ry;
   const cyp = (-coefficient * ry * px) / rx;
   const cx = cos * cxp - sin * cyp + (x1 + x2) / 2;
   const cy = sin * cxp + cos * cyp + (y1 + y2) / 2;
   const start = Math.atan2((py - cyp) / ry, (px - cxp) / rx);
   let sweep = Math.atan2((-py - cyp) / ry, (-px - cxp) / rx) - start;
-  if (sweep < 0) sweep += 2 * Math.PI;
-  const at = (theta: number): [number, number] => [
-    cx + rx * cos * Math.cos(theta) - ry * sin * Math.sin(theta),
-    cy + rx * sin * Math.cos(theta) + ry * cos * Math.sin(theta),
-  ];
+  if (arc.sweep === 1 && sweep < 0) sweep += 2 * Math.PI;
+  if (arc.sweep === 0 && sweep > 0) sweep -= 2 * Math.PI;
+  return { cx, cy, rx, ry, cos, sin, start, sweep };
+}
+
+/** The point at angle `theta` round `ellipse`. */
+function onEllipse({ cx, cy, rx, ry, cos, sin }: ArcEllipse, theta: number): [number, number] {
+  return [cx + rx * cos * Math.cos(theta) - ry * sin * Math.sin(theta), cy + rx * sin * Math.cos(theta) + ry * cos * Math.sin(theta)];
+}
+
+/**
+ * The points of an arc from `from` that bound it: both ends, and each
+ * point where it turns back in x or in y.
+ */
+function arcBounds(from: readonly [number, number], arc: Arc): Array<[number, number]> {
+  const ellipse = arcEllipse(from, arc);
+  const { rx, ry, cos, sin, start, sweep } = ellipse;
   const turns = [Math.atan2(-ry * sin, rx * cos), Math.atan2(ry * cos, rx * sin)].flatMap((theta) => [theta, theta + Math.PI]);
-  return [[x1, y1], [x2, y2], ...turns.filter((theta) => onArc(theta, start, sweep)).map(at)];
+  return [
+    [from[0], from[1]],
+    [from[0] + arc.dx, from[1] + arc.dy],
+    ...turns.filter((theta) => onArc(theta, start, sweep)).map((theta) => onEllipse(ellipse, theta)),
+  ];
+}
+
+/**
+ * The outline drawn by `arcs` from `from`: each arc sampled finely enough
+ * that a chord stays within `OUTLINE_TOLERANCE` of it, as `arcPoints`
+ * samples a curve, joined end to end.
+ */
+function arcsOutline(from: readonly [number, number], arcs: readonly Arc[]): Point[] {
+  let at = from;
+  const points: Point[] = [];
+  for (const arc of arcs) {
+    const ellipse = arcEllipse(at, arc);
+    const step = Math.sqrt((8 * OUTLINE_TOLERANCE) / Math.max(ellipse.rx, ellipse.ry));
+    const count = Math.max(1, Math.ceil(Math.abs(ellipse.sweep) / step));
+    for (let i = 0; i < count; i++) {
+      const [x, y] = onEllipse(ellipse, ellipse.start + (ellipse.sweep * i) / count);
+      points.push({ x, y });
+    }
+    at = [at[0] + arc.dx, at[1] + arc.dy];
+  }
+  return closedOutline(points);
+}
+
+/** `arcs` as the relative `a` commands of a path, each figure to three decimals. */
+function arcCommands(arcs: readonly Arc[]): string[] {
+  return arcs.map(({ rx, ry, rotation, sweep, dx, dy }) => `a${n(rx)},${n(ry)} ${rotation} 0,${sweep} ${n(dx)},${n(dy)}`);
 }
 
 /** The extent of an outline that starts at the origin and is drawn by `arcs`. */
@@ -205,7 +299,7 @@ function extentOf(arcs: readonly Arc[]): Extent {
  */
 function cloudArcs(w: number, h: number): Arc[] {
   const [r1, r2, r3, r4] = [0.15 * w, 0.25 * w, 0.35 * w, 0.2 * w];
-  const arc = (rx: number, ry: number, dx: number, dy: number, rotation = 1): Arc => ({ rx, ry, rotation, dx, dy });
+  const arc = (rx: number, ry: number, dx: number, dy: number, rotation = 1): Arc => ({ rx, ry, rotation, sweep: 1, dx, dy });
   return [
     arc(r1, r1, 0.25 * w, -0.1 * w, 0),
     arc(r3, r3, 0.4 * w, -0.1 * w),
@@ -451,8 +545,6 @@ export const COMPOSITE_SHAPES = {
   // and the label is centred on the `w x h`, which the bulges leave a
   // little left of and above the box's centre.
   cloud: {
-    // Mermaid meets a cloud's box, not its bulges.
-    outline: boxOutline,
     box: (label, _direction, padding) => {
       const { width: w, height: h } = cloudCorners(label, padding);
       const { minX, minY, maxX, maxY } = extentOf(cloudArcs(w, h));
@@ -474,17 +566,15 @@ export const COMPOSITE_SHAPES = {
       const { minX, minY } = extentOf(arcs);
       const x = n(box.x - minX);
       const y = n(box.y - minY);
-      return [
-        pathFrame(
-          [
-            `M${x},${y}`,
-            ...arcs.map(
-              ({ rx, ry, rotation, dx, dy }) => `a${n(rx)},${n(ry)} ${rotation} 0,1 ${n(dx)},${n(dy)}`,
-            ),
-            `H${x} V${y} Z`,
-          ].join(" "),
-        ),
-      ];
+      return [pathFrame([`M${x},${y}`, ...arcCommands(arcs), `H${x} V${y} Z`].join(" "))];
+    },
+    // The arcs it is drawn with, where Mermaid meets its box: an arrow
+    // touches the cloud rather than stopping short of its bulges.
+    outline: (box) => {
+      const { width: w, height: h } = cloudFitting(box);
+      const arcs = cloudArcs(w, h);
+      const { minX, minY } = extentOf(arcs);
+      return arcsOutline([box.x - minX, box.y - minY], arcs);
     },
   },
   // `bang` (Mermaid's `bang`): a scalloped outline of concave arcs, four
@@ -494,8 +584,6 @@ export const COMPOSITE_SHAPES = {
   // box, is `1.25 x w` by `1.25 x h`. Mermaid centres the label on the
   // `w x h`, a fortieth of each up and left of the box's centre.
   bang: {
-    // Mermaid meets a bang's box, not its scallops.
-    outline: boxOutline,
     box: (label, _direction, padding) => {
       const { width, height } = bangCorners(label, padding);
       return { width: BANG_SPREAD * width, height: BANG_SPREAD * height };
@@ -511,35 +599,14 @@ export const COMPOSITE_SHAPES = {
       };
     },
     frames: (box) => {
-      const w = box.width / BANG_SPREAD;
-      const h = box.height / BANG_SPREAD;
-      const x = n(box.x + 0.1 * w);
-      const y = n(box.y + 0.1 * h);
-      const r = n(0.15 * w);
-      const end = n(0.8 * 0.15 * w);
-      const arc = (radius: number, dx: number, dy: number) => `a${radius},${radius} 1 0,0 ${n(dx)},${n(dy)}`;
-      return [
-        pathFrame(
-          [
-            `M${x},${y}`,
-            arc(r, 0.25 * w, -0.1 * h),
-            arc(r, 0.25 * w, 0),
-            arc(r, 0.25 * w, 0),
-            arc(r, 0.25 * w, 0.1 * h),
-            arc(r, 0.15 * w, 0.33 * h),
-            arc(end, 0, 0.34 * h),
-            arc(r, -0.15 * w, 0.33 * h),
-            arc(r, -0.25 * w, 0.15 * h),
-            arc(r, -0.25 * w, 0),
-            arc(r, -0.25 * w, 0),
-            arc(r, -0.25 * w, -0.15 * h),
-            arc(r, -0.1 * w, -0.33 * h),
-            arc(end, 0, -0.34 * h),
-            arc(r, 0.1 * w, -0.33 * h),
-            `H${x} V${y} Z`,
-          ].join(" "),
-        ),
-      ];
+      const { x, y, arcs } = bangOf(box);
+      return [pathFrame([`M${n(x)},${n(y)}`, ...arcCommands(arcs), `H${n(x)} V${n(y)} Z`].join(" "))];
+    },
+    // The scallops it is drawn with, where Mermaid meets its box: an arrow
+    // touches the bang rather than stopping short of a scallop's dip.
+    outline: (box) => {
+      const { x, y, arcs } = bangOf(box);
+      return arcsOutline([x, y], arcs);
     },
   },
 } as const satisfies Partial<Record<NodeShape, ShapeSpec>>;

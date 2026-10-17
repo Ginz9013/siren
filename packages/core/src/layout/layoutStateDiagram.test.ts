@@ -1684,3 +1684,89 @@ describe("layoutStateDiagram — transition ends on a figure's outline", () => {
     }
   });
 });
+
+describe("layoutStateDiagram — a note's connector on a figure's outline", () => {
+  /**
+   * A pseudo-state or a choice carrying a note, with a transition leaving it
+   * too: the layout engine spreads the two ends that leave the figure's box
+   * on the same side apart, so neither meets the box where the circle or the
+   * diamond touches it.
+   */
+  function noted(
+    figure: { id: string; kind: "state" | "start" | "end"; stereotype: "choice" | null },
+    position: "right of" | "left of",
+    direction: Direction,
+  ): StateModel {
+    const base = model(
+      figure.kind === "end"
+        ? [
+            { from: "A", to: "B" },
+            { from: "B", to: figure.id },
+          ]
+        : [
+            { from: figure.id, to: "A" },
+            { from: "A", to: "B" },
+          ],
+      undefined,
+      direction,
+    );
+    return {
+      ...base,
+      states: base.states.map((state) =>
+        state.id === figure.id
+          ? {
+              ...state,
+              kind: figure.kind,
+              stereotype: figure.stereotype,
+              note: { position, label: plainLabel("a note about it") },
+            }
+          : state,
+      ),
+    };
+  }
+
+  const cases = (["TB", "LR", "BT", "RL"] as const).flatMap((direction) =>
+    (["right of", "left of"] as const).map((position) => ({ direction, position })),
+  );
+
+  it.each(cases.flatMap((c) => [
+    { ...c, kind: "start" as const, id: "start:1" },
+    { ...c, kind: "end" as const, id: "end:1" },
+  ]))("starts a note's connector on a $kind circle ($direction, $position)", ({ direction, position, kind, id }) => {
+    const laid = layoutStateDiagram(noted({ id, kind, stereotype: null }, position, direction), options);
+    const circle = laid.states.find((state) => state.id === id)!;
+    const cx = circle.x + circle.width / 2;
+    const cy = circle.y + circle.height / 2;
+    const start = circle.note!.connector[0]!;
+    expect(Math.abs(Math.hypot(start.x - cx, start.y - cy) - circle.width / 2)).toBeLessThanOrEqual(0.5);
+    // A side of a 14px box stays within 0.3px of the circle inscribed in it
+    // for a few pixels either side of where they touch, so being near the
+    // circle does not tell an end on the box from one on the circle. Off the
+    // four points where they touch, an end on the circle is inside the box.
+    const touching = [
+      { x: cx, y: circle.y },
+      { x: cx, y: circle.y + circle.height },
+      { x: circle.x, y: cy },
+      { x: circle.x + circle.width, y: cy },
+    ].some((point) => Math.hypot(start.x - point.x, start.y - point.y) <= 1);
+    if (!touching) {
+      const inset = Math.min(
+        start.x - circle.x,
+        circle.x + circle.width - start.x,
+        start.y - circle.y,
+        circle.y + circle.height - start.y,
+      );
+      expect(inset).toBeGreaterThan(0.1);
+    }
+  });
+
+  it.each(cases)("starts a note's connector on a `<<choice>>` diamond ($direction, $position)", ({ direction, position }) => {
+    const laid = layoutStateDiagram(noted({ id: "ch", kind: "state", stereotype: "choice" }, position, direction), options);
+    const choice = laid.states.find((state) => state.id === "ch")!;
+    const hw = choice.width / 2;
+    const hh = choice.height / 2;
+    const start = choice.note!.connector[0]!;
+    const off = Math.abs(start.x - (choice.x + hw)) / hw + Math.abs(start.y - (choice.y + hh)) / hh - 1;
+    expect(Math.abs(off) * (hw * hh) / Math.hypot(hw, hh)).toBeLessThanOrEqual(0.5);
+  });
+});

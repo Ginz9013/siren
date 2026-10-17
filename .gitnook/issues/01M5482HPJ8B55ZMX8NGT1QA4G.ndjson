@@ -2,3 +2,4 @@
 {"id":"01M5482HPWQ6QKTYMDAJY1M31K","t":2,"a":"83a1","op":"set","k":"description","v":"# ER：style／classDef 值含括號或 $ 時，Mermaid 拒絕整張圖，Siren 照畫\n\n由 board backlog-final-1017 的 T4（`01M5470HQB`）實測發現。\n\nMermaid 12.2.0 的 ER 圖，`style`／`classDef` 的值只要含 `(`、`)`、`$`、`?`、`!`、`{`、`@`、`<`、`=` 等字元（包括 `rgb(…)`、`var(…)`、`calc(…)`、`12px 'Courier New'`、`red !important`），整張圖都會 parse error。Siren 現在只在樣式值的 allowlist 擋下其中一部分，並以宣告層級的 error 回報；`rgb()`、`calc()` 等 allowlist 內的函式在 ER 仍然照畫。\n\n依 ADR-0017（Mermaid 拒絕的 Siren 也拒絕），ER parser 應該跟 Mermaid 一樣拒絕這些值。先實測 ER lexer 對樣式值接受的字元集，再決定訊息。實測腳本：T4 worker 的 `scratchpad/bf-T4/matrix.mjs`。"}
 {"id":"01M5482HPWQK2TDAFNWZAEC9F3","t":3,"a":"83a1","op":"label.add","v":"backlog"}
 {"id":"01M5482MW7Y2Y72AN1TTQY8YEQ","t":4,"a":"83a1","op":"set","k":"status","v":"backlog"}
+{"id":"01M54BXWE6JG742061FS9Q0F59","t":5,"a":"83a1","op":"set","k":"status","v":"done"}

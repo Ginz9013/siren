@@ -9013,7 +9013,10 @@ describe("render() — an author's style value is read against an allowlist, at 
     expect(container.innerHTML.includes("stroke:#c00")).toBe(true);
   });
 
-  it("drops an ER `style` value holding a character outside the grammar, keeping its sibling", () => {
+  it("refuses an ER document whose `style` value holds a character the declaration list cannot", () => {
+    // Every character an ER declaration list can hold is one the allowlist
+    // also reads, so a value like `a$b` never reaches it: the document is
+    // refused at the character instead.
     const container = document.createElement("div");
     const result = render("erDiagram\nCUSTOMER\nstyle CUSTOMER fill:a$b,stroke:#c00\n", container);
 
@@ -9021,13 +9024,13 @@ describe("render() — an author's style value is read against an allowlist, at 
       {
         severity: "error",
         message:
-          'Style value for "fill" contains "$", which no colour, length, keyword or quoted name is written with; ' +
-          "dropping the declaration.",
+          'Character "$" cannot appear in a `style` declaration list in erDiagram: only letters, digits, spaces and ' +
+          '"-", "_", "*", "#", ":", "," can. Write a color as a hex code such as "#f96", a size as a whole number ' +
+          'such as "2px", and leave out "!important", in "style CUSTOMER fill:a$b,stroke:#c00"',
         line: 3,
-        column: 1,
+        column: 22,
       },
     ]);
-    expect(container.innerHTML.includes("stroke:#c00")).toBe(true);
     expect(container.innerHTML.includes("a$b")).toBe(false);
   });
 
@@ -9043,5 +9046,43 @@ describe("render() — an author's style value is read against an allowlist, at 
     expect(container.innerHTML.includes("attr(")).toBe(false);
     expect(container.innerHTML.includes("paint(")).toBe(false);
     expect(container.innerHTML.includes("calc(1px + 1px)")).toBe(true);
+  });
+});
+
+describe("render() — an ER declaration list ending in a `;`", () => {
+  /**
+   * Measured in Chrome on Mermaid 12.2.0: a `style` or `classDef` list whose
+   * line ends in `;` — right after the value or after a space or a tab —
+   * paints the value before it (`fill:red ;` paints `fill:red`), as does a
+   * list of two declarations (`fill:red , stroke:blue ;`).
+   */
+  const frameStyle = (source: string) => {
+    const result = render(source, document.createElement("div"));
+    return {
+      diagnostics: result.diagnostics,
+      style: result.svg?.querySelector('g.siren-er-entity[data-siren-id="A"] rect.siren-er-entity-frame')?.getAttribute("style"),
+    };
+  };
+
+  it("draws a `style` list ending in a `;` with the value before it, and says nothing", () => {
+    for (const value of ["fill:red;", "fill:red ;", "fill:red  ;", "fill:red\t;", "fill: red ;"]) {
+      expect(frameStyle(`erDiagram\nA\nstyle A ${value}\n`), JSON.stringify(value)).toEqual({
+        diagnostics: [],
+        style: "fill:red",
+      });
+    }
+    expect(frameStyle("erDiagram\nA\nstyle A fill:red , stroke:blue ;\n")).toEqual({
+      diagnostics: [],
+      style: "fill:red;stroke:blue",
+    });
+  });
+
+  it("draws a `classDef` list ending in a `;` with the value before it, and says nothing", () => {
+    for (const value of ["fill:red;", "fill:red ;", "fill:red\t;"]) {
+      expect(frameStyle(`erDiagram\nA:::u\nclassDef u ${value}\n`), JSON.stringify(value)).toEqual({
+        diagnostics: [],
+        style: "fill:red",
+      });
+    }
   });
 });

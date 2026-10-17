@@ -325,22 +325,29 @@ export function layoutStateDiagram(
 
   // Where each end of a transition stops: on the figure a pseudo-state or a
   // choice is drawn as, rather than on the box layout routed it to
-  // (`clipRoutesAndHop`). A note's connector keeps both its ends. The line
-  // hops the layout core read off the routes on their boxes are read again
-  // here, every route together: a run carried on to a figure can cross a
-  // line it stopped short of.
+  // (`clipRoutesAndHop`). A note's connector stops on that figure too at its
+  // state's end, and keeps its end on the note's box, which is the note's
+  // figure. The line hops the layout core read off the routes on their boxes
+  // are read again here, every route together: a run carried on to a figure
+  // can cross a line it stopped short of.
   const stateById = new Map(model.states.map((state) => [state.id, state]));
   const outlineOf = (id: string) => figureOutline(stateById.get(id)!, boxById.get(id)!);
   const transitionById = new Map(model.transitions.map((transition) => [transition.id, transition]));
+  const notedByLinkId = new Map(notedStates.map((entry) => [noteLinkEdgeId(entry.state.id), entry]));
   const clipped = clipRoutesAndHop(
     laidOut.edges.map((route) => {
       const transition = transitionById.get(route.id);
-      return {
-        points: route.points,
-        start: transition === undefined ? null : outlineOf(transition.from),
-        end: transition === undefined ? null : outlineOf(transition.to),
-        cornerRadius: CONNECTOR_CORNER_RADIUS,
-      };
+      const noted = notedByLinkId.get(route.id);
+      const ends =
+        transition !== undefined
+          ? { start: outlineOf(transition.from), end: outlineOf(transition.to) }
+          : noted === undefined
+            ? { start: null, end: null }
+            : // `noteLinkEdge` runs the link note → state for `left of`.
+              isLeftOf(noted.note)
+              ? { start: null, end: outlineOf(noted.state.id) }
+              : { start: outlineOf(noted.state.id), end: null };
+      return { points: route.points, ...ends, cornerRadius: CONNECTOR_CORNER_RADIUS };
     }),
   );
   const routeById = new Map(laidOut.edges.map((route, index) => [route.id, { ...route, ...clipped[index]! }]));

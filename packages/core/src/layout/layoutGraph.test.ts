@@ -1770,4 +1770,37 @@ describe("where an edge meets a node that is not a rectangle", () => {
       expect(drawn.points.at(-1)!.x).toBe(to.x);
     }
   });
+
+  /** Whether `point` stands at least 1px inside `placed`'s box, off all four of its sides. */
+  const offTheBox = (point: { x: number; y: number }, placed: { x: number; y: number; width: number; height: number }) =>
+    point.x > placed.x + 1 && point.x < placed.x + placed.width - 1 && point.y > placed.y + 1 && point.y < placed.y + placed.height - 1;
+
+  it.each([
+    ["TB", "cloud"],
+    ["LR", "cloud"],
+    ["TB", "bang"],
+    ["LR", "bang"],
+  ] as const)("stops each end of an edge on a %s %s's arcs", (direction, shape) => {
+    expectOnOutline(layoutGraph(through(direction, shape), { measureText: fakeMeasurer }), "S");
+  });
+
+  it.each([
+    ["TB", "cloud"],
+    ["LR", "cloud"],
+    ["TB", "bang"],
+    ["LR", "bang"],
+  ] as const)("stops three edges fanning into a %s %s on its arcs rather than on its box", (direction, shape) => {
+    // Mermaid meets a cloud and a bang at their box, short of the arcs it
+    // draws; Siren carries each end on, along the run that reaches it,
+    // until it touches them — off the box wherever an arc dips inside it.
+    const graph = graphOf(
+      direction,
+      [node("A", "rect", "aaaa"), node("B", "rect", "bbbb"), node("C", "rect", "cccc"), node("D", shape, "a wider label here")],
+      [edge("A", "D"), edge("B", "D"), edge("C", "D")],
+    );
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+    expectOnOutline(positioned, "D");
+    const ends = endsAt(positioned, "D");
+    expect(ends.filter(({ end, placed }) => offTheBox(end, placed)).length).toBeGreaterThan(0);
+  });
 });

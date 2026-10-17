@@ -20,8 +20,11 @@
  */
 import { describe, expect, it } from "vitest";
 import type { Diagnostic, SirenRenderResult } from "../contracts";
+import { buildGraphModel } from "../graph-model/buildGraphModel";
 import { render } from "../index";
+import { parseSiren } from "../parser/parseSiren";
 import { COMPAT_CASES, type CompatCase } from "./corpus";
+import { endsOffOutline, endsOffTheirFigures, type LineEnds } from "./layoutDefects";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -320,6 +323,50 @@ describe("the corpus, case by case", () => {
       }
     },
   );
+});
+
+/**
+ * Every flowchart and state row that draws a picture, held to one layout
+ * rule whatever its own assert says: a line meeting a shape that is not
+ * simply its box ends on the figure drawn there, not on the box around it
+ * (`endsOffOutline`).
+ */
+const FIGURE_ROWS = COMPAT_CASES.filter((entry) => entry.kind === "flowchart" || entry.kind === "state");
+
+describe("every flowchart and state row's line ends", () => {
+  it.each(FIGURE_ROWS.map((entry) => [entry.id, entry] as const))("%s", (_id, entry) => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const { svg } = render(entry.source, container);
+    if (svg === null) return;
+
+    expect(endsOffOutline(svg)).toEqual([]);
+  });
+});
+
+/**
+ * Which two things each line of a flowchart or a state diagram joins: its
+ * model's edges or transitions, which the picture does not record.
+ */
+function lineEndsOf(source: string): LineEnds {
+  const built = buildGraphModel(parseSiren(source).document!);
+  if (built.kind === "flowchart") return built.model.edges;
+  if (built.kind === "state") return built.model.transitions;
+  throw new Error(`a ${built.kind} has no lines with a figure at each end`);
+}
+
+/**
+ * The same rows, held to the rule from the other side: each end of a line
+ * stops on the figure drawn for its own node, not short of it
+ * (`endsOffTheirFigures`).
+ */
+describe("every flowchart and state row's line ends, at their own nodes", () => {
+  it.each(FIGURE_ROWS.map((entry) => [entry.id, entry] as const))("%s", (_id, entry) => {
+    const { svg } = render(entry.source, document.createElement("div"));
+    if (svg === null) return;
+
+    expect(endsOffTheirFigures(svg, lineEndsOf(entry.source))).toEqual([]);
+  });
 });
 
 /**
@@ -1995,8 +2042,72 @@ const SILENTLY_WRONG = 0;
  * `state-classdef-value-function-off-allowlist`). Siren drew both before,
  * with no row to say so. No `supported` row moved. `silently-wrong` does
  * not move.
+ *
+ * **80 → 83: case (2), three refusals written down for the first time.**
+ * `01M5482HPJ` read an ER `style` or `classDef` declaration list in the
+ * alphabet Mermaid 12.2.0's lexer reads it in — letters, digits, `_`, `-`,
+ * `*`, non-ASCII characters, whitespace, `:`, `,`, `#`, and `;` only at the
+ * end of the line or closing a `#word;` code — measured one character
+ * apiece. Every other character refuses the document in Mermaid, so
+ * `er-style-value-function` (`rgb(`), `er-classdef-value-decimal`
+ * (`1.5px`) and `er-style-value-semicolon` (`fill:red;stroke:blue`) are
+ * documents Mermaid refuses; Siren drew each before and refuses each now
+ * (ADR-0017), at the character. No `supported` row moved: no ER row's
+ * value held such a character. `silently-wrong` does not move.
+ *
+ * **83 → 87: cases (1) and (2), four refusals written down for the first
+ * time.** `01M5482HPJ`'s second half measured the structure of an ER
+ * `style` or `classDef` declaration list rather than its characters, in
+ * Chrome where Mermaid accepts it. `er-classdef-trailing-comma` is a parse
+ * error in Mermaid 12.2.0 (ADR-0017). The other three Mermaid draws wrong
+ * without a word (ADR-0001): `er-style-code-semicolon-runs-on`
+ * (`fill:#f96;stroke:#333`, whose `;` the style-line rule drops, paints
+ * neither color), `er-style-value-second-colon` (`fill:red:blue` paints
+ * `fill:red`) and `er-style-trailing-space` (a list ending in a space
+ * swallows the next line). Siren drew each before and refuses each now. No
+ * `supported` row moved. `silently-wrong` does not move.
+ *
+ * **87 → 90: case (2), three refusals written down for the first
+ * time.** `01M5482HPJ`'s third half measured whitespace inside an ER
+ * `style` or `classDef` declaration: Mermaid 12.2.0 skips it and glues the
+ * words on either side together, which draws without a word but wrong
+ * (ADR-0001) — `er-style-value-space` (`stroke-dasharray:5 5` paints `55`),
+ * `er-classdef-value-space` (`font-family:Noto Sans` sets `NotoSans`) and
+ * `er-style-value-space-glues-next-word` (`fill:#f96 C` paints `#f96C`).
+ * The last is the shape `er-style-statement-swallows-line` used to carry:
+ * that row's `B` existed in no other statement, so the glue landed on no
+ * box and its `supported` claim, which asserted only the entities, held.
+ * Its source now ends at `fill:#f96`, still pinning that a target is not
+ * a declaration, and stays `supported`; the glue is the new row. No
+ * `supported` row moved. `silently-wrong` does not move.
+ *
+ * **90 → 91: case (2), a refusal written down for the first time.**
+ * `er-style-comma-before-declarations` (`style A ,fill:red`), which
+ * Mermaid 12.2.0 reads as the targets `A` and `fill` and a declaration
+ * with no property, painting `A` nothing (measured in Chrome, ADR-0001).
+ * Siren already refused it, wrongly calling `fill:red` a relationship id,
+ * and now says what the comma does (`01M5482HPJ`). No `supported` row
+ * moved. `silently-wrong` does not move.
+ *
+ * **91 → 92: case (2), a refusal written down for the first time.**
+ * `er-style-code-space-before-semicolon` (`style A fill:#f96 ;`), a parse
+ * error in Mermaid 12.2.0 because the style-line rule drops the `;` and
+ * leaves the list ending in a space (measured, ADR-0017). Siren already
+ * refused it, and now names the whitespace before the `;` (`01M5482HPJ`).
+ * `er-style-closing-semicolon`, which Siren now draws, is a new
+ * `supported` row; no `supported` row moved. `silently-wrong` does not
+ * move.
+ *
+ * **92 → 93: case (2), a refusal written down for the first time.**
+ * `er-style-empty-before-closing-semicolon` (`style A fill:red,;`), a parse
+ * error at the `;` in Mermaid 12.2.0 (measured, ADR-0017; `fill:red , ;`,
+ * `style A ;` and `classDef u ;` too). Siren used to draw it: the empty
+ * declaration was looked for while the closing `;` was still in the list,
+ * so the `;` passed for a declaration. It is now set aside first, and the
+ * list refused as empty (`01M5482HPJ`). No `supported` row moved.
+ * `silently-wrong` does not move: Mermaid draws no picture to differ from.
  */
-const REJECTED = 80;
+const REJECTED = 93;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

@@ -1590,14 +1590,18 @@ describe("parseErDiagram reads the author's styling statements", () => {
     // statement stream after the declarations draws a box for `C` that
     // Mermaid draws none for; treating a target as a declaration draws one
     // for `B`. Each would be silent.
-    expect(namesOf("erDiagram\n  A style B fill:#f96 C\n")).toEqual(["A"]);
+    //
+    // Mermaid glues `C` onto the value (it paints `fill:#f96C`), so the
+    // first line is refused outright — no box for `C` either way — and
+    // the second still reads `A` alone.
+    expect(refusalsFor("erDiagram\n  A style B fill:#f96 C\n")).toHaveLength(1);
     expect(namesOf("erDiagram\n  A style B fill:#f96\n")).toEqual(["A"]);
 
     // And the statement is still read, mid-line, with the entity before it
     // intact — so this is one statement stream and not a line class.
     expect(
-      stylesOf("erDiagram\n  A style B fill:#f96 C\n").map((s) => [s.targetIds, s.properties]),
-    ).toEqual([[["B"], [{ property: "fill", value: "#f96 C" }]]]);
+      stylesOf("erDiagram\n  A style B fill:#f96\n").map((s) => [s.targetIds, s.properties]),
+    ).toEqual([[["B"], [{ property: "fill", value: "#f96" }]]]);
   });
 
   it("keeps `style` a reserved word everywhere a name belongs, so `er-subgraph` stays a refusal", () => {
@@ -2848,5 +2852,541 @@ describe("parseErDiagram — a `%` in a quoted entity name or alias", () => {
     for (const body of ["A { int% x }", "A { int x% }", "A { %int x }", "A { int %x }"]) {
       expect(parseErDiagram(`erDiagram\n${body}`).diagnostics.some(({ severity }) => severity === "error"), body).toBe(true);
     }
+  });
+});
+
+/**
+ * Mermaid 12.2.0's ER lexer reads a `style` or `classDef` declaration list in
+ * a condition of its own whose only rules are a newline, whitespace, `:`,
+ * `,`, `#`, `;` and a word of letters, digits, `_`, `-`, `*` and non-ASCII
+ * characters. Every other character is a lexical error that refuses the
+ * whole document — measured one character apiece, `style A fill:re<c>d` and
+ * `classDef u fill:re<c>d`, for every printable ASCII character. A `;` is
+ * its statement separator, so it may end the line but nothing may follow it
+ * (`fill:red;` draws; `fill:red;stroke:blue` and `fill:red; ` are parse
+ * errors). Siren used to draw most of these.
+ */
+describe("parseErDiagram — a character a declaration list cannot hold", () => {
+  const errorsFor = (body: string) =>
+    parseErDiagram(`erDiagram\n${body}`)
+      .diagnostics.filter(({ severity }) => severity === "error")
+      .map(({ message, line, column }) => ({ message, line, column }));
+  const refusal = (char: string, keyword: string, line: string) =>
+    `Character "${char}" cannot appear in a \`${keyword}\` declaration list in erDiagram: only letters, digits, ` +
+    'spaces and "-", "_", "*", "#", ":", "," can. Write a color as a hex code such as "#f96", ' +
+    `a size as a whole number such as "2px", and leave out "!important", in "${line}"`;
+
+  it("refuses each rejected character in a `style` value, at that character", () => {
+    for (const char of ["(", ")", "[", "]", "{", "}", "$", "!", "?", "@", "<", "=", ">", '"', "'", "`", ".", "%", "/", "+", "&", "|", "~", "^", "\\"]) {
+      const line = `style A fill:re${char}d`;
+      expect(errorsFor(`A\n${line}`), char).toEqual([{ message: refusal(char, "style", line), line: 3, column: 16 }]);
+    }
+  });
+
+  it("refuses each rejected character in a `classDef` value, at that character", () => {
+    for (const char of ["(", ")", "[", "]", "{", "}", "$", "!", "?", "@", "<", "=", ">", '"', "'", "`", ".", "%", "/", "+", "&", "|", "~", "^", "\\"]) {
+      const line = `classDef u fill:re${char}d`;
+      expect(errorsFor(`A\n${line}\nclass A u`), char).toEqual([
+        { message: refusal(char, "classDef", line), line: 3, column: 19 },
+      ]);
+    }
+  });
+
+  it("names the first one, in the values authors actually write", () => {
+    expect(errorsFor("A\nstyle A fill:rgb(1,2,3)")).toEqual([
+      { message: refusal("(", "style", "style A fill:rgb(1,2,3)"), line: 3, column: 17 },
+    ]);
+    expect(errorsFor("A\n  classDef u stroke-width:1.5px\nclass A u")).toEqual([
+      { message: refusal(".", "classDef", "classDef u stroke-width:1.5px"), line: 3, column: 28 },
+    ]);
+    expect(errorsFor("A\nstyle A fill:#f96 !important")).toEqual([
+      { message: refusal("!", "style", "style A fill:#f96 !important"), line: 3, column: 19 },
+    ]);
+    // Mid-line, after a statement the line began with.
+    expect(errorsFor("A style A fill:$x")).toEqual([
+      { message: refusal("$", "style", "A style A fill:$x"), line: 2, column: 16 },
+    ]);
+  });
+
+  it("refuses a `;` that anything follows, in either statement", () => {
+    const semi = (keyword: string, line: string) =>
+      `A ";" in a \`${keyword}\` declaration list in erDiagram can only end the line: ` +
+      `separate declarations with "," instead, in "${line}"`;
+    expect(errorsFor("A\nstyle A fill:red;stroke:blue")).toEqual([
+      { message: semi("style", "style A fill:red;stroke:blue"), line: 3, column: 17 },
+    ]);
+    expect(errorsFor("A\nclassDef u fill:red;;\nclass A u")).toEqual([
+      { message: semi("classDef", "classDef u fill:red;;"), line: 3, column: 20 },
+    ]);
+  });
+
+  it("refuses a `;` that anything follows once the style-line rule has dropped the line's last", () => {
+    // Measured: on a style line holding a `#`, Mermaid drops the line's
+    // last `;` before anything else reads it, so `fill:red;stroke:#333;`
+    // keeps its first `;` and is a parse error.
+    const errorsOfDocument = (body: string) =>
+      parseSiren(`erDiagram\n${body}`)
+        .diagnostics.filter(({ severity }) => severity === "error")
+        .map(({ line, column }) => ({ line, column }));
+    for (const [value, column] of [
+      ["fill:red;stroke:#333;", 17],
+      ["fill:red; ", 18],
+      ["fill:red;#", 17],
+    ] as const) {
+      expect(errorsOfDocument(`A\nstyle A ${value}`), value).toEqual([{ line: 3, column }]);
+    }
+  });
+
+  it("reads every character the list can hold, in either statement", () => {
+    for (const value of [
+      "fill:#f96,stroke:#333",
+      "stroke-width:2px",
+      "fill:red;",
+      "fill:red ;",
+      "fill: red , stroke:blue",
+      "fill:*_x",
+      "font-family:中文é",
+    ]) {
+      expect(errorsFor(`A\nstyle A ${value}`), value).toEqual([]);
+      expect(errorsFor(`A\nclassDef u ${value}\nclass A u`), value).toEqual([]);
+    }
+  });
+});
+
+/**
+ * A `style` or `classDef` line that ends in a space or a tab: Mermaid
+ * 12.2.0's declaration-list condition reads that whitespace together with
+ * the line break after it, so the list runs on into the next line. Last in
+ * the document, that is a parse error; with a line after it, the next line
+ * is swallowed into the last declaration (`style A fill:red ` then `B`
+ * paints `fill:redB` and draws no `B`) — measured, as are entity,
+ * relationship, `class`, `direction` and attribute lines ending in a
+ * space, which all draw as written.
+ */
+describe("parseErDiagram — whitespace at the end of a declaration list's line", () => {
+  const errorsOfDocument = (body: string) =>
+    parseSiren(`erDiagram\n${body}`)
+      .diagnostics.filter(({ severity }) => severity === "error")
+      .map(({ message, line, column }) => ({ message, line, column }));
+  const trailing = (keyword: string, value: string, line: string) =>
+    `A \`${keyword}\` line in erDiagram cannot end in a space or a tab: remove the whitespace after ` +
+    `"${value}", in "${line}"`;
+
+  it("refuses a `style` line ending in whitespace, last in the document or not", () => {
+    for (const [body, line] of [
+      ["A\nstyle A fill:red ", 3],
+      ["A\nstyle A fill:red\t", 3],
+      ["A\nstyle A fill:red \nB", 3],
+      ["A\nstyle A fill:red  \n\nB", 3],
+    ] as const) {
+      expect(errorsOfDocument(body), JSON.stringify(body)).toEqual([
+        { message: trailing("style", "fill:red", "style A fill:red"), line, column: 17 },
+      ]);
+    }
+  });
+
+  it("refuses a `classDef` line ending in whitespace", () => {
+    expect(errorsOfDocument("A\nclassDef u fill:red \nclass A u")).toEqual([
+      { message: trailing("classDef", "fill:red", "classDef u fill:red"), line: 3, column: 20 },
+    ]);
+  });
+
+  it("names the `;` the whitespace follows, rather than asking for a \",\"", () => {
+    expect(errorsOfDocument("A\nstyle A fill:red;\t\nB")).toEqual([
+      { message: trailing("style", "fill:red;", "style A fill:red;"), line: 3, column: 18 },
+    ]);
+    expect(errorsOfDocument("A\nstyle A fill:#f96; ")).toEqual([
+      { message: trailing("style", "fill:#f96;", "style A fill:#f96;"), line: 3, column: 19 },
+    ]);
+    expect(errorsOfDocument("A\nclassDef u fill:#f96;\t\nclass A u")).toEqual([
+      { message: trailing("classDef", "fill:#f96;", "classDef u fill:#f96;"), line: 3, column: 22 },
+    ]);
+  });
+
+  it("names the whitespace before a `;` the style-line rule drops, quoting the line as written", () => {
+    // Measured: on a line holding a `#` color, the line's last `;` is dropped
+    // before the list is read, so `fill:#f96 ;` ends in the space before it
+    // and is a parse error, as are a tab, two spaces and a second declaration.
+    const beforeSemicolon = (keyword: string, value: string, line: string) =>
+      `A \`${keyword}\` line in erDiagram holding a "#" color cannot have a space or a tab before its closing ";": ` +
+      `that ";" is dropped before the line is read, so the line ends in the whitespace. Remove the whitespace ` +
+      `between "${value}" and ";", in "${line}"`;
+    for (const [value, read, column] of [
+      ["fill:#f96 ;", "fill:#f96", 18],
+      ["fill:#f96  ;", "fill:#f96", 18],
+      ["fill:#f96\t;", "fill:#f96", 18],
+      ["fill:#f96, stroke:blue ;", "fill:#f96, stroke:blue", 31],
+      ["fill:#f96 ; ", "fill:#f96", 18],
+    ] as const) {
+      expect(errorsOfDocument(`A\nstyle A ${value}`), JSON.stringify(value)).toEqual([
+        { message: beforeSemicolon("style", read, `style A ${value.trimEnd()}`), line: 3, column },
+      ]);
+    }
+    expect(errorsOfDocument("A\nclassDef u fill:#f96 ;\nclass A u")).toEqual([
+      { message: beforeSemicolon("classDef", "fill:#f96", "classDef u fill:#f96 ;"), line: 3, column: 21 },
+    ]);
+  });
+
+  it("reads every other line ending in whitespace as written", () => {
+    for (const body of [
+      "A ",
+      "A\t",
+      "A ||--o{ B : r ",
+      "A\nclassDef u fill:red\nclass A u ",
+      "A:::u \nclassDef u fill:red",
+      "A {\n  string x \n} ",
+      "direction LR \nA",
+      "A\nstyle A fill:red\n",
+    ]) {
+      expect(errorsOfDocument(body), JSON.stringify(body)).toEqual([]);
+    }
+  });
+});
+
+/**
+ * A declaration list with nothing between two of its commas, or after its
+ * last: measured, Mermaid 12.2.0 refuses `fill:red,`, `fill:red , `,
+ * `fill:red,,`, `fill:red,,stroke:blue` and `fill:red, ,stroke:blue` with a
+ * parse error, in both statements; a list beginning with `,` is read with
+ * its first property lost (`classDef u ,fill:red` paints `:red`, so no
+ * fill), and `fill:red,` with whitespace after it runs on into the next
+ * line, which becomes a declaration of its own.
+ */
+describe("parseErDiagram — an empty declaration in a declaration list", () => {
+  const errorsOfDocument = (body: string) =>
+    parseSiren(`erDiagram\n${body}`)
+      .diagnostics.filter(({ severity }) => severity === "error")
+      .map(({ message, line, column }) => ({ message, line, column }));
+  const empty = (keyword: string, line: string) =>
+    `A \`${keyword}\` declaration list in erDiagram cannot hold an empty declaration: write a declaration ` +
+    `on each side of every "," and none after the last, in "${line}"`;
+
+  it("refuses one in a `style` list, at the comma before it", () => {
+    for (const [value, column] of [
+      ["fill:red,", 17],
+      ["fill:red ,", 18],
+      ["fill:red,,", 17],
+      ["fill:red,,stroke:blue", 17],
+      ["fill:red, ,stroke:blue", 17],
+      ["fill:red,stroke:blue,", 29],
+    ] as const) {
+      expect(errorsOfDocument(`A\nstyle A ${value}\nB`), value).toEqual([
+        { message: empty("style", `style A ${value}`), line: 3, column },
+      ]);
+    }
+  });
+
+  it("refuses one in a `classDef` list", () => {
+    // A list beginning with `,` is refused for the comma after the names:
+    // see "a `,` between the targets and the declarations".
+    expect(errorsOfDocument("A\nclassDef u fill:red,,stroke:blue\nclass A u")).toEqual([
+      { message: empty("classDef", "classDef u fill:red,,stroke:blue"), line: 3, column: 20 },
+    ]);
+  });
+
+  it("refuses one left empty once the line's closing `;` is set aside, in either statement", () => {
+    // Measured: Mermaid 12.2.0 refuses `fill:red,;` and `fill:red , ;` with
+    // a parse error at the `;`, in both statements.
+    for (const [value, column] of [
+      ["fill:red,;", 17],
+      ["fill:red , ;", 18],
+      ["fill:red,\t;", 17],
+    ] as const) {
+      expect(errorsOfDocument(`A\nstyle A ${value}`), JSON.stringify(value)).toEqual([
+        { message: empty("style", `style A ${value}`), line: 3, column },
+      ]);
+      expect(errorsOfDocument(`A\nclassDef u ${value}\nclass A u`), JSON.stringify(value)).toEqual([
+        { message: empty("classDef", `classDef u ${value}`), line: 3, column: column + 3 },
+      ]);
+    }
+  });
+
+  it("refuses a list that holds nothing but its closing `;`", () => {
+    // Measured: `style A ;` and `classDef u ;` are parse errors at the `;`.
+    const nothing = (keyword: string, line: string) =>
+      `A \`${keyword}\` declaration list in erDiagram cannot be empty: write at least one declaration ` +
+      `before the closing ";", in "${line}"`;
+    expect(errorsOfDocument("A\nstyle A ;")).toEqual([
+      { message: nothing("style", "style A ;"), line: 3, column: 9 },
+    ]);
+    expect(errorsOfDocument("A\nclassDef u ;\nclass A u")).toEqual([
+      { message: nothing("classDef", "classDef u ;"), line: 3, column: 12 },
+    ]);
+  });
+
+  it("names the empty declaration before the whitespace that ends its line", () => {
+    expect(errorsOfDocument("A\nstyle A fill:red, \nB")).toEqual([
+      { message: empty("style", "style A fill:red,"), line: 3, column: 17 },
+    ]);
+  });
+
+  it("reads whitespace on either side of a comma between two declarations", () => {
+    for (const value of ["fill:red ,stroke:blue", "fill:red, stroke:blue", "fill:  red  ,  stroke:blue"]) {
+      expect(errorsOfDocument(`A\nstyle A ${value}\nB`), value).toEqual([]);
+      expect(errorsOfDocument(`A\nclassDef u ${value}\nclass A u`), value).toEqual([]);
+    }
+  });
+});
+
+/**
+ * A declaration holding a second `:`. Mermaid 12.2.0 splits a declaration
+ * at its colons and keeps the first two parts, so `fill:red:blue` paints
+ * `fill:red` and `fill::red` paints an empty `fill` — measured, in Chrome,
+ * for both statements. The common way to write one is a `;` between two
+ * declarations after a `#` color: the style-line rule drops that `;`
+ * (`styleLines`), so `fill:#f96;stroke:#333` is read as the one declaration
+ * `fill:#f96stroke:#333`, which paints neither color (measured: the box
+ * keeps its theme fill and stroke, as for `fill:#f-9;stroke:red`).
+ */
+describe("parseErDiagram — a declaration holding more than one `:`", () => {
+  const errorsOfDocument = (body: string) =>
+    parseSiren(`erDiagram\n${body}`)
+      .diagnostics.filter(({ severity }) => severity === "error")
+      .map(({ message, line, column }) => ({ message, line, column }));
+  const colons = (keyword: string, declaration: string, line: string) =>
+    `Declaration "${declaration}" in a \`${keyword}\` declaration list in erDiagram holds more than one ":": ` +
+    `write one property and one value in each declaration, and separate declarations with ",", in "${line}"`;
+
+  it("refuses one in a `style` list, at the second `:`", () => {
+    expect(errorsOfDocument("A\nstyle A fill:red:blue")).toEqual([
+      { message: colons("style", "fill:red:blue", "style A fill:red:blue"), line: 3, column: 17 },
+    ]);
+    expect(errorsOfDocument("A\nstyle A stroke:#333,fill::red")).toEqual([
+      { message: colons("style", "fill::red", "style A stroke:#333,fill::red"), line: 3, column: 26 },
+    ]);
+  });
+
+  it("refuses one in a `classDef` list", () => {
+    expect(errorsOfDocument("A\nclassDef u fill:red:blue\nclass A u")).toEqual([
+      { message: colons("classDef", "fill:red:blue", "classDef u fill:red:blue"), line: 3, column: 20 },
+    ]);
+  });
+
+  it("refuses two declarations a `;` after a `#` color runs together", () => {
+    expect(errorsOfDocument("A\nstyle A fill:#f96;stroke:#333")).toEqual([
+      { message: colons("style", "fill:#f96stroke:#333", "style A fill:#f96stroke:#333"), line: 3, column: 25 },
+    ]);
+    expect(errorsOfDocument("A\nstyle A fill:#f-9;stroke:red")).toEqual([
+      { message: colons("style", "fill:#f-9stroke:red", "style A fill:#f-9stroke:red"), line: 3, column: 25 },
+    ]);
+    expect(errorsOfDocument("A\nclassDef u stroke-width:4px,fill:#f96;stroke:#333\nclass A u")).toEqual([
+      {
+        message: colons("classDef", "fill:#f96stroke:#333", "classDef u stroke-width:4px,fill:#f96stroke:#333"),
+        line: 3,
+        column: 45,
+      },
+    ]);
+    // A tab between them is read as nothing at all (measured: neither color).
+    expect(errorsOfDocument("A\nstyle A fill:#f96\tstroke:#333")).toEqual([
+      { message: colons("style", "fill:#f96\tstroke:#333", "style A fill:#f96\tstroke:#333"), line: 3, column: 25 },
+    ]);
+  });
+
+  it("reads a `;` after a `#` color that ends the line or comes before a `,`", () => {
+    for (const value of ["fill:#f96;", "fill:#f96;,stroke:#333", "fill:#abc; ,stroke:#f00", "fill:#f96 ,stroke:#333"]) {
+      expect(errorsOfDocument(`A\nstyle A ${value}\nB`), value).toEqual([]);
+      expect(errorsOfDocument(`A\nclassDef u ${value}\nclass A u`), value).toEqual([]);
+    }
+  });
+});
+
+/**
+ * A `#word;` code the style-line rule leaves in place. Mermaid 12.2.0
+ * rewrites every `#word;` into a code of non-ASCII characters before its
+ * lexer runs, and on a style line drops only the line's last `;`; any other
+ * `#word;` survives as that code and is painted as it — measured in Chrome:
+ * `fill:#f96;;` paints `fill:ﬂ°f96¶ß`, so no fill, and
+ * `fill:#f96;,stroke:#333;` paints the stroke and no fill.
+ */
+describe("parseErDiagram — a `;` after a `#` color that the line keeps", () => {
+  const errorsOfDocument = (body: string) =>
+    parseSiren(`erDiagram\n${body}`)
+      .diagnostics.filter(({ severity }) => severity === "error")
+      .map(({ message, line, column }) => ({ message, line, column }));
+  const code = (keyword: string, color: string, line: string) =>
+    `A ";" after "${color}" in a \`${keyword}\` declaration list in erDiagram is read as part of the color: ` +
+    `end the line with at most one ";", and separate declarations with ",", in "${line}"`;
+
+  it("refuses it in a `style` list, at the `;`", () => {
+    expect(errorsOfDocument("A\nstyle A fill:#f96;;\nB")).toEqual([
+      { message: code("style", "#f96", "style A fill:#f96;"), line: 3, column: 18 },
+    ]);
+    expect(errorsOfDocument("A\nstyle A fill:#f96;,stroke:#333;\nB")).toEqual([
+      { message: code("style", "#f96", "style A fill:#f96;,stroke:#333"), line: 3, column: 18 },
+    ]);
+    expect(errorsOfDocument("A\nstyle A fill:#f96;stroke:#333;\nB")).toEqual([
+      { message: code("style", "#f96", "style A fill:#f96;stroke:#333"), line: 3, column: 18 },
+    ]);
+  });
+
+  it("refuses it in a `classDef` list", () => {
+    expect(errorsOfDocument("A\nclassDef u stroke:#333,fill:#ff9966;;\nclass A u")).toEqual([
+      { message: code("classDef", "#ff9966", "classDef u stroke:#333,fill:#ff9966;"), line: 3, column: 36 },
+    ]);
+  });
+});
+
+/**
+ * The rest of a declaration list's structure, measured against Mermaid
+ * 12.2.0 in Chrome: a declaration with no `:` (`fill`, `fill:red,stroke`)
+ * is accepted and painted as an empty property, so nothing; one with an
+ * empty value (`fill:`) the same. Siren already refuses the first, which
+ * loses what the author wrote, and draws the second as the nothing it is.
+ */
+describe("parseErDiagram — a declaration missing its `:` or its value", () => {
+  const errorsOfDocument = (body: string) =>
+    parseSiren(`erDiagram\n${body}`)
+      .diagnostics.filter(({ severity }) => severity === "error")
+      .map(({ message }) => message);
+
+  it("refuses a declaration with no `:`, in either statement", () => {
+    expect(errorsOfDocument("A\nstyle A fill")).toEqual(['Unrecognized style declaration: "fill"']);
+    expect(errorsOfDocument("A\nclassDef u fill:red,stroke\nclass A u")).toEqual([
+      'Unrecognized style declaration: "stroke"',
+    ]);
+  });
+
+  it("reads a declaration with an empty value", () => {
+    expect(errorsOfDocument("A\nstyle A fill:")).toEqual([]);
+    expect(errorsOfDocument("A\nclassDef u fill:,stroke:#333\nclass A u")).toEqual([]);
+  });
+});
+
+/**
+ * Whitespace inside a declaration: Mermaid 12.2.0's declaration-list
+ * condition skips whitespace and glues the words on either side of it into
+ * one, so `stroke-dasharray:5 5` paints `55`, `font-family:Noto Sans`
+ * `NotoSans`, `stroke-width:4 px` `4px`, `fill:red blue` `redblue`,
+ * `fill:#f96 C` `#f96C`, `fill:# f96` `#f96` and `fi ll:red` `fill:red` —
+ * measured in Chrome, in both statements, a tab the same as a space. A
+ * space beside `:` or `,` is skipped with nothing to glue, and draws as
+ * written (`fill :red`, `fill: red`, `fill:red ,stroke:blue`).
+ */
+describe("parseErDiagram — whitespace inside a declaration", () => {
+  const errorsOfDocument = (body: string) =>
+    parseSiren(`erDiagram\n${body}`)
+      .diagnostics.filter(({ severity }) => severity === "error")
+      .map(({ message, line, column }) => ({ message, line, column }));
+  const joined = (
+    keyword: string,
+    declaration: string,
+    before: string,
+    after: string,
+    line: string,
+    tab = false,
+  ) =>
+    `Declaration "${declaration}" in a \`${keyword}\` declaration list in erDiagram holds a ` +
+    `${tab ? "tab" : "space"} between "${before}" and "${after}", which would join them into ` +
+    `"${before}${after}": a space or a tab can stand only beside ":" or ",", or before the line's closing ";", ` +
+    `so a value with a space in it, such as a font name or a dash pattern, cannot be written. Remove the ${tab ? "tab" : "space"}, ` +
+    `or the declaration, in "${line}"`;
+
+  it("refuses a space between two words of a value, in either statement", () => {
+    for (const [value, column, before, after] of [
+      ["fill:red blue", 17, "red", "blue"],
+      ["stroke-dasharray:5 5", 27, "5", "5"],
+      ["stroke-width:4 px", 23, "4", "px"],
+      ["font-family:Noto Sans", 25, "Noto", "Sans"],
+      ["fill:#f96 C", 18, "#f96", "C"],
+      ["fill:red   blue", 17, "red", "blue"],
+    ] as const) {
+      expect(errorsOfDocument(`A\nstyle A ${value}`), value).toEqual([
+        { message: joined("style", value, before, after, `style A ${value}`), line: 3, column },
+      ]);
+      expect(errorsOfDocument(`A\nclassDef u ${value}\nclass A u`), value).toEqual([
+        { message: joined("classDef", value, before, after, `classDef u ${value}`), line: 3, column: column + 3 },
+      ]);
+    }
+  });
+
+  it("refuses a space inside a property name, and one after a `#`", () => {
+    expect(errorsOfDocument("A\nstyle A fi ll:red")).toEqual([
+      { message: joined("style", "fi ll:red", "fi", "ll", "style A fi ll:red"), line: 3, column: 11 },
+    ]);
+    expect(errorsOfDocument("A\nclassDef u fill:# f96\nclass A u")).toEqual([
+      { message: joined("classDef", "fill:# f96", "#", "f96", "classDef u fill:# f96"), line: 3, column: 18 },
+    ]);
+  });
+
+  it("refuses a tab between two words the same as a space", () => {
+    expect(errorsOfDocument("A\nstyle A fill:red\tblue")).toEqual([
+      { message: joined("style", "fill:red\tblue", "red", "blue", "style A fill:red\tblue", true), line: 3, column: 17 },
+    ]);
+  });
+
+  it("names the declaration the space is in, past a comma and mid-line", () => {
+    expect(errorsOfDocument("A\nstyle A fill:red, stroke:blue blue")).toEqual([
+      {
+        message: joined("style", "stroke:blue blue", "blue", "blue", "style A fill:red, stroke:blue blue"),
+        line: 3,
+        column: 30,
+      },
+    ]);
+    expect(errorsOfDocument("A style A fill:red blue")).toEqual([
+      { message: joined("style", "fill:red blue", "red", "blue", "A style A fill:red blue"), line: 2, column: 19 },
+    ]);
+  });
+
+  it("reads a space or a tab beside a `:`, a `,` or the line's last `;`", () => {
+    for (const value of [
+      "fill :red",
+      "fill: red",
+      "fill  :  red",
+      "fill:\tred",
+      "fill:red ,stroke:blue",
+      "fill:red, stroke:blue",
+      "fill:red\t,stroke:blue",
+      "fill : red , stroke : blue",
+      "fill:red ;",
+    ]) {
+      expect(errorsOfDocument(`A\nstyle A ${value}`), JSON.stringify(value)).toEqual([]);
+      expect(errorsOfDocument(`A\nclassDef u ${value}\nclass A u`), JSON.stringify(value)).toEqual([]);
+    }
+  });
+});
+
+/**
+ * A `,` between the target list and the declarations: the target list is
+ * an `idList`, whose commas may have whitespace on either side, so Mermaid
+ * 12.2.0 reads `style A ,fill:red` as the targets `A` and `fill` and the
+ * declaration `:red`, with no property — `A` is painted nothing and an
+ * entity called `fill`, if there is one, is styled instead (measured in
+ * Chrome; `style A ,fill` alone is a parse error). `classDef u ,fill:red`
+ * defines `u` and `fill` the same way.
+ */
+describe("parseErDiagram — a `,` between the targets and the declarations", () => {
+  const errorsOfDocument = (body: string) =>
+    parseSiren(`erDiagram\n${body}`)
+      .diagnostics.filter(({ severity }) => severity === "error")
+      .map(({ message, line, column }) => ({ message, line, column }));
+  const comma = (keyword: string, list: string, last: string, word: string, line: string) =>
+    `The "," after "${last}" adds "${word}" to the ${list} of \`${keyword}\` in erDiagram, so its declaration ` +
+    `loses its property: separate the ${list} from the declarations with a space, not a ",", in "${line}"`;
+
+  it("refuses one after a `style` target, with or without spaces around it", () => {
+    for (const [line, column, last] of [
+      ["style A ,fill:red", 9, "A"],
+      ["style A, fill:red", 8, "A"],
+      ["style A , fill: red", 9, "A"],
+      ["style A,B ,fill:red,stroke:blue", 11, "B"],
+    ] as const) {
+      expect(errorsOfDocument(`A\nB\n${line}`), line).toEqual([
+        { message: comma("style", "targets", last, "fill", line), line: 4, column },
+      ]);
+    }
+  });
+
+  it("refuses one after a `classDef` name", () => {
+    expect(errorsOfDocument("A\nclassDef u ,fill:red\nclass A u")).toEqual([
+      { message: comma("classDef", "names", "u", "fill", "classDef u ,fill:red"), line: 3, column: 12 },
+    ]);
+  });
+
+  it("still reads a `,` between two targets, and still names a relationship id", () => {
+    expect(errorsOfDocument("A\nB\nstyle A ,B fill:red")).toEqual([]);
+    expect(errorsOfDocument("A\nB\nstyle A,B:C fill:#f96").map(({ message }) => message)).toEqual([
+      'Relationships cannot be styled in erDiagram: "B:C" names the relationship between ' +
+        '"B" and "C", and `style` reaches only entities and subgraphs, in "style A,B:C fill:#f96"',
+    ]);
   });
 });
