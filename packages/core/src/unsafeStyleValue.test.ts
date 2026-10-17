@@ -21,6 +21,18 @@ describe("unsafeStyleValue", () => {
     expect(unsafeStyleValue(value)).toMatchObject({ kind: "function", name });
   });
 
+  it.each([
+    ['"/*" url(https://evil/x) "*/"', "url("],
+    ['"/*" attr(x) "*/"', "attr("],
+    ["'/*' image-set('a.png' 1x) '*/'", "image-set("],
+  ])("refuses %s, whose quoted comment marks hide no call", (value, name) => {
+    expect(unsafeStyleValue(value)).toMatchObject({ kind: "function", name });
+  });
+
+  it("keeps a quoted name holding comment marks, which are text inside a string", () => {
+    expect(unsafeStyleValue('"/*", red')).toBeNull();
+  });
+
   it("refuses a value whose comment is never closed, which could hide a function from the rule", () => {
     expect(unsafeStyleValue("red /* image-set(")).toMatchObject({ kind: "function" });
   });
@@ -110,6 +122,9 @@ describe("unsafeStyleValue as an allowlist of the characters a style value is wr
     ["red !foo", "!"],
     ["rgb(1, 2, 3", "("],
     ["red)", ")"],
+    ['"a\nb"', '"'],
+    ["'a\rb'", "'"],
+    ['"a\fb"', '"'],
   ])("refuses %s, which holds %s outside a quoted name", (value, character) => {
     expect(unsafeStyleValue(value)).toEqual({ kind: "character", character });
   });

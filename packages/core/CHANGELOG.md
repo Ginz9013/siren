@@ -172,7 +172,10 @@ other than a colour function, a math function, `var(` or a gradient — `fill:at
 length, keyword or quoted name is written with (`fill:a$b`, `fill:a?b`, `fill:a!b`, an unclosed
 quote or parenthesis), which Mermaid 12.2.0 accepts and is now refused; the same characters in a
 flowchart `style`, `classDef` or `linkStyle` are refused too. A label's `<span style>` or
-`<font face>` value of that kind is now drawn as though it were not written (see **Changed**).
+`<font face>` value of that kind is now drawn as though it were not written, and an icon's
+geometry attribute with no `(` that holds `$`, `?`, `!` or `{` is now dropped (see **Changed**).
+A `:` stays allowed: a colon calls nothing, and a flowchart `style` line whose `;` Mermaid drops
+can carry one.
 
 ### Added
 

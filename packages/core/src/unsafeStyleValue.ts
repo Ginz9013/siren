@@ -39,12 +39,14 @@ export type UnsafeStyleValue =
  * These are not the gate: `ALLOWED_FUNCTIONS` below is, and refuses every
  * function it does not list, these included. They are looked for first so
  * that a value using one is refused with why it is dangerous rather than
- * only that it is unlisted, and `url(` and `expression(` anywhere in the
- * value, even inside a quoted name. Note that these patterns match *text*: an author can spell any of them with a CSS escape,
- * which is why `unsafeStyleValue` refuses a value carrying a backslash
- * before it can reach one of these names in disguise, and a comment
- * between a name and its paren, which is why comments are read out of the
- * value first.
+ * only that it is unlisted, and so that `url(` and `expression(` are
+ * refused anywhere in the value, even inside a quoted name.
+ *
+ * Note that these patterns match *text*: an author can spell any of them
+ * with a CSS escape, which is why `unsafeStyleValue` refuses a value
+ * carrying a backslash before it can reach one of these names in disguise,
+ * and with a comment between a name and its paren, which is why comments
+ * are read out of the value first.
  */
 const fetching = (name: string, why = "can fetch a remote resource") => ({
   pattern: new RegExp(`(?<![a-z0-9_-])(?:-[a-z]+-)?${name}\\s*\\(`, "i"),
@@ -86,8 +88,48 @@ const ALLOWED_FUNCTIONS: ReadonlySet<string> = new Set([
   "repeating-linear-gradient", "repeating-radial-gradient", "repeating-conic-gradient",
 ]);
 
-/** A quoted string — a family name — whose text is no call, whatever it holds. */
-const QUOTED = /"[^"]*"|'[^']*'/g;
+/**
+ * A quoted string — a family name — opened by either quote and closed by
+ * the same one before its line ends: CSS ends a string at a newline.
+ */
+const QUOTED = { '"': /^"[^"\n\r\f]*"/, "'": /^'[^'\n\r\f]*'/ } as const;
+
+/**
+ * The value read once from left to right, as CSS reads it: a quoted string —
+ * a family name, closed on its own line — is text, whatever it holds, so a
+ * `/*` inside one opens no comment; a comment outside one is nothing, so it
+ * is read out. `uncommented` keeps the strings, for the denylist to look
+ * inside; `outside` sets each aside as a space, for the grammar, which a
+ * string's text is no part of. A quote with no partner before the end of
+ * its line is kept in both as a lone character, for the grammar to refuse.
+ * `unclosed` when a comment is never closed.
+ */
+function readStringsAndComments(value: string): { uncommented: string; outside: string } | "unclosed" {
+  let uncommented = "";
+  let outside = "";
+  let at = 0;
+  while (at < value.length) {
+    const character = value[at]!;
+    if (character === '"' || character === "'") {
+      const string = QUOTED[character].exec(value.slice(at));
+      if (string !== null) {
+        uncommented += string[0];
+        outside += " ";
+        at += string[0].length;
+        continue;
+      }
+    } else if (value.startsWith("/*", at)) {
+      const end = value.indexOf("*/", at + 2);
+      if (end === -1) return "unclosed";
+      at = end + 2;
+      continue;
+    }
+    uncommented += character;
+    outside += character;
+    at += 1;
+  }
+  return { uncommented, outside };
+}
 
 /** `!important`, the one place a `!` belongs in a value. */
 const IMPORTANT = /!\s*important(?![-\w])/gi;
@@ -120,12 +162,15 @@ const FUNCTION_CALL = /([-\w\u0080-\uffff]*)\s*\(/g;
  */
 export function unsafeStyleValue(value: string): UnsafeStyleValue | null {
   // A comment is nothing to CSS, so it is read out before the names are
-  // looked for: `image-set/**/(` is `image-set(`. One never closed runs to
-  // the end of the value, and is refused rather than guessed at.
-  const uncommented = value.replace(/\/\*[\s\S]*?\*\//g, "");
-  if (uncommented.includes("/*")) {
+  // looked for: `image-set/**/(` is `image-set(`. It is read out in the same
+  // pass that reads the strings, so a `/*` inside a quoted name opens no
+  // comment that could swallow a call. One never closed runs to the end of
+  // the value, and is refused rather than guessed at.
+  const read = readStringsAndComments(value);
+  if (read === "unclosed") {
     return { kind: "function", name: "/*", why: "opens a comment that is never closed" };
   }
+  const { uncommented, outside } = read;
   for (const { pattern, name, why } of REJECTED_VALUE_FUNCTIONS) {
     if (pattern.test(uncommented)) {
       return { kind: "function", name, why };
@@ -158,12 +203,11 @@ export function unsafeStyleValue(value: string): UnsafeStyleValue | null {
     return { kind: "backslash" };
   }
 
-  // What is left is read against the grammar a value is written in: a
-  // quoted family name is set aside whole, every call must be to a listed
+  // What is left is read against the grammar a value is written in: with
+  // each quoted family name set aside whole, every call must be to a listed
   // function, and every other character must be one a colour, length,
   // keyword or number is spelled with. A quote with no partner is left
-  // behind by the first step and refused by the third.
-  const outside = uncommented.replace(QUOTED, " ");
+  // behind by the reading above and refused here.
   for (const [, name] of outside.matchAll(FUNCTION_CALL)) {
     if (name !== "" && !ALLOWED_FUNCTIONS.has(name.toLowerCase())) {
       return { kind: "function", name: `${name}(`, why: "is not one of the functions a style value may use" };
