@@ -22,6 +22,7 @@ import { describe, expect, it } from "vitest";
 import type { Diagnostic, SirenRenderResult } from "../contracts";
 import { render } from "../index";
 import { COMPAT_CASES, type CompatCase } from "./corpus";
+import { endsOffOutline } from "./layoutDefects";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -320,6 +321,25 @@ describe("the corpus, case by case", () => {
       }
     },
   );
+});
+
+/**
+ * Every flowchart and state row that draws a picture, held to one layout
+ * rule whatever its own assert says: a line meeting a shape that is not
+ * simply its box ends on the figure drawn there, not on the box around it
+ * (`endsOffOutline`).
+ */
+const FIGURE_ROWS = COMPAT_CASES.filter((entry) => entry.kind === "flowchart" || entry.kind === "state");
+
+describe("every flowchart and state row's line ends", () => {
+  it.each(FIGURE_ROWS.map((entry) => [entry.id, entry] as const))("%s", (_id, entry) => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const { svg } = render(entry.source, container);
+    if (svg === null) return;
+
+    expect(endsOffOutline(svg)).toEqual([]);
+  });
 });
 
 /**

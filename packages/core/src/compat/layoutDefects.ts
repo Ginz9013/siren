@@ -5,7 +5,9 @@
  * script's job): these are pictures that are wrong whatever Mermaid draws —
  * frames overlapping each other, an edge leaving a frame as a two-point
  * straight segment, a line drawn through a box it does not belong to, an
- * edge label drawn over a box or over another label.
+ * edge label drawn over a box or over another label, a line (in a flowchart
+ * or a state diagram) stopping on a shape's box but off the figure drawn
+ * there.
  *
  * Read from the finished SVG with the readers `corpus.ts` reads it with
  * (`svgGeometry.ts`) — frames by their `rect.siren-subgraph-frame` keyed by
@@ -17,7 +19,9 @@
 
 import {
   type Box,
+  distanceToPolyline,
   encloses,
+  frameOutline,
   holds,
   interiorsMeet,
   type Point,
@@ -286,4 +290,162 @@ export function overlappingLabels(svg: SVGSVGElement): [string, string][] {
     }
   });
   return pairs;
+}
+
+/**
+ * The classes a node's or a state's figure is drawn with: a flowchart
+ * node's frames, a state's box or choice diamond, a fork's bar, a start's
+ * disc, an end's outer ring (its inner disc lies inside it), a composite's
+ * or a region's frame.
+ */
+const FIGURE_CLASSES = [
+  "siren-node-frame",
+  "siren-state-frame",
+  "siren-state-bar",
+  "siren-state-start",
+  "siren-state-end",
+  "siren-composite-frame",
+  "siren-state-region",
+];
+
+/**
+ * Every line whose ends are clipped to a figure: a flowchart edge, a state
+ * transition, and the connector from a state's note to its state — named
+ * `note on <state>`, since a note's connector carries no id of its own.
+ */
+function connectorLines(svg: SVGSVGElement): { id: string; points: Point[] }[] {
+  const notes = Array.from(svg.querySelectorAll("path.siren-note-link")).map((path) => ({
+    id: `note on ${path.closest("g.siren-state")?.getAttribute("data-siren-id") ?? "<no id>"}`,
+    points: routeOf(path),
+  }));
+  const transitions = Array.from(svg.querySelectorAll("path.siren-transition-line")).map((path) => ({
+    id: path.getAttribute("data-siren-id") ?? path.closest("g.siren-transition")?.getAttribute("data-siren-id") ?? "<no id>",
+    points: routeOf(path),
+  }));
+  return [...edgeLines(svg), ...transitions, ...notes];
+}
+
+/** A drawn node or state, as `endsOffOutline` reads it. */
+interface Figure {
+  id: string;
+  /** A flowchart node's `data-siren-shape`; `null` for a state. */
+  shape: string | null;
+  box: Box;
+  outline: Point[][];
+}
+
+/**
+ * Every drawn node or state whose figure is not simply its box, with its box (the
+ * extent of everything it is drawn with, curves' bulges included) and the
+ * outline it is drawn with, read off each frame with `frameOutline`. A node
+ * one of whose frames is a square-cornered `<rect>` is left out: its box is
+ * its figure, so an end on the box is an end on the figure.
+ */
+function drawnFigures(svg: SVGSVGElement): Figure[] {
+  return Array.from(svg.querySelectorAll("g.siren-node, g.siren-state")).flatMap((group) => {
+    // The group's own children only: a composite state's group holds its
+    // members' groups, and a state's holds its note, neither its figure.
+    const frames = Array.from(group.children).filter((child) =>
+      FIGURE_CLASSES.some((name) => child.classList.contains(name)),
+    );
+    const outlines = frames.map(frameOutline);
+    // `frameOutline` reads a rect with no rounding as its four corners, closed.
+    const square = frames.some(
+      (frame, i) => frame.tagName.toLowerCase() === "rect" && outlines[i].length === 1 && outlines[i][0].length === 5,
+    );
+    const outline = outlines.flat();
+    const points = outline.flat();
+    if (square || points.length === 0) return [];
+    return [
+      {
+        id: group.getAttribute("data-siren-id") ?? "<no id>",
+        shape: group.getAttribute("data-siren-shape"),
+        box: {
+          top: Math.min(...points.map(({ y }) => y)),
+          bottom: Math.max(...points.map(({ y }) => y)),
+          left: Math.min(...points.map(({ x }) => x)),
+          right: Math.max(...points.map(({ x }) => x)),
+        },
+        outline,
+      },
+    ];
+  });
+}
+
+/**
+ * Every (line, node) pair — a flowchart edge, a state transition or a
+ * note's connector, and a node or a state — where an end of the line stops
+ * on the box of one drawn as something other than its box — within
+ * `TOLERANCE` of it — but more than `TOLERANCE` from the figure actually
+ * drawn there, in draw order: an arrow that stops short of a diamond, or in
+ * the air beside a circle. A connector is clipped to its shape's outline,
+ * so its end belongs on the figure, not on the box around it — except
+ * where it is left off on purpose (`offOnPurpose`).
+ */
+export function endsOffOutline(svg: SVGSVGElement): { edge: string; node: string }[] {
+  const figures = drawnFigures(svg);
+  return connectorLines(svg).flatMap(({ id, points }) => {
+    const ends = [points[0], points[points.length - 1]];
+    return figures
+      .filter((figure) =>
+        ends.some(
+          (end) =>
+            holds(grown(figure.box, TOLERANCE), end, 0) &&
+            Math.min(...figure.outline.map((line) => distanceToPolyline(end, line))) > TOLERANCE &&
+            !offOnPurpose(figure, end),
+        ),
+      )
+      .map((figure) => ({ edge: id, node: figure.id }));
+  });
+}
+
+/**
+ * Whether `end`, off `figure`'s drawn outline, is off it on purpose — the
+ * shapes whose connectors are deliberately not clipped onto what is drawn:
+ *
+ * - **A brace** (`brace-left`, `brace-right`, `braces`) meets the box it
+ *   stands in, an invisible hit rectangle, as Mermaid's handler for it
+ *   does: the brace is drawn down one side or two, and a
+ *   line from anywhere else stops on the box.
+ * - **An hourglass**, on its left or right side: its outline is two
+ *   triangles meeting at the pinch, drawn along the top, the bottom and
+ *   both diagonals. A line meeting it from the side would cross the outline
+ *   only at the pinch, in the middle of the figure, so the clip keeps the
+ *   end on the box's open side instead.
+ * - **A bang whose drawn outline crosses itself** — one so narrow for its
+ *   height that the scallops down its two sides dip past each other. The
+ *   clip skips crossings of an outline with itself, so an end there can
+ *   stop where no arc is drawn.
+ */
+function offOnPurpose(figure: Figure, end: Point): boolean {
+  switch (figure.shape) {
+    case "brace-left":
+    case "brace-right":
+    case "braces":
+      return true;
+    case "hourglass":
+      return (
+        Math.abs(end.x - figure.box.left) <= TOLERANCE || Math.abs(end.x - figure.box.right) <= TOLERANCE
+      );
+    case "bang":
+      return crossesItself(figure.outline);
+    default:
+      return false;
+  }
+}
+
+/**
+ * Whether any two segments of `outline`'s polylines that are not neighbours
+ * cross at a point inside both — touching at an end does not count.
+ */
+function crossesItself(outline: Point[][]): boolean {
+  const segments = outline.flatMap((line) => line.slice(1).map((b, i) => [line[i], b] as const));
+  const turn = (a: Point, b: Point, c: Point) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  const EPSILON = 1e-9;
+  const opposite = (p: number, q: number) => (p > EPSILON && q < -EPSILON) || (p < -EPSILON && q > EPSILON);
+  return segments.some(([a, b], i) =>
+    segments
+      .slice(i + 2)
+      .some(([c, d]) => opposite(turn(c, d, a), turn(c, d, b)) && opposite(turn(a, b, c), turn(a, b, d))),
+  );
 }
