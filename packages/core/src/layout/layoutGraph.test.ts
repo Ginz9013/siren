@@ -5,6 +5,10 @@ import { CONNECTOR_LABEL_SCALE, plainLabel, plainRun } from "../label/label";
 import { readLabel } from "../label/readLabel";
 import { layoutGraph } from "./layoutGraph";
 import { SHAPES } from "./shapes/shapeTable";
+import { lineHops } from "./lineHops";
+import { curveCornerRadius, FLOWCHART_DEFAULT_CURVE } from "../curve/curve";
+import { parseSiren } from "../parser/parseSiren";
+import { buildGraphModel } from "../graph-model/buildGraphModel";
 
 /** Deterministic fake measurer per the ticket: width = text.length * 8, height = 24. */
 const fakeMeasurer: TextMeasurer = {
@@ -1676,6 +1680,84 @@ describe("where an edge meets a node that is not a rectangle", () => {
     const frame = positioned.subgraphs[0]!;
     const end = positioned.edges[0]!.points.at(-1)!;
     expect(end.y).toBeCloseTo(frame.y, 9);
+  });
+
+  it("hops a crossing that moving an end onto its outline makes", () => {
+    // Found by fuzzing: here a route crosses another only once an end is on
+    // its shape's outline rather than on its box, so hops read off the
+    // routes as the layout engine left them would miss it.
+    const source = [
+      "flowchart TB",
+      "N0@{shape: circle}",
+      "N5@{shape: bolt}",
+      "N6@{shape: hex}",
+      "N5-->N3",
+      "N0-->N1",
+      "N2-->N1",
+      "N5-->N6",
+      "N2-->N0",
+      "N4-->N1",
+      "N2-->N5",
+      "N1-->N5",
+      "N6-->N4",
+      "N6-->N2",
+      "N1-->N2",
+    ].join("\n");
+    const built = buildGraphModel(parseSiren(source).document!);
+    if (built.kind !== "flowchart") throw new Error(`expected a flowchart, got ${built.kind}`);
+    const positioned = layoutGraph(built.model, { measureText: fakeMeasurer });
+    const expected = lineHops(
+      positioned.edges.map((drawn) => ({
+        points: drawn.points,
+        cornerRadius: curveCornerRadius(drawn.curve ?? FLOWCHART_DEFAULT_CURVE),
+      })),
+    );
+    expect(positioned.edges.map((drawn) => drawn.hops)).toEqual(expected);
+  });
+
+  it.each(["TB", "LR", "BT", "RL"] as const)(
+    "stops an edge into a rhombus nested in a subgraph on the rhombus's outline, under %s",
+    (direction) => {
+      const graph = graphOf(
+        direction,
+        [node("X", "rect", "aaa"), { ...node("S", "rhombus", "decide"), parentId: "subgraph:1" }, node("Y", "rect", "bbb")],
+        [edge("X", "S"), edge("S", "Y")],
+      );
+      graph.subgraphs = [{ id: "subgraph:1", label: plainLabel("group"), parentId: null, direction: null }];
+      expectOnOutline(layoutGraph(graph, { measureText: fakeMeasurer }), "S");
+    },
+  );
+
+  it("leaves an edge label where layout put it when its ends move onto outlines", () => {
+    // Three labelled edges fanning into a rhombus: the outer two meet it
+    // beside its top corner and move down onto its slanted sides.
+    const graph = graphOf(
+      "TB",
+      [node("A", "rect", "aaaa"), node("B", "rect", "bbbb"), node("C", "rect", "cccc"), node("D", "rhombus", "decide here")],
+      [edge("A", "D"), edge("B", "D"), edge("C", "D")].map((drawn) => ({ ...drawn, label: plainLabel("yes") })),
+    );
+    const positioned = layoutGraph(graph, { measureText: fakeMeasurer });
+    // The same boxes and edges handed straight to the shared core, whose
+    // routes end on the boxes.
+    const laidOut = layoutDirectedGraph({
+      direction: "TB",
+      nodes: positioned.nodes.map((placed) => ({ id: placed.id, width: placed.width, height: placed.height })),
+      edges: positioned.edges.map((drawn) => ({
+        id: drawn.id,
+        from: drawn.from,
+        to: drawn.to,
+        minLength: drawn.minLength,
+        label: drawn.label!.labelBox,
+        cornerRadius: curveCornerRadius(FLOWCHART_DEFAULT_CURVE),
+      })),
+    });
+    const moved = positioned.edges.filter((drawn, index) => {
+      const unclipped = laidOut.edges[index]!;
+      expect(drawn.points.slice(0, -1)).toEqual(unclipped.points.slice(0, -1));
+      return Math.abs(drawn.points.at(-1)!.y - unclipped.points.at(-1)!.y) > 1;
+    });
+    expect(moved.length).toBeGreaterThan(0);
+    expect(positioned.edges.map((drawn) => drawn.label!.anchor)).toEqual(laidOut.edges.map((route) => route.labelAnchor));
   });
 
   it("does not move the ends of an edge between two rectangles", () => {

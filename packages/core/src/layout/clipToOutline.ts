@@ -1,4 +1,5 @@
-import type { Point } from "../contracts";
+import type { LineHop, Point } from "../contracts";
+import { type HopRoute, lineHops } from "./lineHops";
 
 /**
  * Moving a route's ends onto the outlines of the shapes they meet.
@@ -10,7 +11,9 @@ import type { Point } from "../contracts";
  * after layout and slides each end along the run that reaches it — the
  * route's first or last segment, extended or shortened — until it meets the
  * shape's outline (`ShapeSpec.outline`). Only the end point moves: the route
- * keeps its points, its bends and its labels.
+ * keeps its points, its bends and its labels. Its line hops do not keep: a
+ * longer run can cross a line it stopped short of on the box, so they are
+ * read again off the clipped routes (`clipRoutesAndHop`).
  *
  * Mermaid 12.2.0 does the same on its ELK layout (measured in headless
  * Chrome, classic look): an edge into a diamond beside its top corner runs
@@ -40,29 +43,30 @@ export function outlineCrossing(from: Point, to: Point, outline: readonly Point[
     return null;
   }
   let nearest: number | null = null;
-  outline.forEach((a, i) => {
+  for (let i = 0; i < outline.length; i++) {
+    const a = outline[i]!;
     const b = outline[(i + 1) % outline.length]!;
     const ex = b.x - a.x;
     const ey = b.y - a.y;
     const denominator = dx * ey - dy * ex;
     if (Math.abs(denominator) < EPSILON) {
-      return;
+      continue;
     }
     // `from + t (to - from) = a + u (b - a)`.
     const t = ((a.x - from.x) * ey - (a.y - from.y) * ex) / denominator;
     const u = ((a.x - from.x) * dy - (a.y - from.y) * dx) / denominator;
     if (u < -EPSILON || u > 1 + EPSILON || t <= EPSILON) {
-      return;
+      continue;
     }
     if (nearest !== null && t >= nearest) {
-      return;
+      continue;
     }
     const crossing = { x: from.x + t * dx, y: from.y + t * dy };
     if (u > EPSILON && u < 1 - EPSILON && crossesItselfAt(outline, i, crossing)) {
-      return;
+      continue;
     }
     nearest = t;
-  });
+  }
   return nearest === null ? null : { x: from.x + nearest * dx, y: from.y + nearest * dy };
 }
 
@@ -90,7 +94,9 @@ function crossesItselfAt(outline: readonly Point[], edge: number, point: Point):
  * `points` with its first point moved onto `start` and its last onto `end`,
  * each along the segment that reaches it (`outlineCrossing`). An end with no
  * outline (a subgraph's frame, which the route already meets), or whose run
- * meets its outline nowhere, keeps its point. Both ends are read off the
+ * meets its outline nowhere, keeps its point; so does an end whose run
+ * starts inside the outline's box, where the first side ahead may be the
+ * one the line leaves the shape by rather than the one it arrives at. Both ends are read off the
  * route as laid out, so a two-point route's ends do not chase each other;
  * and if moving them would turn that route back on itself, it is left alone.
  */
@@ -107,11 +113,11 @@ export function clipRouteToOutlines(
   const last = points.at(-1)!;
   if (start !== null) {
     const from = firstDistinct(points, first, 1);
-    clipped[0] = (from && outlineCrossing(from, first, start)) ?? first;
+    clipped[0] = (from && !insideBoxOf(from, start) && outlineCrossing(from, first, start)) || first;
   }
   if (end !== null) {
     const from = firstDistinct(points, last, -1);
-    clipped[clipped.length - 1] = (from && outlineCrossing(from, last, end)) ?? last;
+    clipped[clipped.length - 1] = (from && !insideBoxOf(from, end) && outlineCrossing(from, last, end)) || last;
   }
   if (points.length === 2) {
     const before = (last.x - first.x) * (last.x - first.x) + (last.y - first.y) * (last.y - first.y);
@@ -121,6 +127,40 @@ export function clipRouteToOutlines(
     }
   }
   return clipped;
+}
+
+/** Whether `point` lies strictly inside the box `outline` is inscribed in. */
+function insideBoxOf(point: Point, outline: readonly Point[]): boolean {
+  const xs = outline.map((corner) => corner.x);
+  const ys = outline.map((corner) => corner.y);
+  return (
+    point.x > Math.min(...xs) + EPSILON &&
+    point.x < Math.max(...xs) - EPSILON &&
+    point.y > Math.min(...ys) + EPSILON &&
+    point.y < Math.max(...ys) - EPSILON
+  );
+}
+
+/** A route as `clipRoutesAndHop` reads it: its points, how it is drawn, and the outline at each end, if any. */
+export interface OutlinedRoute extends HopRoute {
+  start: readonly Point[] | null;
+  end: readonly Point[] | null;
+}
+
+/**
+ * Every route of one drawing with its ends on their outlines
+ * (`clipRouteToOutlines`) and its line hops read off the clipped routes all
+ * together (`lineHops`), in the routes' order. Every route is passed, an
+ * unclipped one too: which of two crossing routes carries a hop, and how
+ * large it is, depend on both.
+ */
+export function clipRoutesAndHop(routes: readonly OutlinedRoute[]): { points: Point[]; hops: LineHop[] }[] {
+  const clipped = routes.map((route) => ({
+    points: clipRouteToOutlines(route.points, route.start, route.end),
+    cornerRadius: route.cornerRadius,
+  }));
+  const hops = lineHops(clipped);
+  return clipped.map((route, index) => ({ points: route.points, hops: hops[index]! }));
 }
 
 /** The first point of `points`, from its start (`step` 1) or its end (-1), not at `end`. */

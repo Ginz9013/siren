@@ -408,8 +408,10 @@ outline (`clipToOutline.ts`, reading each record's `outline`). The crossing is f
 never by asking which side of the outline is inside, because an outline may cross itself (an
 hourglass); the point where it does is not a place a line ends, so a line level with an hourglass's
 pinch keeps its end on the box, as Mermaid 12.2.0 draws it. An end at a subgraph stays on the
-frame; a self-loop's two ends both meet the outline. Only the end points move — bends, labels and
-line hops stay put.
+frame; a self-loop's two ends both meet the outline, and an end whose run starts inside the box keeps
+its place. Only the end points move — bends and labels stay put — but the line hops are read again
+off the clipped routes (`clipRoutesAndHop`), since a run carried on to the outline can cross a line
+it stopped short of. A state diagram clips its pseudo-states' and choices' ends the same way.
 The shapes with a **curved outline** (`curvedShapes.ts`, nook `01M51XACHP`) are
 records too — `delay`, `curv-trap`, `h-cyl`, `lin-cyl`, `bow-rect`, `doc`, `lin-doc`, `tag-doc`,
 `docs`, `flag`, `brace`, `brace-r` and `braces`. A round end, a cylinder's end and a brace's curl

@@ -21,7 +21,7 @@ import {
   type DirectedGraphNodeBox,
 } from "./layoutDirectedGraph";
 import { clusterNode, SUBGRAPH_PADDING } from "./clusters";
-import { clipRouteToOutlines } from "./clipToOutline";
+import { clipRoutesAndHop } from "./clipToOutline";
 import { circleOutline, edgesOf } from "./shapes/shape";
 import { noteBoxSize, noteLinkEdgeId, noteNodeId } from "./notes";
 import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
@@ -322,7 +322,28 @@ export function layoutStateDiagram(
   });
 
   const boxById = new Map(laidOut.nodes.map((box) => [box.id, box]));
-  const routeById = new Map(laidOut.edges.map((route) => [route.id, route]));
+
+  // Where each end of a transition stops: on the figure a pseudo-state or a
+  // choice is drawn as, rather than on the box layout routed it to
+  // (`clipRoutesAndHop`). A note's connector keeps both its ends. The line
+  // hops the layout core read off the routes on their boxes are read again
+  // here, every route together: a run carried on to a figure can cross a
+  // line it stopped short of.
+  const stateById = new Map(model.states.map((state) => [state.id, state]));
+  const outlineOf = (id: string) => figureOutline(stateById.get(id)!, boxById.get(id)!);
+  const transitionById = new Map(model.transitions.map((transition) => [transition.id, transition]));
+  const clipped = clipRoutesAndHop(
+    laidOut.edges.map((route) => {
+      const transition = transitionById.get(route.id);
+      return {
+        points: route.points,
+        start: transition === undefined ? null : outlineOf(transition.from),
+        end: transition === undefined ? null : outlineOf(transition.to),
+        cornerRadius: CONNECTOR_CORNER_RADIUS,
+      };
+    }),
+  );
+  const routeById = new Map(laidOut.edges.map((route, index) => [route.id, { ...route, ...clipped[index]! }]));
 
   /**
    * Each styled state's declarations, keyed for lookup below.
@@ -364,20 +385,13 @@ export function layoutStateDiagram(
     };
   });
 
-  // Where each end of a transition stops: on the figure a pseudo-state or
-  // a choice is drawn as, rather than on the box layout routed it to (`clipRouteToOutlines`).
-  // The line hops were read off the routes before this and still hold: an
-  // end only slides along the run it is on, into its own state's box.
-  const stateById = new Map(model.states.map((state) => [state.id, state]));
-  const outlineOf = (id: string) => figureOutline(stateById.get(id)!, boxById.get(id)!);
-
   const transitions = model.transitions.map<PositionedStateTransition>((transition) => {
     const route = routeById.get(transition.id)!;
     return {
       id: transition.id,
       from: transition.from,
       to: transition.to,
-      points: clipRouteToOutlines(route.points, outlineOf(transition.from), outlineOf(transition.to)),
+      points: route.points,
       hops: route.hops,
       label:
         transition.label === null || route.labelAnchor === undefined

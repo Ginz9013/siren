@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clipRouteToOutlines, outlineCrossing } from "./clipToOutline";
+import { clipRouteToOutlines, clipRoutesAndHop, outlineCrossing } from "./clipToOutline";
 
 /** A diamond inscribed in the 100 x 60 box at 0,0. */
 const diamond = [
@@ -80,6 +80,17 @@ describe("clipRouteToOutlines", () => {
     expect(clipRouteToOutlines(route, null, diamond).at(-1)).toEqual({ x: 25, y: 15 });
   });
 
+  it("leaves an end where it was when the run reaching it starts inside the shape's box", () => {
+    // From inside the diamond, the first side ahead is the one the line
+    // leaves by, not one it arrives at.
+    const route = [
+      { x: 40, y: -40 },
+      { x: 40, y: 30 },
+      { x: 40, y: 60 },
+    ];
+    expect(clipRouteToOutlines(route, null, diamond)).toEqual(route);
+  });
+
   it("leaves a two-point route alone when moving both ends would turn it back on itself", () => {
     // Each end's outline lies across the route nearer the other end.
     const box = (left: number, right: number) => [
@@ -93,5 +104,32 @@ describe("clipRouteToOutlines", () => {
       { x: 100, y: 0 },
     ];
     expect(clipRouteToOutlines(route, box(60, 70), box(30, 40))).toEqual(route);
+  });
+});
+
+describe("clipRoutesAndHop", () => {
+  it("hops a crossing that only moving an end onto its outline makes", () => {
+    // Down x = 25 stops on the diamond's box at y = 0, short of the
+    // crossing line at y = 10; on the diamond's side at y = 15 it crosses.
+    const across = {
+      points: [
+        { x: 0, y: 10 },
+        { x: 60, y: 10 },
+      ],
+      start: null,
+      end: null,
+    };
+    const into = {
+      points: [
+        { x: 25, y: -40 },
+        { x: 25, y: 0 },
+      ],
+      start: null,
+      end: diamond,
+    };
+    const [crossing, clipped] = clipRoutesAndHop([across, into]);
+    expect(clipped!.points.at(-1)).toEqual({ x: 25, y: 15 });
+    expect(crossing!.points).toEqual(across.points);
+    expect([...crossing!.hops, ...clipped!.hops]).toHaveLength(1);
   });
 });
