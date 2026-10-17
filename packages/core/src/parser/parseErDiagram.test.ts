@@ -2996,7 +2996,10 @@ describe("parseErDiagram — whitespace at the end of a declaration list's line"
       { message: trailing("style", "fill:red;", "style A fill:red;"), line: 3, column: 18 },
     ]);
     expect(errorsOfDocument("A\nstyle A fill:#f96; ")).toEqual([
-      { message: trailing("style", "fill:#f96", "style A fill:#f96"), line: 3, column: 19 },
+      { message: trailing("style", "fill:#f96;", "style A fill:#f96;"), line: 3, column: 19 },
+    ]);
+    expect(errorsOfDocument("A\nclassDef u fill:#f96;\t\nclass A u")).toEqual([
+      { message: trailing("classDef", "fill:#f96;", "classDef u fill:#f96;"), line: 3, column: 22 },
     ]);
   });
 
@@ -3013,9 +3016,10 @@ describe("parseErDiagram — whitespace at the end of a declaration list's line"
       ["fill:#f96  ;", "fill:#f96", 18],
       ["fill:#f96\t;", "fill:#f96", 18],
       ["fill:#f96, stroke:blue ;", "fill:#f96, stroke:blue", 31],
+      ["fill:#f96 ; ", "fill:#f96", 18],
     ] as const) {
       expect(errorsOfDocument(`A\nstyle A ${value}`), JSON.stringify(value)).toEqual([
-        { message: beforeSemicolon("style", read, `style A ${value}`), line: 3, column },
+        { message: beforeSemicolon("style", read, `style A ${value.trimEnd()}`), line: 3, column },
       ]);
     }
     expect(errorsOfDocument("A\nclassDef u fill:#f96 ;\nclass A u")).toEqual([
@@ -3077,6 +3081,36 @@ describe("parseErDiagram — an empty declaration in a declaration list", () => 
     // see "a `,` between the targets and the declarations".
     expect(errorsOfDocument("A\nclassDef u fill:red,,stroke:blue\nclass A u")).toEqual([
       { message: empty("classDef", "classDef u fill:red,,stroke:blue"), line: 3, column: 20 },
+    ]);
+  });
+
+  it("refuses one left empty once the line's closing `;` is set aside, in either statement", () => {
+    // Measured: Mermaid 12.2.0 refuses `fill:red,;` and `fill:red , ;` with
+    // a parse error at the `;`, in both statements.
+    for (const [value, column] of [
+      ["fill:red,;", 17],
+      ["fill:red , ;", 18],
+      ["fill:red,\t;", 17],
+    ] as const) {
+      expect(errorsOfDocument(`A\nstyle A ${value}`), JSON.stringify(value)).toEqual([
+        { message: empty("style", `style A ${value}`), line: 3, column },
+      ]);
+      expect(errorsOfDocument(`A\nclassDef u ${value}\nclass A u`), JSON.stringify(value)).toEqual([
+        { message: empty("classDef", `classDef u ${value}`), line: 3, column: column + 3 },
+      ]);
+    }
+  });
+
+  it("refuses a list that holds nothing but its closing `;`", () => {
+    // Measured: `style A ;` and `classDef u ;` are parse errors at the `;`.
+    const nothing = (keyword: string, line: string) =>
+      `A \`${keyword}\` declaration list in erDiagram cannot be empty: write at least one declaration ` +
+      `before the closing ";", in "${line}"`;
+    expect(errorsOfDocument("A\nstyle A ;")).toEqual([
+      { message: nothing("style", "style A ;"), line: 3, column: 9 },
+    ]);
+    expect(errorsOfDocument("A\nclassDef u ;\nclass A u")).toEqual([
+      { message: nothing("classDef", "classDef u ;"), line: 3, column: 12 },
     ]);
   });
 
@@ -3243,8 +3277,8 @@ describe("parseErDiagram — whitespace inside a declaration", () => {
   ) =>
     `Declaration "${declaration}" in a \`${keyword}\` declaration list in erDiagram holds a ` +
     `${tab ? "tab" : "space"} between "${before}" and "${after}", which would join them into ` +
-    `"${before}${after}": a space or a tab can stand only beside ":" or ",", so a value with a space in ` +
-    `it, such as a font name or a dash pattern, cannot be written. Remove the ${tab ? "tab" : "space"}, ` +
+    `"${before}${after}": a space or a tab can stand only beside ":" or ",", or before the line's closing ";", ` +
+    `so a value with a space in it, such as a font name or a dash pattern, cannot be written. Remove the ${tab ? "tab" : "space"}, ` +
     `or the declaration, in "${line}"`;
 
   it("refuses a space between two words of a value, in either statement", () => {

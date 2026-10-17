@@ -13857,6 +13857,21 @@ line2\`"]`,
       "as written (ADR-0017, nook 01M5482HPJ).",
   },
   {
+    id: "er-style-empty-before-closing-semicolon",
+    kind: "er",
+    source: `erDiagram
+      A ||--o{ B : has
+      style A fill:red,;`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** The closing `;` " +
+      "ends the statement, so the `,` before it leaves an empty declaration: " +
+      "Mermaid 12.2.0 stops at the `;` with a parse error (measured; " +
+      "`fill:red , ;`, `style A ;` and `classDef u ;` too). Siren drew it, " +
+      "reading the `;` as the declaration after the `,`; it now refuses the " +
+      "empty declaration at the `,` (ADR-0017, nook 01M5482HPJ).",
+  },
+  {
     id: "er-style-closing-semicolon",
     kind: "er",
     source: `erDiagram

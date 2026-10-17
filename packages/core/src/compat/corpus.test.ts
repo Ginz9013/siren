@@ -2097,8 +2097,17 @@ const SILENTLY_WRONG = 0;
  * `er-style-closing-semicolon`, which Siren now draws, is a new
  * `supported` row; no `supported` row moved. `silently-wrong` does not
  * move.
+ *
+ * **92 → 93: case (2), a refusal written down for the first time.**
+ * `er-style-empty-before-closing-semicolon` (`style A fill:red,;`), a parse
+ * error at the `;` in Mermaid 12.2.0 (measured, ADR-0017; `fill:red , ;`,
+ * `style A ;` and `classDef u ;` too). Siren used to draw it: the empty
+ * declaration was looked for while the closing `;` was still in the list,
+ * so the `;` passed for a declaration. It is now set aside first, and the
+ * list refused as empty (`01M5482HPJ`). No `supported` row moved.
+ * `silently-wrong` does not move: Mermaid draws no picture to differ from.
  */
-const REJECTED = 92;
+const REJECTED = 93;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
