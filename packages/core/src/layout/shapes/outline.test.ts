@@ -14,8 +14,10 @@ import { SHAPES } from "./shapeTable";
  * for that shape's handler: the drawn outline for a polygon (the same
  * vertices the frame is drawn with), the curve sampled for a round or
  * elliptical one, and the box itself for a shape whose handler intersects
- * a rectangle — an invisible hit rectangle behind a brace, a window, a
- * cloud, or a shape that draws no outline at all.
+ * a rectangle — an invisible hit rectangle behind a brace, a window, or a
+ * shape that draws no outline at all. A cloud and a bang are the exception:
+ * Mermaid meets their box, Siren the arcs it draws, so an arrow touches the
+ * figure.
  */
 
 /** 8px a character, 24px a line. */
@@ -126,6 +128,13 @@ function selfCrossings(outline: Point[]): [number, number][] {
 /** The shapes whose outline crosses itself because Mermaid draws them so: an hourglass's two diagonals. */
 const SELF_CROSSING: ReadonlySet<NodeShape> = new Set(["hourglass"]);
 
+/**
+ * The shapes whose outline crosses itself exactly when the frame Mermaid
+ * draws does: a bang so narrow for its height that the scallops down its
+ * two sides dip past each other.
+ */
+const CROSSING_WHERE_DRAWN: ReadonlySet<NodeShape> = new Set(["bang"]);
+
 describe("every shape's outline", () => {
   const cases = ALL_SHAPES.flatMap((shape) => LABELS.map((text) => [shape, text] as const));
 
@@ -149,6 +158,9 @@ describe("every shape's outline", () => {
     // No two edges cross, but where Mermaid's own outline does.
     if (SELF_CROSSING.has(shape)) {
       expect(selfCrossings(outline)).not.toEqual([]);
+    } else if (CROSSING_WHERE_DRAWN.has(shape)) {
+      const drawn = sampledPath(firstFrameD(laidOut(shape, text, extraFor(shape))), 40);
+      expect(selfCrossings(outline).length > 0).toBe(selfCrossings(drawn).length > 0);
     } else {
       expect(selfCrossings(outline)).toEqual([]);
     }
@@ -176,7 +188,7 @@ describe("a shape whose edges meet a rectangle", () => {
   // Mermaid's handler intersects the node's box (`intersect.rect`, or a
   // polygon of the box's own corners): a plain or round-cornered box, a
   // box with markings inside it, a window, a shape drawn with no outline,
-  // and the invisible hit rectangle behind a brace, a cloud and a bang.
+  // and the invisible hit rectangle behind a brace.
   it.each([
     "rect",
     "round",
@@ -196,8 +208,6 @@ describe("a shape whose edges meet a rectangle", () => {
     "braces",
     "console",
     "browser",
-    "cloud",
-    "bang",
   ] as const)("%s outlines its box", (shape) => {
     for (const text of LABELS) {
       const node = nodeOf(shape, text);
@@ -519,5 +529,97 @@ describe("a labelled icon's or image's outline", () => {
     const outline = outlineOf(node);
     expect(outline).toHaveLength(8);
     expect(sortPoints(outline)).toEqual(strip(node, { width: 120, height: 20 }, 16, pos === "t"));
+  });
+});
+
+/**
+ * `n + 1` points along the SVG arc from `from` written `a rx,ry rotation
+ * large,sweep dx,dy`, worked out from the SVG arc implementation notes
+ * (endpoint to centre parameterisation, radii scaled up when too small).
+ */
+function svgArc(from: Point, rx0: number, ry0: number, rotation: number, large: number, sweep: number, dx: number, dy: number, n = 2000): Point[] {
+  const to = { x: from.x + dx, y: from.y + dy };
+  const phi = (rotation * Math.PI) / 180;
+  const [cos, sin] = [Math.cos(phi), Math.sin(phi)];
+  const hx = (from.x - to.x) / 2;
+  const hy = (from.y - to.y) / 2;
+  const x1 = cos * hx + sin * hy;
+  const y1 = -sin * hx + cos * hy;
+  const lambda = (x1 * x1) / (rx0 * rx0) + (y1 * y1) / (ry0 * ry0);
+  const rx = lambda > 1 ? rx0 * Math.sqrt(lambda) : rx0;
+  const ry = lambda > 1 ? ry0 * Math.sqrt(lambda) : ry0;
+  const sign = large === sweep ? -1 : 1;
+  const k = sign * Math.sqrt(Math.max(0, (rx * rx * ry * ry - rx * rx * y1 * y1 - ry * ry * x1 * x1) / (rx * rx * y1 * y1 + ry * ry * x1 * x1)));
+  const cx1 = (k * rx * y1) / ry;
+  const cy1 = (-k * ry * x1) / rx;
+  const cx = cos * cx1 - sin * cy1 + (from.x + to.x) / 2;
+  const cy = sin * cx1 + cos * cy1 + (from.y + to.y) / 2;
+  const start = Math.atan2((y1 - cy1) / ry, (x1 - cx1) / rx);
+  let delta = Math.atan2((-y1 - cy1) / ry, (-x1 - cx1) / rx) - start;
+  if (sweep === 1 && delta < 0) delta += 2 * Math.PI;
+  if (sweep === 0 && delta > 0) delta -= 2 * Math.PI;
+  return Array.from({ length: n + 1 }, (_, i) => {
+    const t = start + (delta * i) / n;
+    return {
+      x: cx + rx * cos * Math.cos(t) - ry * sin * Math.sin(t),
+      y: cy + rx * sin * Math.cos(t) + ry * cos * Math.sin(t),
+    };
+  });
+}
+
+/** The curve a `d` of `M`, relative `a`, `H`, `V` and `Z` draws, sampled densely: `n + 1` points an arc. */
+function sampledPath(d: string, n = 2000): Point[] {
+  const tokens = d.match(/[MaHVZ]|-?[\d.]+(?:e[+-]?\d+)?/g)!;
+  const points: Point[] = [];
+  let at: Point = { x: 0, y: 0 };
+  let start: Point = at;
+  for (let i = 0; i < tokens.length; ) {
+    const command = tokens[i++]!;
+    const next = () => Number(tokens[i++]);
+    if (command === "M") {
+      at = { x: next(), y: next() };
+      start = at;
+    } else if (command === "a") {
+      const arc = svgArc(at, next(), next(), next(), next(), next(), next(), next(), n);
+      points.push(...arc);
+      at = arc.at(-1)!;
+    } else if (command === "H") {
+      const to = { x: next(), y: at.y };
+      points.push(...segment(at, to));
+      at = to;
+    } else if (command === "V") {
+      const to = { x: at.x, y: next() };
+      points.push(...segment(at, to));
+      at = to;
+    } else if (command === "Z") {
+      points.push(...segment(at, start));
+      at = start;
+    } else {
+      throw new Error(`unexpected ${command} in ${d}`);
+    }
+  }
+  return points;
+}
+
+describe("a cloud's and a bang's outline", () => {
+  // Mermaid meets a cloud and a bang at their box, which leaves an arrow
+  // short of the arcs; Siren meets the arcs it draws, sampled finely enough
+  // that the outline never strays from them by more than half a pixel.
+  it.each(["cloud", "bang"] as const)("%s stays within half a pixel of the arcs it is drawn with, all the way round", (shape) => {
+    for (const text of [...LABELS, "a<br>b<br>c<br>d<br>e<br>f"]) {
+      const graph = laidOut(shape, text);
+      const outline = outlineOf(graph.nodes[0]!);
+      const truth = sampledPath(firstFrameD(graph));
+      const midpoints = outline.map((a, i) => {
+        const b = outline[(i + 1) % outline.length]!;
+        return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      });
+      for (const p of [...outline, ...midpoints]) {
+        expect(toSamples(p, truth)).toBeLessThanOrEqual(TOLERANCE);
+      }
+      for (const p of truth.filter((_, i) => i % 10 === 0)) {
+        expect(toOutline(p, outline)).toBeLessThanOrEqual(TOLERANCE);
+      }
+    }
   });
 });

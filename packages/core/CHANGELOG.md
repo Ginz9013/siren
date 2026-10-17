@@ -475,6 +475,11 @@ can carry one.
   choice meets the diamond, rather than the box around either, as Mermaid 12.2.0 draws them. The
   note's own end stays on its box, and the line hops are read again off the moved connector
   (backlog `01M548R9CB`).
+- A flowchart edge into or out of a `cloud` or a `bang` now ends on the arcs the shape is drawn
+  with rather than on its box, so the arrow touches a cloud's bulge or a bang's scallop instead of
+  stopping short of it. Mermaid 12.2.0 meets both at their box; Siren departs from it here so the
+  arrow reaches the figure, as it does a state diagram's end circle. The shapes are drawn exactly
+  as before (backlog `01M548R9CB`).
 - A flowchart edge now ends on its node's outline rather than on the box the shape is inscribed
   in: an arrow into a diamond, a circle, a hexagon, a triangle on its side, a slanted or curved
   shape, a bolt or an hourglass meets the shape itself instead of stopping in the empty corner
