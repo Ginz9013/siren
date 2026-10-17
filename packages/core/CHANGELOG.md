@@ -17,6 +17,11 @@ the hex to write. Breaking too for an edge `|label|` beginning with a word that
 holds an `@` (`A -->|a@b| B`) or with a quote after a space (`A -->| "a" | B`), which is now
 refused (see **Changed**).
 
+Breaking for an ER `style` or `classDef` whose value holds a character other than a letter, a
+digit, a non-ASCII character, a space, `-`, `_`, `*`, `#`, `:` or `,` — `fill:rgb(255,153,102)`,
+`stroke-width:1.5px`, `fill:#f96 !important` — or a `;` with anything after it on the line
+(`fill:red;stroke:blue`), which is now refused (see **Changed**).
+
 Breaking for a flowchart `style`, `classDef` or `linkStyle` whose declarations hold an `@`, a `{`
 or `}`, an arrow, or any run an arrow is made of — two dashes (`stroke:var(--x)`, `stroke:a--b`),
 a dash and a dot (`fill:a-.b`), an `=` or a `~` (`fill:a=b`, `fill:a~b`) — and for an edge
@@ -480,6 +485,13 @@ can carry one.
   stopping short of it. Mermaid 12.2.0 meets both at their box; Siren departs from it here so the
   arrow reaches the figure, as it does a state diagram's end circle. The shapes are drawn exactly
   as before (backlog `01M548R9CB`).
+- An ER `style` or `classDef` value is now read in the characters Mermaid 12.2.0 reads it in:
+  letters, digits, non-ASCII characters, spaces, `-`, `_`, `*`, `#`, `:` and `,`, with a `;` only
+  at the end of the line or closing a `#word;` code. Any other character — a function's `(`, a
+  decimal `.`, `!important`'s `!`, a quote, `$`, `%`, `/` — refuses the document with an error at
+  that character saying to write the color as a hex code and a size as a whole number; Siren used
+  to draw it. Measured one character apiece; Mermaid draws nothing at all for such a document
+  (backlog `01M5482HPJ`).
 - A flowchart edge now ends on its node's outline rather than on the box the shape is inscribed
   in: an arrow into a diamond, a circle, a hexagon, a triangle on its side, a slanted or curved
   shape, a bolt or an hourglass meets the shape itself instead of stopping in the empty corner

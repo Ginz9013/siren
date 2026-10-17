@@ -1995,8 +1995,20 @@ const SILENTLY_WRONG = 0;
  * `state-classdef-value-function-off-allowlist`). Siren drew both before,
  * with no row to say so. No `supported` row moved. `silently-wrong` does
  * not move.
+ *
+ * **80 → 83: case (2), three refusals written down for the first time.**
+ * `01M5482HPJ` read an ER `style` or `classDef` declaration list in the
+ * alphabet Mermaid 12.2.0's lexer reads it in — letters, digits, `_`, `-`,
+ * `*`, non-ASCII characters, whitespace, `:`, `,`, `#`, and `;` only at the
+ * end of the line or closing a `#word;` code — measured one character
+ * apiece. Every other character refuses the document in Mermaid, so
+ * `er-style-value-function` (`rgb(`), `er-classdef-value-decimal`
+ * (`1.5px`) and `er-style-value-semicolon` (`fill:red;stroke:blue`) are
+ * documents Mermaid refuses; Siren drew each before and refuses each now
+ * (ADR-0017), at the character. No `supported` row moved: no ER row's
+ * value held such a character. `silently-wrong` does not move.
  */
-const REJECTED = 80;
+const REJECTED = 83;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

@@ -1351,6 +1351,64 @@ const midLinePercentAt = (text: string, at: SourcePosition): ErLineRefusal =>
   midLinePercentRefusal(firstPercentIn(text, at), false);
 
 /**
+ * The characters a `style` or `classDef` declaration list may hold: the
+ * rules of the lexer condition both statements switch into — whitespace,
+ * `:`, `,`, `#`, and a word of letters, digits, `_`, `-`, `*` and non-ASCII
+ * characters. Measured one character apiece (`style A fill:re<c>d`,
+ * `classDef u fill:re<c>d`, 12.2.0): every other printable ASCII character
+ * is a lexical error that refuses the document — so `rgb(…)`, `1.5px` and
+ * `!important` are refused here even where Siren's style allowlist would
+ * have drawn them. `;` is the condition's statement separator and is asked
+ * about separately, in `declarationListRefusal`.
+ */
+const DECLARATION_LIST_CHAR_RE = /[\w\s:,#*-]|[^\x00-\x7F]/u;
+
+/**
+ * The refusal for the first character of a `style` or `classDef`
+ * declaration list, `value`, beginning at `at`, that the list cannot hold —
+ * or `null` when it holds none. A `;` may end the line but not be followed
+ * by anything, a space included (measured: `fill:red;` and `fill:red ;`
+ * draw, `fill:red;stroke:blue`, `fill:red;;` and `fill:red; ` are parse
+ * errors) — unless it closes a `#word;` code, which Mermaid rewrites into
+ * non-ASCII characters before its lexer runs (`fill:#f96;stroke:#333`
+ * draws). The `;` a style line drops is gone before this is asked: see
+ * `styleLines`. `spaceAfter` says whether whitespace follows `value` on its
+ * line as written, which the line handed to the reader has lost.
+ */
+function declarationListRefusal(
+  value: string,
+  at: SourcePosition,
+  keyword: "style" | "classDef",
+  line: string,
+  spaceAfter: boolean,
+): ErLineRefusal | null {
+  const codeEnds = new Set([...value.matchAll(/#\w+;/g)].map((code) => code.index + code[0].length - 1));
+  let offset = 0;
+  for (const char of value) {
+    if (char === ";") {
+      if ((offset + 1 < value.length || spaceAfter) && !codeEnds.has(offset)) {
+        return {
+          refusal:
+            `A ";" in a \`${keyword}\` declaration list in erDiagram can only end the line: ` +
+            `separate declarations with "," instead, in "${line}"`,
+          at: columnsAfter(at, offset),
+        };
+      }
+    } else if (!DECLARATION_LIST_CHAR_RE.test(char)) {
+      return {
+        refusal:
+          `Character "${char}" cannot appear in a \`${keyword}\` declaration list in erDiagram: only letters, ` +
+          'digits, spaces and "-", "_", "*", "#", ":", "," can. Write a color as a hex code such as "#f96", ' +
+          `a size as a whole number such as "2px", and leave out "!important", in "${line}"`,
+        at: columnsAfter(at, offset),
+      };
+    }
+    offset += char.length;
+  }
+  return null;
+}
+
+/**
  * Everything `line` declares, given the block it began inside — or `null`
  * when any part of it is unreadable.
  *
@@ -1392,6 +1450,8 @@ const midLinePercentAt = (text: string, at: SourcePosition): ErLineRefusal =>
  * `after` is the source past the end of `line` (`textAfter`), read only by
  * the one name rule whose lookahead crosses a line break: a bare `1` ending
  * the line is a name or a token of its own depending on what comes next.
+ * `spaceAfter` says whether the line as written ended in whitespace, which
+ * `line` no longer holds — read only by `declarationListRefusal`.
  */
 function readLine(
   line: string,
@@ -1399,6 +1459,7 @@ function readLine(
   where: SourcePosition,
   openBlocks: readonly ErSubgraph[],
   after: string,
+  spaceAfter: boolean,
 ): ErLineReading | ErLineRefusal | typeof CONTINUES | null {
   const entities: ErEntityDecl[] = [];
   const plainEndpoints: ErEntityDecl[] = [];
@@ -1489,6 +1550,16 @@ function readLine(
       return midLinePercentAt(rest, restAt());
     }
     if (style !== null) {
+      const refused = declarationListRefusal(
+        style[2],
+        columnsAfter(restAt(), rest.length - style[2].length),
+        "style",
+        line,
+        spaceAfter,
+      );
+      if (refused !== null) {
+        return refused;
+      }
       const { properties, malformed } = parseStyleProperties(style[2]);
       malformedStyles.push(...malformed);
       styles.push({
@@ -1516,6 +1587,16 @@ function readLine(
       // from Mermaid's with no diagnostic at all.
       if (names.includes(DEFAULT_CLASS_NAME)) {
         return null;
+      }
+      const refused = declarationListRefusal(
+        classDef[2],
+        columnsAfter(restAt(), rest.length - classDef[2].length),
+        "classDef",
+        line,
+        spaceAfter,
+      );
+      if (refused !== null) {
+        return refused;
       }
       const { properties, malformed } = parseStyleProperties(classDef[2]);
       malformedStyles.push(...malformed);
@@ -2345,6 +2426,7 @@ export function parseErDiagram(source: string): DiagramParseResult {
       continue;
     }
     let line = rawLine.trim();
+    const spaceAfter = rawLine.length > rawLine.trimEnd().length;
     let lineNumber = index + 1;
     let column = rawLine.length - rawLine.trimStart().length + 1;
     const continuing: boolean = pending !== null;
@@ -2402,7 +2484,7 @@ export function parseErDiagram(source: string): DiagramParseResult {
     // and that an unreadable line is reported as an **attribute** rather
     // than as a line, which is what an author who is inside a block wrote.
     if (openEntity !== null) {
-      const reading = readLine(line, openEntity, { line: lineNumber, column }, openBlocks, textAfter(index));
+      const reading = readLine(line, openEntity, { line: lineNumber, column }, openBlocks, textAfter(index), spaceAfter);
       if (reading === CONTINUES) {
         pending = carried(`Unrecognized erDiagram attribute: "${line.split("\n")[0]}"`);
         continue;
@@ -2604,7 +2686,7 @@ export function parseErDiagram(source: string): DiagramParseResult {
     // Every remaining statement, read left to right across the line — see
     // `readLine`. All or nothing: a line it cannot finish reading
     // contributes none of its boxes rather than some of them.
-    const reading = readLine(line, null, { line: lineNumber, column }, openBlocks, textAfter(index));
+    const reading = readLine(line, null, { line: lineNumber, column }, openBlocks, textAfter(index), spaceAfter);
     if (reading === CONTINUES) {
       const first = line.split("\n")[0];
       pending = carried(unimplementedIn(first) ?? `Unrecognized erDiagram line: "${first}"`);

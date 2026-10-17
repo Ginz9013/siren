@@ -13661,6 +13661,55 @@ line2\`"]`,
       "error, drawing the rest: a deliberate departure (nook 01M52VP2B9).",
   },
   {
+    id: "er-style-value-function",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places
+      style ORDER fill:rgb(255,153,102),stroke:#333`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** Mermaid 12.2.0 " +
+      "reads an ER `style` or `classDef` declaration list in a lexer " +
+      "condition holding only whitespace, `:`, `,`, `#`, `;` and words of " +
+      "letters, digits, `_`, `-`, `*` and non-ASCII characters, so the `(` " +
+      "of `rgb(` is a lexical error that refuses the document (measured, " +
+      "every printable ASCII character one probe apiece). Siren drew it " +
+      "before; it refuses it now (ADR-0017), at the `(`, saying to write the " +
+      "color as a hex code (nook 01M5482HPJ).",
+  },
+  {
+    id: "er-classdef-value-decimal",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places
+      classDef thick stroke-width:1.5px
+      class ORDER thick`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A `classDef` " +
+      "shares `style`'s lexer condition (`er-style-value-function`), which " +
+      "has no rule for `.`, so `1.5px` refuses the document (\"Lexical " +
+      "error … Unrecognized text\", measured). Siren drew it before; it " +
+      "refuses it now (ADR-0017), at the `.`, saying to write a whole number " +
+      "(nook 01M5482HPJ).",
+  },
+  {
+    id: "er-style-value-semicolon",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places
+      style ORDER fill:red;stroke:blue`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** In an ER " +
+      "declaration list `;` ends the statement, so a declaration after it is " +
+      "a parse error (measured). `fill:red;` at the end of the line draws, " +
+      "and so does `fill:#f96;stroke:blue`, whose `#f96;` Mermaid rewrites " +
+      "into an entity code before reading the line. Siren drew it before, " +
+      "as one declaration; it refuses it now (ADR-0017), at the `;`, saying " +
+      "to separate declarations with `,` (nook 01M5482HPJ).",
+  },
+  {
     id: "state-classdef-value-function-off-allowlist",
     kind: "state",
     source: `stateDiagram-v2

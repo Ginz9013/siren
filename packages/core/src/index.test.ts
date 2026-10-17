@@ -9013,7 +9013,10 @@ describe("render() — an author's style value is read against an allowlist, at 
     expect(container.innerHTML.includes("stroke:#c00")).toBe(true);
   });
 
-  it("drops an ER `style` value holding a character outside the grammar, keeping its sibling", () => {
+  it("refuses an ER document whose `style` value holds a character the declaration list cannot", () => {
+    // Every character an ER declaration list can hold is one the allowlist
+    // also reads, so a value like `a$b` never reaches it: the document is
+    // refused at the character instead.
     const container = document.createElement("div");
     const result = render("erDiagram\nCUSTOMER\nstyle CUSTOMER fill:a$b,stroke:#c00\n", container);
 
@@ -9021,13 +9024,13 @@ describe("render() — an author's style value is read against an allowlist, at 
       {
         severity: "error",
         message:
-          'Style value for "fill" contains "$", which no colour, length, keyword or quoted name is written with; ' +
-          "dropping the declaration.",
+          'Character "$" cannot appear in a `style` declaration list in erDiagram: only letters, digits, spaces and ' +
+          '"-", "_", "*", "#", ":", "," can. Write a color as a hex code such as "#f96", a size as a whole number ' +
+          'such as "2px", and leave out "!important", in "style CUSTOMER fill:a$b,stroke:#c00"',
         line: 3,
-        column: 1,
+        column: 22,
       },
     ]);
-    expect(container.innerHTML.includes("stroke:#c00")).toBe(true);
     expect(container.innerHTML.includes("a$b")).toBe(false);
   });
 

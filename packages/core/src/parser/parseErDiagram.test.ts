@@ -2850,3 +2850,109 @@ describe("parseErDiagram — a `%` in a quoted entity name or alias", () => {
     }
   });
 });
+
+/**
+ * Mermaid 12.2.0's ER lexer reads a `style` or `classDef` declaration list in
+ * a condition of its own whose only rules are a newline, whitespace, `:`,
+ * `,`, `#`, `;` and a word of letters, digits, `_`, `-`, `*` and non-ASCII
+ * characters. Every other character is a lexical error that refuses the
+ * whole document — measured one character apiece, `style A fill:re<c>d` and
+ * `classDef u fill:re<c>d`, for every printable ASCII character. A `;` is
+ * its statement separator, so it may end the line but nothing may follow it
+ * (`fill:red;` draws; `fill:red;stroke:blue` and `fill:red; ` are parse
+ * errors). Siren used to draw most of these.
+ */
+describe("parseErDiagram — a character a declaration list cannot hold", () => {
+  const errorsFor = (body: string) =>
+    parseErDiagram(`erDiagram\n${body}`)
+      .diagnostics.filter(({ severity }) => severity === "error")
+      .map(({ message, line, column }) => ({ message, line, column }));
+  const refusal = (char: string, keyword: string, line: string) =>
+    `Character "${char}" cannot appear in a \`${keyword}\` declaration list in erDiagram: only letters, digits, ` +
+    'spaces and "-", "_", "*", "#", ":", "," can. Write a color as a hex code such as "#f96", ' +
+    `a size as a whole number such as "2px", and leave out "!important", in "${line}"`;
+
+  it("refuses each rejected character in a `style` value, at that character", () => {
+    for (const char of ["(", ")", "[", "]", "{", "}", "$", "!", "?", "@", "<", "=", ">", '"', "'", "`", ".", "%", "/", "+", "&", "|", "~", "^", "\\"]) {
+      const line = `style A fill:re${char}d`;
+      expect(errorsFor(`A\n${line}`), char).toEqual([{ message: refusal(char, "style", line), line: 3, column: 16 }]);
+    }
+  });
+
+  it("refuses each rejected character in a `classDef` value, at that character", () => {
+    for (const char of ["(", ")", "[", "]", "{", "}", "$", "!", "?", "@", "<", "=", ">", '"', "'", "`", ".", "%", "/", "+", "&", "|", "~", "^", "\\"]) {
+      const line = `classDef u fill:re${char}d`;
+      expect(errorsFor(`A\n${line}\nclass A u`), char).toEqual([
+        { message: refusal(char, "classDef", line), line: 3, column: 19 },
+      ]);
+    }
+  });
+
+  it("names the first one, in the values authors actually write", () => {
+    expect(errorsFor("A\nstyle A fill:rgb(1,2,3)")).toEqual([
+      { message: refusal("(", "style", "style A fill:rgb(1,2,3)"), line: 3, column: 17 },
+    ]);
+    expect(errorsFor("A\n  classDef u stroke-width:1.5px\nclass A u")).toEqual([
+      { message: refusal(".", "classDef", "classDef u stroke-width:1.5px"), line: 3, column: 28 },
+    ]);
+    expect(errorsFor("A\nstyle A fill:#f96 !important")).toEqual([
+      { message: refusal("!", "style", "style A fill:#f96 !important"), line: 3, column: 19 },
+    ]);
+    // Mid-line, after a statement the line began with.
+    expect(errorsFor("A style A fill:$x")).toEqual([
+      { message: refusal("$", "style", "A style A fill:$x"), line: 2, column: 16 },
+    ]);
+  });
+
+  it("refuses a `;` that anything follows, in either statement", () => {
+    const semi = (keyword: string, line: string) =>
+      `A ";" in a \`${keyword}\` declaration list in erDiagram can only end the line: ` +
+      `separate declarations with "," instead, in "${line}"`;
+    expect(errorsFor("A\nstyle A fill:red;stroke:blue")).toEqual([
+      { message: semi("style", "style A fill:red;stroke:blue"), line: 3, column: 17 },
+    ]);
+    expect(errorsFor("A\nclassDef u fill:red;;\nclass A u")).toEqual([
+      { message: semi("classDef", "classDef u fill:red;;"), line: 3, column: 20 },
+    ]);
+  });
+
+  it("reads a `;` that closes a `#word;` code, and the `;` a style line drops, as a whole document does", () => {
+    // Measured: Mermaid rewrites `#word;` into a code of non-ASCII
+    // characters before its lexer runs, so `fill:#f96;stroke:#333` draws;
+    // and on a style line holding a `#`, it drops the line's last `;`
+    // after it first, so `fill:#f-9;stroke:red` and `fill:#f96; ` draw too.
+    // `fill:red;stroke:#333;` keeps its first `;` and is a parse error.
+    const errorsOfDocument = (body: string) =>
+      parseSiren(`erDiagram\n${body}`)
+        .diagnostics.filter(({ severity }) => severity === "error")
+        .map(({ line, column }) => ({ line, column }));
+    for (const value of ["fill:#f96;stroke:#333", "fill:#f96;stroke:#333;", "fill:#f96;stroke:red;x", "fill:#f-9;stroke:red", "fill:#f96; "]) {
+      expect(errorsOfDocument(`A\nstyle A ${value}`), value).toEqual([]);
+      expect(errorsOfDocument(`A\nclassDef u ${value}\nclass A u`), value).toEqual([]);
+    }
+    expect(errorsFor("A\nstyle A fill:#f96;stroke:#333")).toEqual([]);
+    for (const [value, column] of [
+      ["fill:red;stroke:#333;", 17],
+      ["fill:red; ", 17],
+      ["fill:red;#", 17],
+    ] as const) {
+      expect(errorsOfDocument(`A\nstyle A ${value}`), value).toEqual([{ line: 3, column }]);
+    }
+  });
+
+  it("reads every character the list can hold, in either statement", () => {
+    for (const value of [
+      "fill:#f96,stroke:#333",
+      "stroke-width:2px",
+      "fill:red;",
+      "fill:red ;",
+      "font-family:Noto Sans",
+      "fill:*_x",
+      "font-family:中文é",
+      "fill:#f96\tstroke:#333",
+    ]) {
+      expect(errorsFor(`A\nstyle A ${value}`), value).toEqual([]);
+      expect(errorsFor(`A\nclassDef u ${value}\nclass A u`), value).toEqual([]);
+    }
+  });
+});
