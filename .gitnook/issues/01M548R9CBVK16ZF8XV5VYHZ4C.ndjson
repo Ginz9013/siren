@@ -1,0 +1,4 @@
+{"id":"01M548R9CB1FS0GC7MWVJ19VW1","t":1,"a":"83a1","op":"create","title":"外框裁切的剩餘落差：cloud／bang 的弧形邊、note 接到 [*]、layoutDefects 檢查"}
+{"id":"01M548R9CNM12GTWM7GJ40K92W","t":2,"a":"83a1","op":"set","k":"description","v":"# 外框裁切的剩餘落差\n\n由 board backlog-final-1017（T2 `01M5470H9J`、T3 `01M5470HG1`）留下。\n\n- cloud、bang 的連線接到方框（照 Mermaid 的 box intersect），跟弧形邊之間有可見空隙。待決定：照 Mermaid 留空隙，還是改接到弧形外框（刻意偏離）。\n- state 圖中 note 連到 `[*]` 起點圓的連線仍接在方框上，尚未對照 Mermaid 實測。\n- `compat/layoutDefects.ts` 的 `onBoxBoundary` 類檢查還沒泛化成「在 outline 上」；目前只有 corpus 列 `fc-edge-ends-on-outline` 檢查。"}
+{"id":"01M548R9CNXDY3PAMJM6PC0NVE","t":3,"a":"83a1","op":"label.add","v":"backlog"}
+{"id":"01M548R9K1WQC3NME1C0W6EBWJ","t":4,"a":"83a1","op":"set","k":"status","v":"backlog"}

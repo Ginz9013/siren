@@ -1,2 +1,3 @@
 {"id":"01M52VP231JRG21E758HDNW767","t":1,"a":"83a1","op":"create","title":"flowchart：連線裁切到節點形狀的外框"}
 {"id":"01M52VP23E59HRW9BEXZQS8KNX","t":2,"a":"83a1","op":"set","k":"description","v":"# flowchart：連線裁切到節點形狀的外框\n\n由 board backlog-clear-1016（spec `01M51XABY67X1Z8AFJ5M7SY9KJ`）決定 7 留下。\n\nSiren 的連線接在節點框的邊上（ELK port），不裁切到形狀外框。Mermaid 12.2.0 依每個形狀的 `intersect` 裁切：多邊形用頂點、圓用半徑、h-cyl／lin-cyl 用矩形加橢圓修正、brace 用隱形的 hit rect。\n\n有空隙的形狀：hourglass、bolt、tri／flip-tri（在 LR 方向）、cloud、bang、person、bucket；rhombus 等既有形狀也一樣。\n\n待決定：是在 layout 完成後把路線的端點裁切到外框（renderer 或 layout 的後處理），還是讓 ELK 知道形狀。另外，形狀表的紀錄要不要加一個 `intersect` 欄位。"}
+{"id":"01M548R9SS5ZWVT4T87JKKJJVH","t":3,"a":"83a1","op":"set","k":"status","v":"done"}
