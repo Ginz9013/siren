@@ -470,6 +470,11 @@ can carry one.
 
 ### Changed
 
+- A state note's connector now starts on the figure its state is drawn as when that state is a
+  `[*]` start or a `<<choice>>`: `note right of [*]` meets the start's disc and a note beside a
+  choice meets the diamond, rather than the box around either, as Mermaid 12.2.0 draws them. The
+  note's own end stays on its box, and the line hops are read again off the moved connector
+  (backlog `01M548R9CB`).
 - A flowchart edge now ends on its node's outline rather than on the box the shape is inscribed
   in: an arrow into a diamond, a circle, a hexagon, a triangle on its side, a slanted or curved
   shape, a bolt or an hourglass meets the shape itself instead of stopping in the empty corner
