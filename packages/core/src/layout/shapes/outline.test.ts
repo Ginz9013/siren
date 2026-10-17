@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { GraphModel, GraphNode, NodeShape, Point, PositionedGraph, PositionedNode, TextMeasurer } from "../../contracts";
+import type { Direction, GraphModel, GraphNode, NodeShape, Point, PositionedGraph, PositionedNode, TextMeasurer } from "../../contracts";
 import { readLabel } from "../../label/readLabel";
 import { renderToSVG } from "../../renderer/renderToSVG";
 import { layoutGraph } from "../layoutGraph";
@@ -26,10 +26,13 @@ const fakeMeasurer: TextMeasurer = {
 /** How far an outline may stand from where it belongs. */
 const TOLERANCE = 0.5;
 
-/** Node `A`, laid out as `shape` with `text` (a `<br>` breaks a row) and whatever else `extra` gives it. */
-function laidOut(shape: NodeShape, text: string, extra: Partial<GraphNode> = {}): PositionedGraph {
+/**
+ * Node `A`, laid out as `shape` with `text` (a `<br>` breaks a row) and
+ * whatever else `extra` gives it, in a flow running `direction`.
+ */
+function laidOut(shape: NodeShape, text: string, extra: Partial<GraphNode> = {}, direction: Direction = "TB"): PositionedGraph {
   const graph: GraphModel = {
-    direction: "TB",
+    direction,
     nodes: [
       {
         id: "A",
@@ -50,8 +53,8 @@ function laidOut(shape: NodeShape, text: string, extra: Partial<GraphNode> = {})
   return layoutGraph(graph, { measureText: fakeMeasurer });
 }
 
-const nodeOf = (shape: NodeShape, text: string, extra: Partial<GraphNode> = {}): PositionedNode =>
-  laidOut(shape, text, extra).nodes[0]!;
+const nodeOf = (shape: NodeShape, text: string, extra: Partial<GraphNode> = {}, direction: Direction = "TB"): PositionedNode =>
+  laidOut(shape, text, extra, direction).nodes[0]!;
 
 const ICON = { name: "t:sq", form: null, pos: "b", size: 48 } as const;
 const IMAGE = {
@@ -94,6 +97,35 @@ function sortPoints(points: Point[]): Point[] {
   return [...points].sort((a, b) => a.x - b.x || a.y - b.y);
 }
 
+/** Which side of the line through `a` and `b` the point `c` stands: positive, negative or on it. */
+function turn(a: Point, b: Point, c: Point): number {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+/** Whether the segments `a`–`b` and `c`–`d` cross at a point inside both (touching does not count). */
+function crosses(a: Point, b: Point, c: Point, d: Point): boolean {
+  const EPS = 1e-9;
+  const [d1, d2, d3, d4] = [turn(c, d, a), turn(c, d, b), turn(a, b, c), turn(a, b, d)];
+  return ((d1 > EPS && d2 < -EPS) || (d1 < -EPS && d2 > EPS)) && ((d3 > EPS && d4 < -EPS) || (d3 < -EPS && d4 > EPS));
+}
+
+/** The pairs of edges of the closed polygon `outline`, not next to each other, that cross. */
+function selfCrossings(outline: Point[]): [number, number][] {
+  const n = outline.length;
+  const edge = (i: number) => [outline[i]!, outline[(i + 1) % n]!] as const;
+  const found: [number, number][] = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue; // the closing edge meets the first
+      if (crosses(...edge(i), ...edge(j))) found.push([i, j]);
+    }
+  }
+  return found;
+}
+
+/** The shapes whose outline crosses itself because Mermaid draws them so: an hourglass's two diagonals. */
+const SELF_CROSSING: ReadonlySet<NodeShape> = new Set(["hourglass"]);
+
 describe("every shape's outline", () => {
   const cases = ALL_SHAPES.flatMap((shape) => LABELS.map((text) => [shape, text] as const));
 
@@ -114,6 +146,12 @@ describe("every shape's outline", () => {
       expect(point.y).toBeGreaterThanOrEqual(node.y - TOLERANCE);
       expect(point.y).toBeLessThanOrEqual(node.y + node.height + TOLERANCE);
     });
+    // No two edges cross, but where Mermaid's own outline does.
+    if (SELF_CROSSING.has(shape)) {
+      expect(selfCrossings(outline)).not.toEqual([]);
+    } else {
+      expect(selfCrossings(outline)).toEqual([]);
+    }
   });
 
   it.each([
@@ -165,6 +203,12 @@ describe("a shape whose edges meet a rectangle", () => {
       const node = nodeOf(shape, text);
       expect(sortPoints(outlineOf(node))).toEqual(corners(node));
     }
+  });
+
+  it("fork in a flow running left to right outlines its upright bar", () => {
+    const node = nodeOf("fork", "x", {}, "LR");
+    expect(node.height).toBeGreaterThan(node.width);
+    expect(sortPoints(outlineOf(node))).toEqual(corners(node));
   });
 
   it("an icon in a circle outlines its whole box, label and all", () => {

@@ -177,7 +177,8 @@ export const ICON_SHAPES = {
     },
     // A circle's edges meet its whole box, label and all; an icon with no
     // label is its figure; any other meets the figure and its label's strip
-    // — as Mermaid's `iconCircle` and other icon handlers do.
+    // — as Mermaid's `iconCircle` and other icon handlers do. The strip is
+    // symmetric on purpose: Mermaid's corner below the label slips by half.
     outline: (node) => {
       const icon = iconOf(node);
       if (icon.form === "circle" || node.label.text === "") {

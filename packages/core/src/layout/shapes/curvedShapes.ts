@@ -528,6 +528,8 @@ export const CURVED_SHAPES = {
   // text starts at the brace's tips.
   "brace-left": {
     // Edges meet the invisible hit rectangle behind the brace: the box.
+    // Mermaid's hit polygon follows the curls; the box contains it and
+    // stands in for it.
     outline: boxOutline,
     box: (label, _direction, padding) => {
       const { width, height } = braceText(label, padding);

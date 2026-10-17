@@ -19,6 +19,9 @@ import { arcPoints, boxOutline, closedOutline, edgesOf, FRAME_PAINT, pathFrame, 
  * it strokes the outline.
  */
 
+/** How wide a bucket's bottom is, as a share of its rim (Mermaid's `0.72`). */
+const BUCKET_TAPER = 0.72;
+
 /** A bucket's rim height for a bucket `width` wide: Mermaid's `clamp(0.08 x w, 5, 12)`. */
 function bucketRim(width: number): number {
   return Math.min(Math.max(width * 0.08, 5), 12);
@@ -33,6 +36,16 @@ function bucketRim(width: number): number {
 function personHead(width: number): { radius: number; neck: number } {
   const radius = Math.min(Math.max(width * 0.23, 16), 56);
   return { radius, neck: 2 * radius - radius * 0.27 };
+}
+
+/**
+ * A person's body in `box`: the box below the neck, and its corner
+ * radius, Mermaid's `min(0.177 x w, 0.45 x body height)`.
+ */
+function personBody(box: Rect): { body: Rect; corner: number } {
+  const { neck } = personHead(box.width);
+  const body = { x: box.x, y: box.y + neck, width: box.width, height: box.height - neck };
+  return { body, corner: Math.min(box.width * 0.177, body.height * 0.45) };
 }
 
 /** Mermaid's corner radius for a console's and a browser's window. */
@@ -285,7 +298,7 @@ export const COMPOSITE_SHAPES = {
       const rim = top + ry;
       const base = bottom - ry;
       const half = box.width / 2;
-      const baseHalf = half * 0.72;
+      const baseHalf = half * BUCKET_TAPER;
       return [
         pathFrame(
           `M${left},${rim} L${midX - baseHalf},${base} A${baseHalf},${ry} 0 0 0 ${midX + baseHalf},${base} ` +
@@ -303,7 +316,7 @@ export const COMPOSITE_SHAPES = {
       const half = box.width / 2;
       return closedOutline([
         ...arcPoints(midX, top + ry, half, ry, Math.PI, 2 * Math.PI),
-        ...arcPoints(midX, bottom - ry, half * 0.72, ry, 0, Math.PI),
+        ...arcPoints(midX, bottom - ry, half * BUCKET_TAPER, ry, 0, Math.PI),
       ]);
     },
   },
@@ -326,10 +339,8 @@ export const COMPOSITE_SHAPES = {
     },
     frames: (box) => {
       const { top, midX } = edgesOf(box);
-      const { radius, neck } = personHead(box.width);
-      const body = { x: box.x, y: top + neck, width: box.width, height: box.height - neck };
-      // Mermaid's corner: `min(0.177 x w, 0.45 x body height)`.
-      const corner = Math.min(box.width * 0.177, body.height * 0.45);
+      const { radius } = personHead(box.width);
+      const { body, corner } = personBody(box);
       return [
         rectFrame(body, { style: [{ property: "rx", value: `${corner}px` }] }),
         {
@@ -344,11 +355,13 @@ export const COMPOSITE_SHAPES = {
     },
     // The silhouette: the head down to where it meets the body's top, then
     // the body's rounded corners — the outline Mermaid meets a person at.
+    // It follows the shape's own corner, not an author's `rx`, as Mermaid's
+    // `intersect` does.
     outline: (box) => {
       const { left, right, top, bottom, midX } = edgesOf(box);
       const { radius, neck } = personHead(box.width);
-      const bodyTop = top + neck;
-      const corner = Math.min(box.width * 0.177, (box.height - neck) * 0.45);
+      const { body, corner } = personBody(box);
+      const bodyTop = body.y;
       const meet = Math.asin(Math.min(1, (neck - radius) / radius));
       const quarter = Math.PI / 2;
       return closedOutline([

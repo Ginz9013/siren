@@ -104,6 +104,7 @@ export const BASIC_SHAPES = {
   stadium: {
     box: leaningBox("stadium"),
     frames: (box) => [roundedRect(box, SHAPE_LEAN.stadium * box.height)],
+    // The shape's own ends, not an author's `rx`, as Mermaid's `intersect` meets.
     outline: (box) => {
       const { left, right, top, bottom, midY } = edgesOf(box);
       const r = SHAPE_LEAN.stadium * box.height;

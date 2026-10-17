@@ -129,7 +129,9 @@ export interface ShapeSpec {
   /**
    * Where a connector meeting the node stops: a closed polygon in the
    * coordinates `frames` draws in, its last point joined back to the first
-   * (which is not written again), wound one way throughout.
+   * (which is not written again). It may cross itself — an hourglass's two
+   * diagonals do, as Mermaid draws them — so a clipper takes the crossing
+   * nearest the outside point rather than testing inside or outside.
    *
    * Which outline follows the shape's Mermaid handler's `intersect`: a
    * polygon's own vertices — the very points its frame is drawn through —
