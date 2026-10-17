@@ -1725,7 +1725,7 @@ describe("layoutStateDiagram — a note's connector on a figure's outline", () =
     };
   }
 
-  const cases = (["TB", "LR"] as const).flatMap((direction) =>
+  const cases = (["TB", "LR", "BT", "RL"] as const).flatMap((direction) =>
     (["right of", "left of"] as const).map((position) => ({ direction, position })),
   );
 
