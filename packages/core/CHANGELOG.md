@@ -459,10 +459,16 @@ divider and now takes none (see **Changed**).
 
 ### Changed
 
+- A document config `look: classic`, in a frontmatter or an `init` directive, is accepted without
+  a warning: Siren draws in the classic look, so the setting is honoured as written. `neo`,
+  `handDrawn` and any other value are still read, kept and reported as not applied; Mermaid 12.2.0
+  draws a look no look has rather than refusing it, so Siren does not refuse one either (nook
+  `01M52VP2KM`). `pnpm parity` now compares with Mermaid's classic look by default; `--look neo`
+  compares with Mermaid's own default.
 - A flowchart `bang`, `cloud` and `datastore` pad their text with Siren's own node padding where
   Mermaid 12.2.0's handlers pad with its 15px (nook `01M521T9NX`), as the curved shapes already do,
-  so each stands to a rectangle as Mermaid's does in its classic look. `pnpm parity --look classic`
-  compares with Mermaid in that look; without `--look` it compares with Mermaid's default (`neo`).
+  so each stands to a rectangle as Mermaid's does in its classic look. `pnpm parity` compares with
+  Mermaid in that look (`--look neo` for Mermaid's default).
 - The curved flowchart shapes are sized by each one's own Mermaid 12.2.0 padding rule (nook
   `01M521T9NX`, measured in headless Chrome at one and three rows), with Siren's node padding in
   place of Mermaid's: `h-cyl` is padded by half the node padding, `bow-rect`, `flag` and the three

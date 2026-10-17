@@ -12950,10 +12950,13 @@ line2\`"]`,
   {
     id: "doc-frontmatter-sequence",
     kind: "sequence",
-    source: ["---", "config:", "  look: handDrawn", "---", "sequenceDiagram", "  A->>B: Hello"].join("\n"),
+    source: ["---", "config:", "  look: classic", "---", "sequenceDiagram", "  A->>B: Hello"].join("\n"),
     status: "supported",
-    meaning: "A sequence diagram below a frontmatter is drawn as one without it.",
-    warnings: ['Document config "look" is read but not applied yet; the diagram is drawn without it.'],
+    meaning:
+      "A sequence diagram below a frontmatter is drawn as one without it. " +
+      "Its `look: classic` is the look Siren draws in, so it is honoured as " +
+      "written and needs no warning (01M52VP2KM); until then this row read " +
+      "`look: handDrawn`, which `doc-init-over-frontmatter` still covers.",
     assert: (result) => {
       expectSame("participants", participants(result), ["A", "B"]);
       expectSame("messages", messages(result), ["A-B: Hello"]);
@@ -13074,6 +13077,36 @@ line2\`"]`,
     },
   },
   {
+    id: "doc-init-look-classic",
+    kind: "flowchart",
+    source: ['%%{init: {"look": "classic"}}%%', "flowchart TD", "  A[Start] --> B[End]"].join("\n"),
+    status: "supported",
+    meaning:
+      "An init directive may ask for the classic look; Mermaid draws the " +
+      "flowchart in it. Siren draws in the classic look already, so it keeps " +
+      "the setting and draws the flowchart with no warning (01M52VP2KM).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Start]", "B[End]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+    },
+  },
+  {
+    id: "doc-init-look-unknown",
+    kind: "flowchart",
+    source: ['%%{init: {"look": "fancy"}}%%', "flowchart TD", "  A --> B"].join("\n"),
+    status: "supported",
+    meaning:
+      "A look no look has is not refused: Mermaid 12.2.0 reads it and draws " +
+      "the flowchart anyway (measured in Chrome, in a frontmatter and an " +
+      "init directive alike). Siren draws it too, in the classic look, and " +
+      "says the setting is not applied (01M52VP2KM).",
+    warnings: ['Document config "look" is read but not applied yet; the diagram is drawn without it.'],
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+    },
+  },
+  {
     id: "doc-init-over-frontmatter",
     kind: "sequence",
     source: [
@@ -13091,7 +13124,8 @@ line2\`"]`,
       "A frontmatter and an init directive may both set a key; Mermaid " +
       "merges the init over the frontmatter, so `theme` is `dark` and `look` " +
       "is kept, and draws the sequence diagram. Siren merges them the same " +
-      "way and reports each key once, neither applied yet.",
+      "way and reports each key once, neither applied yet: Siren draws in " +
+      "the classic look, so a `handDrawn` look is drawn without it.",
     warnings: [
       'Document config "look" is read but not applied yet; the diagram is drawn without it.',
       'Document config "theme" is read but not applied yet; the diagram is drawn without it.',

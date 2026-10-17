@@ -156,6 +156,16 @@ function notAppliedYet(key: string): string {
   return `Document config "${key}" is read but not applied yet; the diagram is drawn without it.`;
 }
 
+/**
+ * Whether a top-level key asks for what Siren draws anyway, so it needs no
+ * warning. Siren draws in the classic look, so `look: classic` is honoured
+ * as written; any other look (`neo`, `handDrawn`, or a value no look has)
+ * is drawn classic all the same and so is still reported.
+ */
+function alreadyApplied(key: string, value: unknown): boolean {
+  return key === "look" && value === "classic";
+}
+
 /** A value a property cannot be written into: a truthy string, number or boolean. */
 function isScalar(value: unknown): boolean {
   return Boolean(value) && typeof value !== "object";
@@ -632,10 +642,12 @@ export function documentConfigOf(
     init = into;
   }
   const config = cleanAndMerge(frontmatter.config, init ?? {});
-  const keyWarnings: Diagnostic[] = Object.keys(config).map((key) => ({
-    severity: "warning",
-    message: notAppliedYet(key),
-    ...(positions.get(key) ?? frontmatter.position),
-  }));
+  const keyWarnings: Diagnostic[] = Object.keys(config)
+    .filter((key) => !alreadyApplied(key, config[key]))
+    .map((key) => ({
+      severity: "warning",
+      message: notAppliedYet(key),
+      ...(positions.get(key) ?? frontmatter.position),
+    }));
   return { config, diagnostics: inDocumentOrder([...frontmatter.diagnostics, ...directives.diagnostics, ...keyWarnings]) };
 }

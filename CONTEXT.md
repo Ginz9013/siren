@@ -409,8 +409,8 @@ path painted hollow. Each handler pads its text by its own multiple of the node 
 on its side by half of it, a flag and a brace once, a document stack three times in height), so a
 record recovers the text — the padded label less the node padding `layoutGraph` measured, Siren's
 own — and pads it by that rule: the shape then stands to a rectangle as Mermaid's does in the
-**classic look**, the one the table follows (the parity report compares with it under
-`--look classic`; Mermaid's default `neo` look pads every shape differently).
+**classic look**, the one the table follows (the parity report compares with it by default;
+Mermaid's default `neo` look pads every shape differently).
 
 The **figures** (`compositeShapes.ts`, nook `01M51XACRX`) — `bucket`, `person`,
 `console`, `browser`, `cloud`, `bang` — are drawn in more than one element: a body plus its
@@ -1311,6 +1311,19 @@ outside a **timeline block** — see
 [ADR-0017](docs/adr/0017-a-siren-document-without-its-timeline-is-mermaid.md).
 _Avoid_: directive (alone — `init` is one of two spellings of this, and not every directive is
 config), front matter config, settings
+
+**Look**:
+The **document config** key `look`, which picks one of Mermaid's ways of drawing the same
+diagram: `classic`, `neo` (Mermaid's default) or `handDrawn`. Siren draws in the classic look
+and only in it, so `look: classic`, in a frontmatter or an `init` directive, is honoured as
+written and reported nowhere; any other value — `neo`, `handDrawn`, or one no look has, which
+Mermaid draws rather than refuses — is read, kept and reported as not applied. The parity report
+compares with Mermaid's classic look by default (`--look neo` for its default). One difference
+stays on purpose: Siren's node padding is its own, the one `layoutGraph` measures from the text
+measurer, rather than Mermaid's fixed 15px or the per-shape padding the `neo` look gives each
+shape. A shape's height is its text plus its multiple of that padding, so the shapes' heights, and
+how they compare with one another, differ from Mermaid's (nook `01M52VP2KM`).
+_Avoid_: theme (a look is how shapes are drawn, not their colours), style, hand-drawn mode
 
 **Theme preset**:
 A named, complete set of **design token** values a consumer or user applies to diagrams, each
