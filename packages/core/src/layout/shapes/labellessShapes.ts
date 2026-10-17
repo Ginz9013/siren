@@ -1,5 +1,5 @@
 import type { NodeShape } from "../../contracts";
-import { closedPath, edgesOf, FRAME_PAINT, pathFrame, type Rect, type ShapeFrame, type ShapeSpec, type Size } from "./shape";
+import { circleOutline, edgesOf, FRAME_PAINT, pathFrame, polygonShape, type Rect, type ShapeFrame, type ShapeSpec, type Size } from "./shape";
 
 /**
  * Shape-table records for the shapes Mermaid 12.2.0 draws at a fixed size
@@ -52,19 +52,15 @@ export const LABELLESS_SHAPES = {
       direction === "LR" || direction === "RL"
         ? { width: FORK_THICKNESS, height: FORK_LENGTH }
         : { width: FORK_LENGTH, height: FORK_THICKNESS },
-    frames: (box) => {
+    ...polygonShape((box) => {
       const { left, right, top, bottom } = edgesOf(box);
       return [
-        pathFrame(
-          closedPath([
-            [left, top],
-            [right, top],
-            [right, bottom],
-            [left, bottom],
-          ]),
-        ),
+        [left, top],
+        [right, top],
+        [right, bottom],
+        [left, bottom],
       ];
-    },
+    }),
     drawsLabel: false,
   },
   // `hourglass` (`collate`): two triangles meeting at the centre, drawn as
@@ -72,19 +68,15 @@ export const LABELLESS_SHAPES = {
   // the bottom edge and back up the other diagonal.
   hourglass: {
     box: () => ({ width: 30, height: 30 }),
-    frames: (box) => {
+    ...polygonShape((box) => {
       const { left, right, top, bottom } = edgesOf(box);
       return [
-        pathFrame(
-          closedPath([
-            [left, top],
-            [right, top],
-            [left, bottom],
-            [right, bottom],
-          ]),
-        ),
+        [left, top],
+        [right, top],
+        [left, bottom],
+        [right, bottom],
       ];
-    },
+    }),
     drawsLabel: false,
   },
   // `bolt` (`com-link`, `lightning-bolt`; Mermaid's `lightningBolt`): a
@@ -92,21 +84,17 @@ export const LABELLESS_SHAPES = {
   // `BOLT_GAP` apart where they cross the middle.
   bolt: {
     box: () => ({ width: 35, height: 70 }),
-    frames: (box) => {
+    ...polygonShape((box) => {
       const { left, right, top, bottom, midY } = edgesOf(box);
       return [
-        pathFrame(
-          closedPath([
-            [right, top],
-            [left, midY + BOLT_GAP / 2],
-            [right - 2 * BOLT_GAP, midY + BOLT_GAP / 2],
-            [left, bottom],
-            [right, midY - BOLT_GAP / 2],
-            [left + 2 * BOLT_GAP, midY - BOLT_GAP / 2],
-          ]),
-        ),
+        [right, top],
+        [left, midY + BOLT_GAP / 2],
+        [right - 2 * BOLT_GAP, midY + BOLT_GAP / 2],
+        [left, bottom],
+        [right, midY - BOLT_GAP / 2],
+        [left + 2 * BOLT_GAP, midY - BOLT_GAP / 2],
       ];
-    },
+    }),
     drawsLabel: false,
   },
   // `sm-circ` (`start`; Mermaid's `stateStart`): a 14px circle. It takes
@@ -115,6 +103,7 @@ export const LABELLESS_SHAPES = {
   "small-circle": {
     box: () => squareOf(STATE_CIRCLE),
     frames: (box) => [circleFrame(box, box.width / 2)],
+    outline: (box) => circleOutline(box, box.width / 2),
     drawsLabel: false,
   },
   // `fr-circ` (`stop`; Mermaid's `stateEnd`): a 14px circle with one
@@ -122,6 +111,7 @@ export const LABELLESS_SHAPES = {
   "framed-circle": {
     box: () => squareOf(STATE_CIRCLE),
     frames: (box) => [circleFrame(box, box.width / 2), circleFrame(box, (box.width * 5) / 14 / 2)],
+    outline: (box) => circleOutline(box, box.width / 2),
     drawsLabel: false,
   },
   // `f-circ` (`junction`; Mermaid's `filledCircle`): a 14px circle filled
@@ -131,6 +121,7 @@ export const LABELLESS_SHAPES = {
   "filled-circle": {
     box: () => squareOf(STATE_CIRCLE),
     frames: (box) => [circleFrame(box, box.width / 2, FRAME_PAINT.line)],
+    outline: (box) => circleOutline(box, box.width / 2),
     drawsLabel: false,
   },
   // `anchor` (undocumented; Mermaid's `anchor`): a 2px dot, which Mermaid
@@ -139,6 +130,7 @@ export const LABELLESS_SHAPES = {
   anchor: {
     box: () => squareOf(2),
     frames: (box) => [{ ...circleFrame(box, box.width / 2, FRAME_PAINT.line), authorStyle: false }],
+    outline: (box) => circleOutline(box, box.width / 2),
     drawsLabel: false,
   },
   // `cross-circ` (`summary`; Mermaid's `crossedCircle`): a 60px circle and,
@@ -155,24 +147,21 @@ export const LABELLESS_SHAPES = {
         pathFrame(`M${midX - a},${midY + a} L${midX + a},${midY - a} M${midX + a},${midY + a} L${midX - a},${midY - a}`),
       ];
     },
+    outline: (box) => circleOutline(box, box.width / 2),
     drawsLabel: false,
   },
   // `choice` (undocumented; Mermaid's `choice`): a 28px diamond.
   choice: {
     box: () => squareOf(28),
-    frames: (box) => {
+    ...polygonShape((box) => {
       const { left, right, top, bottom, midX, midY } = edgesOf(box);
       return [
-        pathFrame(
-          closedPath([
-            [midX, bottom],
-            [right, midY],
-            [midX, top],
-            [left, midY],
-          ]),
-        ),
+        [midX, bottom],
+        [right, midY],
+        [midX, top],
+        [left, midY],
       ];
-    },
+    }),
     drawsLabel: false,
   },
 } as const satisfies Partial<Record<NodeShape, ShapeSpec>>;

@@ -1,5 +1,5 @@
 import type { NodeShape } from "../../contracts";
-import { edgesOf, FRAME_PAINT, pathFrame, type Rect, rectFrame, type ShapeFrame, type ShapeSpec, type Size } from "./shape";
+import { arcPoints, boxOutline, closedOutline, edgesOf, FRAME_PAINT, pathFrame, type Rect, rectFrame, type ShapeFrame, type ShapeSpec, type Size } from "./shape";
 
 /**
  * Shape-table records for the shapes Mermaid 12.2.0 draws as a figure plus
@@ -54,6 +54,8 @@ function windowShape(band: number, decorations: (box: Rect) => ShapeFrame[]): Sh
       height: label.height,
     }),
     frames: (box) => [rectFrame(box, { style: [{ property: "rx", value: `${WINDOW_CORNER}px` }] }), ...decorations(box)],
+    // A window's edges meet its box, round corners and all, as Mermaid's do.
+    outline: boxOutline,
   };
 }
 
@@ -294,6 +296,16 @@ export const COMPOSITE_SHAPES = {
         }),
       ];
     },
+    // The silhouette: the far half of the rim, the sides, and the bottom.
+    outline: (box) => {
+      const { top, bottom, midX } = edgesOf(box);
+      const ry = bucketRim(box.width);
+      const half = box.width / 2;
+      return closedOutline([
+        ...arcPoints(midX, top + ry, half, ry, Math.PI, 2 * Math.PI),
+        ...arcPoints(midX, bottom - ry, half * 0.72, ry, 0, Math.PI),
+      ]);
+    },
   },
   // `person` (Mermaid's `person`): a body with rounded corners as tall as
   // a rectangle, under a round head that overlaps its top. At least 100px
@@ -329,6 +341,23 @@ export const COMPOSITE_SHAPES = {
           ],
         },
       ];
+    },
+    // The silhouette: the head down to where it meets the body's top, then
+    // the body's rounded corners — the outline Mermaid meets a person at.
+    outline: (box) => {
+      const { left, right, top, bottom, midX } = edgesOf(box);
+      const { radius, neck } = personHead(box.width);
+      const bodyTop = top + neck;
+      const corner = Math.min(box.width * 0.177, (box.height - neck) * 0.45);
+      const meet = Math.asin(Math.min(1, (neck - radius) / radius));
+      const quarter = Math.PI / 2;
+      return closedOutline([
+        ...arcPoints(midX, top + radius, radius, radius, Math.PI - meet, 2 * Math.PI + meet),
+        ...arcPoints(right - corner, bodyTop + corner, corner, corner, -quarter, 0),
+        ...arcPoints(right - corner, bottom - corner, corner, corner, 0, quarter),
+        ...arcPoints(left + corner, bottom - corner, corner, corner, quarter, 2 * quarter),
+        ...arcPoints(left + corner, bodyTop + corner, corner, corner, 2 * quarter, 3 * quarter),
+      ]);
     },
   },
   // `console` (Mermaid's `consoleWindow`): a window with a 20px band for a
@@ -409,6 +438,8 @@ export const COMPOSITE_SHAPES = {
   // and the label is centred on the `w x h`, which the bulges leave a
   // little left of and above the box's centre.
   cloud: {
+    // Mermaid meets a cloud's box, not its bulges.
+    outline: boxOutline,
     box: (label, _direction, padding) => {
       const { width: w, height: h } = cloudCorners(label, padding);
       const { minX, minY, maxX, maxY } = extentOf(cloudArcs(w, h));
@@ -450,6 +481,8 @@ export const COMPOSITE_SHAPES = {
   // box, is `1.25 x w` by `1.25 x h`. Mermaid centres the label on the
   // `w x h`, a fortieth of each up and left of the box's centre.
   bang: {
+    // Mermaid meets a bang's box, not its scallops.
+    outline: boxOutline,
     box: (label, _direction, padding) => {
       const { width, height } = bangCorners(label, padding);
       return { width: BANG_SPREAD * width, height: BANG_SPREAD * height };

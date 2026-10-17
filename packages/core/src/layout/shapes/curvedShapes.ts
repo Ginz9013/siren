@@ -1,5 +1,5 @@
 import type { NodeShape } from "../../contracts";
-import { edgesOf, FRAME_PAINT, pathFrame, type Rect, type ShapeFrame, type ShapeSpec, type Size } from "./shape";
+import { arcPoints, boxOutline, closedOutline, edgesOf, FRAME_PAINT, pathFrame, pointsOf, type Rect, type ShapeFrame, type ShapeSpec, type Size, type Vertex } from "./shape";
 
 /**
  * Shape-table records for the shapes Mermaid 12.2.0 names only in a node's
@@ -59,16 +59,13 @@ function arc(rx: number, ry: number, sweep: 0 | 1, x: number, y: number): string
   return `A${rx},${ry} 0 0 ${sweep} ${x},${y}`;
 }
 
-/** A point, as `[x, y]`. */
-type Point = readonly [number, number];
-
 /**
  * Mermaid's `generateFullSineWavePoints`: `cycles` cycles of a sine wave of
  * `amplitude` about the middle of `from` and `to`, sampled at 51 evenly
  * spaced points from `from`'s x to `to`'s. A negative `cycles` or
  * `amplitude` flips the wave.
  */
-function sineWave(from: Point, to: Point, amplitude: number, cycles: number): Point[] {
+function sineWave(from: Vertex, to: Vertex, amplitude: number, cycles: number): Vertex[] {
   const [x1, y1] = from;
   const [x2, y2] = to;
   const middle = y1 + (y2 - y1) / 2;
@@ -84,8 +81,13 @@ function hundredths(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+/** A vertex to the hundredth, as `polyline` writes it. */
+function toHundredths([x, y]: Vertex): Vertex {
+  return [hundredths(x), hundredths(y)];
+}
+
 /** `points` as an open polyline, `M x,y L x,y …`, to the hundredth. */
-function polyline(points: readonly Point[]): string {
+function polyline(points: readonly Vertex[]): string {
   return points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${hundredths(x)},${hundredths(y)}`).join(" ");
 }
 
@@ -96,12 +98,26 @@ function polyline(points: readonly Point[]): string {
  * (Mermaid's `waveEdgedRectangle`). Returns the path and the wave, so a
  * shape that marks the document can find where its bottom runs.
  */
-function documentOutline(box: Rect): { d: string; amplitude: number; middle: number } {
+function documentOutline(box: Rect): { d: string; vertices: Vertex[]; amplitude: number; middle: number } {
   const { left, right, top } = edgesOf(box);
   const amplitude = (0.8 * box.height) / 8;
   const middle = top + 0.8 * box.height + amplitude;
   const wave = sineWave([left, middle], [right, middle], amplitude, 0.8);
-  return { d: `${polyline(wave)} L${right},${top} L${left},${top} Z`, amplitude, middle };
+  return {
+    d: `${polyline(wave)} L${right},${top} L${left},${top} Z`,
+    vertices: [...wave.map(toHundredths), [right, top], [left, top]],
+    amplitude,
+    middle,
+  };
+}
+
+/**
+ * A document's outline: the wave its bottom is sampled at and its two top
+ * corners, the vertices its frame is drawn through — Mermaid meets a
+ * document at the same points, its lines and tags inside it.
+ */
+function documentEdge(box: Rect) {
+  return pointsOf(documentOutline(box).vertices);
 }
 
 /** A document's box: `1.1` of the label wide for the shapes that widen it, and a quarter taller. */
@@ -174,6 +190,60 @@ function brace(side: "left" | "right", tip: number, top: number, bottom: number,
   );
 }
 
+/**
+ * A stack of three documents in `box` (Mermaid's
+ * `multiWaveEdgedRectangle`): the stack's silhouette, which is also its
+ * outline, and the middle sheet's visible edges.
+ */
+function documentStack(box: Rect): { outer: Vertex[]; inner: Vertex[] } {
+  const { left, top } = edgesOf(box);
+  const o = SHEET;
+  const w = box.width - 2 * o;
+  const h = (box.height - 2 * o) / (1 + 1 / 16 + 1 / 8);
+  // Mermaid's corner of the middle sheet, from which it writes the rest.
+  const x = left + o;
+  const y = top + o;
+  const front = y + h + h / 16 + o;
+  const wave = sineWave([x - o, front], [x + w - o, front], h / 8, 0.8);
+  const end = wave[wave.length - 1]![1];
+  const outer: Vertex[] = [
+    [x - o, y + o],
+    ...wave,
+    [x + w - o, end - o],
+    [x + w, end - o],
+    [x + w, end - 2 * o],
+    [x + w + o, end - 2 * o],
+    [x + w + o, y - o],
+    [x + o, y - o],
+    [x + o, y],
+    [x, y],
+    [x, y + o],
+  ];
+  const inner: Vertex[] = [
+    [x, y + o],
+    [x + w - o, y + o],
+    [x + w - o, end - o],
+    [x + w, end - o],
+    [x + w, y],
+    [x, y],
+  ];
+  return { outer, inner };
+}
+
+/**
+ * A flag's outline in `box`: its bottom, a whole cycle of a sine wave from
+ * left to right, then its top, the same wave flipped, back from right to
+ * left (Mermaid's `waveRectangle`).
+ */
+function flagWaves(box: Rect): Vertex[] {
+  const { left, right, midY } = edgesOf(box);
+  const h = box.height / 1.5;
+  const amplitude = h / 8;
+  const bottom = midY + h / 2 + amplitude;
+  const top = midY - h / 2 - amplitude;
+  return [...sineWave([left, bottom], [right, bottom], amplitude, 1), ...sineWave([right, top], [left, top], amplitude, -1)];
+}
+
 export const CURVED_SHAPES = {
   // `delay` (Mermaid's `halfRoundedRectangle`): a rectangle whose right end
   // is a half circle of radius `h/2`, widened on both sides by the cap's
@@ -190,6 +260,15 @@ export const CURVED_SHAPES = {
       const { left, right, top, bottom } = edgesOf(box);
       const r = box.height / 2;
       return [pathFrame(`M${left},${top} L${right - r},${top} A${r},${r} 0 0 1 ${right - r},${bottom} L${left},${bottom} Z`)];
+    },
+    outline: (box) => {
+      const { left, right, top, bottom, midY } = edgesOf(box);
+      const r = box.height / 2;
+      return closedOutline([
+        { x: left, y: top },
+        ...arcPoints(right - r, midY, r, r, -Math.PI / 2, Math.PI / 2),
+        { x: left, y: bottom },
+      ]);
     },
   },
   // `curv-trap` (Mermaid's `curvedTrapezoid`, a display): a left end that
@@ -216,6 +295,17 @@ export const CURVED_SHAPES = {
             `L${right - r},${bottom} A${r},${r} 0 0 0 ${right - r},${top} Z`,
         ),
       ];
+    },
+    outline: (box) => {
+      const { left, right, top, bottom, midY } = edgesOf(box);
+      const r = box.height / 2;
+      const point = box.height / 4;
+      return closedOutline([
+        { x: left + point, y: top },
+        ...arcPoints(right - r, midY, r, r, -Math.PI / 2, Math.PI / 2),
+        { x: left + point, y: bottom },
+        { x: left, y: midY },
+      ]);
     },
   },
   // `h-cyl` (Mermaid's `tiltedCylinder`, direct access storage): a
@@ -255,6 +345,16 @@ export const CURVED_SHAPES = {
         ),
       ];
     },
+    // The silhouette: the outer half of each end and the tube between.
+    outline: (box) => {
+      const { left, right, midY } = edgesOf(box);
+      const ry = box.height / 2;
+      const rx = ellipseRadius(ry);
+      return closedOutline([
+        ...arcPoints(right - rx, midY, rx, ry, -Math.PI / 2, Math.PI / 2),
+        ...arcPoints(left + rx, midY, rx, ry, Math.PI / 2, (3 * Math.PI) / 2),
+      ]);
+    },
   },
   // `lin-cyl` (Mermaid's `linedCylinder`, disk storage): a cylinder as
   // wide as a rectangle, its lid an ellipse of radii `w/2` and `ry`, its
@@ -283,6 +383,17 @@ export const CURVED_SHAPES = {
         ),
       ];
     },
+    // The silhouette: the top half of the lid, the sides, and the bottom
+    // half of the base.
+    outline: (box) => {
+      const { top, bottom, midX } = edgesOf(box);
+      const rx = box.width / 2;
+      const ry = ellipseRadius(rx);
+      return closedOutline([
+        ...arcPoints(midX, top + ry, rx, ry, Math.PI, 2 * Math.PI),
+        ...arcPoints(midX, bottom - ry, rx, ry, 0, Math.PI),
+      ]);
+    },
   },
   // `bow-rect` (Mermaid's `bowTieRect`, stored data): a rectangle whose
   // left end bulges out and whose right end curves in, each half an
@@ -307,11 +418,23 @@ export const CURVED_SHAPES = {
         ),
       ];
     },
+    // The left end bulging out, the right end curving in.
+    outline: (box) => {
+      const { left, right, top, midY } = edgesOf(box);
+      const ry = box.height / 2;
+      const rx = ellipseRadius(ry);
+      return closedOutline([
+        { x: right, y: top },
+        ...arcPoints(left + rx, midY, rx, ry, (3 * Math.PI) / 2, Math.PI / 2),
+        ...arcPoints(right, midY, rx, ry, Math.PI / 2, (3 * Math.PI) / 2),
+      ]);
+    },
   },
   // `doc` (Mermaid's `waveEdgedRectangle`): a rectangle as wide as a plain
   // one whose bottom is a sine wave; the label moves `h/8` up, which puts
   // the padded label at the top of the box.
   document: {
+    outline: documentEdge,
     box: documentBox(1),
     labelRect: documentLabel(0, 1 / 8),
     frames: (box) => [pathFrame(documentOutline(box).d)],
@@ -322,6 +445,7 @@ export const CURVED_SHAPES = {
   // the line. Mermaid runs the line to `1.1 x` the body's half height, past
   // the wave; Siren stops it where it meets the wave.
   "lined-document": {
+    outline: documentEdge,
     box: documentBox(1.1),
     labelRect: documentLabel(0.025, 1 / 8),
     frames: (box) => {
@@ -339,13 +463,14 @@ export const CURVED_SHAPES = {
   // cycle of wave of amplitude `-0.02 x h` back — and moved `h/16` up with
   // the outline, as Mermaid moves both.
   "tagged-document": {
+    outline: documentEdge,
     box: documentBox(1.1),
     labelRect: documentLabel(0, 1 / 16),
     frames: (box) => {
       const { midX, midY } = edgesOf(box);
       const w = box.width / 1.1;
       const h = 0.8 * box.height;
-      const at = (x: number, y: number): Point => [midX + x * w, midY + y * h - h / 16];
+      const at = (x: number, y: number): Vertex => [midX + x * w, midY + y * h - h / 16];
       const corner = at(0.35, 0.46475);
       const tag = [corner, at(0.55, 0.1575), at(0.55, 0.32175), ...sineWave(at(0.55, 0.446875), corner, -0.02 * h, 0.5)];
       return [pathFrame(documentOutline(box).d), pathFrame(`${polyline(tag)} Z`)];
@@ -376,39 +501,10 @@ export const CURVED_SHAPES = {
       };
     },
     frames: (box) => {
-      const { left, top } = edgesOf(box);
-      const o = SHEET;
-      const w = box.width - 2 * o;
-      const h = (box.height - 2 * o) / (1 + 1 / 16 + 1 / 8);
-      // Mermaid's corner of the middle sheet, from which it writes the rest.
-      const x = left + o;
-      const y = top + o;
-      const front = y + h + h / 16 + o;
-      const wave = sineWave([x - o, front], [x + w - o, front], h / 8, 0.8);
-      const end = wave[wave.length - 1]![1];
-      const outer: Point[] = [
-        [x - o, y + o],
-        ...wave,
-        [x + w - o, end - o],
-        [x + w, end - o],
-        [x + w, end - 2 * o],
-        [x + w + o, end - 2 * o],
-        [x + w + o, y - o],
-        [x + o, y - o],
-        [x + o, y],
-        [x, y],
-        [x, y + o],
-      ];
-      const inner: Point[] = [
-        [x, y + o],
-        [x + w - o, y + o],
-        [x + w - o, end - o],
-        [x + w, end - o],
-        [x + w, y],
-        [x, y],
-      ];
+      const { outer, inner } = documentStack(box);
       return [pathFrame(`${polyline(outer)} Z`), pathFrame(`${polyline(inner)} Z`)];
     },
+    outline: (box) => pointsOf(documentStack(box).outer.map(toHundredths)),
   },
   // `flag` (Mermaid's `waveRectangle`, a paper tape): as wide as a
   // rectangle, `h` the text plus the node padding once, its top and bottom
@@ -421,18 +517,8 @@ export const CURVED_SHAPES = {
       const { text, px, py } = textOf(label, padding);
       return { width: text.width + 2 * px, height: (text.height + py) * 1.5 };
     },
-    frames: (box) => {
-      const { left, right, midY } = edgesOf(box);
-      const h = box.height / 1.5;
-      const amplitude = h / 8;
-      const bottom = midY + h / 2 + amplitude;
-      const top = midY - h / 2 - amplitude;
-      const wave = [
-        ...sineWave([left, bottom], [right, bottom], amplitude, 1),
-        ...sineWave([right, top], [left, top], amplitude, -1),
-      ];
-      return [pathFrame(`${polyline(wave)} Z`)];
-    },
+    frames: (box) => [pathFrame(`${polyline(flagWaves(box))} Z`)],
+    outline: (box) => pointsOf(flagWaves(box).map(toHundredths)),
   },
   // `brace` (Mermaid's `curlyBraceLeft`, a comment): a brace left of the
   // text, `w x h` the text padded once each way (`braceText`), curls of
@@ -441,6 +527,8 @@ export const CURVED_SHAPES = {
   // behind them, which reaches `0.1 x w` left of it rather than `2r`; the
   // text starts at the brace's tips.
   "brace-left": {
+    // Edges meet the invisible hit rectangle behind the brace: the box.
+    outline: boxOutline,
     box: (label, _direction, padding) => {
       const { width, height } = braceText(label, padding);
       const r = curlRadius(height);
@@ -465,6 +553,8 @@ export const CURVED_SHAPES = {
   // `brace-r` (Mermaid's `curlyBraceRight`): a brace along the right of a
   // centred label, the box `w + 2r` by `h + 2r`.
   "brace-right": {
+    // Edges meet the invisible hit rectangle behind the brace: the box.
+    outline: boxOutline,
     box: (label, _direction, padding) => {
       const { width, height } = braceText(label, padding);
       const r = curlRadius(height);
@@ -480,6 +570,8 @@ export const CURVED_SHAPES = {
   // label, the box `w + 2.5r` by `h + 2r` — each brace reaches `3r/4` in
   // over the padded label.
   braces: {
+    // Edges meet the invisible hit rectangle behind the brace: the box.
+    outline: boxOutline,
     box: (label, _direction, padding) => {
       const { width, height } = braceText(label, padding);
       const r = curlRadius(height);

@@ -1,16 +1,17 @@
-import type { Direction, GraphNode, PositionedNode, StyleProperty } from "../../contracts";
+import type { Direction, GraphNode, Point, PositionedNode, StyleProperty } from "../../contracts";
 
 /**
  * The vocabulary of the **shape table**: what one flowchart node shape is,
  * as data that layout and the renderer both read.
  *
- * A shape is three answers, and nothing else in the pipeline knows a
+ * A shape is four answers, and nothing else in the pipeline knows a
  * shape's name:
  *
  * - `box` — how much bounding box a measured label needs (`layoutGraph`).
  * - `labelRect` — where in that box the label goes (`layoutGraph`, which
  *   hands the renderer the offset as `PositionedNode.labelOffset`).
  * - `frames` — the elements the outline is drawn with (`renderToSVG`).
+ * - `outline` — the closed polygon a connector's end meets.
  *
  * A new shape is three additions: its member in the `NodeShape` union
  * (`contracts.ts`), its record in one of the group files beside this one,
@@ -126,6 +127,19 @@ export interface ShapeSpec {
    */
   frames(node: PositionedNode): ShapeFrame[];
   /**
+   * Where a connector meeting the node stops: a closed polygon in the
+   * coordinates `frames` draws in, its last point joined back to the first
+   * (which is not written again), wound one way throughout.
+   *
+   * Which outline follows the shape's Mermaid handler's `intersect`: a
+   * polygon's own vertices — the very points its frame is drawn through —
+   * a curve sampled finely enough to stay within `OUTLINE_TOLERANCE` of it,
+   * the outer silhouette of a shape drawn in parts, and the box itself
+   * where the handler meets a rectangle: an invisible hit rectangle behind
+   * a brace, a window, a cloud, a shape that draws no outline.
+   */
+  outline(node: PositionedNode): Point[];
+  /**
    * `false` for a shape that draws no text at all (a fork, a small circle):
    * the renderer leaves the label out. Absent, the label is drawn. The
    * shapes that say so are `SHAPES_DRAWN_WITHOUT_TEXT` (`nodeShapeTraits.ts`),
@@ -204,3 +218,113 @@ export function edgesOf(box: Rect): { left: number; right: number; top: number; 
  * image's (Mermaid's `labelPadding`, 8 when the node has a label).
  */
 export const FIGURE_LABEL_GAP = 8;
+
+/** The corners of `box`, clockwise from its top left: the outline of every shape whose edges meet its box. */
+export function boxOutline(box: Rect): Point[] {
+  const { left, right, top, bottom } = edgesOf(box);
+  return [
+    { x: left, y: top },
+    { x: right, y: top },
+    { x: right, y: bottom },
+    { x: left, y: bottom },
+  ];
+}
+
+/** A point written as `[x, y]`, the form a polygon's vertices are listed in. */
+export type Vertex = readonly [number, number];
+
+/** `vertices` as points. */
+export function pointsOf(vertices: readonly Vertex[]): Point[] {
+  return vertices.map(([x, y]) => ({ x, y }));
+}
+
+/**
+ * A shape drawn as one closed polygon through `vertices`, which is also its
+ * outline — one list of points, so the figure drawn and the outline an edge
+ * meets cannot drift apart.
+ */
+export function polygonShape(vertices: (box: Rect) => Vertex[]): Pick<ShapeSpec, "frames" | "outline"> {
+  return {
+    frames: (box) => [pathFrame(closedPath(vertices(box)))],
+    outline: (box) => pointsOf(vertices(box)),
+  };
+}
+
+/** How far a sampled curve's outline may stray from the curve, in pixels. */
+export const OUTLINE_TOLERANCE = 0.25;
+
+/**
+ * Points along the ellipse about `cx,cy` of radii `rx` and `ry`, from angle
+ * `from` to angle `to` (radians, y down, so a growing angle turns
+ * clockwise on screen), both ends included.
+ *
+ * Spaced so that no chord strays from the arc by more than
+ * `OUTLINE_TOLERANCE`: a chord across a step `dt` of a curve whose second
+ * derivative is at most `max(rx, ry)` strays at most `dt² x max(rx, ry) / 8`.
+ */
+export function arcPoints(cx: number, cy: number, rx: number, ry: number, from: number, to: number): Point[] {
+  const reach = Math.max(rx, ry);
+  const sweep = Math.abs(to - from);
+  const step = reach > 0 ? Math.sqrt((8 * OUTLINE_TOLERANCE) / reach) : sweep;
+  const count = Math.max(1, Math.ceil(sweep / step));
+  return Array.from({ length: count + 1 }, (_, i) => {
+    const t = from + ((to - from) * i) / count;
+    return { x: cx + rx * Math.cos(t), y: cy + ry * Math.sin(t) };
+  });
+}
+
+/**
+ * `points` as an outline: a point that repeats the one before it dropped,
+ * and the first not written again at the end — where two pieces of an
+ * outline meet, each has the point they share.
+ */
+export function closedOutline(points: readonly Point[]): Point[] {
+  const near = (a: Point, b: Point) => Math.abs(a.x - b.x) < 1e-9 && Math.abs(a.y - b.y) < 1e-9;
+  const kept = points.filter((point, i) => i === 0 || !near(point, points[i - 1]!));
+  while (kept.length > 1 && near(kept[0]!, kept.at(-1)!)) {
+    kept.pop();
+  }
+  return kept;
+}
+
+/** The circle of radius `r` about the centre of `box`, sampled. */
+export function circleOutline(box: Rect, r: number): Point[] {
+  const { midX, midY } = edgesOf(box);
+  return closedOutline(arcPoints(midX, midY, r, r, 0, 2 * Math.PI));
+}
+
+/**
+ * The outline of a figure with its label beside it — an icon's, an
+ * image's: `figure`, and a strip `labelWidth` wide (centred, no wider than
+ * the box) running from the figure to the far edge of `box`, below it or,
+ * with `above`, above it. Eight corners, clockwise from the top left.
+ */
+export function figureOutline(box: Rect, figure: Rect, labelWidth: number, above: boolean): Point[] {
+  const { left, right, top, bottom } = edgesOf(figure);
+  const { midX } = edgesOf(box);
+  const half = Math.min(labelWidth, box.width) / 2;
+  if (above) {
+    const stripTop = box.y;
+    return closedOutline([
+      { x: midX - half, y: stripTop },
+      { x: midX + half, y: stripTop },
+      { x: midX + half, y: top },
+      { x: right, y: top },
+      { x: right, y: bottom },
+      { x: left, y: bottom },
+      { x: left, y: top },
+      { x: midX - half, y: top },
+    ]);
+  }
+  const stripBottom = box.y + box.height;
+  return closedOutline([
+    { x: left, y: top },
+    { x: right, y: top },
+    { x: right, y: bottom },
+    { x: midX + half, y: bottom },
+    { x: midX + half, y: stripBottom },
+    { x: midX - half, y: stripBottom },
+    { x: midX - half, y: bottom },
+    { x: left, y: bottom },
+  ]);
+}

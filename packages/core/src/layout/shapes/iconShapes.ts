@@ -1,9 +1,11 @@
 import type { GraphNode, NodeIcon, NodeShape, PositionedNode } from "../../contracts";
 import { DEFAULT_ICON_SIZE } from "../../nodeShapeTraits";
 import {
+  boxOutline,
   closedPath,
   edgesOf,
   FIGURE_LABEL_GAP,
+  figureOutline,
   FRAME_PAINT,
   pathFrame,
   rectFrame,
@@ -172,6 +174,16 @@ export const ICON_SHAPES = {
       const icon = iconOf(node);
       const figure = figureRect(node, icon);
       return [formFrame(node, figure, icon), ...glyphFrame(figure, icon, node)];
+    },
+    // A circle's edges meet its whole box, label and all; an icon with no
+    // label is its figure; any other meets the figure and its label's strip
+    // — as Mermaid's `iconCircle` and other icon handlers do.
+    outline: (node) => {
+      const icon = iconOf(node);
+      if (icon.form === "circle" || node.label.text === "") {
+        return boxOutline(node);
+      }
+      return figureOutline(node, figureRect(node, icon), node.labelBox.width, icon.pos === "t");
     },
   },
 } as const satisfies Partial<Record<NodeShape, ShapeSpec>>;
