@@ -1,2 +1,3 @@
 {"id":"01M52VP2KM5FQ4XF3RWNHHJKCE","t":1,"a":"83a1","op":"create","title":"Mermaid 12.2.0 預設 neo look：Siren 對齊哪一個"}
 {"id":"01M52VP2M1AAP7WT3YRD3Z7633","t":2,"a":"83a1","op":"set","k":"description","v":"# Mermaid 12.2.0 預設 neo look：Siren 對齊哪一個\n\n由 board backlog-clear-1016 的 T17 留下。\n\n- 決定 3 選了 classic look 的形狀公式，但 Mermaid 12.2.0 的預設 look 是 neo（`data-look=\"neo\"`），padding 與部分形狀公式不同（例如 neo 的 doc 振幅是 h/4、brace 用 12px 的 padding）。\n- parity 工具現在有 `--look classic|neo`，預設跟 Mermaid 一樣是 neo。\n- 待決定：Siren 以哪個 look 為準、要不要支援 `look:` 設定，以及 parity 的預設值。\n- 另外，Siren 自己的 node padding（左右 24、上下 11）跟 Mermaid 的 15 不同，所以曲線形狀的高度比會因為 padding 倍數不同而各異。這點要一併考慮。"}
+{"id":"01M548RA756SRB8NP3TSV55HH3","t":3,"a":"83a1","op":"set","k":"status","v":"done"}

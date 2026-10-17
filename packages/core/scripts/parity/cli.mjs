@@ -11,16 +11,17 @@ const LOOKS = ["classic", "neo"];
 
 /**
  * `parity [file…] [--json] [--look classic|neo]`. No files means every
- * fixture; no `--look` means Mermaid's own default look (`neo` in 12.2.0).
+ * fixture; no `--look` means `classic`, the look Siren draws in, rather than
+ * Mermaid's own default (`neo` in 12.2.0).
  *
  * @param {string[]} argv the arguments after the script name
- * @returns {{ files: string[], json: boolean, look?: "classic" | "neo" }}
+ * @returns {{ files: string[], json: boolean, look: "classic" | "neo" }}
  */
 export function parseArgs(argv) {
   const usage = "Usage: parity [file…] [--json] [--look classic|neo]";
   const files = [];
   let json = false;
-  let look;
+  let look = "classic";
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--json") json = true;
@@ -32,7 +33,7 @@ export function parseArgs(argv) {
     } else if (arg.startsWith("--")) throw new Error(`Unknown option ${arg}. ${usage}`);
     else files.push(arg);
   }
-  return look === undefined ? { files, json } : { files, json, look };
+  return { files, json, look };
 }
 
 /**

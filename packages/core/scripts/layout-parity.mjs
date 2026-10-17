@@ -6,15 +6,15 @@
  *     pnpm --filter siren-core parity            # every scripts/parity-fixtures/*.mmd
  *     pnpm --filter siren-core parity a.mmd b.mmd
  *     pnpm --filter siren-core parity --json     # { diagrams: [one per diagram], totals }
- *     pnpm --filter siren-core parity --look classic   # Mermaid in its classic look (default: its own, neo)
+ *     pnpm --filter siren-core parity --look neo   # Mermaid in its neo look (default: classic, Siren's own)
  *     SIREN_PARITY_CHROME=/path/to/chrome pnpm --filter siren-core parity
  *
  * For every diagram it draws the same source twice in one headless Chrome
  * page — once with `mermaid@12.2.0` at its defaults (`startOnLoad: false`,
- * no theme or layout settings, and its default `neo` look unless `--look`
- * names one), once with siren-core's standalone build and
- * the canvas text measurer siren-board uses — and reads back each node's box and
- * each edge's path.
+ * no theme or layout settings), except for the look: the `classic` look Siren
+ * draws in, unless `--look neo` asks for Mermaid's own default instead; once
+ * with siren-core's standalone build and the canvas text measurer siren-board
+ * uses — and reads back each node's box and each edge's path.
  * Nodes are matched across the two pictures by the id the author wrote
  * (`scripts/parity/ids.mjs` says how that id is read off Mermaid's DOM). Per
  * diagram it prints:

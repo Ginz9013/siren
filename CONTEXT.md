@@ -401,6 +401,17 @@ left-to-right flow. A frame
 may wear a **paint** beside `siren-node-frame` — hollow, ink (the stroke colour), bare (no paint)
 or note — a class rather than an inline declaration, so a highlight still outlines it and an
 author's `style` still wins.
+A flowchart edge **ends on the shape's outline**, not on its box: ELK routes every edge to the
+node's bounding box, and `layoutGraph` then slides each end along the run that reaches it — the
+route's first or last segment, carried on or cut short — to the first place it meets the shape's
+outline (`clipToOutline.ts`, reading each record's `outline`). The crossing is found side by side,
+never by asking which side of the outline is inside, because an outline may cross itself (an
+hourglass); the point where it does is not a place a line ends, so a line level with an hourglass's
+pinch keeps its end on the box, as Mermaid 12.2.0 draws it. An end at a subgraph stays on the
+frame; a self-loop's two ends both meet the outline, and an end whose run starts inside the box keeps
+its place. Only the end points move — bends and labels stay put — but the line hops are read again
+off the clipped routes (`clipRoutesAndHop`), since a run carried on to the outline can cross a line
+it stopped short of. A state diagram clips its pseudo-states' and choices' ends the same way.
 The shapes with a **curved outline** (`curvedShapes.ts`, nook `01M51XACHP`) are
 records too — `delay`, `curv-trap`, `h-cyl`, `lin-cyl`, `bow-rect`, `doc`, `lin-doc`, `tag-doc`,
 `docs`, `flag`, `brace`, `brace-r` and `braces`. A round end, a cylinder's end and a brace's curl
@@ -409,8 +420,8 @@ path painted hollow. Each handler pads its text by its own multiple of the node 
 on its side by half of it, a flag and a brace once, a document stack three times in height), so a
 record recovers the text — the padded label less the node padding `layoutGraph` measured, Siren's
 own — and pads it by that rule: the shape then stands to a rectangle as Mermaid's does in the
-**classic look**, the one the table follows (the parity report compares with it under
-`--look classic`; Mermaid's default `neo` look pads every shape differently).
+**classic look**, the one the table follows (the parity report compares with it by default;
+Mermaid's default `neo` look pads every shape differently).
 
 The **figures** (`compositeShapes.ts`, nook `01M51XACRX`) — `bucket`, `person`,
 `console`, `browser`, `cloud`, `bang` — are drawn in more than one element: a body plus its
@@ -1281,9 +1292,16 @@ had somewhere to put it, and only after measuring that Mermaid makes it too. Eve
 goes to the frame, and a styled edge's arrowhead takes the edge's own `stroke` via a marker minted
 per distinct (end shape, color) pair — per color alone until an edge's ends had shapes, and minted
 only for the pairs a diagram actually draws, so one color and one head shape is still one marker.
-Property names must be plain CSS identifiers and values may not contain `url(`, `expression(`, `;`
-or `\`; a rejected declaration is dropped with an error diagnostic and its siblings still apply.
-That gate is `graph-model/resolveStyles.ts` and only there — no renderer re-checks anything.
+Property names must be plain CSS identifiers, and a value is read against an allowlist
+(`unsafeStyleValue`): it may call only the colour, math and gradient functions and `var(`, and is
+otherwise built from hex colours, keywords, numbers, quoted family names and `!important`; `;`,
+`\` and an unclosed comment are refused. A rejected declaration is dropped with an error
+diagnostic and its siblings still apply. That gate is `graph-model/resolveStyles.ts` and only
+there — no renderer re-checks anything. Measured in headless Chrome against a local request
+logger: no refused value — `url(`, `image-set(` and the other image functions in any case or
+vendor spelling, split by a comment, behind a quoted `/*`, or nested in an allowed function —
+makes a request from a class, state or ER `style`/`classDef` or a label's `<span style>` or
+`<font>`, where the same value set straight on an element does.
 _Avoid_: theme, custom style, inline style (that is the mechanism, not the authored thing), CSS
 class (a `classDef` defines a named set of declarations, not a CSS class — nothing it produces
 reaches a stylesheet; and note that a flowchart's apply-directive is *spelled* `class`, which is
@@ -1311,6 +1329,19 @@ outside a **timeline block** — see
 [ADR-0017](docs/adr/0017-a-siren-document-without-its-timeline-is-mermaid.md).
 _Avoid_: directive (alone — `init` is one of two spellings of this, and not every directive is
 config), front matter config, settings
+
+**Look**:
+The **document config** key `look`, which picks one of Mermaid's ways of drawing the same
+diagram: `classic`, `neo` (Mermaid's default) or `handDrawn`. Siren draws in the classic look
+and only in it, so `look: classic`, in a frontmatter or an `init` directive, is honoured as
+written and reported nowhere; any other value — `neo`, `handDrawn`, or one no look has, which
+Mermaid draws rather than refuses — is read, kept and reported as not applied. The parity report
+compares with Mermaid's classic look by default (`--look neo` for its default). One difference
+stays on purpose: Siren's node padding is its own, the one `layoutGraph` measures from the text
+measurer, rather than Mermaid's fixed 15px or the per-shape padding the `neo` look gives each
+shape. A shape's height is its text plus its multiple of that padding, so the shapes' heights, and
+how they compare with one another, differ from Mermaid's (nook `01M52VP2KM`).
+_Avoid_: theme (a look is how shapes are drawn, not their colours), style, hand-drawn mode
 
 **Theme preset**:
 A named, complete set of **design token** values a consumer or user applies to diagrams, each
@@ -1386,12 +1417,18 @@ A set of icons a caller hands `render()` through its `iconPacks` option, as Icon
 data, never loaded or fetched, so an icon no registered pack holds is an error rather than the
 `?` Mermaid draws. An icon's body is read through an allowlist into figure data and drawn
 element by element: no markup from a pack reaches a parser in the page.
+Measured in headless Chrome: no body makes a request — not a `url(…)` or `image-set(` paint,
+`<image>`, `<use>`, `<style>` or `<feImage>`, nor an `<?xml-stylesheet?>`, which `DOMParser` does
+not load even from a document's prolog.
 _Avoid_: icon set, icon library, icon font
 
 **Image node**:
 A flowchart node drawn as an image (`A@{ img: "data:image/…", w, h, constraint, pos }`). Its image
 is a `data:` URL the document holds — never one Siren fetches, since it draws without touching the
 network — of a PNG, GIF, JPEG, WebP or SVG, whose natural size is read off the data's own header.
+Only the header is read, never the image decoded, so an image whose data is missing or broken
+past a whole header is drawn and shows broken, where Mermaid refuses the whole diagram: Node has
+no decoder, and a check of the data's structure would not agree with the browser's decoder.
 An image node draws no icon: Mermaid draws a node given both an `img:` and an `icon:` as the image
 and drops the icon without a word, so Siren refuses the pair, saying the icon would be dropped.
 _Avoid_: picture node, image shape (there is no `shape:` name for it)

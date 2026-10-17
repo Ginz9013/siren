@@ -2697,6 +2697,70 @@ export const COMPAT_CASES: readonly CompatCase[] = [
     },
   },
 
+  {
+    id: "fc-edge-ends-on-outline",
+    kind: "flowchart",
+    source: `flowchart TB
+      A[aaaa] --> D{decide here}
+      B[bbbb] --> D
+      C[cccc] --> D
+      D --> E[eeee]`,
+    status: "supported",
+    meaning:
+      "An edge into a shape that is not a rectangle ends **on the shape**, " +
+      "not on the box it is inscribed in: an arrow left on the box points at " +
+      "the empty corner beside a diamond. Each end slides along the run that " +
+      "reaches it, so an edge that bends above the diamond and comes down " +
+      "beside its top corner lands on the slanted side, straight below its " +
+      "last bend. Measured in Mermaid 12.2.0 in headless Chrome (classic " +
+      "look): the outer two of these three edges end 37.75px below the " +
+      "diamond's box, on its sides, each at the x of its last bend " +
+      "(backlog 01M52VP231).",
+    assert: (result) => {
+      const frame = svgOf(result).querySelector(
+        'g.siren-node[data-siren-id="D"] path.siren-node-frame',
+      );
+      if (frame === null) throw new Error('no diamond "D" was drawn');
+      const corners = Array.from((frame.getAttribute("d") ?? "").matchAll(/(-?[\d.]+),(-?[\d.]+)/g), (m) => ({
+        x: Number(m[1]),
+        y: Number(m[2]),
+      }));
+      expectSame("the diamond is drawn through four corners", corners.length, 4);
+      const offDiamond = (point: Point) =>
+        Math.min(
+          ...corners.map((a, i) => {
+            const b = corners[(i + 1) % corners.length];
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy)));
+            return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
+          }),
+        );
+      const top = Math.min(...corners.map((corner) => corner.y));
+      const ends = [
+        ...["A-D", "B-D", "C-D"].map((id) => edgePoints(result, id).slice(-2).reverse()),
+        edgePoints(result, "D-E").slice(0, 2),
+      ];
+      for (const [end, before] of ends) {
+        expectSame(
+          `the edge ends on the diamond (at ${JSON.stringify(end)})`,
+          offDiamond(end) <= 0.5,
+          true,
+        );
+        expectSame(
+          `and on the run that reaches it (from ${JSON.stringify(before)})`,
+          Math.abs(end.x - before.x) < 1e-6 || Math.abs(end.y - before.y) < 1e-6,
+          true,
+        );
+      }
+      expectSame(
+        "at least one edge comes down beside the top corner, onto a slanted side",
+        ends.some(([end]) => end.y > top + 1),
+        true,
+      );
+    },
+  },
+
   // -------------------------------------------------------------------------
   // flowchart — statement composition
   // -------------------------------------------------------------------------
@@ -12950,10 +13014,13 @@ line2\`"]`,
   {
     id: "doc-frontmatter-sequence",
     kind: "sequence",
-    source: ["---", "config:", "  look: handDrawn", "---", "sequenceDiagram", "  A->>B: Hello"].join("\n"),
+    source: ["---", "config:", "  look: classic", "---", "sequenceDiagram", "  A->>B: Hello"].join("\n"),
     status: "supported",
-    meaning: "A sequence diagram below a frontmatter is drawn as one without it.",
-    warnings: ['Document config "look" is read but not applied yet; the diagram is drawn without it.'],
+    meaning:
+      "A sequence diagram below a frontmatter is drawn as one without it. " +
+      "Its `look: classic` is the look Siren draws in, so it is honoured as " +
+      "written and needs no warning (01M52VP2KM); until then this row read " +
+      "`look: handDrawn`, which `doc-init-over-frontmatter` still covers.",
     assert: (result) => {
       expectSame("participants", participants(result), ["A", "B"]);
       expectSame("messages", messages(result), ["A-B: Hello"]);
@@ -13074,6 +13141,36 @@ line2\`"]`,
     },
   },
   {
+    id: "doc-init-look-classic",
+    kind: "flowchart",
+    source: ['%%{init: {"look": "classic"}}%%', "flowchart TD", "  A[Start] --> B[End]"].join("\n"),
+    status: "supported",
+    meaning:
+      "An init directive may ask for the classic look; Mermaid draws the " +
+      "flowchart in it. Siren draws in the classic look already, so it keeps " +
+      "the setting and draws the flowchart with no warning (01M52VP2KM).",
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[Start]", "B[End]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+    },
+  },
+  {
+    id: "doc-init-look-unknown",
+    kind: "flowchart",
+    source: ['%%{init: {"look": "fancy"}}%%', "flowchart TD", "  A --> B"].join("\n"),
+    status: "supported",
+    meaning:
+      "A look no look has is not refused: Mermaid 12.2.0 reads it and draws " +
+      "the flowchart anyway (measured in Chrome, in a frontmatter and an " +
+      "init directive alike). Siren draws it too, in the classic look, and " +
+      "says the setting is not applied (01M52VP2KM).",
+    warnings: ['Document config "look" is read but not applied yet; the diagram is drawn without it.'],
+    assert: (result) => {
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]"]);
+      expectSame("edges", edges(result), ["A-B"]);
+    },
+  },
+  {
     id: "doc-init-over-frontmatter",
     kind: "sequence",
     source: [
@@ -13091,7 +13188,8 @@ line2\`"]`,
       "A frontmatter and an init directive may both set a key; Mermaid " +
       "merges the init over the frontmatter, so `theme` is `dark` and `look` " +
       "is kept, and draws the sequence diagram. Siren merges them the same " +
-      "way and reports each key once, neither applied yet.",
+      "way and reports each key once, neither applied yet: Siren draws in " +
+      "the classic look, so a `handDrawn` look is drawn without it.",
     warnings: [
       'Document config "look" is read but not applied yet; the diagram is drawn without it.',
       'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
@@ -13542,6 +13640,39 @@ line2\`"]`,
       "the image and drops the icon without a word (`getTypeFromVertex`, " +
       "measured), refused under ADR-0001, saying the icon would be dropped (nook " +
       "01M51XAD6416EJHSDVWB725NRY).",
+  },
+
+  // -------------------------------------------------------------------------
+  // style values — the allowlist an author's value is read against
+  // -------------------------------------------------------------------------
+  {
+    id: "class-style-value-function-off-allowlist",
+    kind: "class",
+    source: `classDiagram
+      class A
+      style A fill:attr(data-x),stroke:#c00`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 accepts any text as a class `style` value and hands it " +
+      "to the browser (measured: `fill:attr(data-x)` reaches the label's " +
+      "`style`). Siren reads a value against an allowlist — colour and math " +
+      "functions, `var(`, the gradients, and plain tokens — so that no value " +
+      "can name a resource to fetch, and refuses the declaration with an " +
+      "error, drawing the rest: a deliberate departure (nook 01M52VP2B9).",
+  },
+  {
+    id: "state-classdef-value-function-off-allowlist",
+    kind: "state",
+    source: `stateDiagram-v2
+      A --> B
+      classDef c fill:env(safe-area-inset-top),stroke:#c00
+      class A c`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 accepts any text as a state `classDef` value (measured: " +
+      "`fill:env(x)` draws). Siren refuses a value calling a function off its " +
+      "allowlist with an error and draws the rest, as for a class `style`: a " +
+      "deliberate departure (nook 01M52VP2B9).",
   },
 
   // -------------------------------------------------------------------------

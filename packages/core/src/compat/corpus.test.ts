@@ -1983,8 +1983,20 @@ const SILENTLY_WRONG = 0;
  * measured, Chrome). Siren refused every `img:` before, as not supported
  * yet, with no row to say so. No `supported` row moved. `silently-wrong`
  * does not move.
+ *
+ * **78 → 80: case (2), two refusals written down for the first time.**
+ * `01M52VP2B9` read an author's style value against an allowlist — the
+ * colour and math functions, `var(`, the gradients, and plain tokens —
+ * where a list of fetching functions had been, so a class `style` or a
+ * state `classDef` calling any other function (`attr(`, `env(`), which
+ * Mermaid 12.2.0 accepts and hands to the browser (measured), is refused
+ * with an error: a deliberate departure, so that no value can name a
+ * resource to fetch (`class-style-value-function-off-allowlist`,
+ * `state-classdef-value-function-off-allowlist`). Siren drew both before,
+ * with no row to say so. No `supported` row moved. `silently-wrong` does
+ * not move.
  */
-const REJECTED = 78;
+const REJECTED = 80;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

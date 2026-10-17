@@ -166,6 +166,17 @@ block, which used to be dropped and is now refused; and for one whose attribute 
 only lines that draw no text (`$` beside methods), which used to take a compartment's room and
 divider and now takes none (see **Changed**).
 
+Breaking for a class or state `style` or `classDef`, or an ER `style`, whose value calls a function
+other than a colour function, a math function, `var(` or a gradient — `fill:attr(x)`, `fill:env(x)`,
+`fill:paint(x)`, a vendor-prefixed `-webkit-linear-gradient(…)` — or holds a character no colour,
+length, keyword or quoted name is written with (`fill:a$b`, `fill:a?b`, `fill:a!b`, an unclosed
+quote or parenthesis), which Mermaid 12.2.0 accepts and is now refused; the same characters in a
+flowchart `style`, `classDef` or `linkStyle` are refused too. A label's `<span style>` or
+`<font face>` value of that kind is now drawn as though it were not written, and an icon's
+geometry attribute with no `(` that holds `$`, `?`, `!` or `{` is now dropped (see **Changed**).
+A `:` stays allowed: a colon calls nothing, and a flowchart `style` line whose `;` Mermaid drops
+can carry one.
+
 ### Added
 
 - A flowchart node's `@{ shape: … }` block draws the shapes Mermaid 12.2.0 draws at a fixed size
@@ -459,10 +470,46 @@ divider and now takes none (see **Changed**).
 
 ### Changed
 
+- A flowchart edge now ends on its node's outline rather than on the box the shape is inscribed
+  in: an arrow into a diamond, a circle, a hexagon, a triangle on its side, a slanted or curved
+  shape, a bolt or an hourglass meets the shape itself instead of stopping in the empty corner
+  beside it. Each end slides along the run that reaches it, so an edge that comes down beside a
+  diamond's top corner lands on its slanted side, straight below its last bend, as Mermaid 12.2.0
+  draws it. Only the end and its arrowhead move: the route's bends, its label and its line hops stay
+  where they were. A rectangle's edges, an end at a subgraph's frame, and a line level with an
+  hourglass's pinch (which the outline is open around) are unchanged (backlog `01M52VP231`).
+- A state transition now ends on the figure a `<<choice>>` or a `[*]` is drawn as rather than on
+  the box around it: an arrow into a choice beside its top corner meets the diamond's slanted side,
+  and a transition leaving a start disc or entering an end ring touches the circle, where before
+  several fanned into one figure stopped up to a few pixels short of it. Only the ends move: the
+  bends, the labels and the line hops stay where they were (backlog `01M52VP231`).
+- A document config `look: classic`, in a frontmatter or an `init` directive, is accepted without
+  a warning: Siren draws in the classic look, so the setting is honoured as written. `neo`,
+  `handDrawn` and any other value are still read, kept and reported as not applied; Mermaid 12.2.0
+  draws a look no look has rather than refusing it, so Siren does not refuse one either (nook
+  `01M52VP2KM`). `pnpm parity` now compares with Mermaid's classic look by default; `--look neo`
+  compares with Mermaid's own default.
+- An author's style value (`style`, `classDef`, `linkStyle`, a label's `<span style>` and
+  `<font face>`) is read against an allowlist rather than a list of fetching functions (nook
+  `01M52VP2B9`): a value may call only `rgb`, `rgba`, `hsl`, `hsla`, `hwb`, `lab`, `lch`, `oklab`,
+  `oklch`, `color`, `color-mix`, `calc`, `min`, `max`, `clamp`, `var` and the linear, radial and
+  conic gradients with their `repeating-` forms — matched case-insensitively, with their arguments
+  read by the same rule — and is otherwise built from hex colours, keywords, numbers with or
+  without a unit, quoted family names, `!important`, commas, slashes and spaces. Any other function
+  is refused as one a style value may not use, and any other character as one no colour, length,
+  keyword or quoted name is written with; so a function a browser adds later cannot fetch before it
+  is listed. `;`, `\` and an unclosed `/*` are refused as before, and comments are still read out
+  first.
+- An icon's paint (`fill`, `stroke`, `stop-color`, `color` and the rest, as an attribute or in its
+  `style`) keeps a colour written as a colour function — `rgb`, `rgba`, `hsl`, `hsla`, `hwb`,
+  `lab`, `lch`, `oklab`, `oklch` or `color` — where it used to be dropped (nook `01M52VP2B9`).
+  Only one call, and only with plain arguments: numbers, percentages, angles, `none`, `/` and a
+  colour space's name. `var(`, `calc(`, any other function and a function inside another are
+  still dropped, and a `url(…)` is kept only as a local `url(#id)`, as before.
 - A flowchart `bang`, `cloud` and `datastore` pad their text with Siren's own node padding where
   Mermaid 12.2.0's handlers pad with its 15px (nook `01M521T9NX`), as the curved shapes already do,
-  so each stands to a rectangle as Mermaid's does in its classic look. `pnpm parity --look classic`
-  compares with Mermaid in that look; without `--look` it compares with Mermaid's default (`neo`).
+  so each stands to a rectangle as Mermaid's does in its classic look. `pnpm parity` compares with
+  Mermaid in that look (`--look neo` for Mermaid's default).
 - The curved flowchart shapes are sized by each one's own Mermaid 12.2.0 padding rule (nook
   `01M521T9NX`, measured in headless Chrome at one and three rows), with Siren's node padding in
   place of Mermaid's: `h-cyl` is padded by half the node padding, `bow-rect`, `flag` and the three

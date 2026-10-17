@@ -3,12 +3,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseArgs } from "./cli.mjs";
 
-test("no arguments: every fixture, text report", () => {
-  assert.deepEqual(parseArgs([]), { files: [], json: false });
+test("no arguments: every fixture, text report, the classic look", () => {
+  assert.deepEqual(parseArgs([]), { files: [], json: false, look: "classic" });
 });
 
 test("files and --json in any order", () => {
-  assert.deepEqual(parseArgs(["a.mmd", "--json", "b.mmd"]), { files: ["a.mmd", "b.mmd"], json: true });
+  assert.deepEqual(parseArgs(["a.mmd", "--json", "b.mmd"]), {
+    files: ["a.mmd", "b.mmd"],
+    json: true,
+    look: "classic",
+  });
 });
 
 test("an unknown flag is refused by name", () => {
@@ -283,7 +287,8 @@ test("--json carries the per-diagram array under diagrams and the totals beside 
   assert.equal(report.totals.failed.siren, 1);
 });
 
-test("--look picks the look Mermaid draws in, classic or neo; absent, Mermaid's default", () => {
+test("--look picks the look Mermaid draws in, classic or neo; absent, classic, the look Siren draws in", () => {
+  assert.equal(parseArgs(["a.mmd"]).look, "classic");
   assert.deepEqual(parseArgs(["--look", "classic", "a.mmd"]), { files: ["a.mmd"], json: false, look: "classic" });
   assert.deepEqual(parseArgs(["--look=neo"]), { files: [], json: false, look: "neo" });
   assert.throws(() => parseArgs(["--look", "fancy"]), /fancy/);

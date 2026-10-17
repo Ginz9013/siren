@@ -1,5 +1,5 @@
 import type { GraphNode, NodeImage, NodeShape } from "../../contracts";
-import { FIGURE_LABEL_GAP, rectFrame, type Rect, type ShapeSpec, type Size } from "./shape";
+import { boxOutline, FIGURE_LABEL_GAP, figureOutline, rectFrame, type Rect, type ShapeSpec, type Size } from "./shape";
 
 /**
  * The shape-table record of an image node (`A@{ img: "data:…" }`): the
@@ -105,5 +105,9 @@ export const IMAGE_SHAPES = {
         },
       ];
     },
+    // An image with no label is its box; a labelled one meets the image
+    // and its label's strip, as Mermaid's `imageSquare` does.
+    outline: (node) =>
+      labelled(node) ? figureOutline(node, imageRect(node, node), node.labelBox.width, imageOf(node).pos === "t") : boxOutline(node),
   },
 } as const satisfies Partial<Record<NodeShape, ShapeSpec>>;

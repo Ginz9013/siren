@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readImageData } from "./imageData";
+import { render } from "../index";
 
 /**
  * Reading an `img:` value: only a `data:image/…` URL, whose natural size is
@@ -240,5 +241,28 @@ describe("reading an image's size in bounded time", () => {
   it("reads a long run of digits that is no length quickly", () => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${"1".repeat(20000)}x!" height="2"/>`;
     expect(timed(`data:image/svg+xml,${svg}`)).toBeLessThan(50);
+  });
+});
+
+/**
+ * An image whose header is whole but whose data is missing or broken is
+ * drawn: its size comes from the header, and the browser shows it broken.
+ * Siren decodes no image while drawing — Node has no decoder, and a check of
+ * the data's structure would still pass data the browser cannot decode,
+ * since what a browser accepts is its decoder's to say. Each URL below is
+ * one Chrome fails to decode (measured: `HTMLImageElement.decode()` rejects
+ * with "The source image cannot be decoded.").
+ */
+describe("an image whose data is broken past its header", () => {
+  it.each([
+    ["a PNG of its signature and IHDR alone", "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAYAAAA="],
+    ["a JPEG cut off after its frame header", "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/wAARCAAUACgDASIAAhEBAxEB"],
+    ["a GIF whose first block is cut off and misstates its size", "data:image/gif;base64,R0lGODlhKAAUAAAAACH5/wE="],
+  ])("draws %s at the size its header gives, with no diagnostic", (_, url) => {
+    const result = render(`flowchart TB\n  A@{ img: "${url}" }`, document.createElement("div"));
+
+    expect(result.diagnostics).toEqual([]);
+    const image = result.svg!.querySelector('g.siren-node[data-siren-id="A"] image')!;
+    expect([image.getAttribute("href"), image.getAttribute("width"), image.getAttribute("height")]).toEqual([url, "40", "20"]);
   });
 });

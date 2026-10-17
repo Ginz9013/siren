@@ -14,6 +14,7 @@ import { BASE_FONT_SIZE_PX } from "../label/label";
 import { LINE_HEIGHT_RATIO } from "../label/layoutLabel";
 import { SHAPES } from "./shapes/shapeTable";
 import type { Rect, Size } from "./shapes/shape";
+import { clipRoutesAndHop } from "./clipToOutline";
 
 /**
  * Where a node's label sits, as the offset of its centre from the box's
@@ -182,7 +183,6 @@ export function layoutGraph(
   });
 
   const boxById = new Map(laidOut.nodes.map((box) => [box.id, box]));
-  const routeById = new Map(laidOut.edges.map((route) => [route.id, route]));
 
   const nodes = graph.nodes.map((node) => {
     const box = boxById.get(node.id)!;
@@ -198,6 +198,30 @@ export function layoutGraph(
       ...labelOffsetOf(node, box, paddedLabelOf(node.id)),
     };
   });
+
+  // Where each end of an edge stops: on the outline of the shape it meets,
+  // not on the box layout routed it to (`clipRoutesAndHop`). An end at a
+  // subgraph has no shape to meet and stays on the frame. The line hops the
+  // layout core read off the routes on their boxes are read again here: a
+  // run carried on to an outline can cross a line it stopped short of.
+  const placedById = new Map(nodes.map((node) => [node.id, node]));
+  const outlineOf = (id: string) => {
+    const placed = placedById.get(id);
+    return placed === undefined ? null : SHAPES[placed.shape].outline(placed);
+  };
+  const edgeById = new Map(graph.edges.map((edge) => [edge.id, edge]));
+  const clipped = clipRoutesAndHop(
+    laidOut.edges.map((route) => {
+      const edge = edgeById.get(route.id)!;
+      return {
+        points: route.points,
+        start: outlineOf(edge.from),
+        end: outlineOf(edge.to),
+        ...cornerRadiusOf(edge.curve ?? FLOWCHART_DEFAULT_CURVE),
+      };
+    }),
+  );
+  const routeById = new Map(laidOut.edges.map((route, index) => [route.id, { ...route, ...clipped[index]! }]));
 
   const edges = graph.edges.map((edge) => {
     const route = routeById.get(edge.id)!;

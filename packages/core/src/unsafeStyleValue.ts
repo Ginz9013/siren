@@ -16,7 +16,8 @@
 export type UnsafeStyleValue =
   | { kind: "function"; name: string; why: string }
   | { kind: "semicolon" }
-  | { kind: "backslash" };
+  | { kind: "backslash" }
+  | { kind: "character"; character: string };
 
 /**
  * The CSS functions an author's style value may not use, with why.
@@ -35,13 +36,17 @@ export type UnsafeStyleValue =
  * prefix (`-webkit-image-set(`, `-moz-element(`), and only as a whole name,
  * so `my-image(` is not `image(`.
  *
- * Still not "every way CSS can fetch", so a future value-bearing sink
- * belongs here, and this is the one place to add it. Note that these
- * patterns match *text*: an author can spell any of them with a CSS escape,
- * which is why `unsafeStyleValue` refuses a value carrying a backslash
- * before it can reach one of these names in disguise, and a comment
- * between a name and its paren, which is why comments are read out of the
- * value first.
+ * These are not the gate: `ALLOWED_FUNCTIONS` below is, and refuses every
+ * function it does not list, these included. They are looked for first so
+ * that a value using one is refused with why it is dangerous rather than
+ * only that it is unlisted, and so that `url(` and `expression(` are
+ * refused anywhere in the value, even inside a quoted name.
+ *
+ * Note that these patterns match *text*: an author can spell any of them
+ * with a CSS escape, which is why `unsafeStyleValue` refuses a value
+ * carrying a backslash before it can reach one of these names in disguise,
+ * and with a comment between a name and its paren, which is why comments
+ * are read out of the value first.
  */
 const fetching = (name: string, why = "can fetch a remote resource") => ({
   pattern: new RegExp(`(?<![a-z0-9_-])(?:-[a-z]+-)?${name}\\s*\\(`, "i"),
@@ -61,17 +66,111 @@ const REJECTED_VALUE_FUNCTIONS: { pattern: RegExp; name: string; why: string }[]
 ];
 
 /**
+ * The functions that write one colour from plain numbers: the narrowest
+ * part of the allowlist below, and all an icon's paint may call (see
+ * `inertColorFunction`).
+ */
+const COLOR_FUNCTIONS: readonly string[] = ["rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color"];
+
+/**
+ * The only functions a style value may call: the colour functions, the math
+ * functions, `var(` and the gradients. None of them names a resource, so a
+ * value built from them and from plain tokens fetches nothing — whatever
+ * functions browsers add next, they are refused until they are listed here.
+ * Matched case-insensitively, as CSS matches them, and only as a whole name:
+ * a vendor-prefixed spelling (`-webkit-linear-gradient(`) is a different
+ * function, and is refused with the rest.
+ */
+const ALLOWED_FUNCTIONS: ReadonlySet<string> = new Set([
+  ...COLOR_FUNCTIONS, "color-mix",
+  "calc", "min", "max", "clamp", "var",
+  "linear-gradient", "radial-gradient", "conic-gradient",
+  "repeating-linear-gradient", "repeating-radial-gradient", "repeating-conic-gradient",
+]);
+
+/**
+ * A quoted string — a family name — opened by either quote and closed by
+ * the same one before its line ends: CSS ends a string at a newline.
+ */
+const QUOTED = { '"': /^"[^"\n\r\f]*"/, "'": /^'[^'\n\r\f]*'/ } as const;
+
+/**
+ * The value read once from left to right, as CSS reads it: a quoted string —
+ * a family name, closed on its own line — is text, whatever it holds, so a
+ * `/*` inside one opens no comment; a comment outside one is nothing, so it
+ * is read out. `uncommented` keeps the strings, for the denylist to look
+ * inside; `outside` sets each aside as a space, for the grammar, which a
+ * string's text is no part of. A quote with no partner before the end of
+ * its line is kept in both as a lone character, for the grammar to refuse.
+ * `unclosed` when a comment is never closed.
+ */
+function readStringsAndComments(value: string): { uncommented: string; outside: string } | "unclosed" {
+  let uncommented = "";
+  let outside = "";
+  let at = 0;
+  while (at < value.length) {
+    const character = value[at]!;
+    if (character === '"' || character === "'") {
+      const string = QUOTED[character].exec(value.slice(at));
+      if (string !== null) {
+        uncommented += string[0];
+        outside += " ";
+        at += string[0].length;
+        continue;
+      }
+    } else if (value.startsWith("/*", at)) {
+      const end = value.indexOf("*/", at + 2);
+      if (end === -1) return "unclosed";
+      at = end + 2;
+      continue;
+    }
+    uncommented += character;
+    outside += character;
+    at += 1;
+  }
+  return { uncommented, outside };
+}
+
+/** `!important`, the one place a `!` belongs in a value. */
+const IMPORTANT = /!\s*important(?![-\w])/gi;
+
+/**
+ * A character outside every token a value is built from: letters, digits,
+ * `-` and `_` (keywords, numbers, units), any character past ASCII (a family
+ * name written bare), `#` (hex colours), `.` `%` `+` `*` `/` (numbers and
+ * the math functions' operators), commas, spaces and the parentheses of a
+ * call.
+ *
+ * And `:`, which is no part of that grammar but calls nothing either, and
+ * which a flowchart's `style` line hands over when its `;` is dropped
+ * before the line is read: `fill:#fdd;position:fixed` arrives here as
+ * `#fddposition:fixed`, a value the browser drops and the diagram is drawn
+ * without — not a document to refuse.
+ */
+const STRAY_CHARACTER = /[^-\w\u0080-\uffff\s.,%#+*/():]/;
+
+/**
+ * Every call in a value: a name and its `(`, with space between them allowed
+ * as the denylist above allows it. A `(` with no name before it is a group
+ * inside `calc(`, and calls nothing.
+ */
+const FUNCTION_CALL = /([-\w\u0080-\uffff]*)\s*\(/g;
+
+/**
  * Why `value` may not be emitted into an inline `style`, or `null` when it
  * may.
  */
 export function unsafeStyleValue(value: string): UnsafeStyleValue | null {
   // A comment is nothing to CSS, so it is read out before the names are
-  // looked for: `image-set/**/(` is `image-set(`. One never closed runs to
-  // the end of the value, and is refused rather than guessed at.
-  const uncommented = value.replace(/\/\*[\s\S]*?\*\//g, "");
-  if (uncommented.includes("/*")) {
+  // looked for: `image-set/**/(` is `image-set(`. It is read out in the same
+  // pass that reads the strings, so a `/*` inside a quoted name opens no
+  // comment that could swallow a call. One never closed runs to the end of
+  // the value, and is refused rather than guessed at.
+  const read = readStringsAndComments(value);
+  if (read === "unclosed") {
     return { kind: "function", name: "/*", why: "opens a comment that is never closed" };
   }
+  const { uncommented, outside } = read;
   for (const { pattern, name, why } of REJECTED_VALUE_FUNCTIONS) {
     if (pattern.test(uncommented)) {
       return { kind: "function", name, why };
@@ -104,5 +203,54 @@ export function unsafeStyleValue(value: string): UnsafeStyleValue | null {
     return { kind: "backslash" };
   }
 
+  // What is left is read against the grammar a value is written in: with
+  // each quoted family name set aside whole, every call must be to a listed
+  // function, and every other character must be one a colour, length,
+  // keyword or number is spelled with. A quote with no partner is left
+  // behind by the reading above and refused here.
+  for (const [, name] of outside.matchAll(FUNCTION_CALL)) {
+    if (name !== "" && !ALLOWED_FUNCTIONS.has(name.toLowerCase())) {
+      return { kind: "function", name: `${name}(`, why: "is not one of the functions a style value may use" };
+    }
+  }
+  const stray = outside.replace(IMPORTANT, " ").match(STRAY_CHARACTER);
+  if (stray !== null) {
+    return { kind: "character", character: stray[0] };
+  }
+  let depth = 0;
+  for (const character of outside) {
+    if (character === "(") depth += 1;
+    if (character === ")" && --depth < 0) return { kind: "character", character: ")" };
+  }
+  if (depth > 0) {
+    return { kind: "character", character: "(" };
+  }
+
   return null;
+}
+
+/**
+ * A colour function's arguments, when they are plain: numbers with or
+ * without a unit (`50%`, `120deg`), keywords (`none`, a colour space's name
+ * such as `display-p3`), commas, `/` and spaces. No `(`, so no function is
+ * called inside one.
+ */
+const PLAIN_COLOR_ARGUMENTS = /^[-\w\s.,%+/]*$/;
+
+/**
+ * Whether `value` is one colour written as a colour function — `rgb(1 2 3)`,
+ * `oklch(60% 0.15 none)`, `color(display-p3 1 0 0 / 50%)` — and nothing
+ * else: a single call to one of `COLOR_FUNCTIONS`, its arguments plain, the
+ * whole read by `unsafeStyleValue` besides. Narrower than a style value:
+ * no `var(`, no `calc(`, no function inside another, for a value read from
+ * data no author of the document wrote.
+ */
+export function inertColorFunction(value: string): boolean {
+  const call = /^([-\w]+)\((.*)\)$/s.exec(value.trim());
+  return (
+    call !== null &&
+    COLOR_FUNCTIONS.includes(call[1]!.toLowerCase()) &&
+    PLAIN_COLOR_ARGUMENTS.test(call[2]!) &&
+    unsafeStyleValue(value) === null
+  );
 }

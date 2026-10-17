@@ -1,5 +1,5 @@
 import type { NodeShape } from "../../contracts";
-import { closedPath, edgesOf, pathFrame, type Rect, rectFrame, type ShapeFrame, type ShapeSpec, type Size } from "./shape";
+import { arcPoints, boxOutline, circleOutline, closedOutline, edgesOf, pathFrame, polygonShape, type Rect, rectFrame, type ShapeFrame, type ShapeSpec, type Size } from "./shape";
 
 /**
  * The fourteen shapes Mermaid spells with brackets (`A[x]`, `A{x}`,
@@ -91,21 +91,37 @@ export const BASIC_SHAPES = {
   // A rectangle is its own bounding box. Its corners are the theme's
   // (`--siren-node-border-radius`), so it declares none.
   rect: {
+    outline: boxOutline,
     box: (label) => label,
     frames: (box) => [rectFrame(box)],
   },
   round: {
+    // Edges meet the box its corners are rounded off, as Mermaid's do.
+    outline: boxOutline,
     box: leaningBox("round"),
     frames: (box) => [roundedRect(box, SHAPE_LEAN.round * box.height)],
   },
   stadium: {
     box: leaningBox("stadium"),
     frames: (box) => [roundedRect(box, SHAPE_LEAN.stadium * box.height)],
+    // The shape's own ends, not an author's `rx`, as Mermaid's `intersect` meets.
+    outline: (box) => {
+      const { left, right, top, bottom, midY } = edgesOf(box);
+      const r = SHAPE_LEAN.stadium * box.height;
+      return closedOutline([
+        { x: left + r, y: top },
+        ...arcPoints(right - r, midY, r, r, -Math.PI / 2, Math.PI / 2),
+        { x: left + r, y: bottom },
+        ...arcPoints(left + r, midY, r, r, Math.PI / 2, (3 * Math.PI) / 2),
+      ]);
+    },
   },
   // A box with an inner bar down each end, inset by the lean; the label
   // goes between the bars. The bars are `<line>`s — a stroke, not an area
   // that would take the frame's fill.
   subroutine: {
+    // Its bars stand inside the box, so edges meet the box.
+    outline: boxOutline,
     box: leaningBox("subroutine"),
     frames: (box) => {
       const inset = SHAPE_LEAN.subroutine * box.height;
@@ -150,6 +166,17 @@ export const BASIC_SHAPES = {
         ),
       ];
     },
+    // The silhouette: the top half of the lid, the sides, and the bottom
+    // half of the base — where Mermaid meets a cylinder.
+    outline: (box) => {
+      const { top, bottom, midX } = edgesOf(box);
+      const r = SHAPE_LEAN.cylinder * box.height;
+      const rx = box.width / 2;
+      return closedOutline([
+        ...arcPoints(midX, top + r, rx, r, Math.PI, 2 * Math.PI),
+        ...arcPoints(midX, bottom - r, rx, r, 0, Math.PI),
+      ]);
+    },
   },
   // The smallest circle containing the centred label has its diagonal as
   // diameter. Not capped: a cap is a circle that clips its own label.
@@ -159,6 +186,7 @@ export const BASIC_SHAPES = {
       return { width: diameter, height: diameter };
     },
     frames: (box) => rings(box, (radius) => [radius]),
+    outline: (box) => circleOutline(box, Math.min(box.width, box.height) / 2),
   },
   // The label belongs inside the **inner** ring, so the inner circle takes
   // a plain circle's diameter and the box adds the ring gap on each side.
@@ -168,136 +196,110 @@ export const BASIC_SHAPES = {
       return { width: diameter, height: diameter };
     },
     frames: (box) => rings(box, (radius) => [radius, radius - SHAPE_LEAN["double-circle"] * box.height]),
+    // Edges meet the outer ring.
+    outline: (box) => circleOutline(box, Math.min(box.width, box.height) / 2),
   },
   // A rectangle with a chevron cut into its **left** edge, apex pointing
   // right at mid-height (Mermaid's `rect_left_inv_arrow`, measured).
   asymmetric: {
     box: leaningBox("asymmetric"),
-    frames: (box) => {
+    ...polygonShape((box) => {
       const { left, right, top, bottom, midY } = edgesOf(box);
       const d = SHAPE_LEAN.asymmetric * box.height;
       return [
-        pathFrame(
-          closedPath([
-            [left, top],
-            [right, top],
-            [right, bottom],
-            [left, bottom],
-            [left + d, midY],
-          ]),
-        ),
+        [left, top],
+        [right, top],
+        [right, bottom],
+        [left, bottom],
+        [left + d, midY],
       ];
-    },
+    }),
   },
   // The midpoint of each of the four sides.
   rhombus: {
     box: (label) => ({ width: label.width * 2, height: label.height * 2 }),
-    frames: (box) => {
+    ...polygonShape((box) => {
       const { left, right, top, bottom, midX, midY } = edgesOf(box);
       return [
-        pathFrame(
-          closedPath([
-            [midX, top],
-            [right, midY],
-            [midX, bottom],
-            [left, midY],
-          ]),
-        ),
+        [midX, top],
+        [right, midY],
+        [midX, bottom],
+        [left, midY],
       ];
-    },
+    }),
   },
   // Flat top and bottom inset by `m` at each end, a point at mid-height on
   // each side.
   hexagon: {
     box: leaningBox("hexagon"),
-    frames: (box) => {
+    ...polygonShape((box) => {
       const { left, right, top, bottom, midY } = edgesOf(box);
       const m = SHAPE_LEAN.hexagon * box.height;
       return [
-        pathFrame(
-          closedPath([
-            [left + m, top],
-            [right - m, top],
-            [right, midY],
-            [right - m, bottom],
-            [left + m, bottom],
-            [left, midY],
-          ]),
-        ),
+        [left + m, top],
+        [right - m, top],
+        [right, midY],
+        [right - m, bottom],
+        [left + m, bottom],
+        [left, midY],
       ];
-    },
+    }),
   },
   // Leaning right: the top edge sits `s` right of the bottom one
   // (Mermaid's `lean_right`).
   parallelogram: {
     box: leaningBox("parallelogram"),
-    frames: (box) => {
+    ...polygonShape((box) => {
       const { left, right, top, bottom } = edgesOf(box);
       const s = SHAPE_LEAN.parallelogram * box.height;
       return [
-        pathFrame(
-          closedPath([
-            [left + s, top],
-            [right, top],
-            [right - s, bottom],
-            [left, bottom],
-          ]),
-        ),
+        [left + s, top],
+        [right, top],
+        [right - s, bottom],
+        [left, bottom],
       ];
-    },
+    }),
   },
   // Leaning left — the mirror of `parallelogram`.
   "parallelogram-alt": {
     box: leaningBox("parallelogram-alt"),
-    frames: (box) => {
+    ...polygonShape((box) => {
       const { left, right, top, bottom } = edgesOf(box);
       const s = SHAPE_LEAN["parallelogram-alt"] * box.height;
       return [
-        pathFrame(
-          closedPath([
-            [left, top],
-            [right - s, top],
-            [right, bottom],
-            [left + s, bottom],
-          ]),
-        ),
+        [left, top],
+        [right - s, top],
+        [right, bottom],
+        [left + s, bottom],
       ];
-    },
+    }),
   },
   // Narrow top, wide bottom: `A[/x\]`.
   trapezoid: {
     box: leaningBox("trapezoid"),
-    frames: (box) => {
+    ...polygonShape((box) => {
       const { left, right, top, bottom } = edgesOf(box);
       const s = SHAPE_LEAN.trapezoid * box.height;
       return [
-        pathFrame(
-          closedPath([
-            [left + s, top],
-            [right - s, top],
-            [right, bottom],
-            [left, bottom],
-          ]),
-        ),
+        [left + s, top],
+        [right - s, top],
+        [right, bottom],
+        [left, bottom],
       ];
-    },
+    }),
   },
   // Wide top, narrow bottom: `A[\x/]`.
   "trapezoid-alt": {
     box: leaningBox("trapezoid-alt"),
-    frames: (box) => {
+    ...polygonShape((box) => {
       const { left, right, top, bottom } = edgesOf(box);
       const s = SHAPE_LEAN["trapezoid-alt"] * box.height;
       return [
-        pathFrame(
-          closedPath([
-            [left, top],
-            [right, top],
-            [right - s, bottom],
-            [left + s, bottom],
-          ]),
-        ),
+        [left, top],
+        [right, top],
+        [right - s, bottom],
+        [left + s, bottom],
       ];
-    },
+    }),
   },
 } as const satisfies Partial<Record<NodeShape, ShapeSpec>>;

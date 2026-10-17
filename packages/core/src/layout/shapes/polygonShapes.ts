@@ -1,5 +1,5 @@
 import type { NodeShape } from "../../contracts";
-import { closedPath, edgesOf, FRAME_PAINT, pathFrame, type Rect, rectFrame, type ShapeSpec, type Size } from "./shape";
+import { boxOutline, closedPath, edgesOf, FRAME_PAINT, pathFrame, pointsOf, polygonShape, type Rect, rectFrame, type ShapeSpec, type Size, type Vertex } from "./shape";
 
 /**
  * Shape-table records for the shapes Mermaid 12.2.0 names only in a node's
@@ -51,6 +51,29 @@ function rectanglePath(box: Rect): string {
   ]);
 }
 
+/**
+ * The silhouette of three sheets `SHEET` apart in `box`, the front one at
+ * the bottom left: the outline a stacked rectangle is drawn with first.
+ */
+function stackSilhouette(box: Rect): Vertex[] {
+  const { left, right, top, bottom } = edgesOf(box);
+  const o = SHEET;
+  return [
+    [left, top + 2 * o],
+    [left, bottom],
+    [right - 2 * o, bottom],
+    [right - 2 * o, bottom - o],
+    [right - o, bottom - o],
+    [right - o, bottom - 2 * o],
+    [right, bottom - 2 * o],
+    [right, top],
+    [left + 2 * o, top],
+    [left + 2 * o, top + o],
+    [left + o, top + o],
+    [left + o, top + 2 * o],
+  ];
+}
+
 /** A square box of side `side`. */
 function squareOf(side: number): Size {
   return { width: side, height: side };
@@ -61,20 +84,16 @@ export const POLYGON_SHAPES = {
   // cut at 45 degrees, `NOTCH` along each side; the box grows by the notch.
   "notched-rectangle": {
     box: (label) => ({ width: label.width + NOTCH, height: label.height }),
-    frames: (box) => {
+    ...polygonShape((box) => {
       const { left, right, top, bottom } = edgesOf(box);
       return [
-        pathFrame(
-          closedPath([
-            [left + NOTCH, top],
-            [right, top],
-            [right, bottom],
-            [left, bottom],
-            [left, top + NOTCH],
-          ]),
-        ),
+        [left + NOTCH, top],
+        [right, top],
+        [right, bottom],
+        [left, bottom],
+        [left, top + NOTCH],
       ];
-    },
+    }),
   },
   // `folder`: a tab along the top left, `max(0.38 x W, 28)` wide, over a
   // body as tall as a rectangle's; at least 90px wide. The label is centred
@@ -93,46 +112,38 @@ export const POLYGON_SHAPES = {
         height: label.height,
       };
     },
-    frames: (box) => {
+    ...polygonShape((box) => {
       const { left, right, top, bottom } = edgesOf(box);
       const tab = folderTab(box.height);
       const tabWidth = Math.max(box.width * 0.38, 28);
       return [
-        pathFrame(
-          closedPath([
-            [left, top],
-            [left + tabWidth, top],
-            [left + tabWidth, top + tab],
-            [right, top + tab],
-            [right, bottom],
-            [left, bottom],
-          ]),
-        ),
+        [left, top],
+        [left + tabWidth, top],
+        [left + tabWidth, top + tab],
+        [right, top + tab],
+        [right, bottom],
+        [left, bottom],
       ];
-    },
+    }),
   },
   // `notch-pent` (Mermaid's `trapezoidalPentagon`, a loop limit): as big as
   // a rectangle, both top corners cut — the top edge spans the middle 80%
   // of the width and each side starts a fifth of the height down.
   "notched-pentagon": {
     box: (label) => label,
-    frames: (box) => {
+    ...polygonShape((box) => {
       const { left, right, top, bottom } = edgesOf(box);
       const inset = box.width * 0.1;
       const drop = box.height * 0.2;
       return [
-        pathFrame(
-          closedPath([
-            [left + inset, top],
-            [right - inset, top],
-            [right, top + drop],
-            [right, bottom],
-            [left, bottom],
-            [left, top + drop],
-          ]),
-        ),
+        [left + inset, top],
+        [right - inset, top],
+        [right, top + drop],
+        [right, bottom],
+        [left, bottom],
+        [left, top + drop],
       ];
-    },
+    }),
   },
   // `sl-rect` (Mermaid's `slopedRect`, a manual input): a rectangle as big
   // as a plain one with a slope above it half its height, rising from the
@@ -146,19 +157,15 @@ export const POLYGON_SHAPES = {
       width: label.width,
       height: label.height,
     }),
-    frames: (box) => {
+    ...polygonShape((box) => {
       const { left, right, top, bottom } = edgesOf(box);
       return [
-        pathFrame(
-          closedPath([
-            [left, top + box.height / 3],
-            [left, bottom],
-            [right, bottom],
-            [right, top],
-          ]),
-        ),
+        [left, top + box.height / 3],
+        [left, bottom],
+        [right, bottom],
+        [right, top],
       ];
-    },
+    }),
   },
   // `tri` (Mermaid's `triangle`, an extract) and `flip-tri` (its
   // `flippedTriangle`, a manual file): an isosceles triangle in a square box
@@ -172,18 +179,14 @@ export const POLYGON_SHAPES = {
       width: label.width,
       height: label.height,
     }),
-    frames: (box) => {
+    ...polygonShape((box) => {
       const { left, right, top, bottom, midX } = edgesOf(box);
       return [
-        pathFrame(
-          closedPath([
-            [left, bottom],
-            [right, bottom],
-            [midX, top],
-          ]),
-        ),
+        [left, bottom],
+        [right, bottom],
+        [midX, top],
       ];
-    },
+    }),
   },
   "flipped-triangle": {
     box: (label) => squareOf(label.width + label.height),
@@ -193,23 +196,20 @@ export const POLYGON_SHAPES = {
       width: label.width,
       height: label.height,
     }),
-    frames: (box) => {
+    ...polygonShape((box) => {
       const { left, right, top, bottom, midX } = edgesOf(box);
       return [
-        pathFrame(
-          closedPath([
-            [left, top],
-            [right, top],
-            [midX, bottom],
-          ]),
-        ),
+        [left, top],
+        [right, top],
+        [midX, bottom],
       ];
-    },
+    }),
   },
   // `lin-rect` (Mermaid's `shadedProcess`): a rectangle `2 x FRAME` wider
   // than a plain one with a line down it `FRAME` in from the left; the
   // label is centred on what lies right of the line.
   "lined-rectangle": {
+    outline: boxOutline,
     box: (label) => ({ width: label.width + 2 * FRAME, height: label.height }),
     labelRect: (box, label) => ({
       x: box.x + FRAME + (box.width - FRAME - label.width) / 2,
@@ -225,6 +225,7 @@ export const POLYGON_SHAPES = {
   // `div-rect` (Mermaid's `dividedRectangle`): a band a fifth of a plain
   // rectangle's height across the top, under which the label is centred.
   "divided-rectangle": {
+    outline: boxOutline,
     box: (label) => ({ width: label.width, height: label.height * 1.2 }),
     labelRect: (box, label) => {
       const band = box.height / 6;
@@ -245,6 +246,7 @@ export const POLYGON_SHAPES = {
   // than a plain rectangle each way, with a line `PANE` below the top and
   // one `PANE` right of the left edge; the label is centred on the big pane.
   "window-pane": {
+    outline: boxOutline,
     box: (label) => ({ width: label.width + PANE, height: label.height + PANE }),
     labelRect: (box, label) => ({
       x: box.x + PANE + (box.width - PANE - label.width) / 2,
@@ -278,22 +280,7 @@ export const POLYGON_SHAPES = {
       const { left, right, top, bottom } = edgesOf(box);
       const o = SHEET;
       return [
-        pathFrame(
-          closedPath([
-            [left, top + 2 * o],
-            [left, bottom],
-            [right - 2 * o, bottom],
-            [right - 2 * o, bottom - o],
-            [right - o, bottom - o],
-            [right - o, bottom - 2 * o],
-            [right, bottom - 2 * o],
-            [right, top],
-            [left + 2 * o, top],
-            [left + 2 * o, top + o],
-            [left + o, top + o],
-            [left + o, top + 2 * o],
-          ]),
-        ),
+        pathFrame(closedPath(stackSilhouette(box))),
         pathFrame(
           closedPath([
             [left + o, top + 2 * o],
@@ -306,11 +293,14 @@ export const POLYGON_SHAPES = {
         ),
       ];
     },
+    // Mermaid meets the stack's silhouette.
+    outline: (box) => pointsOf(stackSilhouette(box)),
   },
   // `tag-rect` (Mermaid's `taggedRect`): a rectangle with a right-angled
   // tag in its bottom right corner, `TAG x H` on a side and filled like the
   // body; the box is that much wider than a plain rectangle.
   "tagged-rectangle": {
+    outline: boxOutline,
     box: (label) => ({ width: label.width + TAG * label.height, height: label.height }),
     frames: (box) => {
       const { right, bottom } = edgesOf(box);
@@ -331,6 +321,7 @@ export const POLYGON_SHAPES = {
   // neither filled nor stroked, so the label alone shows. Its frame is
   // still a frame — an author's `style` and a highlight both reach it.
   text: {
+    outline: boxOutline,
     box: (label) => label,
     frames: (box) => [rectFrame(box, { classes: FRAME_PAINT.bare })],
   },
@@ -338,12 +329,14 @@ export const POLYGON_SHAPES = {
   // composite">`): a group's frame standing alone as a node — as big as a
   // rectangle, and painted as a subgraph's frame is, stroked and unfilled.
   composite: {
+    outline: boxOutline,
     box: (label) => label,
     frames: (box) => [rectFrame(box, { classes: FRAME_PAINT.none })],
   },
   // `note` (undocumented; Mermaid's `note`): a rectangle as big as a plain
   // one, wearing a note's paint.
   note: {
+    outline: boxOutline,
     box: (label) => label,
     frames: (box) => [rectFrame(box, { classes: FRAME_PAINT.note })],
   },
@@ -356,6 +349,7 @@ export const POLYGON_SHAPES = {
   // would lengthen the path and slide the dashes off the edges — and both
   // declarations are the shape's, ahead of any the author writes.
   "data-store": {
+    outline: boxOutline,
     box: (label, _direction, padding = { width: NODE_PADDING, height: NODE_PADDING }) => ({
       width: label.width + 2 * padding.width,
       height: label.height,
@@ -377,6 +371,7 @@ export const POLYGON_SHAPES = {
   // rectangle the document names (CONTEXT.md, "When Mermaid itself is the
   // one drawing it wrongly").
   state: {
+    outline: boxOutline,
     box: (label) => label,
     frames: (box) => [rectFrame(box, { style: [{ property: "rx", value: "5px" }] })],
   },

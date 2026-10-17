@@ -6,6 +6,14 @@
  * Its natural size — what Mermaid 12.2.0's `imageSquare` sizes the node from,
  * read there off a decoded `<img>` — is read here off the data's own header,
  * as the browser decodes it, so that layout needs no image to load.
+ *
+ * Only the header is read: an image whose data is missing or broken past a
+ * whole header is drawn, and the browser shows it broken. Mermaid refuses
+ * such an image, since its `<img>` fails to decode; Siren does not decode
+ * one while drawing, because Node has no decoder, and checking the data's
+ * structure instead would not match the browser — Chrome decodes some
+ * broken data (a PNG of IDAT that is no zlib stream) and refuses some
+ * whole-looking data (a GIF of its header alone).
  */
 
 /** An image's natural size, in pixels. */
