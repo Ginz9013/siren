@@ -7,6 +7,7 @@ import type {
   PositionedStateNote,
   PositionedStateLabel,
   PositionedStateTransition,
+  Point,
   ResolvedState,
   ResolvedStateTransition,
   StateModel,
@@ -20,6 +21,8 @@ import {
   type DirectedGraphNodeBox,
 } from "./layoutDirectedGraph";
 import { clusterNode, SUBGRAPH_PADDING } from "./clusters";
+import { clipRouteToOutlines } from "./clipToOutline";
+import { circleOutline, edgesOf } from "./shapes/shape";
 import { noteBoxSize, noteLinkEdgeId, noteNodeId } from "./notes";
 import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
 import { plainLabel } from "../label/label";
@@ -141,8 +144,10 @@ const isLeftOf = (note: StateNote): boolean => note.position === "left of";
  * reattaches the state diagram's own data to the coordinates that come back.
  * All graph-layout math lives in the core, frames, a transition's ends on a
  * composite's frame and every self-transition's loop included; nothing here
- * moves a box, a frame or a route afterwards (nook decision
- * `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2).
+ * moves a box, a frame or a route's bends afterwards (nook decision
+ * `01M4VANRC6B2C14NHVC2KRZ9Y8`, rule 2). The one thing done to a route is
+ * at its ends: a transition meeting a figure smaller than its box stops on
+ * the figure (`figureOutline`), as a flowchart edge stops on its shape.
  */
 export function layoutStateDiagram(
   model: StateModel,
@@ -359,13 +364,20 @@ export function layoutStateDiagram(
     };
   });
 
+  // Where each end of a transition stops: on the figure a pseudo-state or
+  // a choice is drawn as, rather than on the box layout routed it to (`clipRouteToOutlines`).
+  // The line hops were read off the routes before this and still hold: an
+  // end only slides along the run it is on, into its own state's box.
+  const stateById = new Map(model.states.map((state) => [state.id, state]));
+  const outlineOf = (id: string) => figureOutline(stateById.get(id)!, boxById.get(id)!);
+
   const transitions = model.transitions.map<PositionedStateTransition>((transition) => {
     const route = routeById.get(transition.id)!;
     return {
       id: transition.id,
       from: transition.from,
       to: transition.to,
-      points: route.points,
+      points: clipRouteToOutlines(route.points, outlineOf(transition.from), outlineOf(transition.to)),
       hops: route.hops,
       label:
         transition.label === null || route.labelAnchor === undefined
@@ -386,6 +398,39 @@ export function layoutStateDiagram(
     width: laidOut.width,
     height: laidOut.height,
   };
+}
+
+/**
+ * The outline a transition meeting `state` stops on, or `null` where the
+ * box layout placed is the figure itself — a state's rectangle, a fork's
+ * bar, a composite's frame.
+ *
+ * A `<<choice>>` is the diamond inscribed in its box. Mermaid 12.2.0 ends a
+ * transition on it too (measured in headless Chrome: five states fanned
+ * into a choice end on its slanted sides, below their last bend), so an
+ * arrow coming down beside the top corner does not stop in the empty corner
+ * of the box.
+ *
+ * A start or end pseudo-state is the circle inscribed in its square box, the
+ * one the renderer draws. Mermaid 12.2.0 starts a transition on a start's
+ * disc but leaves one into an end's ring on the box, up to a pixel short of
+ * the ring when several fan in; Siren ends both on the circle, so an arrow
+ * into an end touches the ring it points at.
+ */
+function figureOutline(state: ResolvedState, box: DirectedGraphNodeBox): Point[] | null {
+  if (state.kind === "start" || state.kind === "end") {
+    return circleOutline(box, box.width / 2);
+  }
+  if (state.stereotype === "choice" && !isFrame(state.kind)) {
+    const { left, right, top, bottom, midX, midY } = edgesOf(box);
+    return [
+      { x: midX, y: top },
+      { x: right, y: midY },
+      { x: midX, y: bottom },
+      { x: left, y: midY },
+    ];
+  }
+  return null;
 }
 
 /** A frame's title as the core keeps room for it: its labels stacked, as wide as the widest. */

@@ -478,6 +478,11 @@ can carry one.
   draws it. Only the end and its arrowhead move: the route's bends, its label and its line hops stay
   where they were. A rectangle's edges, an end at a subgraph's frame, and a line level with an
   hourglass's pinch (which the outline is open around) are unchanged (backlog `01M52VP231`).
+- A state transition now ends on the figure a `<<choice>>` or a `[*]` is drawn as rather than on
+  the box around it: an arrow into a choice beside its top corner meets the diamond's slanted side,
+  and a transition leaving a start disc or entering an end ring touches the circle, where before
+  several fanned into one figure stopped up to a few pixels short of it. Only the ends move: the
+  bends, the labels and the line hops stay where they were (backlog `01M52VP231`).
 - A document config `look: classic`, in a frontmatter or an `init` directive, is accepted without
   a warning: Siren draws in the classic look, so the setting is honoured as written. `neo`,
   `handDrawn` and any other value are still read, kept and reported as not applied; Mermaid 12.2.0

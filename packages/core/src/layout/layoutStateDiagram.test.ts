@@ -1622,3 +1622,65 @@ describe("layoutStateDiagram — labels", () => {
     );
   });
 });
+
+describe("layoutStateDiagram — transition ends on a figure's outline", () => {
+  /**
+   * Five states fanned into (or out of) one figure: the layout engine spreads
+   * the five ends across the figure's box, so all but the middle one meet the
+   * box beside the figure — where a diamond's corner or a circle's curve has
+   * already fallen away.
+   */
+  function fanned(figure: { id: string; kind: "state" | "start" | "end"; stereotype: "choice" | null }, into: boolean): StateModel {
+    const others = ["A", "B", "C", "D", "E"];
+    const base = model(
+      others.map((id) => (into ? { from: id, to: figure.id } : { from: figure.id, to: id })),
+    );
+    return {
+      ...base,
+      states: base.states.map((state) =>
+        state.id === figure.id ? { ...state, kind: figure.kind, stereotype: figure.stereotype } : state,
+      ),
+    };
+  }
+
+  /** The end of each transition that meets `id`. */
+  function endsAt(laid: ReturnType<typeof layoutStateDiagram>, id: string) {
+    return laid.transitions.flatMap((transition) => [
+      ...(transition.from === id ? [transition.points[0]!] : []),
+      ...(transition.to === id ? [transition.points.at(-1)!] : []),
+    ]);
+  }
+
+  it("ends every transition into a `<<choice>>` on the diamond, not on the box around it", () => {
+    const laid = layoutStateDiagram(fanned({ id: "ch", kind: "state", stereotype: "choice" }, true), options);
+    const choice = laid.states.find((state) => state.id === "ch")!;
+    const cx = choice.x + choice.width / 2;
+    const cy = choice.y + choice.height / 2;
+    const ends = endsAt(laid, "ch");
+    expect(ends).toHaveLength(5);
+    // At least one end is off the diamond's corner, so the case is a real one.
+    expect(ends.some((end) => Math.abs(end.x - cx) > 1)).toBe(true);
+    for (const end of ends) {
+      // Distance to the side `|dx| / hw + |dy| / hh = 1`, along its normal.
+      const hw = choice.width / 2;
+      const hh = choice.height / 2;
+      const off = Math.abs(end.x - cx) / hw + Math.abs(end.y - cy) / hh - 1;
+      expect(Math.abs(off) * (hw * hh) / Math.hypot(hw, hh)).toBeLessThanOrEqual(0.5);
+    }
+  });
+  it.each([
+    { kind: "start" as const, id: "start:1", into: false },
+    { kind: "end" as const, id: "end:1", into: true },
+  ])("ends every transition at a $kind pseudo-state on its circle, not on the box around it", ({ kind, id, into }) => {
+    const laid = layoutStateDiagram(fanned({ id, kind, stereotype: null }, into), options);
+    const circle = laid.states.find((state) => state.id === id)!;
+    const cx = circle.x + circle.width / 2;
+    const cy = circle.y + circle.height / 2;
+    const ends = endsAt(laid, id);
+    expect(ends).toHaveLength(5);
+    expect(ends.some((end) => Math.abs(end.x - cx) > 1)).toBe(true);
+    for (const end of ends) {
+      expect(Math.abs(Math.hypot(end.x - cx, end.y - cy) - circle.width / 2)).toBeLessThanOrEqual(0.5);
+    }
+  });
+});
