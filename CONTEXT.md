@@ -1290,9 +1290,16 @@ had somewhere to put it, and only after measuring that Mermaid makes it too. Eve
 goes to the frame, and a styled edge's arrowhead takes the edge's own `stroke` via a marker minted
 per distinct (end shape, color) pair — per color alone until an edge's ends had shapes, and minted
 only for the pairs a diagram actually draws, so one color and one head shape is still one marker.
-Property names must be plain CSS identifiers and values may not contain `url(`, `expression(`, `;`
-or `\`; a rejected declaration is dropped with an error diagnostic and its siblings still apply.
-That gate is `graph-model/resolveStyles.ts` and only there — no renderer re-checks anything.
+Property names must be plain CSS identifiers, and a value is read against an allowlist
+(`unsafeStyleValue`): it may call only the colour, math and gradient functions and `var(`, and is
+otherwise built from hex colours, keywords, numbers, quoted family names and `!important`; `;`,
+`\` and an unclosed comment are refused. A rejected declaration is dropped with an error
+diagnostic and its siblings still apply. That gate is `graph-model/resolveStyles.ts` and only
+there — no renderer re-checks anything. Measured in headless Chrome against a local request
+logger: no refused value — `url(`, `image-set(` and the other image functions in any case or
+vendor spelling, split by a comment, behind a quoted `/*`, or nested in an allowed function —
+makes a request from a class, state or ER `style`/`classDef` or a label's `<span style>` or
+`<font>`, where the same value set straight on an element does.
 _Avoid_: theme, custom style, inline style (that is the mechanism, not the authored thing), CSS
 class (a `classDef` defines a named set of declarations, not a CSS class — nothing it produces
 reaches a stylesheet; and note that a flowchart's apply-directive is *spelled* `class`, which is
@@ -1408,6 +1415,9 @@ A set of icons a caller hands `render()` through its `iconPacks` option, as Icon
 data, never loaded or fetched, so an icon no registered pack holds is an error rather than the
 `?` Mermaid draws. An icon's body is read through an allowlist into figure data and drawn
 element by element: no markup from a pack reaches a parser in the page.
+Measured in headless Chrome: no body makes a request — not a `url(…)` or `image-set(` paint,
+`<image>`, `<use>`, `<style>` or `<feImage>`, nor an `<?xml-stylesheet?>`, which `DOMParser` does
+not load even from a document's prolog.
 _Avoid_: icon set, icon library, icon font
 
 **Image node**:
