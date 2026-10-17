@@ -125,6 +125,19 @@ function selfCrossings(outline: Point[]): [number, number][] {
   return found;
 }
 
+/** Where the segments `a`–`b` and `c`–`d` meet, as lines. */
+function meeting(a: Point, b: Point, c: Point, d: Point): Point {
+  const t = turn(c, d, a) / (turn(c, d, a) - turn(c, d, b));
+  return { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) };
+}
+
+/** The points where the closed polygon `outline` crosses itself. */
+function selfCrossingPoints(outline: Point[]): Point[] {
+  const n = outline.length;
+  const edge = (i: number) => [outline[i]!, outline[(i + 1) % n]!] as const;
+  return selfCrossings(outline).map(([i, j]) => meeting(...edge(i), ...edge(j)));
+}
+
 /** The shapes whose outline crosses itself because Mermaid draws them so: an hourglass's two diagonals. */
 const SELF_CROSSING: ReadonlySet<NodeShape> = new Set(["hourglass"]);
 
@@ -159,8 +172,16 @@ describe("every shape's outline", () => {
     if (SELF_CROSSING.has(shape)) {
       expect(selfCrossings(outline)).not.toEqual([]);
     } else if (CROSSING_WHERE_DRAWN.has(shape)) {
-      const drawn = sampledPath(firstFrameD(laidOut(shape, text, extraFor(shape))), 40);
-      expect(selfCrossings(outline).length > 0).toBe(selfCrossings(drawn).length > 0);
+      // Each place the outline crosses itself lies on a place the drawn
+      // frame, sampled finely, crosses itself. Not the other way about: the
+      // drawn frame also crosses itself where its arcs overlap at a scallop's
+      // ends, which the outline does not follow.
+      const drawn = selfCrossingPoints(sampledPath(firstFrameD(laidOut(shape, text, extraFor(shape))), 200));
+      const crossing = selfCrossingPoints(outline);
+      const near = (point: Point, among: Point[]) =>
+        among.some((other) => Math.hypot(point.x - other.x, point.y - other.y) <= 1);
+      expect(crossing.length > 0).toBe(drawn.length > 0);
+      for (const point of crossing) expect(near(point, drawn), `${point.x},${point.y}`).toBe(true);
     } else {
       expect(selfCrossings(outline)).toEqual([]);
     }

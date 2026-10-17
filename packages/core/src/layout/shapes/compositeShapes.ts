@@ -1,5 +1,5 @@
 import type { NodeShape, Point } from "../../contracts";
-import { arcPoints, boxOutline, closedOutline, edgesOf, FRAME_PAINT, pathFrame, type Rect, rectFrame, type ShapeFrame, type ShapeSpec, type Size, OUTLINE_TOLERANCE } from "./shape";
+import { arcPoints, boxOutline, closedOutline, edgesOf, FRAME_PAINT, OUTLINE_TOLERANCE, pathFrame, type Rect, rectFrame, type ShapeFrame, type ShapeSpec, type Size } from "./shape";
 
 /**
  * Shape-table records for the shapes Mermaid 12.2.0 draws as a figure plus
