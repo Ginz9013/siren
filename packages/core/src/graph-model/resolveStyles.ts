@@ -281,6 +281,8 @@ function rejectStyleProperty({ property, value }: StyleProperty): string | null 
       return `Style value for "${property}" contains ";", which would smuggle in a second declaration; dropping the declaration.`;
     case "backslash":
       return `Style value for "${property}" contains "\\", which can spell a rejected function as a CSS escape; dropping the declaration.`;
+    case "character":
+      return `Style value for "${property}" contains "${unsafe.character}", which no colour, length, keyword or quoted name is written with; dropping the declaration.`;
   }
 
   return null;

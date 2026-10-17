@@ -13579,6 +13579,39 @@ line2\`"]`,
   },
 
   // -------------------------------------------------------------------------
+  // style values — the allowlist an author's value is read against
+  // -------------------------------------------------------------------------
+  {
+    id: "class-style-value-function-off-allowlist",
+    kind: "class",
+    source: `classDiagram
+      class A
+      style A fill:attr(data-x),stroke:#c00`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 accepts any text as a class `style` value and hands it " +
+      "to the browser (measured: `fill:attr(data-x)` reaches the label's " +
+      "`style`). Siren reads a value against an allowlist — colour and math " +
+      "functions, `var(`, the gradients, and plain tokens — so that no value " +
+      "can name a resource to fetch, and refuses the declaration with an " +
+      "error, drawing the rest: a deliberate departure (nook 01M52VP2B9).",
+  },
+  {
+    id: "state-classdef-value-function-off-allowlist",
+    kind: "state",
+    source: `stateDiagram-v2
+      A --> B
+      classDef c fill:env(safe-area-inset-top),stroke:#c00
+      class A c`,
+    status: "rejected",
+    meaning:
+      "Mermaid 12.2.0 accepts any text as a state `classDef` value (measured: " +
+      "`fill:env(x)` draws). Siren refuses a value calling a function off its " +
+      "allowlist with an error and draws the rest, as for a class `style`: a " +
+      "deliberate departure (nook 01M52VP2B9).",
+  },
+
+  // -------------------------------------------------------------------------
   // labels — the HTML tag vocabulary (ADR-0015), kept in `labelCorpus.ts`
   // -------------------------------------------------------------------------
   ...LABEL_CASES,

@@ -8966,3 +8966,82 @@ describe("render() — an image from a data URL", () => {
     expect(Array.from(result.svg!.querySelectorAll("image")).map((image) => image.getAttribute("href"))).toEqual([PNG]);
   });
 });
+
+describe("render() — an author's style value is read against an allowlist, at every place one reaches a style", () => {
+  it("drops a class `style` value calling a function off the list, keeping its sibling and a listed colour function", () => {
+    const container = document.createElement("div");
+    const result = render(
+      "classDiagram\nclass A\nclass B\nA -- B\nstyle A fill:attr(data-x),stroke:#c00\nstyle B fill:rgb(255 0 0 / 50%)\n",
+      container,
+    );
+
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'Style value for "fill" uses "attr(", which is not one of the functions a style value may use; ' +
+          "dropping the declaration.",
+        line: 5,
+        column: 1,
+      },
+    ]);
+    const frameStyle = (id: string) =>
+      result.svg!.querySelector(`g.siren-class[data-siren-id="${id}"] rect.siren-class-frame`)!.getAttribute("style");
+    expect(frameStyle("A")).toBe("stroke:#c00");
+    expect(frameStyle("B")).toBe("fill:rgb(255 0 0 / 50%)");
+    expect(container.innerHTML.includes("attr(")).toBe(false);
+  });
+
+  it("drops a state `classDef` value calling a function off the list, keeping its sibling", () => {
+    const container = document.createElement("div");
+    const result = render(
+      "stateDiagram-v2\nA --> B\nclassDef c fill:env(safe-area-inset-top),stroke:#c00\nclass A c\n",
+      container,
+    );
+
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'Style value for "fill" uses "env(", which is not one of the functions a style value may use; ' +
+          "dropping the declaration.",
+        line: 3,
+        column: 1,
+      },
+    ]);
+    expect(container.innerHTML.includes("env(")).toBe(false);
+    expect(container.innerHTML.includes("stroke:#c00")).toBe(true);
+  });
+
+  it("drops an ER `style` value holding a character outside the grammar, keeping its sibling", () => {
+    const container = document.createElement("div");
+    const result = render("erDiagram\nCUSTOMER\nstyle CUSTOMER fill:a$b,stroke:#c00\n", container);
+
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "error",
+        message:
+          'Style value for "fill" contains "$", which no colour, length, keyword or quoted name is written with; ' +
+          "dropping the declaration.",
+        line: 3,
+        column: 1,
+      },
+    ]);
+    expect(container.innerHTML.includes("stroke:#c00")).toBe(true);
+    expect(container.innerHTML.includes("a$b")).toBe(false);
+  });
+
+  it("draws a label's <span style> and <font face> calling a function off the list as though the value were not written, and says nothing", () => {
+    const container = document.createElement("div");
+    const result = render(
+      "flowchart TB\n  A[\"<span style='letter-spacing:attr(x)'>a</span><font face='paint(x)'>b</font>" +
+        "<span style='letter-spacing:calc(1px + 1px)'>c</span>\"]\n",
+      container,
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    expect(container.innerHTML.includes("attr(")).toBe(false);
+    expect(container.innerHTML.includes("paint(")).toBe(false);
+    expect(container.innerHTML.includes("calc(1px + 1px)")).toBe(true);
+  });
+});

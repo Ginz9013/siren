@@ -16,7 +16,8 @@
 export type UnsafeStyleValue =
   | { kind: "function"; name: string; why: string }
   | { kind: "semicolon" }
-  | { kind: "backslash" };
+  | { kind: "backslash" }
+  | { kind: "character"; character: string };
 
 /**
  * The CSS functions an author's style value may not use, with why.
@@ -35,9 +36,11 @@ export type UnsafeStyleValue =
  * prefix (`-webkit-image-set(`, `-moz-element(`), and only as a whole name,
  * so `my-image(` is not `image(`.
  *
- * Still not "every way CSS can fetch", so a future value-bearing sink
- * belongs here, and this is the one place to add it. Note that these
- * patterns match *text*: an author can spell any of them with a CSS escape,
+ * These are not the gate: `ALLOWED_FUNCTIONS` below is, and refuses every
+ * function it does not list, these included. They are looked for first so
+ * that a value using one is refused with why it is dangerous rather than
+ * only that it is unlisted, and `url(` and `expression(` anywhere in the
+ * value, even inside a quoted name. Note that these patterns match *text*: an author can spell any of them with a CSS escape,
  * which is why `unsafeStyleValue` refuses a value carrying a backslash
  * before it can reach one of these names in disguise, and a comment
  * between a name and its paren, which is why comments are read out of the
@@ -59,6 +62,50 @@ const REJECTED_VALUE_FUNCTIONS: { pattern: RegExp; name: string; why: string }[]
   fetching("element"),
   fetching("src"),
 ];
+
+/**
+ * The only functions a style value may call: the colour functions, the math
+ * functions, `var(` and the gradients. None of them names a resource, so a
+ * value built from them and from plain tokens fetches nothing — whatever
+ * functions browsers add next, they are refused until they are listed here.
+ * Matched case-insensitively, as CSS matches them, and only as a whole name:
+ * a vendor-prefixed spelling (`-webkit-linear-gradient(`) is a different
+ * function, and is refused with the rest.
+ */
+const ALLOWED_FUNCTIONS: ReadonlySet<string> = new Set([
+  "rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color", "color-mix",
+  "calc", "min", "max", "clamp", "var",
+  "linear-gradient", "radial-gradient", "conic-gradient",
+  "repeating-linear-gradient", "repeating-radial-gradient", "repeating-conic-gradient",
+]);
+
+/** A quoted string — a family name — whose text is no call, whatever it holds. */
+const QUOTED = /"[^"]*"|'[^']*'/g;
+
+/** `!important`, the one place a `!` belongs in a value. */
+const IMPORTANT = /!\s*important(?![-\w])/gi;
+
+/**
+ * A character outside every token a value is built from: letters, digits,
+ * `-` and `_` (keywords, numbers, units), any character past ASCII (a family
+ * name written bare), `#` (hex colours), `.` `%` `+` `*` `/` (numbers and
+ * the math functions' operators), commas, spaces and the parentheses of a
+ * call.
+ *
+ * And `:`, which is no part of that grammar but calls nothing either, and
+ * which a flowchart's `style` line hands over when its `;` is dropped
+ * before the line is read: `fill:#fdd;position:fixed` arrives here as
+ * `#fddposition:fixed`, a value the browser drops and the diagram is drawn
+ * without — not a document to refuse.
+ */
+const STRAY_CHARACTER = /[^-\w\u0080-\uffff\s.,%#+*/():]/;
+
+/**
+ * Every call in a value: a name and its `(`, with space between them allowed
+ * as the denylist above allows it. A `(` with no name before it is a group
+ * inside `calc(`, and calls nothing.
+ */
+const FUNCTION_CALL = /([-\w\u0080-\uffff]*)\s*\(/g;
 
 /**
  * Why `value` may not be emitted into an inline `style`, or `null` when it
@@ -102,6 +149,30 @@ export function unsafeStyleValue(value: string): UnsafeStyleValue | null {
   // nothing legitimate is lost by not spending that complexity here.
   if (value.includes("\\")) {
     return { kind: "backslash" };
+  }
+
+  // What is left is read against the grammar a value is written in: a
+  // quoted family name is set aside whole, every call must be to a listed
+  // function, and every other character must be one a colour, length,
+  // keyword or number is spelled with. A quote with no partner is left
+  // behind by the first step and refused by the third.
+  const outside = uncommented.replace(QUOTED, " ");
+  for (const [, name] of outside.matchAll(FUNCTION_CALL)) {
+    if (name !== "" && !ALLOWED_FUNCTIONS.has(name.toLowerCase())) {
+      return { kind: "function", name: `${name}(`, why: "is not one of the functions a style value may use" };
+    }
+  }
+  const stray = outside.replace(IMPORTANT, " ").match(STRAY_CHARACTER);
+  if (stray !== null) {
+    return { kind: "character", character: stray[0] };
+  }
+  let depth = 0;
+  for (const character of outside) {
+    if (character === "(") depth += 1;
+    if (character === ")" && --depth < 0) return { kind: "character", character: ")" };
+  }
+  if (depth > 0) {
+    return { kind: "character", character: "(" };
   }
 
   return null;

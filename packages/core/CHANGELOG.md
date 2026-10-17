@@ -166,6 +166,14 @@ block, which used to be dropped and is now refused; and for one whose attribute 
 only lines that draw no text (`$` beside methods), which used to take a compartment's room and
 divider and now takes none (see **Changed**).
 
+Breaking for a class or state `style` or `classDef`, or an ER `style`, whose value calls a function
+other than a colour function, a math function, `var(` or a gradient — `fill:attr(x)`, `fill:env(x)`,
+`fill:paint(x)`, a vendor-prefixed `-webkit-linear-gradient(…)` — or holds a character no colour,
+length, keyword or quoted name is written with (`fill:a$b`, `fill:a?b`, `fill:a!b`, an unclosed
+quote or parenthesis), which Mermaid 12.2.0 accepts and is now refused; the same characters in a
+flowchart `style`, `classDef` or `linkStyle` are refused too. A label's `<span style>` or
+`<font face>` value of that kind is now drawn as though it were not written (see **Changed**).
+
 ### Added
 
 - A flowchart node's `@{ shape: … }` block draws the shapes Mermaid 12.2.0 draws at a fixed size
@@ -465,6 +473,17 @@ divider and now takes none (see **Changed**).
   draws a look no look has rather than refusing it, so Siren does not refuse one either (nook
   `01M52VP2KM`). `pnpm parity` now compares with Mermaid's classic look by default; `--look neo`
   compares with Mermaid's own default.
+- An author's style value (`style`, `classDef`, `linkStyle`, a label's `<span style>` and
+  `<font face>`) is read against an allowlist rather than a list of fetching functions (nook
+  `01M52VP2B9`): a value may call only `rgb`, `rgba`, `hsl`, `hsla`, `hwb`, `lab`, `lch`, `oklab`,
+  `oklch`, `color`, `color-mix`, `calc`, `min`, `max`, `clamp`, `var` and the linear, radial and
+  conic gradients with their `repeating-` forms — matched case-insensitively, with their arguments
+  read by the same rule — and is otherwise built from hex colours, keywords, numbers with or
+  without a unit, quoted family names, `!important`, commas, slashes and spaces. Any other function
+  is refused as one a style value may not use, and any other character as one no colour, length,
+  keyword or quoted name is written with; so a function a browser adds later cannot fetch before it
+  is listed. `;`, `\` and an unclosed `/*` are refused as before, and comments are still read out
+  first.
 - A flowchart `bang`, `cloud` and `datastore` pad their text with Siren's own node padding where
   Mermaid 12.2.0's handlers pad with its 15px (nook `01M521T9NX`), as the curved shapes already do,
   so each stands to a rectangle as Mermaid's does in its classic look. `pnpm parity` compares with

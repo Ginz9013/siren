@@ -576,6 +576,24 @@ describe("resolveStyles", () => {
       ]);
     });
 
+    it("drops a value holding a character no colour, length, keyword or quoted name is written with", () => {
+      const { styles, diagnostics } = resolveStyleStatement([
+        { property: "fill", value: "red{x}" },
+      ]);
+
+      expect(styles).toEqual([]);
+      expect(diagnostics).toEqual([
+        {
+          severity: "error",
+          message:
+            'Style value for "fill" contains "{", which no colour, length, keyword or quoted name ' +
+            "is written with; dropping the declaration.",
+          line: 4,
+          column: 1,
+        },
+      ]);
+    });
+
     it("reports a rejected classDef declaration once, at the classDef, not once per target applying it", () => {
       const diagnostics: Diagnostic[] = [];
 
