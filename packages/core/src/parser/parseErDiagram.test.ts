@@ -3000,6 +3000,29 @@ describe("parseErDiagram — whitespace at the end of a declaration list's line"
     ]);
   });
 
+  it("names the whitespace before a `;` the style-line rule drops, quoting the line as written", () => {
+    // Measured: on a line holding a `#` color, the line's last `;` is dropped
+    // before the list is read, so `fill:#f96 ;` ends in the space before it
+    // and is a parse error, as are a tab, two spaces and a second declaration.
+    const beforeSemicolon = (keyword: string, value: string, line: string) =>
+      `A \`${keyword}\` line in erDiagram holding a "#" color cannot have a space or a tab before its closing ";": ` +
+      `that ";" is dropped before the line is read, so the line ends in the whitespace. Remove the whitespace ` +
+      `between "${value}" and ";", in "${line}"`;
+    for (const [value, read, column] of [
+      ["fill:#f96 ;", "fill:#f96", 18],
+      ["fill:#f96  ;", "fill:#f96", 18],
+      ["fill:#f96\t;", "fill:#f96", 18],
+      ["fill:#f96, stroke:blue ;", "fill:#f96, stroke:blue", 31],
+    ] as const) {
+      expect(errorsOfDocument(`A\nstyle A ${value}`), JSON.stringify(value)).toEqual([
+        { message: beforeSemicolon("style", read, `style A ${value}`), line: 3, column },
+      ]);
+    }
+    expect(errorsOfDocument("A\nclassDef u fill:#f96 ;\nclass A u")).toEqual([
+      { message: beforeSemicolon("classDef", "fill:#f96", "classDef u fill:#f96 ;"), line: 3, column: 21 },
+    ]);
+  });
+
   it("reads every other line ending in whitespace as written", () => {
     for (const body of [
       "A ",

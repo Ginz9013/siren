@@ -9048,3 +9048,41 @@ describe("render() — an author's style value is read against an allowlist, at 
     expect(container.innerHTML.includes("calc(1px + 1px)")).toBe(true);
   });
 });
+
+describe("render() — an ER declaration list ending in a `;`", () => {
+  /**
+   * Measured in Chrome on Mermaid 12.2.0: a `style` or `classDef` list whose
+   * line ends in `;` — right after the value or after a space or a tab —
+   * paints the value before it (`fill:red ;` paints `fill:red`), as does a
+   * list of two declarations (`fill:red , stroke:blue ;`).
+   */
+  const frameStyle = (source: string) => {
+    const result = render(source, document.createElement("div"));
+    return {
+      diagnostics: result.diagnostics,
+      style: result.svg?.querySelector('g.siren-er-entity[data-siren-id="A"] rect.siren-er-entity-frame')?.getAttribute("style"),
+    };
+  };
+
+  it("draws a `style` list ending in a `;` with the value before it, and says nothing", () => {
+    for (const value of ["fill:red;", "fill:red ;", "fill:red  ;", "fill:red\t;", "fill: red ;"]) {
+      expect(frameStyle(`erDiagram\nA\nstyle A ${value}\n`), JSON.stringify(value)).toEqual({
+        diagnostics: [],
+        style: "fill:red",
+      });
+    }
+    expect(frameStyle("erDiagram\nA\nstyle A fill:red , stroke:blue ;\n")).toEqual({
+      diagnostics: [],
+      style: "fill:red;stroke:blue",
+    });
+  });
+
+  it("draws a `classDef` list ending in a `;` with the value before it, and says nothing", () => {
+    for (const value of ["fill:red;", "fill:red ;", "fill:red\t;"]) {
+      expect(frameStyle(`erDiagram\nA:::u\nclassDef u ${value}\n`), JSON.stringify(value)).toEqual({
+        diagnostics: [],
+        style: "fill:red",
+      });
+    }
+  });
+});

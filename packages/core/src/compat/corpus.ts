@@ -13840,6 +13840,43 @@ line2\`"]`,
       "declarations with a space (nook 01M5482HPJ).",
   },
   {
+    id: "er-style-code-space-before-semicolon",
+    kind: "er",
+    source: `erDiagram
+      A ||--o{ B : has
+      style A fill:#f96 ;`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** On a style line " +
+      "holding a `#`, Mermaid 12.2.0 drops the line's last `;` before reading " +
+      "it, so this list ends in the space before that `;`, which runs it on " +
+      "past the line break: a parse error (measured; a tab, two spaces and " +
+      "`fill:#f96, stroke:blue ;` too). Siren refused it already, but asked " +
+      "to remove whitespace after `fill:#f96` from a line quoted without its " +
+      "`;`; it now names the whitespace before the `;` and quotes the line " +
+      "as written (ADR-0017, nook 01M5482HPJ).",
+  },
+  {
+    id: "er-style-closing-semicolon",
+    kind: "er",
+    source: `erDiagram
+      A ||--o{ B : has
+      B:::u
+      style A fill:red ;
+      classDef u fill:red\t;`,
+    status: "supported",
+    meaning:
+      "A `;` at the end of an ER `style` or `classDef` line ends the " +
+      "statement, after the value or after a space or a tab: Mermaid 12.2.0 " +
+      "paints both boxes `fill:red` (measured in Chrome). Siren read the `;` " +
+      "into the value and refused it as starting a second declaration, so " +
+      "it drew neither; it draws both now (ADR-0001, nook 01M5482HPJ).",
+    assert: (result) => {
+      expectSame("A's inline style", erEntityStyle(result, "A"), "fill:red");
+      expectSame("B's inline style", erEntityStyle(result, "B"), "fill:red");
+    },
+  },
+  {
     id: "state-classdef-value-function-off-allowlist",
     kind: "state",
     source: `stateDiagram-v2

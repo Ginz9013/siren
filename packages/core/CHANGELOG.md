@@ -526,6 +526,15 @@ can carry one.
   Mermaid 12.2.0 reads `fill` as a second target and `:red` as a declaration with no property.
   Siren already refused `style A ,fill:red`, but said that `fill:red` named a relationship
   (backlog `01M5482HPJ`).
+- An ER `style` or `classDef` line ending in a `;` — right after the value or after a space or a
+  tab (`fill:red;`, `fill:red ;`, `fill:red\t;`) — now paints the value before it, as Mermaid
+  12.2.0 does. The `;` used to be read into the last value, which was then dropped with an error
+  saying it would start a second declaration (backlog `01M5482HPJ`).
+- An ER `style` or `classDef` line holding a `#` color with a space or a tab before its closing
+  `;` (`fill:#f96 ;`, `fill:#f96, stroke:blue ;`) is still refused, as Mermaid 12.2.0 refuses
+  it, but the error now names the whitespace before the `;` and quotes the line as written. It
+  used to ask to remove whitespace after the value from a line quoted without its `;`, which the
+  style-line rule drops before the line is read (backlog `01M5482HPJ`).
 - A flowchart edge now ends on its node's outline rather than on the box the shape is inscribed
   in: an arrow into a diamond, a circle, a hexagon, a triangle on its side, a slanted or curved
   shape, a bolt or an hourglass meets the shape itself instead of stopping in the empty corner

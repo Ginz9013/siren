@@ -2088,8 +2088,17 @@ const SILENTLY_WRONG = 0;
  * Siren already refused it, wrongly calling `fill:red` a relationship id,
  * and now says what the comma does (`01M5482HPJ`). No `supported` row
  * moved. `silently-wrong` does not move.
+ *
+ * **91 → 92: case (2), a refusal written down for the first time.**
+ * `er-style-code-space-before-semicolon` (`style A fill:#f96 ;`), a parse
+ * error in Mermaid 12.2.0 because the style-line rule drops the `;` and
+ * leaves the list ending in a space (measured, ADR-0017). Siren already
+ * refused it, and now names the whitespace before the `;` (`01M5482HPJ`).
+ * `er-style-closing-semicolon`, which Siren now draws, is a new
+ * `supported` row; no `supported` row moved. `silently-wrong` does not
+ * move.
  */
-const REJECTED = 91;
+const REJECTED = 92;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;
