@@ -20,9 +20,11 @@
  */
 import { describe, expect, it } from "vitest";
 import type { Diagnostic, SirenRenderResult } from "../contracts";
+import { buildGraphModel } from "../graph-model/buildGraphModel";
 import { render } from "../index";
+import { parseSiren } from "../parser/parseSiren";
 import { COMPAT_CASES, type CompatCase } from "./corpus";
-import { endsOffOutline } from "./layoutDefects";
+import { endsOffOutline, endsOffTheirFigures, type LineEnds } from "./layoutDefects";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -339,6 +341,31 @@ describe("every flowchart and state row's line ends", () => {
     if (svg === null) return;
 
     expect(endsOffOutline(svg)).toEqual([]);
+  });
+});
+
+/**
+ * Which two things each line of a flowchart or a state diagram joins: its
+ * model's edges or transitions, which the picture does not record.
+ */
+function lineEndsOf(source: string): LineEnds {
+  const built = buildGraphModel(parseSiren(source).document!);
+  if (built.kind === "flowchart") return built.model.edges;
+  if (built.kind === "state") return built.model.transitions;
+  throw new Error(`a ${built.kind} has no lines with a figure at each end`);
+}
+
+/**
+ * The same rows, held to the rule from the other side: each end of a line
+ * stops on the figure drawn for its own node, not short of it
+ * (`endsOffTheirFigures`).
+ */
+describe("every flowchart and state row's line ends, at their own nodes", () => {
+  it.each(FIGURE_ROWS.map((entry) => [entry.id, entry] as const))("%s", (_id, entry) => {
+    const { svg } = render(entry.source, document.createElement("div"));
+    if (svg === null) return;
+
+    expect(endsOffTheirFigures(svg, lineEndsOf(entry.source))).toEqual([]);
   });
 });
 
