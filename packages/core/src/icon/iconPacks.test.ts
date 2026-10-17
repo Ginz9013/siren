@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type IconifyJSON, resolveIcon } from "./iconPacks";
+import { render } from "../index";
 
 /**
  * Looking an icon up in the packs a caller registered, and turning its SVG
@@ -179,11 +180,12 @@ describe("what an icon's body may draw", () => {
     ).toEqual([{ element: "path", attributes: [["d", "M0 0"], ["style", "fill: red; opacity: .5"]], children: [] }]);
   });
 
-  it("keeps a paint or reference value only when it is a colour, a keyword, a number or length, or a local `url(#id)`", () => {
+  it("keeps a paint or reference value only when it is a colour, a colour function, a keyword, a number or length, or a local `url(#id)`", () => {
     // Measured (headless Chrome, a local server): `mask: image-set('…' 1x)`
     // in a `style`, `mask="image-set('…' 1x)"` and `-webkit-image-set(…)`
     // each made the page request the image. Any value with a function in
-    // it but a local reference is dropped; colours, keywords and numbers stay.
+    // it but a local reference or a colour function is dropped; colours,
+    // keywords and numbers stay.
     expect(
       elementsOf(
         '<defs><mask id="m"/></defs>' +
@@ -203,6 +205,7 @@ describe("what an icon's body may draw", () => {
           ["stroke-dasharray", "2, 1 3"],
           ["mask", "url(#p-m)"],
           ["fill-rule", "evenodd"],
+          ["color", "rgb(1, 2, 3)"],
         ],
         children: [],
       },
@@ -356,5 +359,57 @@ describe("an alias's flips and rotation, laid over its parent's", () => {
   it("adds rotations as Iconify does, four quarter turns making none", () => {
     expect(drawn({ rotate: 2 }, { rotate: 2 })).toBe(true);
     expect(drawn({ rotate: 1 }, { rotate: 2 })).toBe(false);
+  });
+});
+
+/**
+ * A colour written as a colour function in an icon's paint. The function
+ * may be one of the colour functions, called once with plain arguments —
+ * numbers, percentages, angles, `none`, `/` and a colour space's name — and
+ * nothing else: no other function, and no function inside one, since a
+ * function is how a value fetches.
+ */
+describe("a colour function in an icon's paint", () => {
+  /** The `fill` and `style` of the first path drawn for an icon whose body is `body`. */
+  const drawnPaint = (body: string) => {
+    const pack = { prefix: "c", width: 24, height: 24, icons: { i: { body } } };
+    const result = render('flowchart TB\n  A@{ icon: "c:i" }', document.createElement("div"), { iconPacks: [pack] });
+    expect(result.diagnostics).toEqual([]);
+    const path = result.svg!.querySelector('g.siren-node[data-siren-id="A"] > g > path')!;
+    return { fill: path.getAttribute("fill"), style: path.getAttribute("style") };
+  };
+
+  it.each([
+    "rgb(1 2 3)",
+    "rgba(1, 2, 3, 0.5)",
+    "hsl(120deg 50% 50%)",
+    "hsla(120, 50%, 50%, .5)",
+    "hwb(120 10% 20% / 0.5)",
+    "lab(50% 40 59.5)",
+    "lch(52.2% 72.2 50 / 50%)",
+    "oklab(0.4 0.1 -0.1)",
+    "oklch(60% 0.15 none)",
+    "color(display-p3 1 0 0 / 50%)",
+  ])("keeps and draws `%s`, as an attribute or a declaration", (value) => {
+    expect(drawnPaint(`<path d="M0 0" fill="${value}" style="stroke: ${value}"/>`)).toEqual({
+      fill: value,
+      style: `stroke: ${value}`,
+    });
+  });
+
+  it.each([
+    "url(http://e/a.png)",
+    "var(--c)",
+    "calc(1 * 2)",
+    "rgb(var(--r) 2 3)",
+    "rgb(calc(1) 2 3)",
+    "color-mix(in srgb, red, blue)",
+    "rgb(1 2 3) url(http://e/a.png)",
+    "image-set('http://e/a.png' 1x)",
+  ])("drops `%s`, as an attribute or a declaration", (value) => {
+    expect(drawnPaint(`<path d="M0 0" fill="${value}" style="stroke: ${value}; opacity: .5"/>`)).toEqual({
+      fill: null,
+      style: "opacity: .5",
+    });
   });
 });

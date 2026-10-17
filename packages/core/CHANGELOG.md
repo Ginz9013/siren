@@ -484,6 +484,12 @@ flowchart `style`, `classDef` or `linkStyle` are refused too. A label's `<span s
   keyword or quoted name is written with; so a function a browser adds later cannot fetch before it
   is listed. `;`, `\` and an unclosed `/*` are refused as before, and comments are still read out
   first.
+- An icon's paint (`fill`, `stroke`, `stop-color`, `color` and the rest, as an attribute or in its
+  `style`) keeps a colour written as a colour function — `rgb`, `rgba`, `hsl`, `hsla`, `hwb`,
+  `lab`, `lch`, `oklab`, `oklch` or `color` — where it used to be dropped (nook `01M52VP2B9`).
+  Only one call, and only with plain arguments: numbers, percentages, angles, `none`, `/` and a
+  colour space's name. `var(`, `calc(`, any other function and a function inside another are
+  still dropped, and a `url(…)` is kept only as a local `url(#id)`, as before.
 - A flowchart `bang`, `cloud` and `datastore` pad their text with Siren's own node padding where
   Mermaid 12.2.0's handlers pad with its 15px (nook `01M521T9NX`), as the curved shapes already do,
   so each stands to a rectangle as Mermaid's does in its classic look. `pnpm parity` compares with

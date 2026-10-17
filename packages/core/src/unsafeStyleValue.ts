@@ -64,6 +64,13 @@ const REJECTED_VALUE_FUNCTIONS: { pattern: RegExp; name: string; why: string }[]
 ];
 
 /**
+ * The functions that write one colour from plain numbers: the narrowest
+ * part of the allowlist below, and all an icon's paint may call (see
+ * `inertColorFunction`).
+ */
+const COLOR_FUNCTIONS: readonly string[] = ["rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color"];
+
+/**
  * The only functions a style value may call: the colour functions, the math
  * functions, `var(` and the gradients. None of them names a resource, so a
  * value built from them and from plain tokens fetches nothing — whatever
@@ -73,7 +80,7 @@ const REJECTED_VALUE_FUNCTIONS: { pattern: RegExp; name: string; why: string }[]
  * function, and is refused with the rest.
  */
 const ALLOWED_FUNCTIONS: ReadonlySet<string> = new Set([
-  "rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color", "color-mix",
+  ...COLOR_FUNCTIONS, "color-mix",
   "calc", "min", "max", "clamp", "var",
   "linear-gradient", "radial-gradient", "conic-gradient",
   "repeating-linear-gradient", "repeating-radial-gradient", "repeating-conic-gradient",
@@ -176,4 +183,30 @@ export function unsafeStyleValue(value: string): UnsafeStyleValue | null {
   }
 
   return null;
+}
+
+/**
+ * A colour function's arguments, when they are plain: numbers with or
+ * without a unit (`50%`, `120deg`), keywords (`none`, a colour space's name
+ * such as `display-p3`), commas, `/` and spaces. No `(`, so no function is
+ * called inside one.
+ */
+const PLAIN_COLOR_ARGUMENTS = /^[-\w\s.,%+/]*$/;
+
+/**
+ * Whether `value` is one colour written as a colour function — `rgb(1 2 3)`,
+ * `oklch(60% 0.15 none)`, `color(display-p3 1 0 0 / 50%)` — and nothing
+ * else: a single call to one of `COLOR_FUNCTIONS`, its arguments plain, the
+ * whole read by `unsafeStyleValue` besides. Narrower than a style value:
+ * no `var(`, no `calc(`, no function inside another, for a value read from
+ * data no author of the document wrote.
+ */
+export function inertColorFunction(value: string): boolean {
+  const call = /^([-\w]+)\((.*)\)$/s.exec(value.trim());
+  return (
+    call !== null &&
+    COLOR_FUNCTIONS.includes(call[1]!.toLowerCase()) &&
+    PLAIN_COLOR_ARGUMENTS.test(call[2]!) &&
+    unsafeStyleValue(value) === null
+  );
 }

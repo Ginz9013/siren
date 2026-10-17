@@ -1,5 +1,5 @@
 import type { FigureElement, FigureElementName } from "../layout/shapes/shape";
-import { unsafeStyleValue } from "../unsafeStyleValue";
+import { inertColorFunction, unsafeStyleValue } from "../unsafeStyleValue";
 
 /**
  * The icon packs a caller registers through `render()`'s `iconPacks`
@@ -309,8 +309,8 @@ const LOCAL_REFERENCE = /^url\(\s*#([^)\s]+)\s*\)$/;
  * is how a value fetches — `url(`, and `image-set(`, `-webkit-image-set(`,
  * `cross-fade(`, `element(`, `src(` beside it, each of which made Chrome
  * request an image from an icon's `mask` or `fill` (measured) — and new
- * ones arrive with browsers. A colour written as `rgb(…)` is dropped with
- * them; an icon pack's colours are `#hex` or `currentColor` in practice.
+ * ones arrive with browsers. A colour function is the one exception, and
+ * is read apart by `inertColorFunction`.
  */
 const INERT_PAINT_VALUE =
   /^(?:#[0-9a-fA-F]{3,8}|[a-zA-Z][a-zA-Z-]*|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?(?:[a-zA-Z]+|%)?)(?:(?:\s*,\s*|\s+)(?:#[0-9a-fA-F]{3,8}|[a-zA-Z][a-zA-Z-]*|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?(?:[a-zA-Z]+|%)?))*$/;
@@ -375,8 +375,8 @@ function readBody(body: string, idPrefix: string): FigureElement[] | "invalid" |
 
   /**
    * A paint or reference `value` as it may be drawn — a local `url(#id)` to
-   * an id the icon declares, renamed, or a value `INERT_PAINT_VALUE` passes
-   * — or `null` when it may not.
+   * an id the icon declares, renamed, a value `INERT_PAINT_VALUE` passes,
+   * or one colour written as a colour function — or `null` when it may not.
    */
   const safeValue = (value: string): string | null => {
     const trimmed = value.trim();
@@ -384,7 +384,7 @@ function readBody(body: string, idPrefix: string): FigureElement[] | "invalid" |
     if (local !== null) {
       return ids.has(local[1]!) ? `url(#${idPrefix}${local[1]})` : null;
     }
-    return INERT_PAINT_VALUE.test(trimmed) ? trimmed : null;
+    return INERT_PAINT_VALUE.test(trimmed) || inertColorFunction(trimmed) ? trimmed : null;
   };
   const safeStyle = (style: string): string | null => {
     const declarations = style.split(";").flatMap((declaration) => {
