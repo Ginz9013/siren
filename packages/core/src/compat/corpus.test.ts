@@ -2066,8 +2066,30 @@ const SILENTLY_WRONG = 0;
  * `fill:red`) and `er-style-trailing-space` (a list ending in a space
  * swallows the next line). Siren drew each before and refuses each now. No
  * `supported` row moved. `silently-wrong` does not move.
+ *
+ * **87 → 90: case (2), three refusals written down for the first
+ * time.** `01M5482HPJ`'s third half measured whitespace inside an ER
+ * `style` or `classDef` declaration: Mermaid 12.2.0 skips it and glues the
+ * words on either side together, which draws without a word but wrong
+ * (ADR-0001) — `er-style-value-space` (`stroke-dasharray:5 5` paints `55`),
+ * `er-classdef-value-space` (`font-family:Noto Sans` sets `NotoSans`) and
+ * `er-style-value-space-glues-next-word` (`fill:#f96 C` paints `#f96C`).
+ * The last is the shape `er-style-statement-swallows-line` used to carry:
+ * that row's `B` existed in no other statement, so the glue landed on no
+ * box and its `supported` claim, which asserted only the entities, held.
+ * Its source now ends at `fill:#f96`, still pinning that a target is not
+ * a declaration, and stays `supported`; the glue is the new row. No
+ * `supported` row moved. `silently-wrong` does not move.
+ *
+ * **90 → 91: case (2), a refusal written down for the first time.**
+ * `er-style-comma-before-declarations` (`style A ,fill:red`), which
+ * Mermaid 12.2.0 reads as the targets `A` and `fill` and a declaration
+ * with no property, painting `A` nothing (measured in Chrome, ADR-0001).
+ * Siren already refused it, wrongly calling `fill:red` a relationship id,
+ * and now says what the comma does (`01M5482HPJ`). No `supported` row
+ * moved. `silently-wrong` does not move.
  */
-const REJECTED = 87;
+const REJECTED = 91;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

@@ -275,6 +275,27 @@ const STYLE_RELATIONSHIP_TARGET_RE = new RegExp(
 );
 
 /**
+ * `style A ,fill:red` — a `,` between the target list and the
+ * declarations, refused by name.
+ *
+ * The target list is an `idList`, whose commas may have whitespace on
+ * either side, so Mermaid reads `A ,fill` as two targets and `:red` as a
+ * declaration with no property: measured in Chrome, `A` is painted nothing
+ * and an entity called `fill`, if there is one, gets the broken style.
+ * `classDef u ,fill:red` defines `u` and `fill` the same way. Read before
+ * `STYLE_RELATIONSHIP_TARGET_RE`, which would otherwise call `fill:red` a
+ * relationship id — but only when what follows the name reads as one
+ * declaration list on its own: `style A,B:C fill:#f96` has whitespace
+ * between two words after `B:` and is the relationship spelling.
+ *
+ * Group 3 runs from the `,` to the end of `rest`, which places the comma.
+ */
+const STYLING_COMMA_BEFORE_DECLARATIONS_RE = new RegExp(
+  `^(style|classDef)\\b\\s+(${idListSource(STYLE_NAME_SOURCE)})\\s*(,\\s*(${STYLE_NAME_SOURCE})\\s*:(.*))$`,
+  "iu",
+);
+
+/**
  * `class ORDER urgent` — the apply-directive as a statement of its own.
  *
  * ⚠️ **`class\b` does *not* switch the lexer condition**, unlike its two
@@ -1378,7 +1399,9 @@ const DECLARATION_LIST_CHAR_RE = /[\w\s:,#*-]|[^\x00-\x7F]/u;
  * Every `,` has a declaration on each side of it: a list with nothing
  * between two commas or after its last is a parse error (`fill:red,`,
  * `fill:red, ,stroke:blue`), and one beginning with `,` loses its first
- * property (`classDef u ,fill:red` paints `:red`) — measured.
+ * property (`classDef u ,fill:red` paints `:red`) — measured. That one is
+ * refused before this is asked, for the comma after the names: see
+ * `STYLING_COMMA_BEFORE_DECLARATIONS_RE`.
  *
  * A declaration holds at most one `:`. The list is split at its colons
  * and only the first two parts kept, so `fill:red:blue` paints `fill:red`
@@ -1386,6 +1409,15 @@ const DECLARATION_LIST_CHAR_RE = /[\w\s:,#*-]|[^\x00-\x7F]/u;
  * second is a `;` between two declarations after a `#` color, which the
  * style-line rule drops: `fill:#f96;stroke:#333` arrives here as
  * `fill:#f96stroke:#333`, and paints neither color (measured in Chrome).
+ *
+ * Nor may a declaration hold whitespace between two words, where a word is
+ * a run of anything but whitespace, `:`, `,` and `;`. The condition skips
+ * whitespace and glues the words on either side of it into one, so
+ * `stroke-dasharray:5 5` paints `55`, `font-family:Noto Sans` `NotoSans`,
+ * `fill:#f96 C` `#f96C` and `fi ll:red` `fill:red` (measured in Chrome, a
+ * tab the same as a space). Whitespace beside `:`, `,` or a closing `;` has
+ * nothing to glue and draws as written. A value with a space in it cannot
+ * be written in this kind at all.
  *
  * Nor may the line end in whitespace, `spaceAfter`, which the line handed
  * to the reader has lost: the list's condition reads a space or a tab
@@ -1457,6 +1489,19 @@ function declarationListRefusal(
           'one ":": write one property and one value in each declaration, and separate declarations with ",", ' +
           `in "${line}"`,
         at: columnsAfter(at, commaAt + 1 + second),
+      };
+    }
+    const gap = /(?<before>[^\s:,;]+)(?<space>\s+)(?<after>[^\s:,;]+)/u.exec(declaration);
+    if (gap?.groups !== undefined) {
+      const { before, space, after } = gap.groups as { before: string; space: string; after: string };
+      const kind = space.startsWith("\t") ? "tab" : "space";
+      return {
+        refusal:
+          `Declaration "${declaration.trim()}" in a \`${keyword}\` declaration list in erDiagram holds a ${kind} ` +
+          `between "${before}" and "${after}", which would join them into "${before}${after}": a space or a tab ` +
+          'can stand only beside ":" or ",", so a value with a space in it, such as a font name or a dash ' +
+          `pattern, cannot be written. Remove the ${kind}, or the declaration, in "${line}"`,
+        at: columnsAfter(at, commaAt + 1 + gap.index + before.length),
       };
     }
     commaAt += declaration.length + 1;
@@ -1596,6 +1641,21 @@ function readLine(
     // same words are still refused where a *name* belongs (`A ||--o{ style :
     // x` is a parse error), so the reservation is what a word falls back to
     // once no statement here has claimed it.
+    const commaBefore = STYLING_COMMA_BEFORE_DECLARATIONS_RE.exec(rest);
+    if (commaBefore !== null && !/[^\s:,;]\s+[^\s:,;]/u.test(`${commaBefore[4]}:${commaBefore[5]}`)) {
+      const [, keywordWritten, list, fromComma, word] = commaBefore as unknown as [string, string, string, string, string];
+      const isStyle = keywordWritten.toLowerCase() === "style";
+      const keyword = isStyle ? "style" : "classDef";
+      const listName = isStyle ? "targets" : "names";
+      const last = splitIdList(list).at(-1);
+      return {
+        refusal:
+          `The "," after "${last}" adds "${word}" to the ${listName} of \`${keyword}\` in erDiagram, so its ` +
+          `declaration loses its property: separate the ${listName} from the declarations with a space, not a ",", ` +
+          `in "${line}"`,
+        at: columnsAfter(restAt(), rest.length - fromComma.length),
+      };
+    }
     const relationshipTarget = STYLE_RELATIONSHIP_TARGET_RE.exec(rest);
     if (relationshipTarget !== null) {
       const [, from, to] = relationshipTarget;

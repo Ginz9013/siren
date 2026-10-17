@@ -27,6 +27,11 @@ empty declaration (`fill:red,`, `fill:red,,stroke:blue`, `,fill:red`), a declara
 `:` (`fill:red:blue`, and `fill:#f96;stroke:#333`, read as one declaration), or a `;` after a `#`
 color that is not the line's last (`fill:#f96;;`), which is now refused (see **Changed**).
 
+Breaking for an ER `style` or `classDef` declaration holding a space or a tab between two words —
+`stroke-dasharray:5 5`, `font-family:Noto Sans`, `stroke-width:4 px`, `fill:#f96 C`, `fi ll:red`
+— which is now refused (see **Changed**). A value with a space in it cannot be written in this
+kind; a space beside `:` or `,` still reads as before.
+
 Breaking for a flowchart `style`, `classDef` or `linkStyle` whose declarations hold an `@`, a `{`
 or `}`, an arrow, or any run an arrow is made of — two dashes (`stroke:var(--x)`, `stroke:a--b`),
 a dash and a dot (`fill:a-.b`), an `=` or a `~` (`fill:a=b`, `fill:a~b`) — and for an edge
@@ -508,6 +513,19 @@ can carry one.
   so the `#word;` exception above no longer holds anywhere but at the end of the line. Siren drew
   each before. Measured in Chrome; a declaration with no `:` was already refused, and one with an
   empty value (`fill:`) still draws nothing (backlog `01M5482HPJ`).
+- An ER `style` or `classDef` declaration holding a space or a tab between two words is now
+  refused, at the whitespace, with an error naming the two words and what they would become.
+  Mermaid 12.2.0 skips that whitespace and glues the words together without a word:
+  `stroke-dasharray:5 5` paints `55`, `font-family:Noto Sans` sets `NotoSans`, `fill:#f96 C`
+  paints `#f96C`, `fi ll:red` paints `fill:red`. Siren drew the value as written before. Whitespace
+  beside a `:`, a `,` or the line's last `;` (`fill: red`, `fill:red , stroke:blue`) has nothing
+  to glue and still draws. Measured in Chrome (backlog `01M5482HPJ`).
+- An ER `style` or `classDef` whose target or name list ends in a `,` before the declarations
+  (`style A ,fill:red`, `classDef u, fill:red`) is now refused with an error at the `,` saying it
+  adds the next word to the list and to separate the list from the declarations with a space.
+  Mermaid 12.2.0 reads `fill` as a second target and `:red` as a declaration with no property.
+  Siren already refused `style A ,fill:red`, but said that `fill:red` named a relationship
+  (backlog `01M5482HPJ`).
 - A flowchart edge now ends on its node's outline rather than on the box the shape is inscribed
   in: an arrow into a diamond, a circle, a hexagon, a triangle on its side, a slanted or curved
   shape, a bolt or an hourglass meets the shape itself instead of stopping in the empty corner

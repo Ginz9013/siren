@@ -12349,15 +12349,18 @@ line2\`"]`,
     id: "er-style-statement-swallows-line",
     kind: "er",
     source: `erDiagram
-      A style B fill:#f96 C`,
+      A style B fill:#f96`,
     status: "supported",
     meaning:
       "The half of `style` that parts it from every other statement in this " +
       "kind. Mermaid's `style\\b` rule calls `this.begin(\"style\")`, and the " +
       "only rule leaving that condition is `[\\n]+` — so the declaration list " +
-      "runs to the newline. Measured: `A style B fill:#f96 C` reports **one** " +
-      "entity, `A`. `C` is another `styleComponent` and not a statement, and " +
-      "`B` is a target rather than a declaration, so neither becomes a box.\n\n" +
+      "runs to the newline. Measured: `A style B fill:#f96` reports **one** " +
+      "entity, `A`: `B` is a target rather than a declaration, so it does not " +
+      "become a box. A word after the declarations (`fill:#f96 C`) is another " +
+      "`styleComponent` glued onto the value rather than a statement; Siren " +
+      "refuses that line now (`er-style-value-space-glues-next-word`), so this " +
+      "row's source no longer carries one (nook 01M5482HPJ).\n\n" +
       "Its own row because the failure is silent in both directions: a " +
       "reader returning to the statement stream draws a `C` Mermaid draws " +
       "none for, and one treating the target as a declaration draws a `B`. " +
@@ -13773,6 +13776,68 @@ line2\`"]`,
       "parse error. No other ER line minds trailing whitespace. Siren drew " +
       "it before; it refuses it now (ADR-0001), at the whitespace, saying to " +
       "remove it (nook 01M5482HPJ).",
+  },
+  {
+    id: "er-style-value-space",
+    kind: "er",
+    source: `erDiagram
+      A ||--o{ B : has
+      style A stroke-dasharray:5 5`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** An ER " +
+      "declaration list skips whitespace and glues the words on either side " +
+      "of it into one, so Mermaid 12.2.0 paints `stroke-dasharray:55` here, " +
+      "a dash pattern the author did not write (measured in Chrome). A space " +
+      "beside `:` or `,` has nothing to glue and draws as written. Siren drew " +
+      "`5 5` before; it refuses it now (ADR-0001), at the space " +
+      "(nook 01M5482HPJ).",
+  },
+  {
+    id: "er-classdef-value-space",
+    kind: "er",
+    source: `erDiagram
+      A ||--o{ B : has
+      classDef serif font-family:Noto Sans
+      class A serif`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** The same glue " +
+      "under `classDef`: Mermaid 12.2.0 sets `font-family:NotoSans`, a font " +
+      "no machine has (measured in Chrome), so a font name with a space in it " +
+      "cannot be written in this kind. Siren drew `Noto Sans` before; it " +
+      "refuses it now (ADR-0001), at the space (nook 01M5482HPJ).",
+  },
+  {
+    id: "er-style-value-space-glues-next-word",
+    kind: "er",
+    source: `erDiagram
+      B
+      A style B fill:#f96 C`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** A word after " +
+      "the declarations is not a statement but another piece of the value: " +
+      "Mermaid 12.2.0 paints `B` with `fill:#f96C`, the four-digit hex for " +
+      "the color at 80% opacity, and draws no `C` (measured in Chrome). " +
+      "Siren drew `#f96 C`, no color at all, before; it refuses it now " +
+      "(ADR-0001), at the space (nook 01M5482HPJ).",
+  },
+  {
+    id: "er-style-comma-before-declarations",
+    kind: "er",
+    source: `erDiagram
+      A ||--o{ B : has
+      style A ,fill:red`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** The target " +
+      "list's commas may have whitespace on either side, so Mermaid 12.2.0 " +
+      "reads `A ,fill` as two targets and `:red` as a declaration with no " +
+      "property, and paints `A` nothing (measured in Chrome). Siren refused " +
+      "it before, calling `fill:red` a relationship id; it refuses it now " +
+      "(ADR-0001) at the `,`, saying to separate the targets from the " +
+      "declarations with a space (nook 01M5482HPJ).",
   },
   {
     id: "state-classdef-value-function-off-allowlist",
