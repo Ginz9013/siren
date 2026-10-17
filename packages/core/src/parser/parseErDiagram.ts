@@ -1367,13 +1367,36 @@ const DECLARATION_LIST_CHAR_RE = /[\w\s:,#*-]|[^\x00-\x7F]/u;
  * The refusal for the first character of a `style` or `classDef`
  * declaration list, `value`, beginning at `at`, that the list cannot hold —
  * or `null` when it holds none. A `;` may end the line but not be followed
- * by anything, a space included (measured: `fill:red;` and `fill:red ;`
- * draw, `fill:red;stroke:blue`, `fill:red;;` and `fill:red; ` are parse
- * errors) — unless it closes a `#word;` code, which Mermaid rewrites into
- * non-ASCII characters before its lexer runs (`fill:#f96;stroke:#333`
- * draws). The `;` a style line drops is gone before this is asked: see
- * `styleLines`. `spaceAfter` says whether whitespace follows `value` on its
- * line as written, which the line handed to the reader has lost.
+ * by anything (measured: `fill:red;` and `fill:red ;` draw,
+ * `fill:red;stroke:blue` and `fill:red;;` are parse errors). Nor may it
+ * close a `#word;` code: Mermaid rewrites each into non-ASCII characters
+ * before its lexer runs and paints the code itself, so the color is lost
+ * (measured in Chrome: `fill:#f96;;` paints `fill:ﬂ°f96¶ß`). The one such
+ * `;` that draws is the line's last, which the style-line rule drops
+ * before this is asked.
+ *
+ * Every `,` has a declaration on each side of it: a list with nothing
+ * between two commas or after its last is a parse error (`fill:red,`,
+ * `fill:red, ,stroke:blue`), and one beginning with `,` loses its first
+ * property (`classDef u ,fill:red` paints `:red`) — measured.
+ *
+ * A declaration holds at most one `:`. The list is split at its colons
+ * and only the first two parts kept, so `fill:red:blue` paints `fill:red`
+ * and `fill::red` an empty `fill` (measured). The usual way to write a
+ * second is a `;` between two declarations after a `#` color, which the
+ * style-line rule drops: `fill:#f96;stroke:#333` arrives here as
+ * `fill:#f96stroke:#333`, and paints neither color (measured in Chrome).
+ *
+ * Nor may the line end in whitespace, `spaceAfter`, which the line handed
+ * to the reader has lost: the list's condition reads a space or a tab
+ * together with the line break after it, so the list runs on into the next
+ * line — a parse error when there is none, and otherwise that line
+ * swallowed into the last declaration (measured: `style A fill:red ` then
+ * `B` paints `fill:redB` and draws no `B`). No other ER line minds it.
+ *
+ * Runs on the line as `parseSiren` hands it over, after the style-line rule
+ * in `parser/styleLines.ts` has dropped the `;` it drops; `parseErDiagram`
+ * called on its own does not apply that rule.
  */
 function declarationListRefusal(
   value: string,
@@ -1382,11 +1405,20 @@ function declarationListRefusal(
   line: string,
   spaceAfter: boolean,
 ): ErLineRefusal | null {
-  const codeEnds = new Set([...value.matchAll(/#\w+;/g)].map((code) => code.index + code[0].length - 1));
+  const codes = new Map([...value.matchAll(/(#\w+);/g)].map((code) => [code.index + code[0].length - 1, code[1]!]));
   let offset = 0;
   for (const char of value) {
     if (char === ";") {
-      if ((offset + 1 < value.length || spaceAfter) && !codeEnds.has(offset)) {
+      const color = codes.get(offset);
+      if (color !== undefined) {
+        return {
+          refusal:
+            `A ";" after "${color}" in a \`${keyword}\` declaration list in erDiagram is read as part of the color: ` +
+            `end the line with at most one ";", and separate declarations with ",", in "${line}"`,
+          at: columnsAfter(at, offset),
+        };
+      }
+      if (offset + 1 < value.length) {
         return {
           refusal:
             `A ";" in a \`${keyword}\` declaration list in erDiagram can only end the line: ` +
@@ -1404,6 +1436,38 @@ function declarationListRefusal(
       };
     }
     offset += char.length;
+  }
+  const declarations = value.split(",");
+  let commaAt = -1;
+  for (const [index, declaration] of declarations.entries()) {
+    if (declaration.trim() === "") {
+      return {
+        refusal:
+          `A \`${keyword}\` declaration list in erDiagram cannot hold an empty declaration: write a declaration ` +
+          `on each side of every "," and none after the last, in "${line}"`,
+        at: columnsAfter(at, index === 0 ? declaration.length : commaAt),
+      };
+    }
+    const first = declaration.indexOf(":");
+    const second = first < 0 ? -1 : declaration.indexOf(":", first + 1);
+    if (second >= 0) {
+      return {
+        refusal:
+          `Declaration "${declaration.trim()}" in a \`${keyword}\` declaration list in erDiagram holds more than ` +
+          'one ":": write one property and one value in each declaration, and separate declarations with ",", ' +
+          `in "${line}"`,
+        at: columnsAfter(at, commaAt + 1 + second),
+      };
+    }
+    commaAt += declaration.length + 1;
+  }
+  if (spaceAfter) {
+    return {
+      refusal:
+        `A \`${keyword}\` line in erDiagram cannot end in a space or a tab: remove the whitespace after ` +
+        `"${value}", in "${line}"`,
+      at: columnsAfter(at, value.length),
+    };
   }
   return null;
 }

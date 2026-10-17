@@ -2027,8 +2027,20 @@ const SILENTLY_WRONG = 0;
  * documents Mermaid refuses; Siren drew each before and refuses each now
  * (ADR-0017), at the character. No `supported` row moved: no ER row's
  * value held such a character. `silently-wrong` does not move.
+ *
+ * **83 → 87: cases (1) and (2), four refusals written down for the first
+ * time.** `01M5482HPJ`'s second half measured the structure of an ER
+ * `style` or `classDef` declaration list rather than its characters, in
+ * Chrome where Mermaid accepts it. `er-classdef-trailing-comma` is a parse
+ * error in Mermaid 12.2.0 (ADR-0017). The other three Mermaid draws wrong
+ * without a word (ADR-0001): `er-style-code-semicolon-runs-on`
+ * (`fill:#f96;stroke:#333`, whose `;` the style-line rule drops, paints
+ * neither color), `er-style-value-second-colon` (`fill:red:blue` paints
+ * `fill:red`) and `er-style-trailing-space` (a list ending in a space
+ * swallows the next line). Siren drew each before and refuses each now. No
+ * `supported` row moved. `silently-wrong` does not move.
  */
-const REJECTED = 83;
+const REJECTED = 87;
 
 function countOf(status: CompatCase["status"]): number {
   return COMPAT_CASES.filter((entry) => entry.status === status).length;

@@ -22,6 +22,11 @@ digit, a non-ASCII character, a space, `-`, `_`, `*`, `#`, `:` or `,` — `fill:
 `stroke-width:1.5px`, `fill:#f96 !important` — or a `;` with anything after it on the line
 (`fill:red;stroke:blue`), which is now refused (see **Changed**).
 
+Breaking for an ER `style` or `classDef` line that ends in a space or a tab, whose list holds an
+empty declaration (`fill:red,`, `fill:red,,stroke:blue`, `,fill:red`), a declaration with a second
+`:` (`fill:red:blue`, and `fill:#f96;stroke:#333`, read as one declaration), or a `;` after a `#`
+color that is not the line's last (`fill:#f96;;`), which is now refused (see **Changed**).
+
 Breaking for a flowchart `style`, `classDef` or `linkStyle` whose declarations hold an `@`, a `{`
 or `}`, an arrow, or any run an arrow is made of — two dashes (`stroke:var(--x)`, `stroke:a--b`),
 a dash and a dot (`fill:a-.b`), an `=` or a `~` (`fill:a=b`, `fill:a~b`) — and for an edge
@@ -487,11 +492,22 @@ can carry one.
   as before (backlog `01M548R9CB`).
 - An ER `style` or `classDef` value is now read in the characters Mermaid 12.2.0 reads it in:
   letters, digits, non-ASCII characters, spaces, `-`, `_`, `*`, `#`, `:` and `,`, with a `;` only
-  at the end of the line or closing a `#word;` code. Any other character — a function's `(`, a
+  at the end of the line (see the next entry). Any other character — a function's `(`, a
   decimal `.`, `!important`'s `!`, a quote, `$`, `%`, `/` — refuses the document with an error at
   that character saying to write the color as a hex code and a size as a whole number; Siren used
   to draw it. Measured one character apiece; Mermaid draws nothing at all for such a document
   (backlog `01M5482HPJ`).
+- An ER `style` or `classDef` declaration list is now read in the structure Mermaid 12.2.0 reads
+  it in, and refused, at the place, where Mermaid refuses it or draws it wrong without a word:
+  a line ending in a space or a tab (the list runs on into the next line and swallows it, or is a
+  parse error when last); an empty declaration before, between or after the commas (a parse error,
+  or the first property lost); a declaration with a second `:` (`fill:red:blue` paints only
+  `fill:red`); and a `;` after a `#` color that is not the line's last, which is painted as the
+  code it is rewritten into. `fill:#f96;stroke:#333`, which the style-line rule reads as the one
+  declaration `fill:#f96stroke:#333`, paints neither color and is refused for its second `:` —
+  so the `#word;` exception above no longer holds anywhere but at the end of the line. Siren drew
+  each before. Measured in Chrome; a declaration with no `:` was already refused, and one with an
+  empty value (`fill:`) still draws nothing (backlog `01M5482HPJ`).
 - A flowchart edge now ends on its node's outline rather than on the box the shape is inscribed
   in: an arrow into a diamond, a circle, a hexagon, a triangle on its side, a slanted or curved
   shape, a bolt or an hourglass meets the shape itself instead of stopping in the empty corner

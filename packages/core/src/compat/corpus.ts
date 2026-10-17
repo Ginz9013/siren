@@ -13710,6 +13710,71 @@ line2\`"]`,
       "to separate declarations with `,` (nook 01M5482HPJ).",
   },
   {
+    id: "er-style-code-semicolon-runs-on",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places
+      style ORDER fill:#f96;stroke:#333`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** On a style " +
+      "line holding a `#`, Mermaid 12.2.0 drops the line's last `;` before " +
+      "reading it, so the two declarations run together into " +
+      "`fill:#f96stroke:#333`, which no browser paints: the box keeps its " +
+      "theme fill and stroke (measured in Chrome), with no diagnostic. Siren " +
+      "drew the same uncolored box before, as silently; it refuses it now " +
+      "(ADR-0001), at the second `:`, saying to separate declarations with " +
+      "`,` (nook 01M5482HPJ).",
+  },
+  {
+    id: "er-style-value-second-colon",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places
+      style ORDER fill:red:blue`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** Mermaid " +
+      "12.2.0 splits a declaration at its colons and keeps the first two " +
+      "parts, so it paints `fill:red` and drops `:blue` without a word " +
+      "(measured in Chrome). Siren drew no fill before, `red:blue` being no " +
+      "color; it refuses it now (ADR-0001), at the second `:` " +
+      "(nook 01M5482HPJ).",
+  },
+  {
+    id: "er-classdef-trailing-comma",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places
+      classDef warm fill:#f96,
+      class ORDER warm`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Not valid Mermaid, and here for that reason.** A `,` with no " +
+      "declaration after it is a parse error in an ER `style` or `classDef` " +
+      "list, and so is one between two commas (`fill:red,,stroke:blue`), " +
+      "measured. Siren drew it before, skipping the empty declaration; it " +
+      "refuses it now (ADR-0017), at the `,` (nook 01M5482HPJ).",
+  },
+  {
+    id: "er-style-trailing-space",
+    kind: "er",
+    source: `erDiagram
+      CUSTOMER ||--o{ ORDER : places
+      style ORDER fill:#f96\u0020
+      LINE-ITEM`,
+    status: "rejected",
+    meaning:
+      "⚠️ **Mermaid accepts this and draws something else.** An ER " +
+      "declaration list reads a space or tab at the end of its line together " +
+      "with the line break, so it runs on into the next line: Mermaid 12.2.0 " +
+      "paints `fill:#f96LINE-ITEM` here, which is no color, and draws no " +
+      "`LINE-ITEM` box (measured). Last in the document, the same space is a " +
+      "parse error. No other ER line minds trailing whitespace. Siren drew " +
+      "it before; it refuses it now (ADR-0001), at the whitespace, saying to " +
+      "remove it (nook 01M5482HPJ).",
+  },
+  {
     id: "state-classdef-value-function-off-allowlist",
     kind: "state",
     source: `stateDiagram-v2
