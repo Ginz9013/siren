@@ -379,6 +379,15 @@ function renderWithController(source: string): { svg: SVGSVGElement; controller:
   return { svg, controller };
 }
 
+/**
+ * The author's stroke as the element carries it: its value and priority,
+ * read through the CSSOM rather than the attribute string, which a lift and
+ * its restore re-serialize.
+ */
+function authoredStroke(element: SVGElement): [string, string] {
+  return [element.style.getPropertyValue("stroke"), element.style.getPropertyPriority("stroke")];
+}
+
 describe("createAnimationController over an author's stroke", () => {
   // An author's `stroke` is an inline declaration on the drawn frame
   // (ADR-0008), which outranks every normal stylesheet rule — the theme's
@@ -386,21 +395,21 @@ describe("createAnimationController over an author's stroke", () => {
   // `!important` one too. A highlight is Siren's own state and always wins,
   // so while a target is highlighted its frame carries no inline `stroke` and
   // the theme's highlight rule is what paints it; the moment it is not, the
-  // author's declaration is back exactly as written.
+  // author's declaration is back with its own value and priority.
   it("lifts a node's `!important` author stroke while it is highlighted, and puts it back on prev()", () => {
     const { svg, controller } = renderWithController(
       "flowchart TB\n  A --> B\n  style A fill:#fdd,stroke:#f00 !important\ntimeline:\nhighlight A outline",
     );
     const frame = svg.querySelector('[data-siren-id="A"] .siren-node-frame') as SVGElement;
-    const authored = frame.getAttribute("style");
-    expect(authored).toContain("stroke:#f00 !important");
+    const authored = authoredStroke(frame);
+    expect(authored).toEqual(["#f00", "important"]);
 
     controller.next();
     expect(frame.style.getPropertyValue("stroke")).toBe("");
     expect(frame.style.getPropertyValue("fill")).toBe("#fdd");
 
     controller.prev();
-    expect(frame.getAttribute("style")).toBe(authored);
+    expect(authoredStroke(frame)).toEqual(authored);
   });
 
   it.each([
@@ -438,14 +447,45 @@ describe("createAnimationController over an author's stroke", () => {
   ])("does the same for %s", (_what, source, selector) => {
     const { svg, controller } = renderWithController(source);
     const drawn = svg.querySelector(selector) as SVGElement;
-    const authored = drawn.getAttribute("style");
+    const authored = authoredStroke(drawn);
     expect(drawn.style.getPropertyValue("stroke")).toBe("#f00");
 
     controller.next();
     expect(drawn.style.getPropertyValue("stroke")).toBe("");
 
     controller.prev();
-    expect(drawn.getAttribute("style")).toBe(authored);
+    expect(authoredStroke(drawn)).toEqual(authored);
+  });
+
+  it("puts back only what it lifted, keeping an inline declaration a host wrote while the target was highlighted", () => {
+    // A host recolors one target by redeclaring a design token on its
+    // `data-siren-id` element — for an edge, the very path that carries the
+    // author's stroke. Restoring the whole attribute would drop it.
+    const { svg, controller } = renderWithController(
+      "flowchart TB\n  A --> B\n  linkStyle 0 stroke:#f00 !important\ntimeline:\nhighlight A-B outline",
+    );
+    const path = svg.querySelector('path.siren-edge[data-siren-id="A-B"]') as SVGElement;
+
+    controller.next();
+    path.style.setProperty("--siren-edge-stroke", "#00f");
+
+    controller.prev();
+    expect(path.style.getPropertyValue("--siren-edge-stroke")).toBe("#00f");
+    expect(path.style.getPropertyValue("stroke")).toBe("#f00");
+    expect(path.style.getPropertyPriority("stroke")).toBe("important");
+  });
+
+  it("lifts the author's stroke-width with the stroke, so the highlight's width is drawn too", () => {
+    const { svg, controller } = renderWithController(
+      "flowchart TB\n  A --> B\n  style A stroke:#f00,stroke-width:0.5px\ntimeline:\nhighlight A outline",
+    );
+    const frame = svg.querySelector('[data-siren-id="A"] .siren-node-frame') as SVGElement;
+
+    controller.next();
+    expect(frame.style.getPropertyValue("stroke-width")).toBe("");
+
+    controller.prev();
+    expect(frame.style.getPropertyValue("stroke-width")).toBe("0.5px");
   });
 
   it("keeps the stroke lifted while one effect replaces another, and puts it back on unhighlight and on reset()", () => {
@@ -453,19 +493,19 @@ describe("createAnimationController over an author's stroke", () => {
       "flowchart TB\n  A --> B\n  style A stroke:#f00 !important\ntimeline:\nhighlight A outline\nhighlight A glow\nunhighlight A",
     );
     const frame = svg.querySelector('[data-siren-id="A"] .siren-node-frame') as SVGElement;
-    const authored = frame.getAttribute("style");
+    const authored = authoredStroke(frame);
 
     controller.next();
     controller.next();
     expect(frame.style.getPropertyValue("stroke")).toBe("");
 
     controller.next();
-    expect(frame.getAttribute("style")).toBe(authored);
+    expect(authoredStroke(frame)).toEqual(authored);
 
     controller.prev();
     expect(frame.style.getPropertyValue("stroke")).toBe("");
 
     controller.reset();
-    expect(frame.getAttribute("style")).toBe(authored);
+    expect(authoredStroke(frame)).toEqual(authored);
   });
 });
