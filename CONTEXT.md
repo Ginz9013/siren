@@ -246,15 +246,19 @@ and a redeclaration on its state stops short of it too, as the author's `style` 
 paints it with the node tokens as they stand at the diagram's `<svg>`, not at its state's group.
 A palette redeclared on a container, or on the `<svg>`, still reaches it.
 
-Two things fall outside token reach:
-- an edge's arrowhead, drawn from a marker in `<defs>` that inherits from the diagram rather than
-  from the edge, so it follows a token redeclared on the container and not one redeclared on the
-  edge;
-- a node frame unfilled by design, which the theme paints a literal `none` and no token: a
-  **bare** frame (`siren-node-bare`, the text block's) is neither filled nor stroked, and a
-  **hollow** one (`siren-node-hollow`: the `composite` shape's, and the open parts of a brace, a
-  bucket's rim, a console or a browser) is stroked through its token but never filled. There is
-  no colour there for a redeclaration to change, so no token is added for one.
+A flowchart edge's arrowhead is drawn from a marker in `<defs>`, which inherits from the diagram
+rather than from the edge, so the theme paints it with `context-stroke`: the stroke of the line it
+is drawn for. A token redeclared on the edge's path, and the edge's highlight, reach the head
+through its line. Measured in Chrome (`scripts/edge-arrowhead-colour.mjs`); MDN's browser
+compatibility data has `context-stroke` in Chrome 124+ and Firefox 111+ and in no Safari, where the
+head falls back to the token as the diagram resolves it, or to the author's colour its marker
+carries, and so stays outside token reach.
+
+One thing falls outside token reach: a node frame unfilled by design, which the theme paints a
+literal `none` and no token. A **bare** frame (`siren-node-bare`, the text block's) is neither
+filled nor stroked, and a **hollow** one (`siren-node-hollow`: the `composite` shape's, and the
+open parts of a brace, a bucket's rim, a console or a browser) is stroked through its token but
+never filled. There is no colour there for a redeclaration to change, so no token is added for one.
 _Avoid_: scoped theme, per-target theme (there is one theme; a redeclaration on a target's
 elements is the consumer's own CSS), override (an author's inline `style` is what overrides, and it
 outranks every token)
@@ -1335,9 +1339,12 @@ every cell of its attribute table — the author's spelling, translated once in 
 model to the `fill` that actually paints SVG text. That now includes a flowchart **edge**'s own
 label, which is a `<text>` the same translation lands on; the connection was made once the edge
 had somewhere to put it, and only after measuring that Mermaid makes it too. Every other property
-goes to the frame, and a styled edge's arrowhead takes the edge's own `stroke` via a marker minted
-per distinct (end shape, color) pair — per color alone until an edge's ends had shapes, and minted
-only for the pairs a diagram actually draws, so one color and one head shape is still one marker.
+goes to the frame, and a styled edge's arrowhead takes the edge's own `stroke`: the theme paints
+a flowchart head with its line's stroke (`context-stroke`, see **Token reach**). For a browser
+without that keyword, a styled edge still points at a marker minted per distinct (end shape,
+color) pair, carrying the color as `--siren-edge-stroke` on the head — per color alone until an
+edge's ends had shapes, and minted only for the pairs a diagram actually draws, so one color and
+one head shape is still one marker.
 Property names must be plain CSS identifiers, and a value is read against an allowlist
 (`unsafeStyleValue`): it may call only the colour, math and gradient functions and `var(`, and is
 otherwise built from hex colours, keywords, numbers, quoted family names and `!important`; `;`,
@@ -1383,7 +1390,8 @@ which is how a host that colours targets itself, by redeclaring tokens on a targ
 declarations away and never adds one, so it is not the JS theme object ADR-0004 and ADR-0008
 rule out. It changes the drawing and nothing else: the document is validated as before, and its
 **style facts** still state what the author wrote. An edge whose `stroke` is omitted takes the
-theme's arrowhead, since no colour is left to mint one in. A colour written in a label's own
+theme's arrowhead, since no colour is left to mint one in, and it follows the edge's token with
+the line. A colour written in a label's own
 markup (`<span style="color:…">`, `<font color>`, `background-color`) is not an **author style**:
 it is drawn as written, no omission ever removes it, and it carries no **style fact**, so a host
 cannot take it back to the tokens. A name no declaration uses omits

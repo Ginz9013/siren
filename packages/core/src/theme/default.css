@@ -401,7 +401,8 @@
  * itself, so it doesn't inherit that path's stroke color — it needs its own
  * rule, or it falls back to SVG's initial fill (black), invisible against a
  * dark theme's background. Tracks the same token as the edge line so the
- * two always match.
+ * two always match — as resolved at the diagram; a flowchart head follows
+ * its own edge instead (`.siren-edge-marker`, after `.siren-arrow-hollow`).
  */
 .siren-arrow-fill {
   fill: var(--siren-edge-stroke);
@@ -720,6 +721,44 @@
   fill: var(--siren-node-fill);
   stroke: var(--siren-edge-stroke);
   stroke-width: var(--siren-stroke-width);
+}
+
+/*
+ * A flowchart edge's head, painted with its own edge's stroke. A marker's
+ * content inherits from `<defs>`, never from the path pointing at it, so the
+ * token the rules above name is resolved at the diagram, and a token
+ * redeclared on one edge's `path[data-siren-id]`, or that edge's highlight,
+ * recoloured the line and left its head behind. `context-stroke` is the paint
+ * SVG 2 gives a marker for exactly this: the stroke of the element it is
+ * drawn for, whatever set it — the theme, a redeclared token, an author's
+ * `stroke`, a highlight. The ring keeps its surface fill. A marker per edge
+ * would not have done it: its content would still inherit from `<defs>`,
+ * and following the edge would take a script copying the edge's colour in
+ * at every step.
+ *
+ * Measured in Chrome 155 (`scripts/edge-arrowhead-colour.mjs`): every head,
+ * of all three shapes, reads its line's colour as drawn, under a token
+ * redeclared on the edge and under `outline` and `glow`. MDN's browser
+ * compatibility data (`svg.global_attributes.stroke.context-stroke`,
+ * @mdn/browser-compat-data 8.1.6, developer.mozilla.org/docs/Web/SVG/
+ * Reference/Attribute/fill) has it in Chrome and Edge from 124 and Firefox
+ * from 111, and in no Safari (not measured here). A browser that does not
+ * know the keyword drops the declaration, and the rules above paint the head: the theme's token at
+ * the diagram, or the author's colour a coloured edge's marker carries
+ * (renderToSVG.ts) — the head as it was before, measured with the same
+ * script's `--without-context-stroke`.
+ *
+ * Only the flowchart's: the other kinds draw their heads with the same three
+ * classes, from markers of their own, and are left as they are. Written after
+ * all three rules it narrows, though its two classes outrank them anywhere.
+ */
+.siren-edge-marker > .siren-arrow-fill {
+  fill: context-stroke;
+}
+
+.siren-edge-marker > .siren-arrow-hollow,
+.siren-edge-marker > .siren-arrow-stroke {
+  stroke: context-stroke;
 }
 
 /*

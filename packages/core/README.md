@@ -535,8 +535,11 @@ To recolor one styleable target, redeclare the color tokens on the elements that
 `data-siren-id` (for example `[data-siren-id="A"] { --siren-node-fill: #fde68a; }`). The theme
 takes every frame and text color of a node, edge, subgraph, class, state or entity from a token
 named at that element, and none of these elements sits inside another. So the change reaches
-that target and nothing drawn inside it. An edge's arrowhead is the exception: it is drawn from
-a shared marker and keeps the edge color set on the container.
+that target and nothing drawn inside it. A flowchart edge's arrowhead is painted with its own
+line's stroke (`context-stroke`), so it follows a token redeclared on the edge, and the edge's
+highlight, with the line. Safari does not support `context-stroke` (MDN's browser compatibility
+data; Chrome and Edge have it from 124, Firefox from 111): there the arrowhead keeps the edge color
+set on the container, or the author's.
 
 ## Mermaid compatibility
 

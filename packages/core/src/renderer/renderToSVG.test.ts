@@ -1044,8 +1044,11 @@ describe("renderToSVG", () => {
     //
     // A marker still does not inherit from the path referencing it; nothing
     // about SVG changed. What changed is that an edge naming a color is given
-    // a marker carrying it, as an inline `fill` that outranks the theme's
-    // `.siren-arrow-fill` rule without `!important`.
+    // a marker carrying it. The theme paints a head with its line's stroke
+    // (`context-stroke`), which needs no color here, so the color is carried
+    // for a browser without that keyword alone: as the edge token the
+    // theme's fallback rule paints through, never as an inline `fill` that
+    // would outrank the line's stroke and pin the head under a highlight.
     const graph = buildFixture();
     graph.edges[0].style = { frame: [{ property: "stroke", value: "#f00" }], text: [] };
 
@@ -1055,7 +1058,7 @@ describe("renderToSVG", () => {
 
     const styledHead = markerFor(svg, "A-B").querySelector("path")!;
     expect(styledHead.getAttribute("class")).toBe("siren-arrow-fill");
-    expect(styledHead.getAttribute("style")).toBe("fill:#f00");
+    expect(styledHead.getAttribute("style")).toBe("--siren-edge-stroke:#f00");
 
     const themeHead = markerFor(svg, "B-C").querySelector("path")!;
     expect(themeHead.getAttribute("class")).toBe("siren-arrow-fill");
@@ -1085,7 +1088,7 @@ describe("renderToSVG", () => {
     expect(svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("style")).toBe(
       "stroke:#f00;stroke-width:4px;STROKE:#00f",
     );
-    expect(markerFor(svg, "A-B").querySelector("path")!.getAttribute("style")).toBe("fill:#00f");
+    expect(markerFor(svg, "A-B").querySelector("path")!.getAttribute("style")).toBe("--siren-edge-stroke:#00f");
   });
 });
 
@@ -1261,12 +1264,16 @@ describe("the line and the two ends an edge is drawn with", () => {
     );
   });
 
-  it("paints a styled edge's colour where each shape actually shows it", () => {
-    // A filled head takes the colour as its `fill`; a hollow ring and an
-    // open cross take it as their `stroke`. Painting a ring's fill would
+  it("hands a styled edge's colour to every shape as the edge token, for the theme to paint where the shape shows it", () => {
+    // A filled head shows the colour as its `fill`; a hollow ring and an
+    // open cross show it as their `stroke`. Painting a ring's fill would
     // give a filled dot in the author's colour — the wrong shape, in the
     // right colour — and painting an open cross's fill would draw nothing
-    // at all.
+    // at all. That choice used to be made here, one property per shape. It
+    // is the theme's now: each shape's class already paints the edge token
+    // in the right property, so the marker carries the colour as that token
+    // and the three are written alike. This rewrites the per-shape `fill` /
+    // `stroke` this test pinned before a head took its line's stroke.
     const colouredEnd = (toEnd: PositionedEdge["toEnd"]) => {
       const svg = drawEdge({
         toEnd,
@@ -1277,9 +1284,9 @@ describe("the line and the two ends an edge is drawn with", () => {
     };
 
     expect([colouredEnd("arrow"), colouredEnd("circle"), colouredEnd("cross")]).toEqual([
-      "fill:#f00",
-      "stroke:#f00",
-      "stroke:#f00",
+      "--siren-edge-stroke:#f00",
+      "--siren-edge-stroke:#f00",
+      "--siren-edge-stroke:#f00",
     ]);
   });
 

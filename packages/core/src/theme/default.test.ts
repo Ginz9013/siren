@@ -875,12 +875,14 @@ describe("default theme coverage of the flowchart renderer", () => {
     expect(frameOf("D").getAttribute("rx")).toBeNull();
   });
 
-  it("leaves an unstyled arrowhead resolving through `--siren-edge-stroke`, and lets an author-colored one win over that rule", () => {
-    // Per-edge arrowheads must not quietly take the arrow out of the theme's
-    // hands. An edge nobody styled keeps pointing at a marker whose fill is
-    // still the *token*, so a consumer redeclaring `--siren-edge-stroke`
-    // recolors it exactly as before; only the edge that named a color of its
-    // own stops following.
+  it("paints an author-colored arrowhead with its line's stroke too, and keeps the author's color for a browser without `context-stroke`", () => {
+    // This rewrites what pinned an author-colored head as an inline `fill`
+    // outranking `.siren-arrow-fill`. That was right while a head could not
+    // see its line: the color had to be written on the marker. It is wrong
+    // now that a head is painted with its line's stroke, because an inline
+    // `fill` would outrank that rule too — and the line's stroke is what a
+    // highlight changes, so a coloured head would stay the author's color
+    // under every highlight (backlog 01M598E4W907957JB9H2JFG7QG).
     const svg = renderThemedSVG(`flowchart TD
 A[Start] --> B[Middle]
 B --> C[End]
@@ -901,16 +903,19 @@ linkStyle 0 stroke:#f00
       return head as SVGElement;
     };
 
-    // jsdom does not resolve `var()`, which is what makes this readable: the
-    // unstyled head's fill *is* the token, so redeclaring the token is what
-    // paints it.
-    expect(getComputedStyle(headFor("B-C")).fill).toContain("--siren-edge-stroke");
+    // Both heads take the stroke of the line they are drawn for: the theme's
+    // token at the unstyled one, the author's inline `stroke` at the other.
+    expect(getComputedStyle(headFor("B-C")).fill).toBe("context-stroke");
+    expect(getComputedStyle(headFor("A-B")).fill).toBe("context-stroke");
 
-    // The author's color is an inline declaration on the drawn shape, so it
-    // outranks the theme's `.siren-arrow-fill` rule without `!important` —
-    // ADR-0008's cascade argument, one element further in.
-    expect(getComputedStyle(headFor("A-B")).fill).toBe("#f00");
-    expect(getComputedStyle(headFor("A-B")).fill).not.toContain("--siren-edge-stroke");
+    // A browser that does not know the keyword drops it and falls back to
+    // `.siren-arrow-fill`, which paints through the token. The coloured
+    // head's marker carries the author's color *as* that token, so the
+    // fallback still draws the whole arrow red; the unstyled head carries
+    // nothing and takes the diagram's token, as before.
+    expect(themeRules).toMatch(/\.siren-arrow-fill\s*\{\s*fill:\s*var\(--siren-edge-stroke\);\s*\}/);
+    expect(getComputedStyle(headFor("A-B")).getPropertyValue("--siren-edge-stroke")).toBe("#f00");
+    expect(headFor("B-C").getAttribute("style")).toBeNull();
   });
 
   it("orders the four writers of an edge's stroke-width: base, line style, highlight, author", () => {
@@ -2020,6 +2025,38 @@ describe("default theme's highlight over an author's stroke", () => {
     controller.prev();
     expect(getComputedStyle(drawn).stroke).toBe("#f00");
   });
+
+  it.each(
+    (["outline", "glow"] as const).flatMap((effect) =>
+      [
+        ["theme's", ""],
+        ["author's", "\n  linkStyle 0 stroke:#f00 !important"],
+      ].map(([whose, style]) => [effect, whose, style] as const),
+    ),
+  )("draws an edge's head in its line's color under `%s`, from the %s color and back", (effect, _whose, style) => {
+    // The head is painted with its line's stroke, whatever the line wears, so
+    // it follows the highlight there and back with the line: no rule, lift or
+    // timer of its own. jsdom paints nothing, so what it can show is that no
+    // declaration on the head outranks that paint at any point in the step;
+    // `scripts/edge-arrowhead-colour.mjs` reads the colours Chrome draws.
+    const { svg, controller } = renderThemedWithController(
+      `flowchart TB\n  A --> B${style}`,
+      `highlight A-B ${effect}`,
+    );
+    const line = svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!;
+    const reference = line.getAttribute("marker-end")!;
+    const head = svg.querySelector(`defs > marker#${reference.slice("url(#".length, -1)} > path`)!;
+    const paints = () => [getComputedStyle(line).stroke, getComputedStyle(head).fill];
+
+    const before = paints();
+    expect(before[1]).toBe("context-stroke");
+
+    controller.next();
+    expect(paints()).toEqual(["var(--siren-highlight-color)", "context-stroke"]);
+
+    controller.prev();
+    expect(paints()).toEqual(before);
+  });
 });
 
 /**
@@ -2186,6 +2223,62 @@ describe("default theme's token reach", () => {
     expect(resolvePaint(state, "var(--siren-node-fill)")).toBe("#ff00ff");
     // …and stops there: the note takes the container's colours.
     expect(paints()).toEqual(["#000080", "#008000", "#800000"]);
+  });
+
+  /**
+   * The head an edge's path points at by `marker-end`, followed into this
+   * same SVG's `<defs>` rather than named: marker ids are minted per render.
+   */
+  function headOf(svg: SVGSVGElement, edgeId: string): SVGElement {
+    const reference = svg.querySelector(`path.siren-edge[data-siren-id="${edgeId}"]`)?.getAttribute("marker-end");
+    const head = reference == null ? null : svg.querySelector(`defs > marker#${reference.slice("url(#".length, -1)} > *`);
+    if (head === null) throw new Error(`no head for edge ${edgeId}`);
+    return head as SVGElement;
+  }
+
+  it("paints each edge head with its own edge's stroke, so a token redeclared on the edge reaches it", () => {
+    // A head lives in `<defs>` and inherits from there, never from the path
+    // that points at it, so a token redeclared on the path stopped at the
+    // line. `context-stroke` is the paint SVG gives a marker for exactly this:
+    // the stroke of the element it is drawn for. jsdom paints nothing, so the
+    // keyword is what it reads; `scripts/edge-arrowhead-colour.mjs` reads the
+    // colour Chrome draws with it.
+    const svg = renderThemedSVG("flowchart LR\nA --> B\nA --o C\nA --x D\n");
+    const arrow = getComputedStyle(headOf(svg, "A-B"));
+    const ring = getComputedStyle(headOf(svg, "A-C"));
+    const cross = getComputedStyle(headOf(svg, "A-D"));
+
+    // Each shape takes the line's colour where it shows it…
+    expect([arrow.fill, ring.stroke, cross.stroke]).toEqual(["context-stroke", "context-stroke", "context-stroke"]);
+    // …and the ring is still filled with the surface, so the line does not
+    // show through its middle.
+    expect(ring.fill).toBe("var(--siren-node-fill)");
+    // The line itself is painted through the token at the path, which is
+    // where a redeclaration lands.
+    expect(getComputedStyle(svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!).stroke).toBe(
+      "var(--siren-edge-stroke)",
+    );
+  });
+
+  it("hands an author-colored edge's head back to the token with its line, once `stroke` is omitted", () => {
+    // A host that omits the author's `stroke` recolours an edge by its token:
+    // the line drops the inline color, the head is minted from no color, and
+    // both are painted from the token at the path.
+    renderThemedSVG("flowchart TB\n  A");
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const { svg } = render("flowchart TB\n  A --> B\n  linkStyle 0 stroke:#f00\n", container, {
+      omitAuthorStyles: ["stroke"],
+    });
+    const head = headOf(svg as SVGSVGElement, "A-B");
+    const line = svg!.querySelector('path.siren-edge[data-siren-id="A-B"]')!;
+
+    expect(line.getAttribute("style")).toBeNull();
+    expect(head.getAttribute("style")).toBeNull();
+    expect([getComputedStyle(line).stroke, getComputedStyle(head).fill]).toEqual([
+      "var(--siren-edge-stroke)",
+      "context-stroke",
+    ]);
   });
 
   it.each(STYLEABLE)("draws no element wearing an id inside another one: %s", (source) => {

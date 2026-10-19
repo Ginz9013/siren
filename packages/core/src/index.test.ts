@@ -4309,10 +4309,12 @@ linkStyle 0 stroke:#f00
       return marker as SVGElement;
     };
 
-    // The styled edge's head is red — asserted as the marker's own fill, not
-    // merely as "a second marker exists".
+    // The styled edge's head is red — asserted as the colour the marker
+    // itself carries, not merely as "a second marker exists". Carried as the
+    // edge token rather than an inline `fill`, which would outrank the
+    // theme's `context-stroke` and keep the head red under a highlight.
     const styledHead = markerFor("A-B").querySelector("path")!;
-    expect(styledHead.getAttribute("style")).toBe("fill:#f00");
+    expect(styledHead.getAttribute("style")).toBe("--siren-edge-stroke:#f00");
 
     // The unstyled edge still takes its head from the theme: no fill of its
     // own, just the class `--siren-edge-stroke` reaches it through.
@@ -4368,8 +4370,11 @@ linkStyle 3 stroke:#00f
       svg
         .querySelector(`defs > marker#${reference.slice("url(#".length, -1)} path`)!
         .getAttribute("style");
-    expect(fillOf([...green][0]!)).toBe("fill:#0f0");
-    expect(fillOf(markerIdOf("N3-N4"))).toBe("fill:#00f");
+    // Each colour is carried as the edge token, which the theme's fallback
+    // rule paints where `context-stroke` is unknown; an inline `fill` would
+    // outrank `context-stroke` where it is known.
+    expect(fillOf([...green][0]!)).toBe("--siren-edge-stroke:#0f0");
+    expect(fillOf(markerIdOf("N3-N4"))).toBe("--siren-edge-stroke:#00f");
   });
   it("mints no arrowhead for a `linkStyle` that names no `stroke`, and leaves a document with no `linkStyle` emitting exactly the one marker it always did", () => {
     // There is no color to carry, so there is nothing a marker of this edge's
@@ -4695,9 +4700,11 @@ Alice-)Bob: open
         .querySelector(`defs > marker#${markerRefOf(edgeId).slice("url(#".length, -1)} path`)!
         .getAttribute("style");
 
-    expect(headFillOf("Source-Parse")).toBe("fill:#f43f5e");
-    expect(headFillOf("Parse-Resolve")).toBe("fill:#94a3b8");
-    expect(headFillOf("Layout-Render")).toBe("fill:#3b82f6");
+    // Carried as the edge token, not an inline `fill`: the theme paints the
+    // head with its line's stroke, and an inline `fill` would outrank that.
+    expect(headFillOf("Source-Parse")).toBe("--siren-edge-stroke:#f43f5e");
+    expect(headFillOf("Parse-Resolve")).toBe("--siren-edge-stroke:#94a3b8");
+    expect(headFillOf("Layout-Render")).toBe("--siren-edge-stroke:#3b82f6");
     // One marker per distinct color, not per styled edge: the two edges
     // sharing a color share a def.
     expect(markerRefOf("Parse-Resolve")).toBe(markerRefOf("Resolve-Layout"));
@@ -5369,14 +5376,16 @@ enter A-B fade
     // One def, referenced from both ends, carrying the author's colour —
     // the head at the *from*-end is as much the author's arrow as the one
     // at the to-end, and a marker inherits nothing from the path that
-    // references it.
+    // references it. The colour is carried as the edge token, for a browser
+    // without `context-stroke`; an inline `fill` would outrank it where it
+    // is known and hold the head red under a highlight.
     expect(svg.querySelectorAll("defs > marker")).toHaveLength(1);
     const reference = path.getAttribute("marker-end")!;
     expect(path.getAttribute("marker-start")).toBe(reference);
     expect(
       svg.querySelector(`defs > marker#${reference.slice("url(#".length, -1)} path`)!
         .getAttribute("style"),
-    ).toBe("fill:#f00");
+    ).toBe("--siren-edge-stroke:#f00");
 
     // And it still animates: the classes land on the same `<path>`, beside
     // the line's own class rather than instead of it.

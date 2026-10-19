@@ -1173,6 +1173,18 @@ can carry one.
 
 ### Fixed
 
+- A flowchart edge's arrowhead now takes its own line's color (nook `01M5994RB2`): a
+  `--siren-edge-stroke` redeclared on the edge's `path[data-siren-id]` used to recolour the line
+  and leave the head the diagram's color, and a timeline `highlight A-B outline` or `glow` left
+  the head the theme's or the author's color (backlog `01M598E4W9`). The default theme paints a
+  flowchart head (`.siren-edge-marker`) with `context-stroke`, the stroke of the line it is drawn
+  for, so every head follows its line: as drawn, under a redeclared token and under a highlight,
+  and back at once on `prev()`. Measured in headless Chrome (`scripts/edge-arrowhead-colour.mjs`).
+  `context-stroke` is in Chrome and Edge 124+ and Firefox 111+ and in no Safari (MDN's browser
+  compatibility data); a browser without it draws the head as before. An author-colored edge's
+  marker now carries its color as `--siren-edge-stroke` on the head rather than as an inline
+  `fill` or `stroke`, which would have kept the head the author's color under a highlight; the
+  default theme draws it the same.
 - A state's note is no longer recoloured when a caller redeclares `--siren-node-fill`,
   `--siren-node-stroke` or `--siren-node-text` on its state's `data-siren-id` group (nook
   `01M599CNTX`). The note takes the diagram's colours, as it already did under an author's
