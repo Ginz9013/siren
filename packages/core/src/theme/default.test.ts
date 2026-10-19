@@ -1959,3 +1959,64 @@ describe("default theme's animated edge under a timeline", () => {
     expect(animation).toContain("siren-edge-march");
   });
 });
+
+describe("default theme's highlight over an author's stroke", () => {
+  /**
+   * Renders `source` under a one-step timeline with the theme attached, as
+   * `renderThemedSVG` does (which it calls once to attach it), and hands
+   * back the controller too: lifting the author's stroke is the controller's
+   * half of the bargain, so the cascade is read after a step.
+   */
+  function renderThemedWithController(source: string, step: string) {
+    renderThemedSVG("flowchart TB\n  A");
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const { svg, controller, diagnostics } = render(`${source}\ntimeline:\n${step}`, container);
+    expect(diagnostics).toEqual([]);
+    if (svg === null || controller === null) throw new Error("render() drew nothing");
+    return { svg, controller };
+  }
+
+  const KINDS = [
+    ["a node", "flowchart TB\n  A --> B\n  style A stroke:#f00 !important", "A", '[data-siren-id="A"] .siren-node-frame'],
+    ["an edge", "flowchart TB\n  A --> B\n  linkStyle 0 stroke:#f00 !important", "A-B", 'path.siren-edge[data-siren-id="A-B"]'],
+    [
+      "a subgraph",
+      "flowchart TB\n  subgraph s1 [Box]\n    A\n  end\n  style s1 stroke:#f00 !important",
+      "subgraph:1",
+      '[data-siren-id="subgraph:1"] .siren-subgraph-frame',
+    ],
+    ["a class", "classDiagram\n  class Duck\n  style Duck stroke:#f00 !important", "Duck", '[data-siren-id="Duck"] .siren-class-frame'],
+    ["a state", "stateDiagram-v2\n  [*] --> Idle\n  style Idle stroke:#f00 !important", "Idle", '[data-siren-id="Idle"] .siren-state-frame'],
+    [
+      "a composite state",
+      "stateDiagram-v2\n  state Outer {\n    Inner\n  }\n  style Outer stroke:#f00 !important",
+      "Outer",
+      '[data-siren-id="Outer"] .siren-composite-frame',
+    ],
+    [
+      "an ER entity",
+      "erDiagram\n  CUSTOMER ||--o{ ORDER : places\n  style CUSTOMER stroke:#f00",
+      "CUSTOMER",
+      '[data-siren-id="CUSTOMER"] .siren-er-entity-frame',
+    ],
+  ] as const;
+
+  it.each(KINDS.flatMap(([what, source, id, selector]) =>
+    (["outline", "glow"] as const).map((effect) => [what, effect, source, id, selector] as const),
+  ))("draws %s's border in the highlight color under `%s`, and the author's again after", (_what, effect, source, id, selector) => {
+    // The author's `stroke:#f00` (`!important` wherever the kind accepts it)
+    // must not hide the highlight: a highlight is Siren's own state, and the
+    // whole point of one is that it is seen. `glow` recolors the stroke as
+    // `outline` does, at its own width, so the same holds under both.
+    const { svg, controller } = renderThemedWithController(source, `highlight ${id} ${effect}`);
+    const drawn = svg.querySelector(selector)!;
+    expect(getComputedStyle(drawn).stroke).toBe("#f00");
+
+    controller.next();
+    expect(getComputedStyle(drawn).stroke).toContain("--siren-highlight-color");
+
+    controller.prev();
+    expect(getComputedStyle(drawn).stroke).toBe("#f00");
+  });
+});

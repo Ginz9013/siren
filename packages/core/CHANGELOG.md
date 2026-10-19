@@ -1140,6 +1140,15 @@ can carry one.
 
 ### Fixed
 
+- A timeline `highlight X outline` or `glow` draws the target's border in `--siren-highlight-color`
+  even when the author gave it a `stroke` (nook `01M5964R8Z`): `style A stroke:#f00`, or
+  `stroke:#f00 !important`, on a flowchart node, edge (`linkStyle`) or subgraph, a class, a state
+  or composite state, or an ER entity used to keep the author's color through the highlight. The
+  animation controller now lifts the author's `stroke` while the target is highlighted and puts the
+  `style` attribute back as written when it is not, `prev()` included, with no delay; the rest of
+  the author's style stays. `glow` now recolors a state's, a composite's and an ER entity's border
+  too, as it already did every other kind's. Measured in headless Chrome
+  (`scripts/highlight-author-stroke.mjs`).
 - **An icon pack could make a browser fetch at render time.** An icon's body kept any `mask`,
   `clip-path` or paint value `url(` was not in, so `mask: image-set('https://…' 1x)` (in `style` or
   as the attribute) and `-webkit-image-set(…)` made Chrome request the image. A paint or reference

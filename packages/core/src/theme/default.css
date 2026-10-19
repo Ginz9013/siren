@@ -1309,6 +1309,16 @@
  * `<path class="siren-edge">` itself, which already carries `stroke`).
  * `glow` uses an SVG filter, which applies to a `<g>`'s whole subtree as a
  * unit, so no descendant selector is needed there.
+ *
+ * An author's `stroke` is an inline declaration on the very frame these
+ * rules name (ADR-0008), so it outranks every one of them — and none of
+ * them is `!important`, which an author's own `!important` would outrank
+ * anyway. A highlight is Siren's own state and always wins, so the
+ * animation controller lifts the author's `stroke` off the frames a target
+ * draws while it is highlighted and puts the attribute back verbatim the
+ * moment it is not (`liftAuthorStroke` in createAnimationController.ts),
+ * leaving the rules below as the only paint. It is part of the same
+ * synchronous class change, so it adds no timing and `prev()` still snaps.
  */
 .siren-node.siren-highlight-outline .siren-node-frame {
   stroke: var(--siren-highlight-color);
@@ -1690,12 +1700,18 @@
  * palette the node stroke is a light lavender), which reads as a white halo
  * under the glow rather than as the shape's own edge. Same targets as the
  * `outline` rules above, since the stroke lives on the same inner elements.
+ * A state's, a composite's and an ER entity's frame were missing here until
+ * an author's stroke on them was lifted under a highlight: left out, a
+ * glowing one showed the theme's stroke in place of either color.
  */
 .siren-node.siren-highlight-glow .siren-node-frame,
 .siren-edge.siren-highlight-glow,
 .siren-subgraph.siren-highlight-glow .siren-subgraph-frame,
 .siren-class.siren-highlight-glow .siren-class-frame,
 .siren-relationship.siren-highlight-glow .siren-relationship-line,
+.siren-state.siren-highlight-glow .siren-state-frame,
+.siren-state.siren-highlight-glow .siren-composite-frame,
+.siren-er-entity.siren-highlight-glow .siren-er-entity-frame,
 .siren-state.siren-highlight-glow .siren-state-region,
 .siren-state.siren-highlight-glow .siren-state-start,
 .siren-state.siren-highlight-glow .siren-state-bar,

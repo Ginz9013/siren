@@ -150,6 +150,10 @@ commas. Four verbs: `enter`/`exit`
 or `glow` — cumulative, multiple targets can be highlighted at once, a second `highlight` on the
 same target replaces its effect rather than requiring `unhighlight` first), `unhighlight` (no
 effect).
+**A highlight beats an author style's `stroke`**, `!important` included: it is Siren's own state,
+which Mermaid does not have, so winning costs no compatibility. The controller lifts the author's
+inline `stroke` off the target while it is highlighted and puts the attribute back as written the
+moment it is not, in the same synchronous class change, so `prev()` still snaps.
 _Avoid_: animation, timeline entry, "effect" alone (say "enter effect" / "highlight effect" when
 the verb matters)
 

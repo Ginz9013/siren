@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createAnimationController } from "./createAnimationController";
-import type { ResolvedTimeline } from "../contracts";
+import type { AnimationController, ResolvedTimeline } from "../contracts";
+import { render } from "../index";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -363,5 +364,108 @@ describe("createAnimationController", () => {
     expect(nodeA.classList.contains("siren-pending")).toBe(false);
     expect(nodeA.classList.contains("siren-enter-fade")).toBe(false);
     expect(controller.currentStep).toBe(0);
+  });
+});
+
+/**
+ * Renders `source` through the public `render()` and returns its SVG and
+ * controller, with no diagnostics expected.
+ */
+function renderWithController(source: string): { svg: SVGSVGElement; controller: AnimationController } {
+  const container = document.createElement("div");
+  const { svg, controller, diagnostics } = render(source, container);
+  expect(diagnostics).toEqual([]);
+  if (svg === null || controller === null) throw new Error("render() drew nothing");
+  return { svg, controller };
+}
+
+describe("createAnimationController over an author's stroke", () => {
+  // An author's `stroke` is an inline declaration on the drawn frame
+  // (ADR-0008), which outranks every normal stylesheet rule — the theme's
+  // highlight rules included — and an inline `!important` outranks an
+  // `!important` one too. A highlight is Siren's own state and always wins,
+  // so while a target is highlighted its frame carries no inline `stroke` and
+  // the theme's highlight rule is what paints it; the moment it is not, the
+  // author's declaration is back exactly as written.
+  it("lifts a node's `!important` author stroke while it is highlighted, and puts it back on prev()", () => {
+    const { svg, controller } = renderWithController(
+      "flowchart TB\n  A --> B\n  style A fill:#fdd,stroke:#f00 !important\ntimeline:\nhighlight A outline",
+    );
+    const frame = svg.querySelector('[data-siren-id="A"] .siren-node-frame') as SVGElement;
+    const authored = frame.getAttribute("style");
+    expect(authored).toContain("stroke:#f00 !important");
+
+    controller.next();
+    expect(frame.style.getPropertyValue("stroke")).toBe("");
+    expect(frame.style.getPropertyValue("fill")).toBe("#fdd");
+
+    controller.prev();
+    expect(frame.getAttribute("style")).toBe(authored);
+  });
+
+  it.each([
+    [
+      "an edge",
+      "flowchart TB\n  A --> B\n  linkStyle 0 stroke:#f00 !important\ntimeline:\nhighlight A-B outline",
+      'path.siren-edge[data-siren-id="A-B"]',
+    ],
+    [
+      "a subgraph's frame",
+      "flowchart TB\n  subgraph s1 [Box]\n    A\n  end\n  style s1 stroke:#f00 !important\ntimeline:\nhighlight subgraph:1 outline",
+      '[data-siren-id="subgraph:1"] .siren-subgraph-frame',
+    ],
+    [
+      "a class's frame",
+      "classDiagram\n  class Duck\n  style Duck stroke:#f00 !important\ntimeline:\nhighlight Duck outline",
+      '[data-siren-id="Duck"] .siren-class-frame',
+    ],
+    [
+      "a state's frame",
+      "stateDiagram-v2\n  [*] --> Idle\n  style Idle stroke:#f00 !important\ntimeline:\nhighlight Idle glow",
+      '[data-siren-id="Idle"] .siren-state-frame',
+    ],
+    [
+      "a composite state's frame",
+      "stateDiagram-v2\n  state Outer {\n    Inner\n  }\n  style Outer stroke:#f00 !important\ntimeline:\nhighlight Outer outline",
+      '[data-siren-id="Outer"] .siren-composite-frame',
+    ],
+    [
+      // An ER `style` refuses `!important`, so the plain stroke is the case.
+      "an ER entity's frame",
+      "erDiagram\n  CUSTOMER ||--o{ ORDER : places\n  style CUSTOMER stroke:#f00\ntimeline:\nhighlight CUSTOMER outline",
+      '[data-siren-id="CUSTOMER"] .siren-er-entity-frame',
+    ],
+  ])("does the same for %s", (_what, source, selector) => {
+    const { svg, controller } = renderWithController(source);
+    const drawn = svg.querySelector(selector) as SVGElement;
+    const authored = drawn.getAttribute("style");
+    expect(drawn.style.getPropertyValue("stroke")).toBe("#f00");
+
+    controller.next();
+    expect(drawn.style.getPropertyValue("stroke")).toBe("");
+
+    controller.prev();
+    expect(drawn.getAttribute("style")).toBe(authored);
+  });
+
+  it("keeps the stroke lifted while one effect replaces another, and puts it back on unhighlight and on reset()", () => {
+    const { svg, controller } = renderWithController(
+      "flowchart TB\n  A --> B\n  style A stroke:#f00 !important\ntimeline:\nhighlight A outline\nhighlight A glow\nunhighlight A",
+    );
+    const frame = svg.querySelector('[data-siren-id="A"] .siren-node-frame') as SVGElement;
+    const authored = frame.getAttribute("style");
+
+    controller.next();
+    controller.next();
+    expect(frame.style.getPropertyValue("stroke")).toBe("");
+
+    controller.next();
+    expect(frame.getAttribute("style")).toBe(authored);
+
+    controller.prev();
+    expect(frame.style.getPropertyValue("stroke")).toBe("");
+
+    controller.reset();
+    expect(frame.getAttribute("style")).toBe(authored);
   });
 });

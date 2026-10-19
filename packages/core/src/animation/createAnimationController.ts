@@ -80,6 +80,51 @@ function computeClassStateAtStep(
 }
 
 /**
+ * The `style` attribute each drawn element had before a highlight lifted its
+ * author `stroke`, keyed by the element so that whichever controller is
+ * driving the SVG can put it back.
+ */
+const liftedAuthorStyles = new WeakMap<Element, string>();
+
+/**
+ * Makes a highlight beat the author's `stroke` on the elements one target
+ * draws: lifted while `el` carries a `siren-highlight-*` class, restored
+ * verbatim once it does not.
+ *
+ * An author's `stroke` is an inline declaration on the drawn frame
+ * (ADR-0008), which outranks every normal stylesheet rule, and an author may
+ * write it `!important`, which outranks an `!important` one too — so no rule
+ * in the theme can win, and the theme declares none (`default.css` keeps its
+ * rules un-`!important` so an author's own emphasis stays reachable
+ * everywhere else). Lifting the declaration instead leaves the theme's
+ * highlight rule as the only paint. A highlight is Siren's own state, which
+ * Mermaid does not have, so letting it win costs no compatibility: with no
+ * timeline the picture is Mermaid's. Only `stroke` — the property every
+ * highlight rule recolors; the rest of the author's style stays as written.
+ *
+ * Synchronous and part of the same class change, so it adds no timing of its
+ * own: a `prev()` that removes the class puts the stroke back in the same
+ * frame, and with no effect class left there is nothing to transition.
+ */
+function liftAuthorStroke(el: Element, highlighted: boolean): void {
+  const drawn = [el, ...Array.from(el.querySelectorAll("[style]"))];
+  for (const element of drawn) {
+    const lifted = liftedAuthorStyles.get(element);
+    if (!highlighted) {
+      if (lifted !== undefined) {
+        element.setAttribute("style", lifted);
+        liftedAuthorStyles.delete(element);
+      }
+      continue;
+    }
+    const style = (element as SVGElement).style;
+    if (style.getPropertyValue("stroke") === "") continue;
+    liftedAuthorStyles.set(element, element.getAttribute("style") ?? "");
+    style.removeProperty("stroke");
+  }
+}
+
+/**
  * Applies a computed class state directly to the DOM: adds classes the
  * target step requires but the element doesn't yet have, and removes
  * effect-related classes the element has but the target step doesn't
@@ -108,6 +153,10 @@ function applyClassState(svg: SVGSVGElement, state: Map<string, Set<string>>): v
       for (const c of targetClasses) {
         if (!el.classList.contains(c)) el.classList.add(c);
       }
+      liftAuthorStroke(
+        el,
+        Array.from(el.classList).some((c) => c.startsWith("siren-highlight-")),
+      );
     }
   }
 }
