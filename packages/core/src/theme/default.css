@@ -800,6 +800,39 @@
 }
 
 /*
+ * A state diagram's note sits inside its state's group, so it would inherit
+ * any `--siren-node-*` a caller redeclares on that group to recolour the
+ * state — reaching a figure the author's own `style` leaves alone (measured,
+ * mermaid 11.17.2). Token reach is kept by giving the note the node tokens
+ * as they stand at the diagram's `<svg>`, one level above every state: the
+ * `--_siren-state-note-*` properties are substituted there, and the note's
+ * parts redeclare the node tokens from them, so the two rules above still
+ * paint it. Not a token — hence the `--_siren-` spelling, outside the
+ * `--siren-*` names a caller redeclares — and not in `:root`, where it would
+ * freeze the value past a caller's container (see the design-token entry in
+ * CONTEXT.md): the `<svg>` is below any container, so a palette redeclared
+ * there, or on the `<svg>` itself, reaches the note as it reaches everything
+ * else. An alias on the note itself could not do this: it would substitute
+ * against the note, which has already inherited the state's redeclaration.
+ *
+ * Kept in the group rather than moved beside it: being in its state's group
+ * is what makes a note fade, slide and leave with its state under a
+ * timeline, and the group is also where every reader of a drawn state —
+ * the layout checks among them — finds its note.
+ */
+svg:has(> .siren-state) {
+  --_siren-state-note-fill: var(--siren-node-fill);
+  --_siren-state-note-stroke: var(--siren-node-stroke);
+  --_siren-state-note-text: var(--siren-node-text);
+}
+
+.siren-state :is(.siren-note-frame, .siren-note-text) {
+  --siren-node-fill: var(--_siren-state-note-fill);
+  --siren-node-stroke: var(--_siren-state-note-stroke);
+  --siren-node-text: var(--_siren-state-note-text);
+}
+
+/*
  * The `<a>` wrapped around a class the author gave an `href`. It sets a
  * cursor and nothing else, deliberately: recoloring the class would make a
  * linked box read as a different *kind* of class rather than as the same

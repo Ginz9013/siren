@@ -241,6 +241,11 @@ So a redeclaration on a **subgraph**, a **composite state** or an **ER subgraph*
 frame and never reaches the targets drawn inside it. The three frames share
 `--siren-subgraph-fill`, whose default is `none`.
 
+A state diagram's **note** is the one figure drawn inside a target's group that is not part of it,
+and a redeclaration on its state stops short of it too, as the author's `style` does: the theme
+paints it with the node tokens as they stand at the diagram's `<svg>`, not at its state's group.
+A palette redeclared on a container, or on the `<svg>`, still reaches it.
+
 Two things fall outside token reach:
 - an edge's arrowhead, drawn from a marker in `<defs>` that inherits from the diagram rather than
   from the edge, so it follows a token redeclared on the container and not one redeclared on the
@@ -1059,7 +1064,8 @@ renumber). A state diagram's note (`note right of S : ...`) is laid out the clas
 box joined to its state by a connector, after its state along the diagram's direction for `right of`
 and before it for `left of` — at its state's own level, so inside the composite its state is written
 in, where Mermaid 12 lays it out outside (decision `01M4VKTJ2A1DGXAMYVF16BK2W3`); it has no id of
-its own and is drawn in its state's group.
+its own and is drawn in its state's group, so it animates with its state, but is coloured from the
+diagram rather than from its state (see **Token reach**).
 _Avoid_: annotation (that is the `<<interface>>` marker *inside* a class — a note is a box of its
 own), comment (that is a `%%` line, which is stripped before parsing and draws nothing; a line of
 nothing but `%%` is not a comment in a flowchart or ER diagram and is refused, ADR-0017), label,

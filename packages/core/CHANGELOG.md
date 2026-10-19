@@ -1173,6 +1173,11 @@ can carry one.
 
 ### Fixed
 
+- A state's note is no longer recoloured when a caller redeclares `--siren-node-fill`,
+  `--siren-node-stroke` or `--siren-node-text` on its state's `data-siren-id` group (nook
+  `01M599CNTX`). The note takes the diagram's colours, as it already did under an author's
+  `style`. A palette redeclared on a container, or on the `<svg>`, still reaches it, and the
+  default theme's appearance is unchanged.
 - A timeline `highlight X outline` or `glow` draws the target's border in `--siren-highlight-color`
   even when the author gave it a `stroke` (nook `01M5964R8Z`): `style A stroke:#f00`, or
   `stroke:#f00 !important`, on a flowchart node, edge (`linkStyle`) or subgraph, a class, a state

@@ -231,7 +231,9 @@ function buildState(state: PositionedState): SVGGElement {
  * The author's `style` declarations are deliberately not written onto any of
  * this: measured (mermaid 11.17.2), a `class` applied to a state paints the
  * state's own rect, and the note keeps the note colours whatever the state
- * is painted.
+ * is painted. The theme holds the same line for a design token redeclared
+ * on the state's group: `default.css` paints the note from the diagram's
+ * tokens, not the group's, so being drawn here costs no token reach.
  */
 function appendNote(g: SVGGElement, state: PositionedState): void {
   const note = state.note;

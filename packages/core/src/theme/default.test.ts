@@ -2040,7 +2040,7 @@ describe("default theme's token reach", () => {
   const STYLEABLE = [
     'flowchart TB\nsubgraph s1 [Outer]\nsubgraph s2 [Inner]\nA -->|go| B((Round))\nend\nC{Choice}\nend\nA --> C\nD([Stadium]) --> s1\n',
     "classDiagram\nnamespace Shop {\nclass Cart {\n+int items\n+add()\n}\nclass Item\n}\nCart --> Item\n",
-    "stateDiagram-v2\nstate Outer {\nstate Mid {\nI1 --> I2\n}\n}\n[*] --> Outer\n",
+    "stateDiagram-v2\nstate Outer {\nstate Mid {\nI1 --> I2\nnote right of I1 : on a state\n}\nnote left of Mid : on a composite\n}\n[*] --> Outer\n",
     "erDiagram\nsubgraph s1\nA {\nstring name\n}\nend\nB\nA ||--o{ B : has\n",
   ];
 
@@ -2135,6 +2135,57 @@ describe("default theme's token reach", () => {
     ]);
     expect(exemptShapes).toContain("text");
     expect(exemptShapes).toContain("composite");
+  });
+
+  /**
+   * What `value` paints `element` with, substituted the way a custom property
+   * is: a `var()` is looked up from the element upward and replaced by the
+   * value declared on the nearest element that declares it, itself
+   * substituted against *that* element. jsdom neither inherits a custom
+   * property nor resolves a `var()`, but it does report the ones an element
+   * declares, which is all this walk needs.
+   */
+  function resolvePaint(element: Element, value: string): string {
+    const reference = /^var\((--[\w-]+)\)$/.exec(value.trim());
+    if (reference === null) return value.trim();
+    for (let at: Element | null = element; at !== null; at = at.parentElement) {
+      const declared = getComputedStyle(at).getPropertyValue(reference[1]!).trim();
+      if (declared !== "") return resolvePaint(at, declared);
+    }
+    return "";
+  }
+
+  it.each([
+    ["a state", "stateDiagram-v2\nA --> B\nnote right of A : about A\nstyle A fill:#f00,color:#0f0\n", "A"],
+    ["a composite state", "stateDiagram-v2\nstate Outer {\nI\n}\nnote right of Outer : about Outer\n", "Outer"],
+  ])("keeps %s's note out of a recolour of its state, and in a recolour of the diagram", (_what, source, id) => {
+    // A state's note is drawn inside the state's group, since it has no id of
+    // its own — so the state's tokens are inherited by its note unless the
+    // note's paint is substituted above that group. An author's `style` leaves
+    // the note alone (measured, mermaid 11.17.2), and a token redeclared on the
+    // state must too; one redeclared on the container reaches it as before.
+    const svg = renderThemedSVG(source);
+    const state = svg.querySelector(`g.siren-state[data-siren-id="${id}"]`)!;
+    const frame = state.querySelector(".siren-note-frame")!;
+    const text = state.querySelector(".siren-note-text")!;
+    const paints = () => [
+      resolvePaint(frame, getComputedStyle(frame).fill),
+      resolvePaint(frame, getComputedStyle(frame).stroke),
+      resolvePaint(text, getComputedStyle(text).fill),
+    ];
+
+    // The default theme's own colours, unchanged.
+    expect(paints()).toEqual(["#f3efff", "#6d3fd6", "#1d1730"]);
+
+    const container = svg.parentElement as HTMLElement;
+    for (const [token, value] of [["fill", "#000080"], ["stroke", "#008000"], ["text", "#800000"]]) {
+      container.style.setProperty(`--siren-node-${token}`, value);
+      (state as SVGElement).style.setProperty(`--siren-node-${token}`, "#ff00ff");
+    }
+    // The redeclaration lands on the state itself…
+    expect(resolvePaint(state, "var(--siren-node-fill)")).toBe("#ff00ff");
+    // …and stops there: the note takes the container's colours.
+    expect(paints()).toEqual(["#000080", "#008000", "#800000"]);
   });
 
   it.each(STYLEABLE)("draws no element wearing an id inside another one: %s", (source) => {
