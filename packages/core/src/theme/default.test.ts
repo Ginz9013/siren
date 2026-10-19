@@ -1422,7 +1422,7 @@ describe("default theme's design tokens", () => {
       tokenBlocks.flatMap((block) => block.body.match(/--siren-[\w-]+(?=\s*:)/g) ?? []),
     );
     const referenced = new Set(
-      (themeRules.match(/var\(\s*(--siren-[\w-]+)/g) ?? []).map((use) =>
+      (themeRules.match(/var\(\s*(--siren-[\w-]+)(?=\s*\))/g) ?? []).map((use) =>
         use.replace(/^var\(\s*/, ""),
       ),
     );
@@ -1430,6 +1430,8 @@ describe("default theme's design tokens", () => {
     // A `var()` naming a token that was never declared silently resolves to
     // nothing — for `stroke` or `fill` that means an invisible element, which
     // is the exact class of defect this file's sequence rules exist to fix.
+    // A `var()` with its own fallback cannot: that is how a rule reads an
+    // internal hook such as `--siren-edge-march`, which no token block holds.
     const dangling = [...referenced].filter((token) => !declared.has(token)).sort();
     expect(dangling).toEqual([]);
   });
@@ -1925,7 +1927,7 @@ describe("default theme's animated edge", () => {
 
     expect(body).toMatch(/stroke-dasharray:\s*var\(--siren-edge-march-dash\);/);
     expect(body).toMatch(/stroke-dashoffset:\s*var\(--siren-edge-march-offset\);/);
-    expect(body).toMatch(/animation:\s*var\(--siren-edge-march\);/);
+    expect(body).toMatch(/animation:\s*var\(--siren-edge-march,\s*none\);/);
     expect(body).toMatch(/stroke-linecap:\s*round;/);
     expect(ruleBody(`.siren-edge-animation-${speed}`)).toMatch(
       new RegExp(`--siren-edge-march:\\s*siren-edge-march\\s+var\\(--siren-edge-march-${speed}-duration\\)\\s+linear\\s+infinite;`),
@@ -1934,6 +1936,29 @@ describe("default theme's animated edge", () => {
     expect(themeRules).toMatch(/--siren-edge-march-dash:\s*9 5;/);
     expect(themeRules).toMatch(/--siren-edge-march-offset:\s*900;/);
     expect(defaultThemeCss).toMatch(/@keyframes siren-edge-march\s*\{\s*to\s*\{\s*stroke-dashoffset:\s*0;\s*\}\s*\}/);
+  });
+
+  it("leaves the march hook out of :root, which holds only design tokens", () => {
+    // `--siren-edge-march` passes the march from a speed class to the rules
+    // that run it; a value on `:root` never reaches an animated edge, so it
+    // is no token a theme could redeclare (ADR-0014: `:root` is the whole
+    // styling interface). Its four numbers are.
+    const root = themeRules.match(/:root\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(root).not.toMatch(/--siren-edge-march:/);
+    expect(root).toMatch(/--siren-edge-march-dash:\s*9 5;/);
+    expect(root).toMatch(/--siren-edge-march-offset:\s*900;/);
+    expect(root).toMatch(/--siren-edge-march-fast-duration:\s*20s;/);
+    expect(root).toMatch(/--siren-edge-march-slow-duration:\s*50s;/);
+  });
+
+  it("reads the march hook with its own none fallback wherever it runs the march", () => {
+    // With no `:root` value the hook has a default only where it is read:
+    // the march's own rule and the nine that run a timeline effect beside it.
+    const reads = themeRules.match(/var\(--siren-edge-march(?![\w-])[^)]*\)/g) ?? [];
+
+    expect(reads).toHaveLength(10);
+    for (const read of reads) expect(read).toMatch(/^var\(--siren-edge-march,\s*none\)$/);
   });
 
   it("stops the march for a reader who asked for reduced motion", () => {
