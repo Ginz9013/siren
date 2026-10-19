@@ -628,6 +628,20 @@ function applyInlineStyle(element: SVGElement, style: readonly StyleProperty[]):
  * because that is the one a browser applies out of the inline attribute
  * these same declarations are written to. The arrowhead has to be the color
  * the line actually takes, not the color it was first told to take.
+ *
+ * A `stroke` that reads the edge token itself — `var(--siren-edge-stroke)`,
+ * bare or nested, as in `color-mix(in srgb, var(--siren-edge-stroke) 50%,
+ * red)` — is `null` too, so its edge shares the theme's marker. The colour
+ * is carried on a minted head as `--siren-edge-stroke:<stroke>`, and here
+ * that would declare the token in terms of itself: a cycle, invalid at
+ * computed-value time, which leaves a browser without `context-stroke` a
+ * head whose `var()` fails, painted with whatever fill it inherits (black,
+ * where nothing sets one). The theme's head already
+ * paints through the token, which is what such a line reads, so sharing it
+ * is the head the line asks for and writes nothing that can cycle. (The
+ * flowchart parser refuses `(` in a declaration list, so no source text
+ * reaches this today; the renderer keeps the rule on its own rather than
+ * lean on that.)
  */
 function strokeOf(style: StyleProperty[]): string | null {
   let stroke: string | null = null;
@@ -636,8 +650,15 @@ function strokeOf(style: StyleProperty[]): string | null {
       stroke = value;
     }
   }
-  return stroke;
+  return stroke !== null && READS_EDGE_TOKEN.test(stroke) ? null : stroke;
 }
+
+/**
+ * A `var()` of the edge token anywhere in a value. The function name is
+ * case-insensitive in CSS and a custom property's name is not, and a longer
+ * name (`--siren-edge-stroke-width`) is a different property.
+ */
+const READS_EDGE_TOKEN = /[vV][aA][rR]\(\s*--siren-edge-stroke(?![-\w])/;
 
 /**
  * Builds one end's `<marker>`: the theme's when `stroke` is `null`, and an

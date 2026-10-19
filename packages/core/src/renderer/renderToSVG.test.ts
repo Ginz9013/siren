@@ -1090,6 +1090,35 @@ describe("renderToSVG", () => {
     );
     expect(markerFor(svg, "A-B").querySelector("path")!.getAttribute("style")).toBe("--siren-edge-stroke:#00f");
   });
+
+  it.each([
+    "var(--siren-edge-stroke)",
+    "VAR( --siren-edge-stroke , #f00)",
+    "color-mix(in srgb, var(--siren-edge-stroke) 50%, #f00)",
+  ])("never declares the edge token on a head in terms of itself: `stroke:%s` shares the theme's marker", (stroke) => {
+    // `--siren-edge-stroke:var(--siren-edge-stroke)` is a cycle, which CSS
+    // makes invalid at computed-value time; in a browser without
+    // `context-stroke` the head's own `var()` would then fail and paint it
+    // black. A line stroked through the token already takes the token's
+    // colour, so its head is the theme's head, the one an unstyled edge
+    // shares, whether the token is bare or nested in another function.
+    //
+    // The flowchart parser refuses `(` in a declaration list today, so no
+    // source text reaches this; the renderer holds the rule on its own.
+    const graph = buildFixture();
+    graph.edges[0].style = { frame: [{ property: "stroke", value: stroke }], text: [] };
+
+    const svg = renderToSVG(graph);
+
+    // The author's stroke still reaches the line, verbatim.
+    expect(svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("style")).toBe(`stroke:${stroke}`);
+    // No head anywhere declares the token by way of itself.
+    for (const shape of Array.from(svg.querySelectorAll("defs marker > *"))) {
+      expect(shape.getAttribute("style") ?? "").not.toMatch(/--siren-edge-stroke\s*:[^;]*var\(\s*--siren-edge-stroke/i);
+    }
+    expect(markerFor(svg, "A-B")).toBe(markerFor(svg, "B-C"));
+    expect(svg.querySelectorAll("defs marker")).toHaveLength(1);
+  });
 });
 
 /**

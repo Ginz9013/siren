@@ -16,9 +16,11 @@
  * screenshotted, and the pixel at the middle of the line compared with the
  * pixel inside the head.
  *
- * Every end shape (`-->`, `--o`, `--x`) is drawn three ways — unstyled,
- * coloured by `linkStyle 0 stroke:#f00`, and coloured the same with
- * `omitAuthorStyles: ["stroke"]` — in five states: as drawn, with
+ * Every end shape (`-->`, `--o`, `--x`) is drawn four ways — unstyled,
+ * coloured by `linkStyle 0 stroke:#f00`, coloured the same with
+ * `omitAuthorStyles: ["stroke"]`, and unstyled beside a second edge out of
+ * the same node (`A-->B; A-->C`), whose two paths point at one theme
+ * marker and only A-B is acted on, both heads read — in five states: as drawn, with
  * `--siren-edge-stroke: #00f` redeclared on the edge's own
  * `path[data-siren-id]`, highlighted under `outline` and under `glow` with
  * the transition run to its end, and straight after `prev()`. Where a head
@@ -51,6 +53,11 @@
  * `prev()` had the line's computed stroke back at its colour before the
  * step with no time allowed. (An author's `stroke` still outranks a token
  * redeclared on its edge, line and head alike, as it outranks every token.)
+ * The two-edge cases, added 2026-10-19 in the same Chrome, read one marker
+ * on both paths and each head its own line's colour: A-B `#0000ff` under
+ * its redeclared token and `#0d9488` under `outline` and `glow`, while
+ * A-C, on the same marker, stayed `#6f6a84` with its line — all 30 rows the
+ * same, and the 45 above unchanged.
  * Without `context-stroke`, the rows read as they did before the change:
  * the author's head `#ff0000` from its marker's own token, the theme's head
  * `#6f6a84`.
@@ -69,7 +76,7 @@ const THEME = join(PACKAGE, "src", "theme", "default.css");
 const WITHOUT_CONTEXT_STROKE = process.argv.includes("--without-context-stroke");
 const DEFAULT_CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const RESULT_ID = "result";
-const CELL_WIDTH = 160;
+const CELL_WIDTH = 260;
 const CELL_HEIGHT = 240;
 const SCALE = 2;
 
@@ -83,11 +90,19 @@ const SHAPES = [
   ["cross", "--x", [1.5, 1.5]],
 ];
 
-/** Who colours the edge: nobody, the author, or the author with the colour omitted. */
+/**
+ * Who colours the edge: nobody, the author, or the author with the colour
+ * omitted — and, as `shared`, nobody on a diagram of two edges out of A,
+ * `A-B` and `A-C`, which point at one and the same theme marker. Only A-B
+ * is acted on (its token redeclared, it highlighted), and both heads are
+ * read, so a marker shared by two lines that differ is shown to draw each
+ * head in its own line's colour rather than one colour for both.
+ */
 const PAINTS = [
   ["theme", "", undefined],
   ["author", "\n  linkStyle 0 stroke:#f00", undefined],
   ["omitted", "\n  linkStyle 0 stroke:#f00", ["stroke"]],
+  ["shared", "", undefined],
 ];
 
 const STATES = ["drawn", "token", "outline", "glow", "prev"];
@@ -101,7 +116,8 @@ const CASES = SHAPES.flatMap(([shape, arrow, sample]) =>
       sample,
       omitAuthorStyles,
       effect: state === "glow" ? "glow" : "outline",
-      source: `flowchart TB\n  A ${arrow} B${style}`,
+      edges: paint === "shared" ? ["A-B", "A-C"] : ["A-B"],
+      source: `flowchart TB\n  A ${arrow} B${paint === "shared" ? `\n  A ${arrow} C` : ""}${style}`,
     })),
   ),
 );
@@ -144,7 +160,8 @@ try {
       omitAuthorStyles: c.omitAuthorStyles,
     });
     if (diagnostics.length > 0) throw new Error(c.source + ": " + diagnostics.map((d) => d.message).join("; "));
-    const path = container.querySelector('path.siren-edge[data-siren-id="A-B"]');
+    const edgePath = (id) => container.querySelector('path.siren-edge[data-siren-id="' + id + '"]');
+    const path = edgePath("A-B");
     let strokeAfterPrev = null;
     if (c.state === "token") path.style.setProperty("--siren-edge-stroke", "#00f");
     if (c.state === "outline" || c.state === "glow" || c.state === "prev") {
@@ -156,27 +173,31 @@ try {
       strokeAfterPrev = getComputedStyle(path).stroke;
     }
 
-    // The marker's box is laid with its (refX, refY) on the path's end and
-    // turned to the direction the path arrives in (orient auto).
-    const length = path.getTotalLength();
-    const end = path.getPointAtLength(length);
-    const back = path.getPointAtLength(length - 0.5);
-    const angle = Math.atan2(end.y - back.y, end.x - back.x);
-    const marker = container.querySelector("marker#" + CSS.escape(path.getAttribute("marker-end").slice(5, -1)));
-    const [x, y] = c.sample;
-    const dx = x - Number(marker.getAttribute("refX"));
-    const dy = y - Number(marker.getAttribute("refY"));
-    const ctm = path.getScreenCTM();
-    const toPage = (point) => {
-      const p = new DOMPoint(point.x, point.y).matrixTransform(ctm);
-      return [p.x, p.y];
-    };
-    const head = toPage({
-      x: end.x + dx * Math.cos(angle) - dy * Math.sin(angle),
-      y: end.y + dx * Math.sin(angle) + dy * Math.cos(angle),
-    });
-    const line = toPage(path.getPointAtLength(length / 2));
-    rows.push({ shape: c.shape, paint: c.paint, state: c.state, head, line, strokeAfterPrev });
+    for (const id of c.edges) {
+      // The marker's box is laid with its (refX, refY) on the path's end and
+      // turned to the direction the path arrives in (orient auto).
+      const path = edgePath(id);
+      const length = path.getTotalLength();
+      const end = path.getPointAtLength(length);
+      const back = path.getPointAtLength(length - 0.5);
+      const angle = Math.atan2(end.y - back.y, end.x - back.x);
+      const marker = container.querySelector("marker#" + CSS.escape(path.getAttribute("marker-end").slice(5, -1)));
+      const [x, y] = c.sample;
+      const dx = x - Number(marker.getAttribute("refX"));
+      const dy = y - Number(marker.getAttribute("refY"));
+      const ctm = path.getScreenCTM();
+      const toPage = (point) => {
+        const p = new DOMPoint(point.x, point.y).matrixTransform(ctm);
+        return [p.x, p.y];
+      };
+      const head = toPage({
+        x: end.x + dx * Math.cos(angle) - dy * Math.sin(angle),
+        y: end.y + dx * Math.sin(angle) + dy * Math.cos(angle),
+      });
+      const line = toPage(path.getPointAtLength(length / 2));
+      const sharedMarker = new Set(c.edges.map((id) => edgePath(id).getAttribute("marker-end"))).size === 1;
+      rows.push({ shape: c.shape, paint: c.paint, state: c.state, edge: id, head, line, strokeAfterPrev, sharedMarker });
+    }
   });
   out.textContent = JSON.stringify(rows);
 } catch (error) {
@@ -286,8 +307,9 @@ const pixelAt = decodePng(readFileSync(shotPath));
 for (const r of result) {
   const line = pixelAt(...r.line);
   const head = pixelAt(...r.head);
-  const prev = r.strokeAfterPrev === null ? "" : `  stroke straight after prev() ${r.strokeAfterPrev}`;
+  const prev = r.strokeAfterPrev === null || r.edge !== "A-B" ? "" : `  stroke straight after prev() ${r.strokeAfterPrev}`;
+  const shared = r.paint === "shared" ? `  ${r.sharedMarker ? "one marker" : "TWO MARKERS"}` : "";
   process.stdout.write(
-    `${r.shape.padEnd(7)} ${r.paint.padEnd(8)} ${r.state.padEnd(8)} line ${line}  head ${head}  ${head === line ? "same" : "DIFFERENT"}${prev}\n`,
+    `${r.shape.padEnd(7)} ${r.paint.padEnd(8)} ${r.state.padEnd(8)} ${r.edge} line ${line}  head ${head}  ${head === line ? "same" : "DIFFERENT"}${prev}${shared}\n`,
   );
 }
