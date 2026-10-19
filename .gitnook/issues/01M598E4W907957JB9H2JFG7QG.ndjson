@@ -1,0 +1,3 @@
+{"id":"01M598E4W92SVJ0YBGNCE7ME28","t":1,"a":"83a1","op":"create","title":"backlog: highlight 中的 edge，箭頭仍是作者的顏色"}
+{"id":"01M598E4WKXTD5V7ETVN1SEEN3","t":2,"a":"83a1","op":"set","k":"description","v":"## 發現\n\nsiren-theme-semantic-blocks/T2（`01M5964R8Z7C2EW0H57ZF09F9G`）審查時發現：\n\n`linkStyle 0 stroke:#f00`，接著 `highlight A-B outline`。線會變成 highlight 色，但箭頭仍是作者的紅色。原因是箭頭是\n`<defs>` 裡依（端點形狀、顏色）鑄的 `<marker>`（`renderer/renderToSVG.ts` 約 687 行），highlight 時不會被替換。\n\n沒有作者樣式的 edge 也一樣：主題的箭頭不會跟著 highlight 變色。所以這不是 T2 造成的回歸，而是既有、已記錄的行為。\n\n## 待決定\n\n- highlight 時箭頭要不要跟著線變色？\n- 如果要，需要設計「每個狀態一個 marker」的機制，或改用 `context-stroke`。要先量測瀏覽器支援度。"}
+{"id":"01M5994RZ83WAK5DJN4HVN4H2A","t":3,"a":"83a1","op":"comment","body":"併入 siren-theme-semantic-blocks/T8 (01M5994RB27PHXBJ8FYVC2V2YC)。"}
