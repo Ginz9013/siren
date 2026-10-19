@@ -19,9 +19,12 @@ const readText = (relativePath: string): string =>
     }
   ).process
     .getBuiltinModule("node:fs")
-    .readFileSync(`${(import.meta as unknown as { dirname: string }).dirname}/${relativePath}`, "utf8");
+    .readFileSync(
+      `${(import.meta as unknown as { dirname: string }).dirname}/${relativePath}`,
+      "utf8",
+    );
 
-const TOKEN = /--siren-[a-z0-9-]+/g;
+const TOKEN = /--siren-[\w-]+/g;
 
 /** Every `--siren-*` name in the Tokens column of the `| Group | Tokens |` table. */
 function readmeTokens(readme: string): Set<string> {
@@ -43,11 +46,14 @@ function rootTokens(css: string): Set<string> {
   const rules = css.replace(/\/\*[\s\S]*?\*\//g, "");
   const block = /(?:^|[}\s]):root\s*\{([^}]*)\}/.exec(rules);
   if (!block) throw new Error("stylesheet has no `:root` block");
-  return new Set(Array.from(block[1].matchAll(/(--siren-[a-z0-9-]+)\s*:/g), (match) => match[1]));
+  return new Set(Array.from(block[1].matchAll(/(--siren-[\w-]+)(?=\s*:)/g), (match) => match[1]));
 }
 
 /** What the README is missing from `:root`, and what it lists that `:root` does not declare. */
-function tableDrift(readme: string, css: string): { missingFromReadme: string[]; extraInReadme: string[] } {
+function tableDrift(
+  readme: string,
+  css: string,
+): { missingFromReadme: string[]; extraInReadme: string[] } {
   const listed = readmeTokens(readme);
   const declared = rootTokens(css);
   return {

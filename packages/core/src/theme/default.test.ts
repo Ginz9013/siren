@@ -1418,13 +1418,11 @@ describe("default theme's design tokens", () => {
   });
 
   it("declares every token it references", () => {
-    const declared = new Set(
-      tokenBlocks.flatMap((block) => block.body.match(/--siren-[\w-]+(?=\s*:)/g) ?? []),
-    );
-    // An internal hook such as `--siren-edge-march` is no token block's
-    // (decision 01M59N4KXRKK7R9Y55K64R4013): the core rule that sets it is
-    // its declaration, so a name nothing sets is still caught.
-    const setByRules = new Set(themeRules.match(/--siren-[\w-]+(?=\s*:)/g) ?? []);
+    // Declared anywhere a rule sets it: a token in its block, and an internal
+    // hook such as `--siren-edge-march`, which is no token block's (decision
+    // 01M59N4KXRKK7R9Y55K64R4013), in the core rule that sets it. A name
+    // nothing sets is still caught, fallback or not.
+    const declared = new Set(themeRules.match(/--siren-[\w-]+(?=\s*:)/g) ?? []);
     const referenced = new Set(
       (themeRules.match(/var\(\s*(--siren-[\w-]+)/g) ?? []).map((use) =>
         use.replace(/^var\(\s*/, ""),
@@ -1434,9 +1432,7 @@ describe("default theme's design tokens", () => {
     // A `var()` naming a token that was never declared silently resolves to
     // nothing — for `stroke` or `fill` that means an invisible element, which
     // is the exact class of defect this file's sequence rules exist to fix.
-    const dangling = [...referenced]
-      .filter((token) => !declared.has(token) && !setByRules.has(token))
-      .sort();
+    const dangling = [...referenced].filter((token) => !declared.has(token)).sort();
     expect(dangling).toEqual([]);
   });
 });
