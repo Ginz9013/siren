@@ -76,7 +76,9 @@ export interface BoardOptions {
    * included), `setTimeline`, `setFullDiagram` or `setOmitAuthorStyles` —
    * with that render's `styles` and `siren`, handed over unchanged (see
    * `SirenRenderResult`). Board draws no conclusion from either. A
-   * `setSource` that fails draws nothing, so fires nothing.
+   * `setSource` that fails draws nothing, so fires nothing. It is that
+   * render's last notification: `board.styles` and `board.siren` already
+   * hold the new facts in every callback before it.
    */
   onStyles?: (styles: readonly StyleFact[], siren: unknown) => void;
 }
@@ -91,7 +93,7 @@ export interface Board {
   readonly diagnostics: Diagnostic[];
   /** Whether the board shows the full diagram rather than the timeline (see CONTEXT.md's "Full diagram"). */
   readonly fullDiagram: boolean;
-  /** The list every render is given as `omitAuthorStyles`; empty when none was. */
+  /** The list every render is given as `omitAuthorStyles`; empty when none was. Frozen: change it with `setOmitAuthorStyles`. */
   readonly omitAuthorStyles: readonly string[];
   /**
    * The `styles` of the last render that drew, as core returned them; empty
@@ -100,6 +102,7 @@ export interface Board {
   readonly styles: readonly StyleFact[];
   /** The `siren` of the last render that drew, as core returned it; on the terms of `styles`. */
   readonly siren: unknown;
+  /** Renders another document in place; after `destroy()`, does nothing. */
   setSource(source: string): void;
   /**
    * The named timeline blocks of the last source that rendered, in document
@@ -138,9 +141,10 @@ export interface Board {
    * it, at the step shown, on the current timeline or in the full diagram
    * as before. Playback keeps going from there: only the full diagram,
    * which has no steps, stops it. Never changes the view or `diagnostics`,
-   * and fires neither `onStepChange` nor `onDiagnostics`. An equal list (the same names in the
-   * same order) is a no-op. Like `setSource`, it replaces `controller`: read
-   * it again rather than keeping the old one.
+   * and fires neither `onStepChange` nor `onDiagnostics`. An equal list (the
+   * same names in the same order, compared case-insensitively as core reads
+   * them, so `["FILL"]` equals `["fill"]`) is a no-op. Like `setSource`, it
+   * replaces `controller`: read it again rather than keeping the old one.
    */
   setOmitAuthorStyles(list: readonly string[]): void;
   /** Whether playback is running (see CONTEXT.md's "Playback"). */
@@ -191,8 +195,11 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
   let diagnostics: Diagnostic[] = [];
   let destroyed = false;
   let fullDiagram = false;
-  /** Copied, so a caller changing its array later changes nothing here. */
-  let omitAuthorStyles: readonly string[] = [...(options.omitAuthorStyles ?? [])];
+  /**
+   * Copied, so a caller changing its array later changes nothing here, and
+   * frozen, so changing the one `board.omitAuthorStyles` returns cannot either.
+   */
+  let omitAuthorStyles: readonly string[] = Object.freeze([...(options.omitAuthorStyles ?? [])]);
   /** `timelines` of the last render that succeeded. */
   let timelines: readonly string[] = [];
   let currentTimeline: string | null = null;
@@ -299,14 +306,27 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     return { result, timeline: kept ? currentTimeline : (result.timelines[0] ?? null) };
   }
 
-  /** Takes a drawn render's `styles` and `siren` as the board's, and hands them to `onStyles`. */
+  /**
+   * Takes a drawn render's `styles` and `siren` as the board's — with the rest
+   * of its new state, before any callback, so every callback reads them.
+   */
   function adoptStyles(result: SirenRenderResult): void {
     styles = result.styles;
     siren = result.siren;
+  }
+
+  /**
+   * The last notification of a render that drew. It hands over the board's
+   * facts rather than that render's: a callback may have rendered another
+   * document since, and the caller must be left with the drawing shown.
+   */
+  function reportStyles(): void {
     options.onStyles?.(styles, siren);
   }
 
   function setSource(source: string): void {
+    // A destroyed board draws nothing and reports nothing more.
+    if (destroyed) return;
     // Rendered or not, the reader asked for another document: stop either way.
     pause();
     const { result, timeline } = renderKeepingTimeline(source);
@@ -329,10 +349,11 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
       // A new document starts its timeline at step 0, full diagram or not.
       stepBeforeFullDiagram = 0;
       wrappedController = wrapController(result.controller!);
+      adoptStyles(result);
       viewport.resetView();
       updateControls();
       if (!isFirstRender && currentTimeline !== previousTimeline) options.onTimelineChange?.(currentTimeline);
-      adoptStyles(result);
+      reportStyles();
     }
     options.onDiagnostics?.(diagnostics);
   }
@@ -348,7 +369,7 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     if (destroyed || on === fullDiagram) return;
     // The full diagram has no steps to play.
     if (on) pause();
-    let drawn: SirenRenderResult | null = null;
+    let drawn = false;
     if (renderedSource !== null) {
       // Switching off applies the current timeline, not the document's first.
       const result = renderDocument(renderedSource, on, currentTimeline);
@@ -366,10 +387,11 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
         for (let i = 0; i < stepBeforeFullDiagram && real.currentStep < real.totalSteps; i++) real.next();
       }
       wrappedController = wrapController(real);
-      drawn = result;
+      adoptStyles(result);
+      drawn = true;
     }
     commitFullDiagram(on);
-    if (drawn !== null) adoptStyles(drawn);
+    if (drawn) reportStyles();
   }
 
   /**
@@ -383,9 +405,15 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
   function setOmitAuthorStyles(list: readonly string[]): void {
     if (destroyed) return;
     // An equal list — same names, same order — draws the same: a no-op.
-    if (list.length === omitAuthorStyles.length && list.every((name, i) => name === omitAuthorStyles[i])) return;
-    omitAuthorStyles = [...list];
-    let drawn: SirenRenderResult | null = null;
+    // Names are compared case-insensitively, as render() reads them.
+    if (
+      list.length === omitAuthorStyles.length &&
+      list.every((name, i) => name.toLowerCase() === omitAuthorStyles[i]!.toLowerCase())
+    ) {
+      return;
+    }
+    omitAuthorStyles = Object.freeze([...list]);
+    let drawn = false;
     if (renderedSource !== null) {
       const step = wrappedController?.currentStep ?? 0;
       const result = renderDocument(renderedSource, fullDiagram, currentTimeline);
@@ -397,10 +425,11 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
       // task, so the reader never sees step 0 and `onStepChange` stays quiet.
       for (let i = 0; i < step && real.currentStep < real.totalSteps; i++) real.next();
       wrappedController = wrapController(real);
-      drawn = result;
+      adoptStyles(result);
+      drawn = true;
     }
     updateControls();
-    if (drawn !== null) adoptStyles(drawn);
+    if (drawn) reportStyles();
   }
 
   /** The last step of every full diagram switch: record it, then tell the bar and the caller. */
@@ -440,6 +469,7 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     // mounted, and nothing here switches either.
     if (result.svg === null) return;
     wrappedController = wrapController(result.controller!);
+    adoptStyles(result);
     currentTimeline = name;
     // Another timeline is another story: playback of this one ends here
     // (the full diagram never plays, so this and leaving it never meet).
@@ -449,7 +479,7 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     if (fullDiagram) commitFullDiagram(false);
     else updateControls();
     options.onTimelineChange?.(currentTimeline);
-    adoptStyles(result);
+    reportStyles();
   }
 
   function setPlaying(on: boolean): void {

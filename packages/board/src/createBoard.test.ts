@@ -3257,5 +3257,123 @@ enter C fade
       expect(board.styles).toEqual([A_FACT]);
       expect(board.siren).toBe("kept");
     });
+
+    it("a ControlsFactory's update() and onTimelineChange already read the new document's styles and siren after setSource", () => {
+      const seen: [string, unknown, unknown][] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: `---\nsiren: old\n---\n${STYLED_TWO_TIMELINES}`,
+        measureText: FAKE_MEASURER,
+        controls: (b) => ({
+          element: document.createElement("div"),
+          update: () => seen.push(["update", b.styles, b.siren]),
+        }),
+        onTimelineChange: () => seen.push(["onTimelineChange", board.styles, board.siren]),
+      });
+      seen.length = 0;
+
+      board.setSource(`---\nsiren: new\n---\n${VALID_SOURCE}`);
+
+      expect(seen).toEqual([
+        ["update", [], "new"],
+        ["onTimelineChange", [], "new"],
+      ]);
+    });
+
+    it("a setSource called from onTimelineChange leaves its own styles and siren on the board, not those of the setSource that fired it", () => {
+      const calls: [unknown, unknown][] = [];
+      let reentered = false;
+      const board = createBoard(document.createElement("div"), {
+        source: `---\nsiren: first\n---\n${STYLED_TWO_TIMELINES}`,
+        measureText: FAKE_MEASURER,
+        onStyles: (styles, siren) => calls.push([styles, siren]),
+        onTimelineChange: () => {
+          if (reentered) return;
+          reentered = true;
+          board.setSource(`---\nsiren: other\n---\n${STYLED_SOURCE}`);
+        },
+      });
+      calls.length = 0;
+
+      board.setSource(`---\nsiren: outer\n---\n${VALID_SOURCE}`);
+
+      expect(board.styles).toEqual([A_FACT]);
+      expect(board.siren).toBe("other");
+      expect(calls.at(-1)).toEqual([[A_FACT], "other"]);
+    });
+
+    it("setSource after destroy() renders nothing and fires no callback, leaving every fact as it was", () => {
+      const fired: string[] = [];
+      const container = document.createElement("div");
+      const board = createBoard(container, {
+        source: `---\nsiren: before\n---\n${STYLED_TWO_TIMELINES}`,
+        measureText: FAKE_MEASURER,
+        onStyles: () => fired.push("onStyles"),
+        onDiagnostics: () => fired.push("onDiagnostics"),
+        onTimelineChange: () => fired.push("onTimelineChange"),
+        onStepChange: () => fired.push("onStepChange"),
+        onPlaybackChange: () => fired.push("onPlaybackChange"),
+        onFullDiagramChange: () => fired.push("onFullDiagramChange"),
+      });
+      const diagnostics = board.diagnostics;
+      const controller = board.controller;
+      board.destroy();
+      fired.length = 0;
+
+      expect(() => board.setSource(`---\nsiren: after\n---\n${VALID_SOURCE}`)).not.toThrow();
+      expect(() => board.setSource("this is not a valid siren document")).not.toThrow();
+
+      expect(fired).toEqual([]);
+      expect(board.siren).toBe("before");
+      expect(board.styles).toEqual([A_FACT]);
+      expect(board.timeline).toBe("card");
+      expect(board.diagnostics).toBe(diagnostics);
+      expect(board.controller).toBe(controller);
+      expect(container.children).toHaveLength(0);
+    });
+
+    it("setOmitAuthorStyles compares names case-insensitively, as render() reads them: [\"FILL\"] after [\"fill\"] redraws nothing, calls no update() and fires no onStyles", () => {
+      const container = document.createElement("div");
+      let updates = 0;
+      let styleCalls = 0;
+      const board = createBoard(container, {
+        source: STYLED_SOURCE,
+        measureText: FAKE_MEASURER,
+        omitAuthorStyles: ["fill", "Stroke"],
+        controls: () => ({ element: document.createElement("div"), update: () => updates++ }),
+        onStyles: () => styleCalls++,
+      });
+      const svg = container.querySelector(".siren-board-viewport svg");
+      updates = 0;
+      styleCalls = 0;
+
+      board.setOmitAuthorStyles(["FILL", "stroke"]);
+
+      expect(container.querySelector(".siren-board-viewport svg")).toBe(svg);
+      expect(updates).toBe(0);
+      expect(styleCalls).toBe(0);
+      expect(board.omitAuthorStyles).toEqual(["fill", "Stroke"]);
+
+      board.setOmitAuthorStyles(["STROKE", "FILL"]);
+
+      expect(container.querySelector(".siren-board-viewport svg")).not.toBe(svg);
+      expect(board.omitAuthorStyles).toEqual(["STROKE", "FILL"]);
+      expect(updates).toBe(1);
+      expect(styleCalls).toBe(1);
+    });
+
+    it("changing the array board.omitAuthorStyles returns changes neither the list nor the next render", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { source: STYLED_SOURCE, measureText: FAKE_MEASURER, omitAuthorStyles: ["fill"] });
+
+      try {
+        (board.omitAuthorStyles as string[]).push("stroke", "color");
+      } catch {
+        // A frozen list refuses the change outright, which is as good.
+      }
+      board.setSource(STYLED_SOURCE);
+
+      expect(board.omitAuthorStyles).toEqual(["fill"]);
+      expect(drawnA(container)).toEqual(["stroke:#c00;stroke-width:4px", "fill:#fff"]);
+    });
   });
 });
