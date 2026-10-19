@@ -8,6 +8,8 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-20
+
 Requires `siren-core` ^0.7.0. Diagrams look different, and documents siren-core now refuses are
 refused on a board too: see the
 [siren-core changelog](https://github.com/Ginz9013/siren/blob/main/packages/core/CHANGELOG.md#070---2026-10-20).

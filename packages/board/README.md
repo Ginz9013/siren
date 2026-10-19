@@ -119,7 +119,7 @@ notices ship beside the bundle as `dist/THIRD-PARTY-NOTICES.md`:
 <!doctype html>
 <html>
   <head>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/siren-core@0.6/dist/theme.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/siren-core@0.7/dist/theme.css" />
     <style>
       #board { width: 100vw; height: 100vh; }
       body { margin: 0; }
@@ -128,7 +128,7 @@ notices ship beside the bundle as `dist/THIRD-PARTY-NOTICES.md`:
   <body>
     <div id="board"></div>
     <script type="module">
-      import { createBoard } from "https://cdn.jsdelivr.net/npm/siren-board@0.6/dist/siren-board.js";
+      import { createBoard } from "https://cdn.jsdelivr.net/npm/siren-board@0.7/dist/siren-board.js";
 
       const source = await fetch("./architecture.srn").then((r) => r.text());
       createBoard(document.getElementById("board"), { source });

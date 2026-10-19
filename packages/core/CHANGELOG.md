@@ -8,6 +8,8 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-20
+
 Breaking for a flowchart `style`, `classDef` or `linkStyle` whose value uses a CSS function —
 `fill:rgb(255,0,0)`, `stroke:rgba(…)`, `fill:hsl(…)`, `stroke:var(--x)` — or holds a `(`, `)`, `[`,
 `]`, `|`, `->` or a `"` (`font-family:"a b"`), which is now refused: Mermaid 12.2.0 draws nothing

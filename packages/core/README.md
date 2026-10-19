@@ -150,12 +150,12 @@ parser (MIT); their licences and notices ship beside the bundle as `dist/THIRD-P
 You can load it directly from a CDN:
 
 ```html
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/siren-core@0.6/dist/theme.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/siren-core@0.7/dist/theme.css" />
 
 <div id="diagram"></div>
 
 <script type="module">
-  import { render } from "https://cdn.jsdelivr.net/npm/siren-core@0.6/dist/siren-core.js";
+  import { render } from "https://cdn.jsdelivr.net/npm/siren-core@0.7/dist/siren-core.js";
 
   const { controller } = render(
     "flowchart LR\n  A --> B\n\ntimeline:\n  enter B fade",
