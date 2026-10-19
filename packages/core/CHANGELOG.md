@@ -1187,9 +1187,13 @@ can carry one.
   default theme draws it the same.
 - A state's note is no longer recoloured when a caller redeclares `--siren-node-fill`,
   `--siren-node-stroke` or `--siren-node-text` on its state's `data-siren-id` group (nook
-  `01M599CNTX`). The note takes the diagram's colours, as it already did under an author's
-  `style`. A palette redeclared on a container, or on the `<svg>`, still reaches it, and the
-  default theme's appearance is unchanged.
+  `01M599CNTX`). The note's fill, stroke and text take the diagram's colours, as they already did
+  under an author's `style`. Only those three are shielded: `--siren-node-border-radius`,
+  `--siren-stroke-width`, the font tokens and `--siren-edge-stroke` (the stroke of the note's link
+  to its state) still reach the note from its state. A palette redeclared on a container, or on
+  the `<svg>`, still reaches it, and the default theme's appearance is unchanged. To recolour
+  notes alone, redeclare the node tokens on `.siren-note-frame` and `.siren-note-text`; the
+  theme's own rule there weighs nothing, so a caller's rule on those parts wins.
 - A timeline `highlight X outline` or `glow` draws the target's border in `--siren-highlight-color`
   even when the author gave it a `stroke` (nook `01M5964R8Z`): `style A stroke:#f00`, or
   `stroke:#f00 !important`, on a flowchart node, edge (`linkStyle`) or subgraph, a class, a state

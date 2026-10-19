@@ -858,14 +858,32 @@
  * is what makes a note fade, slide and leave with its state under a
  * timeline, and the group is also where every reader of a drawn state —
  * the layout checks among them — finds its note.
+ *
+ * The capture is on every `<svg>` but one inside a state, not on
+ * `svg:has(> .siren-state)`: `:has()` (Chrome 105, Firefox 121) is newer
+ * than some browsers the package's ES2022 target takes in, and a
+ * direct-child test would miss states a caller wraps in a group. Without the capture the note's paint
+ * is invalid and it draws black and unstroked, so it must not hang on
+ * either. Capturing on an `<svg>` that is not the diagram's — a page's outer
+ * `<svg>` around it — is harmless, since the diagram's own `<svg>` captures
+ * again below it. An `<svg>` nested inside a state would not be: it would
+ * capture the state's redeclared tokens and hand them to the note. The state
+ * renderer draws none there (its states are rects, polygons, lines, circles
+ * and text), but the selector excludes one anyway, so that a caller's icon
+ * or a later renderer cannot reopen the leak. `:not()` with a descendant
+ * selector predates `:has()` by years (Chrome 88, Firefox 84, Safari 9).
  */
-svg:has(> .siren-state) {
+svg:not(.siren-state svg) {
   --_siren-state-note-fill: var(--siren-node-fill);
   --_siren-state-note-stroke: var(--siren-node-stroke);
   --_siren-state-note-text: var(--siren-node-text);
 }
 
-.siren-state :is(.siren-note-frame, .siren-note-text) {
+/* Inside `:where()`, so it weighs nothing: a caller who recolours notes
+   redeclares `--siren-node-*` on `.siren-note-frame` or `.siren-note-text`
+   themselves — the only way to, since a redeclaration on the state stops
+   above the note — and that one class must win over this rule. */
+:where(.siren-state .siren-note-frame, .siren-state .siren-note-text) {
   --siren-node-fill: var(--_siren-state-note-fill);
   --siren-node-stroke: var(--_siren-state-note-stroke);
   --siren-node-text: var(--_siren-state-note-text);

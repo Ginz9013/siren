@@ -210,6 +210,11 @@ always named at its point of use, never aliased into a new `--siren-*` in `:root
 property substitutes against the element its declaration sits on, so an alias in `:root` freezes
 the value there and inherits it down past any override a consumer scoped lower — on a container,
 on one diagram, on a section of the page.
+The one place the theme redeclares a token below `:root` follows from the same rule: a state
+diagram's note redeclares `--siren-node-fill`, `--siren-node-stroke` and `--siren-node-text` from
+the values they have at the diagram's `<svg>` (see **Token reach**), so a palette that recolours
+nodes recolours state notes with them, but recolouring the notes alone takes a redeclaration on
+the note's own parts, `.siren-note-frame` and `.siren-note-text`.
 **One token's reach narrowed when a flowchart node stopped being only a rectangle, and it narrowed
 for two different reasons.** `--siren-node-border-radius` is declared once, as `rx` on
 `.siren-node-frame`, and it now reaches exactly two of the fourteen node **shapes**: the
@@ -245,9 +250,14 @@ frame and never reaches the targets drawn inside it. The three frames share
 `--siren-subgraph-fill`, whose default is `none`.
 
 A state diagram's **note** is the one figure drawn inside a target's group that is not part of it,
-and a redeclaration on its state stops short of it too, as the author's `style` does: the theme
-paints it with the node tokens as they stand at the diagram's `<svg>`, not at its state's group.
-A palette redeclared on a container, or on the `<svg>`, still reaches it.
+and a redeclaration of its colours on its state stops short of it, as the author's `style` does:
+the theme paints the note's fill, stroke and text with `--siren-node-fill`, `--siren-node-stroke`
+and `--siren-node-text` as they stand at the diagram's `<svg>`, not at its state's group. Only
+those three are shielded. `--siren-node-border-radius`, `--siren-stroke-width`, the font tokens
+and `--siren-edge-stroke`, which strokes the note's link to its state, still reach the note from
+a redeclaration on its state. A palette redeclared on a container, or on the `<svg>`, still
+reaches it; to recolour notes alone, redeclare the node tokens on `.siren-note-frame` and
+`.siren-note-text` themselves.
 
 A flowchart edge's arrowhead is drawn from a marker in `<defs>`, which inherits from the diagram
 rather than from the edge, so the theme paints it with `context-stroke`: the stroke of the line it

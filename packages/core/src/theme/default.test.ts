@@ -2192,6 +2192,25 @@ describe("default theme's token reach", () => {
     return "";
   }
 
+  /** The selector of every rule in the default theme that declares `property`. */
+  function cssRulesDeclaring(property: string): string[] {
+    const style = document.createElement("style");
+    style.textContent = defaultThemeCss;
+    document.head.appendChild(style);
+    const selectors: string[] = [];
+    const walk = (rules: CSSRuleList) => {
+      for (const rule of Array.from(rules)) {
+        if ("selectorText" in rule && (rule as CSSStyleRule).style.getPropertyValue(property) !== "") {
+          selectors.push((rule as CSSStyleRule).selectorText);
+        }
+        if ("cssRules" in rule) walk((rule as CSSGroupingRule).cssRules);
+      }
+    };
+    walk(style.sheet!.cssRules);
+    style.remove();
+    return selectors;
+  }
+
   it.each([
     ["a state", "stateDiagram-v2\nA --> B\nnote right of A : about A\nstyle A fill:#f00,color:#0f0\n", "A"],
     ["a composite state", "stateDiagram-v2\nstate Outer {\nI\n}\nnote right of Outer : about Outer\n", "Outer"],
@@ -2223,6 +2242,51 @@ describe("default theme's token reach", () => {
     expect(resolvePaint(state, "var(--siren-node-fill)")).toBe("#ff00ff");
     // …and stops there: the note takes the container's colours.
     expect(paints()).toEqual(["#000080", "#008000", "#800000"]);
+  });
+
+  it("paints a state's note from the diagram when its state is not a child of the <svg>", () => {
+    // The capture of the diagram's colours must not hang on where the states
+    // sit: a caller (or a later renderer) may wrap them in a group of its own,
+    // and a browser without `:has()` must still paint the note — without the
+    // capture the note's paint is invalid and it draws black and unstroked.
+    const svg = renderThemedSVG("stateDiagram-v2\nA --> B\nnote right of A : about A\n");
+    const wrapper = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    for (const state of Array.from(svg.querySelectorAll(":scope > .siren-state"))) {
+      wrapper.appendChild(state);
+    }
+    svg.appendChild(wrapper);
+    const frame = svg.querySelector('g.siren-state[data-siren-id="A"] .siren-note-frame')!;
+    const text = svg.querySelector('g.siren-state[data-siren-id="A"] .siren-note-text')!;
+
+    expect(frame.parentElement?.closest("svg")).toBe(svg);
+    expect([
+      resolvePaint(frame, getComputedStyle(frame).fill),
+      resolvePaint(frame, getComputedStyle(frame).stroke),
+      resolvePaint(text, getComputedStyle(text).fill),
+    ]).toEqual(["#f3efff", "#6d3fd6", "#1d1730"]);
+  });
+
+  it("weighs nothing in the rule that hands a state note the diagram's colours", () => {
+    // A caller who recolours notes names the note's parts — `.siren-note-frame`
+    // and `.siren-note-text`, one class each — and redeclares `--siren-node-*`
+    // there. The theme's redeclaration on the same parts must not outrank
+    // that, so it sits wholly inside `:where()`. jsdom cannot show this through
+    // the cascade: it lets an earlier sheet's custom property beat a later,
+    // more specific one, so the selector is held instead.
+    const redeclarations = cssRulesDeclaring("--siren-node-fill").filter((selector) =>
+      selector.includes("siren-note-"),
+    );
+    expect(redeclarations.length).toBeGreaterThan(0);
+    for (const selector of redeclarations) expect(selector).toMatch(/^:where\([^()]*\)$/);
+  });
+
+  it("captures a state note's colours without :has()", () => {
+    // jsdom supports `:has()`, so the previous test cannot take it away; this
+    // one holds the rule that captures the diagram's colours to a selector
+    // every browser in the support range matches.
+    const captures = cssRulesDeclaring("--_siren-state-note-fill");
+    expect(captures.length).toBeGreaterThan(0);
+    for (const selector of captures) expect(selector).not.toContain(":has(");
   });
 
   /**
