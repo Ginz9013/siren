@@ -4,8 +4,9 @@ status: accepted
 
 # Author styling is emitted as inline `style` attributes alongside the token theme, not as a generated `<style>` block
 
-> 作者樣式的方向將由 [ADR-0017](0017-a-siren-document-without-its-timeline-is-mermaid.md) 調整：
-> 作者的顏色仍然只用 Mermaid 語法表達，theme preset 如何接管它由之後的 board 決定。在那個 board 落地之前，本 ADR 維持原文。
+> 決策 `01M5964K7XEW1DA28AEP1ZYJY5`（2026-10-19）定案：作者的顏色仍然只用 Mermaid 語法表達，core 沒有 theme preset。
+> 網站如何接管作者的顏色是 siren-website 的事：它讀 `SirenRenderResult.styles` 的樣式事實，
+> 再以 `RenderOptions.omitAuthorStyles` 讓 core 略過指定的作者屬性。本 ADR 原文不變。
 
 The class diagram is the first diagram kind to accept author-level styling directives — `style X
 fill:#fdd,stroke:#c00`, `classDef name ...` plus `cssClass "A,B" name`. That introduces a second

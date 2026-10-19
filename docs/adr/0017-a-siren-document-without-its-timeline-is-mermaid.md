@@ -4,6 +4,12 @@ status: accepted
 
 # Siren 文件刪掉 timeline 區塊後就是 Mermaid，主題改以 Mermaid 的顏色模型為基礎
 
+> 決策 `01M5964K7XEW1DA28AEP1ZYJY5`（2026-10-19）撤回下文「design token 改以 Mermaid 的顏色模型為基礎」一段，
+> 以及最後一段列出的後續步驟：token 不改以 `themeVariables` 為鍵，Mermaid 的內建主題不成為 theme preset，
+> core 也不做 apply mode 或 role class——主題、分組與角色都屬於 siren-website。文件層級的 `theme`／`themeVariables`
+> 照讀、回報、不套用是定案，不是暫時。其餘不變式不變：刪掉 timeline 就是 Mermaid、作者的顏色只用 Mermaid 語法、
+> Siren 專屬的意義只放在 Mermaid 不讀就丟掉的 frontmatter 欄位。本 ADR 原文不變。
+
 自 ADR-0001 起，Siren 只守一個方向的相容條件：Mermaid 畫得出來的文件，Siren 一定要畫得出來。反方向從來沒有承諾，
 而 Siren 在這個方向上已經走偏了：它接受只有 `%%` 的一行，Mermaid 卻拒絕；好幾個 `examples/*.srn` 拿這種行當段落分隔，
 `mermaid-probe.mjs` 也記錄了這個落差，並教讀者繞過它。與此同時，正在討論的樣式規劃——theme preset、可以調色的 GUI、

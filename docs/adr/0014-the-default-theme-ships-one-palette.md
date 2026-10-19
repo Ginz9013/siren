@@ -4,8 +4,8 @@ status: accepted
 
 # The default theme ships one palette, declared once, and a second theme is the consumer's
 
-> 本主題的方向將由 [ADR-0017](0017-a-siren-document-without-its-timeline-is-mermaid.md) 調整：
-> Mermaid 的內建主題將成為 theme preset。在進行這項改變的 board 落地之前，本 ADR 維持原文。
+> 決策 `01M5964K7XEW1DA28AEP1ZYJY5`（2026-10-19）定案：core 沒有內建 preset，Mermaid 的內建主題也不會成為 theme preset；
+> 文件層級的 `theme`／`themeVariables` 照讀、回報、不套用。第二套主題仍然是使用者自己的，本 ADR 原文不變。
 
 > Supersedes [ADR-0011](0011-core-ships-a-light-and-a-dark-palette.md).
 
