@@ -293,7 +293,10 @@ to recolour notes (see **Fixed**).
   the timeline: a timeline's enter or exit effect on an animated edge runs beside the march (so
   `exit e1 fade` takes the edge away), and the march stops under `prefers-reduced-motion: reduce`.
   Its numbers are tokens: `--siren-edge-march-dash` (`9 5`), `--siren-edge-march-offset` (`900`),
-  `--siren-edge-march-fast-duration` (`20s`) and `--siren-edge-march-slow-duration` (`50s`). `curve: <name>` draws the edge
+  `--siren-edge-march-fast-duration` (`20s`) and `--siren-edge-march-slow-duration` (`50s`), which
+  makes 30 tokens on `:root`. `--siren-edge-march`, the march a speed class names, is core's own
+  hook between its rules, not a token: it is not declared on `:root`, where a value never reaches
+  an animated edge, and each rule reading it falls back to `none`. `curve: <name>` draws the edge
   with that curve, as `linkStyle … interpolate` does — on ELK too, where Mermaid draws every edge
   rounded — the later of a `curve:` and a `linkStyle N interpolate` winning, and either beating
   `linkStyle default`. An animation other than `fast` or `slow`, a curve Siren does not draw yet

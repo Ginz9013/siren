@@ -4,6 +4,9 @@ status: accepted
 
 # The default theme ships one palette, declared once, and a second theme is the consumer's
 
+> 決策 `01M59N4KXRKK7R9Y55K64R4013`（2026-10-19）定案：`:root` 只宣告 design token；core 規則之間傳值的 internal hook
+> （如 `--siren-edge-march`）不是 token，不宣告在 `:root`，讀取處以 `var(--x, <fallback>)` 自帶預設。本 ADR 原文不變。
+
 > 決策 `01M5964K7XEW1DA28AEP1ZYJY5`（2026-10-19）定案：core 沒有內建 preset，Mermaid 的內建主題也不會成為 theme preset；
 > 文件層級的 `theme`／`themeVariables` 照讀、回報、不套用。第二套主題仍然是使用者自己的，本 ADR 原文不變。
 
