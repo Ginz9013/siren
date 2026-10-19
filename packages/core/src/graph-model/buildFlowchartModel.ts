@@ -28,7 +28,8 @@ import { resolveTimelineBlocks } from "./resolveTimeline";
  * rules for what a declaration means, and the gate ADR-0008 calls the
  * board's security boundary for styling, are written once and read by every
  * diagram kind. What is flowchart-specific is only *which ids exist* — its
- * nodes — and that is the argument this function passes.
+ * nodes, and its subgraphs under their generated ids — and that is the
+ * argument this function passes.
  *
  * Its own return shape stays flowchart-only (no `model` field) — this module
  * has no reason to know sequence-diagram types exist; the dispatcher
@@ -48,8 +49,8 @@ export function buildFlowchartModel(
 
   // Every styling statement a flowchart can write except one — `style`,
   // `classDef`, and the apply-directive in both its `class` and its `:::`
-  // spelling — names a node. `linkStyle` is the exception, and it is
-  // resolved separately below.
+  // spelling — names a node, or a subgraph by its handle (mapped below).
+  // `linkStyle` is the exception, and it is resolved separately below.
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   // An id the author gave an edge, named by one of those node statements,
   // is the edge's: Mermaid 12.2.0 draws `class e1 c` as the edge painted

@@ -481,7 +481,7 @@ Override any `--siren-*` custom property in your own CSS:
 
 | Group     | Tokens                                                                                                              |
 | --------- | ------------------------------------------------------------------------------------------------------------------- |
-| Colors    | `--siren-node-fill`, `--siren-node-stroke`, `--siren-node-text`, `--siren-edge-stroke`, `--siren-highlight-color` |
+| Colors    | `--siren-node-fill`, `--siren-node-stroke`, `--siren-node-text`, `--siren-edge-stroke`, `--siren-highlight-color`, `--siren-subgraph-fill` (`none`, a flowchart subgraph's frame) |
 | Text      | `--siren-font-family`, `--siren-font-size`, `--siren-label-font-size`, `--siren-title-font-size`                  |
 | Lines     | `--siren-stroke-width`, `--siren-edge-thick-stroke-width`, `--siren-edge-dash`, `--siren-lifeline-dash`, `--siren-note-link-dash`, `--siren-highlight-stroke-width` |
 | Shapes    | `--siren-node-border-radius`, `--siren-box-fill-opacity`                                                           |

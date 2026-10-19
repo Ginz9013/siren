@@ -2953,11 +2953,11 @@ export function parseFlowchart(source: string): DiagramParseResult {
     { id, label, labelAt, definitionName, shape, data }: EdgeEndpoint,
     statement: Statement,
     /**
-     * Where this mention was written. Only an *edge endpoint* can mean a
+     * Where this mention was written. A bare *edge endpoint* can mean a
      * subgraph's frame rather than a node — that is Mermaid's rule and the
      * reason this parameter exists — so a bare mention there declares the
-     * node provisionally, while the same spelling on a line of its own
-     * declares it outright.
+     * node provisionally, as does a bare `X:::cls` on a line of its own;
+     * any other spelling on a line of its own declares it outright.
      */
     writtenAs: "an edge endpoint" | "a declaration" = "a declaration",
   ) => {
