@@ -9,12 +9,14 @@ import type {
   ResolvedSubgraph,
   SirenSubgraph,
   StyleDecl,
+  StyleFact,
   StyleProperty,
+  StyleSource,
 } from "../contracts";
 import { CURVES, FLOWCHART_DEFAULT_CURVE, isCurve, isMermaidOnlyCurve, type Curve } from "../curve/curve";
 import { generatedId } from "./generatedId";
 import { resolveInteractions } from "./resolveInteractions";
-import { resolveStyles } from "./resolveStyles";
+import { asStyleFact, resolveStyleFacts, resolveStyles } from "./resolveStyles";
 import { resolveTimelineBlocks } from "./resolveTimeline";
 
 /**
@@ -28,7 +30,8 @@ import { resolveTimelineBlocks } from "./resolveTimeline";
  * rules for what a declaration means, and the gate ADR-0008 calls the
  * board's security boundary for styling, are written once and read by every
  * diagram kind. What is flowchart-specific is only *which ids exist* — its
- * nodes — and that is the argument this function passes.
+ * nodes, and its subgraphs under their generated ids — and that is the
+ * argument this function passes.
  *
  * Its own return shape stays flowchart-only (no `model` field) — this module
  * has no reason to know sequence-diagram types exist; the dispatcher
@@ -48,8 +51,8 @@ export function buildFlowchartModel(
 
   // Every styling statement a flowchart can write except one — `style`,
   // `classDef`, and the apply-directive in both its `class` and its `:::`
-  // spelling — names a node. `linkStyle` is the exception, and it is
-  // resolved separately below.
+  // spelling — names a node, or a subgraph by its handle (mapped below).
+  // `linkStyle` is the exception, and it is resolved separately below.
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   // An id the author gave an edge, named by one of those node statements,
   // is the edge's: Mermaid 12.2.0 draws `class e1 c` as the edge painted
@@ -88,9 +91,24 @@ export function buildFlowchartModel(
       ? declaration
       : { ...declaration, targetIds: declaration.targetIds.filter((id) => !onEdges.includes(id)) };
   });
-  for (const { targetId, style } of resolveStyles(
-    withImplicitDefaultClass(nodeStyles, [...nodeById.keys()]),
-    new Set(nodeById.keys()),
+  // A target that is a block's handle is the block: Mermaid 12.2.0 paints
+  // `style s1 …`, `class s1 hot` and `s1:::hot` after `subgraph s1 [Box]` on
+  // the cluster's frame and title (measured), and on the cluster even where
+  // a node of that name exists too. The handle becomes the generated id
+  // here, so the author's word never reaches `data-siren-id`; a colon
+  // cannot be in a node id, so the two sets of targets cannot collide.
+  const subgraphById = new Map(subgraphs.map((subgraph) => [subgraph.id, subgraph]));
+  const styles = nodeStyles.map((declaration) =>
+    declaration.styleKind === "classDef" || !declaration.targetIds.some((id) => idByName.has(id))
+      ? declaration
+      : { ...declaration, targetIds: declaration.targetIds.map((id) => idByName.get(id) ?? id) },
+  );
+  const styleFacts: StyleFact[] = [];
+  for (const resolved of resolveStyleFacts(
+    // `default` is applied to nodes only: Mermaid does not paint a subgraph's
+    // frame with it (measured on 12.2.0).
+    withImplicitDefaultClass(styles, [...nodeById.keys()]),
+    new Set([...nodeById.keys(), ...subgraphById.keys()]),
     diagnostics,
   )) {
     // Every id `resolveStyles` returns is one it was handed, so this cannot
@@ -100,7 +118,10 @@ export function buildFlowchartModel(
     // elements a declaration is about was settled by `resolveStyles`, and
     // re-deciding it here would be the second opinion that split is meant
     // to prevent.
-    nodeById.get(targetId)!.style = style;
+    const { targetId, style } = resolved;
+    const target = nodeById.get(targetId) ?? subgraphById.get(targetId)!;
+    target.style = style;
+    styleFacts.push(asStyleFact(resolved, subgraphById.has(targetId) ? "subgraph" : "node"));
   }
 
   // The same resolver `resolveStyles` above already shares with the class
@@ -158,7 +179,9 @@ export function buildFlowchartModel(
   // The class definitions were read once already, for the nodes above, so
   // what reading them again finds is not reported a second time.
   const edgeClassDiagnostics: Diagnostic[] = [];
-  const resolvedEdgeClasses = resolveStyles([...classDefs, ...edgeClasses], edgeIds, edgeClassDiagnostics);
+  const resolvedEdgeClasses = resolveStyleFacts([...classDefs, ...edgeClasses], edgeIds, edgeClassDiagnostics, {
+    keepUnstyled: true,
+  });
   const reported = new Set(diagnostics.map((diagnostic) => JSON.stringify(diagnostic)));
   diagnostics.push(...edgeClassDiagnostics.filter((diagnostic) => !reported.has(JSON.stringify(diagnostic))));
   // The class whose definition animates, per class name.
@@ -167,7 +190,11 @@ export function buildFlowchartModel(
       name !== null && properties.some(({ property }) => property === "animation") ? [name] : [],
     ),
   );
-  for (const { targetId, style } of resolvedEdgeClasses) {
+  // Where each styled edge's declarations came from, kept beside
+  // `edge.style` as the tiers below lay over it, index for index.
+  const edgeSources = new Map<string, StyleFact["sources"]>();
+  const edgeClassNames = new Map<string, string[]>();
+  for (const { targetId, style, classes, sources } of resolvedEdgeClasses) {
     const animating = style.frame.some(({ property }) => property === "animation");
     if (animating) {
       // The statement that applied an animating class to this edge — the
@@ -185,20 +212,29 @@ export function buildFlowchartModel(
         column: applied.column,
       });
     }
-    edgeById.get(targetId)!.style = {
-      ...style,
-      frame: style.frame.filter(({ property }) => property !== "animation"),
-    };
+    const kept = style.frame.flatMap((declaration, i) =>
+      declaration.property === "animation" ? [] : [{ declaration, source: sources.frame[i]! }],
+    );
+    edgeById.get(targetId)!.style = { ...style, frame: kept.map(({ declaration }) => declaration) };
+    edgeSources.set(targetId, { ...sources, frame: kept.map(({ source }) => source) });
+    edgeClassNames.set(targetId, classes);
   }
-  for (const { targetId, style } of resolveStyles(fallback, edgeIds, diagnostics)) {
-    const edge = edgeById.get(targetId)!;
-    edge.style = overriding(edge.style, style);
+  // A `linkStyle` reaches `resolveStyles` as a `style`, so the tier it was
+  // is said here, where it is known.
+  for (const [tier, via] of [
+    [fallback, "linkStyle default"],
+    [specific, "linkStyle"],
+  ] as const) {
+    for (const { targetId, style } of resolveStyles(tier, edgeIds, diagnostics)) {
+      const edge = edgeById.get(targetId)!;
+      const laid = overriding(
+        { style: edge.style, sources: edgeSources.get(targetId) ?? { frame: [], text: [] } },
+        { style, sources: { frame: style.frame.map(() => ({ via })), text: style.text.map(() => ({ via })) } },
+      );
+      edge.style = laid.style;
+      edgeSources.set(targetId, laid.sources);
+    }
   }
-  for (const { targetId, style } of resolveStyles(specific, edgeIds, diagnostics)) {
-    const edge = edgeById.get(targetId)!;
-    edge.style = overriding(edge.style, style);
-  }
-
   // The curve rides the same two tiers, from the same resolved addresses,
   // so an index that names no edge is diagnosed once, above, and not again.
   // An edge no `interpolate` reached is left without one, which the
@@ -209,7 +245,18 @@ export function buildFlowchartModel(
 
   // What an edge's own `e1@{ … }` data says: its animation, and its curve
   // on the terms `GraphEdge.curve` states against `linkStyle`.
-  applyEdgeData(document, edges, addressed, diagnostics);
+  applyEdgeData(document, edges, addressed, edgeSources, diagnostics);
+
+  // Each styled edge's fact, read off only now: an edge's own data can still
+  // take a declaration back (an animated edge's dash), and a fact is the
+  // declarations as painted.
+  for (const edge of edges) {
+    const sources = edgeSources.get(edge.id);
+    if (sources !== undefined && edge.style.frame.length + edge.style.text.length > 0) {
+      const classes = edgeClassNames.get(edge.id) ?? [];
+      styleFacts.push({ id: edge.id, kind: "edge", classes, effective: edge.style, sources });
+    }
+  }
 
   // A subgraph is a timeline target on the same terms as a node and an edge:
   // it is a drawn thing with an id, and board 2's rule is that a diagram kind
@@ -246,6 +293,7 @@ export function buildFlowchartModel(
     accTitle: document.accTitle,
     accDescr: document.accDescr,
     ...timelines,
+    styleFacts,
   };
 
   return { graph, diagnostics };
@@ -264,29 +312,38 @@ export function buildFlowchartModel(
  *
  * The property keeps the position of its first declaration and takes the
  * value of its last, which is the rule `resolveStyles` already applies
- * within a tier, applied here between two.
+ * within a tier, applied here between two. Its source goes with its value.
  */
-function overriding(fallback: AuthorStyle, specific: AuthorStyle): AuthorStyle {
+function overriding(fallback: SourcedStyle, specific: SourcedStyle): SourcedStyle {
+  // Half by half, because the two tiers are two statements about the same
+  // edge and each half is about a different element of it. Merging them
+  // together would let a `linkStyle default color:#fff` be taken back by
+  // a `linkStyle 0 stroke:#f00` that never mentioned the label.
+  const frame = overridingHalf(fallback, specific, "frame");
+  const text = overridingHalf(fallback, specific, "text");
   return {
-    frame: overridingProperties(fallback.frame, specific.frame),
-    // Half by half, because the two tiers are two statements about the same
-    // edge and each half is about a different element of it. Merging them
-    // together would let a `linkStyle default color:#fff` be taken back by
-    // a `linkStyle 0 stroke:#f00` that never mentioned the label.
-    text: overridingProperties(fallback.text, specific.text),
+    style: { frame: frame.map(({ declaration }) => declaration), text: text.map(({ declaration }) => declaration) },
+    sources: { frame: frame.map(({ source }) => source), text: text.map(({ source }) => source) },
   };
 }
 
+/** An edge's declarations so far, with the statement each came from, index for index. */
+interface SourcedStyle {
+  style: AuthorStyle;
+  sources: StyleFact["sources"];
+}
+
 /** One half of `overriding`: the fallback's declarations with the specific statement's laid over them. */
-function overridingProperties(
-  fallback: readonly StyleProperty[],
-  specific: readonly StyleProperty[],
-): StyleProperty[] {
-  const merged = new Map(fallback.map(({ property, value }) => [property, value]));
-  for (const { property, value } of specific) {
-    merged.set(property, value);
+function overridingHalf(
+  fallback: SourcedStyle,
+  specific: SourcedStyle,
+  half: keyof AuthorStyle,
+): { declaration: StyleProperty; source: StyleSource }[] {
+  const merged = new Map<string, { value: string; source: StyleSource }>();
+  for (const { style, sources } of [fallback, specific]) {
+    style[half].forEach(({ property, value }, i) => merged.set(property, { value, source: sources[half][i]! }));
   }
-  return [...merged].map(([property, value]) => ({ property, value }));
+  return [...merged].map(([property, { value, source }]) => ({ declaration: { property, value }, source }));
 }
 
 /**
@@ -680,11 +737,15 @@ function resolveCurves(
  * `fast`. The curve is the one a `linkStyle N interpolate` written later
  * does not take back: Mermaid sets an edge's one curve as each is read, so
  * the later of the two wins, and either beats `linkStyle default`.
+ *
+ * `edgeSources` is each styled edge's provenance, index for index with its
+ * `style`, so a declaration the data takes back takes its source with it.
  */
 function applyEdgeData(
   document: FlowchartDocument,
   edges: readonly GraphEdge[],
   addressed: readonly AddressedLinkStyle[],
+  edgeSources: Map<string, StyleFact["sources"]>,
   diagnostics: Diagnostic[],
 ): void {
   // Where the last `linkStyle N interpolate` naming each edge was written.
@@ -705,11 +766,14 @@ function applyEdgeData(
     if (animation !== undefined) {
       edge.animation = animation;
       // The march's dash beats an author's (Mermaid writes it
-      // `!important`, measured), so none is handed on to be drawn.
-      edge.style = {
-        ...edge.style,
-        frame: edge.style.frame.filter(({ property }) => property !== "stroke-dasharray"),
-      };
+      // `!important`, measured), so none is handed on to be drawn — nor
+      // reported: the statement it came from goes with it, index for index.
+      const kept = edge.style.frame.map(({ property }) => property !== "stroke-dasharray");
+      edge.style = { ...edge.style, frame: edge.style.frame.filter((_, i) => kept[i]) };
+      const sources = edgeSources.get(edge.id);
+      if (sources !== undefined) {
+        edgeSources.set(edge.id, { ...sources, frame: sources.frame.filter((_, i) => kept[i]) });
+      }
     }
     if (data.curve === undefined) {
       return;

@@ -78,6 +78,12 @@
      label paint above, but a second theme has to redeclare it: on a dark
      canvas a white background is the one thing on the page. */
   --siren-edge-label-fill: rgb(255 255 255 / 0.8);
+  /* What a subgraph's frame is filled with — a flowchart's, an ER diagram's,
+     and a composite state's, the same figure: nothing, so the default
+     picture is the outlined frame (see `.siren-subgraph-frame`). A token
+     rather than a bare `none` so a theme can tint one block by redeclaring
+     it on that block's `data-siren-id` group, or every block at once here. */
+  --siren-subgraph-fill: none;
 
   /* Typography tokens */
   --siren-font-family: system-ui, sans-serif;
@@ -159,6 +165,10 @@
  *
  * `siren-node-bare` is a text block's frame: drawn, but neither filled nor
  * stroked, so the label alone shows.
+ *
+ * The `none`s here and in `siren-node-hollow` are literals, not tokens: a
+ * frame unfilled by design is token reach's documented exception
+ * (CONTEXT.md), since there is no colour for a token to carry.
  */
 .siren-node-frame.siren-node-bare {
   fill: none;
@@ -239,8 +249,10 @@
  * Outlined and not filled: the frame encloses node boxes that are drawn
  * *over* it, so a fill here would sit behind the whole group and tint nothing
  * usefully while still hiding whatever the frame overlaps — and a nested
- * frame would tint its parent's fill a second time. It tracks the node stroke
- * because it is a container of boxes, not a connector.
+ * frame would tint its parent's fill a second time. The fill is still a
+ * token, `--siren-subgraph-fill`, so a theme that wants a tint can have one.
+ * It tracks the node stroke because it is a container of boxes, not a
+ * connector.
  *
  * No `font-size` on the title: `layoutGraph` measures it in
  * `--siren-font-size` and grows the frame's top strip from what it measured,
@@ -248,7 +260,7 @@
  * the strip built to hold it.
  */
 .siren-subgraph-frame {
-  fill: none;
+  fill: var(--siren-subgraph-fill);
   stroke: var(--siren-node-stroke);
   stroke-width: var(--siren-stroke-width);
   rx: var(--siren-node-border-radius);
@@ -389,7 +401,8 @@
  * itself, so it doesn't inherit that path's stroke color — it needs its own
  * rule, or it falls back to SVG's initial fill (black), invisible against a
  * dark theme's background. Tracks the same token as the edge line so the
- * two always match.
+ * two always match — as resolved at the diagram; a flowchart head follows
+ * its own edge instead (`.siren-edge-marker`, after `.siren-arrow-hollow`).
  */
 .siren-arrow-fill {
   fill: var(--siren-edge-stroke);
@@ -711,6 +724,44 @@
 }
 
 /*
+ * A flowchart edge's head, painted with its own edge's stroke. A marker's
+ * content inherits from `<defs>`, never from the path pointing at it, so the
+ * token the rules above name is resolved at the diagram, and a token
+ * redeclared on one edge's `path[data-siren-id]`, or that edge's highlight,
+ * recoloured the line and left its head behind. `context-stroke` is the paint
+ * SVG 2 gives a marker for exactly this: the stroke of the element it is
+ * drawn for, whatever set it — the theme, a redeclared token, an author's
+ * `stroke`, a highlight. The ring keeps its surface fill. A marker per edge
+ * would not have done it: its content would still inherit from `<defs>`,
+ * and following the edge would take a script copying the edge's colour in
+ * at every step.
+ *
+ * Measured in Chrome 155 (`scripts/edge-arrowhead-colour.mjs`): every head,
+ * of all three shapes, reads its line's colour as drawn, under a token
+ * redeclared on the edge and under `outline` and `glow`. MDN's browser
+ * compatibility data (`svg.global_attributes.stroke.context-stroke`,
+ * @mdn/browser-compat-data 8.1.6, developer.mozilla.org/docs/Web/SVG/
+ * Reference/Attribute/fill) has it in Chrome and Edge from 124 and Firefox
+ * from 111, and in no Safari (not measured here). A browser that does not
+ * know the keyword drops the declaration, and the rules above paint the head: the theme's token at
+ * the diagram, or the author's colour a coloured edge's marker carries
+ * (renderToSVG.ts) — the head as it was before, measured with the same
+ * script's `--without-context-stroke`.
+ *
+ * Only the flowchart's: the other kinds draw their heads with the same three
+ * classes, from markers of their own, and are left as they are. Written after
+ * all three rules it narrows, though its two classes outrank them anywhere.
+ */
+.siren-edge-marker > .siren-arrow-fill {
+  fill: context-stroke;
+}
+
+.siren-edge-marker > .siren-arrow-hollow,
+.siren-edge-marker > .siren-arrow-stroke {
+  stroke: context-stroke;
+}
+
+/*
  * The lollipop's circle — a class diagram's interface marker. Unlike
  * `.siren-arrow-hollow` above, its fill is `none` rather than the surface
  * color: measured against real Mermaid (`fill="transparent"`), the
@@ -785,6 +836,57 @@
 
 .siren-note-text {
   fill: var(--siren-node-text);
+}
+
+/*
+ * A state diagram's note sits inside its state's group, so it would inherit
+ * any `--siren-node-*` a caller redeclares on that group to recolour the
+ * state — reaching a figure the author's own `style` leaves alone (measured,
+ * mermaid 11.17.2). Token reach is kept by giving the note the node tokens
+ * as they stand at the diagram's `<svg>`, one level above every state: the
+ * `--_siren-state-note-*` properties are substituted there, and the note's
+ * parts redeclare the node tokens from them, so the two rules above still
+ * paint it. Not a token — hence the `--_siren-` spelling, outside the
+ * `--siren-*` names a caller redeclares — and not in `:root`, where it would
+ * freeze the value past a caller's container (see the design-token entry in
+ * CONTEXT.md): the `<svg>` is below any container, so a palette redeclared
+ * there, or on the `<svg>` itself, reaches the note as it reaches everything
+ * else. An alias on the note itself could not do this: it would substitute
+ * against the note, which has already inherited the state's redeclaration.
+ *
+ * Kept in the group rather than moved beside it: being in its state's group
+ * is what makes a note fade, slide and leave with its state under a
+ * timeline, and the group is also where every reader of a drawn state —
+ * the layout checks among them — finds its note.
+ *
+ * The capture is on every `<svg>` but one inside a state, not on
+ * `svg:has(> .siren-state)`: `:has()` (Chrome 105, Firefox 121) is newer
+ * than some browsers the package's ES2022 target takes in, and a
+ * direct-child test would miss states a caller wraps in a group. Without the capture the note's paint
+ * is invalid and it draws black and unstroked, so it must not hang on
+ * either. Capturing on an `<svg>` that is not the diagram's — a page's outer
+ * `<svg>` around it — is harmless, since the diagram's own `<svg>` captures
+ * again below it. An `<svg>` nested inside a state would not be: it would
+ * capture the state's redeclared tokens and hand them to the note. The state
+ * renderer draws none there (its states are rects, polygons, lines, circles
+ * and text), but the selector excludes one anyway, so that a caller's icon
+ * or a later renderer cannot reopen the leak. `:not()` with a descendant
+ * selector predates `:has()` by years (Chrome 88, Firefox 84, Safari 9).
+ */
+svg:not(.siren-state svg) {
+  --_siren-state-note-fill: var(--siren-node-fill);
+  --_siren-state-note-stroke: var(--siren-node-stroke);
+  --_siren-state-note-text: var(--siren-node-text);
+}
+
+/* Inside `:where()`, so it weighs nothing: a caller who recolours notes
+   redeclares `--siren-node-*` on `.siren-note-frame` or `.siren-note-text`
+   themselves — the only way to, since a redeclaration on the state stops
+   above the note — and that one class must win over this rule. */
+:where(.siren-state .siren-note-frame, .siren-state .siren-note-text) {
+  --siren-node-fill: var(--_siren-state-note-fill);
+  --siren-node-stroke: var(--_siren-state-note-stroke);
+  --siren-node-text: var(--_siren-state-note-text);
 }
 
 /*
@@ -918,11 +1020,13 @@
  * so it is outlined and not filled — the same reason `.siren-subgraph-frame`
  * and `.siren-namespace-frame` are, and the reason it cannot simply take
  * `.siren-state-frame`'s rule: a fill here would sit behind the whole group
- * and hide whatever the frame overlaps. Rounded like the state box it is a
- * frame around, through the same token.
+ * and hide whatever the frame overlaps. Unfilled through the subgraph's
+ * token, as that frame is, so a theme can still tint one composite by
+ * redeclaring it on the composite's `data-siren-id` group. Rounded like the
+ * state box it is a frame around, through the same token.
  */
 .siren-composite-frame {
-  fill: none;
+  fill: var(--siren-subgraph-fill);
   stroke: var(--siren-node-stroke);
   stroke-width: var(--siren-stroke-width);
   rx: var(--siren-node-border-radius);
@@ -1303,6 +1407,16 @@
  * `<path class="siren-edge">` itself, which already carries `stroke`).
  * `glow` uses an SVG filter, which applies to a `<g>`'s whole subtree as a
  * unit, so no descendant selector is needed there.
+ *
+ * An author's `stroke` is an inline declaration on the very frame these
+ * rules name (ADR-0008), so it outranks every one of them — and none of
+ * them is `!important`, which an author's own `!important` would outrank
+ * anyway. A highlight is Siren's own state and always wins, so the
+ * animation controller lifts the author's `stroke` off the frames a target
+ * draws while it is highlighted and puts the attribute back verbatim the
+ * moment it is not (`liftAuthorStroke` in createAnimationController.ts),
+ * leaving the rules below as the only paint. It is part of the same
+ * synchronous class change, so it adds no timing and `prev()` still snaps.
  */
 .siren-node.siren-highlight-outline .siren-node-frame {
   stroke: var(--siren-highlight-color);
@@ -1476,8 +1590,9 @@
  * Outlined and not filled: the frame encloses entity boxes that are drawn
  * *over* it, so a fill here would sit behind the whole group and tint
  * nothing usefully while still hiding whatever the frame overlaps — and a
- * nested frame would tint its parent's fill a second time. It tracks the
- * node stroke because it is a container of boxes, not a connector.
+ * nested frame would tint its parent's fill a second time. The fill is the
+ * flowchart subgraph's token, for the same figure. It tracks the node stroke
+ * because it is a container of boxes, not a connector.
  *
  * No `font-size` on the title: `layoutErDiagram` measures it in
  * `--siren-font-size` and grows the frame's top strip from what it
@@ -1485,7 +1600,7 @@
  * disagreeing with the strip built to hold it.
  */
 .siren-er-subgraph-frame {
-  fill: none;
+  fill: var(--siren-subgraph-fill);
   stroke: var(--siren-node-stroke);
   stroke-width: var(--siren-stroke-width);
   rx: var(--siren-node-border-radius);
@@ -1684,12 +1799,18 @@
  * palette the node stroke is a light lavender), which reads as a white halo
  * under the glow rather than as the shape's own edge. Same targets as the
  * `outline` rules above, since the stroke lives on the same inner elements.
+ * A state's, a composite's and an ER entity's frame were missing here until
+ * an author's stroke on them was lifted under a highlight: left out, a
+ * glowing one showed the theme's stroke in place of either color.
  */
 .siren-node.siren-highlight-glow .siren-node-frame,
 .siren-edge.siren-highlight-glow,
 .siren-subgraph.siren-highlight-glow .siren-subgraph-frame,
 .siren-class.siren-highlight-glow .siren-class-frame,
 .siren-relationship.siren-highlight-glow .siren-relationship-line,
+.siren-state.siren-highlight-glow .siren-state-frame,
+.siren-state.siren-highlight-glow .siren-composite-frame,
+.siren-er-entity.siren-highlight-glow .siren-er-entity-frame,
 .siren-state.siren-highlight-glow .siren-state-region,
 .siren-state.siren-highlight-glow .siren-state-start,
 .siren-state.siren-highlight-glow .siren-state-bar,

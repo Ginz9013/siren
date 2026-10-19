@@ -3028,7 +3028,7 @@ describe("a document's frontmatter", () => {
     });
   }
 
-  it("drops a top-level key Mermaid does not know, unread and unreported, as Mermaid does", () => {
+  it("keeps a top-level key Mermaid does not know out of the config, and says nothing about it, as Mermaid does", () => {
     // Measured (probe, 12.2.0): `siren:` beside `config:` draws A --> B.
     const { document, diagnostics, config } = parseSiren(
       "---\nsiren:\n  roles: x\nconfig:\n  theme: forest\n---\nflowchart TD\n  A --> B",
@@ -3038,6 +3038,32 @@ describe("a document's frontmatter", () => {
     expect(diagnostics.map((d) => d.message)).toEqual([
       'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
     ]);
+  });
+
+  it("hands back `siren:` as written even where a YAML alias shares its node with the config displayMode is folded into", () => {
+    const { siren, config } = parseSiren(
+      "---\nconfig: &c\n  gantt: {}\nsiren: *c\ndisplayMode: compact\n---\nflowchart TD\n  A --> B",
+    );
+    expect(config).toEqual({ gantt: { displayMode: "compact" } });
+    expect(siren).toEqual({ gantt: {} });
+  });
+
+  it("hands back a top-level `siren:` as written, outside the config and with nothing said about it", () => {
+    const { document, diagnostics, config, siren } = parseSiren(
+      "---\nsiren:\n  roles:\n    hot: warning\nconfig:\n  theme: forest\n---\nflowchart TD\n  A --> B",
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(siren).toEqual({ roles: { hot: "warning" } });
+    expect(config).toEqual({ theme: "forest" });
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+    ]);
+    // A key with no value is YAML's null, handed back as such.
+    expect(parseSiren("---\nsiren:\n---\nflowchart TD\n  A --> B")).toMatchObject({
+      diagnostics: [],
+      config: {},
+      siren: null,
+    });
   });
 
   it("reads an indented frontmatter, closed at the same indent, with the indent taken off each YAML line", () => {

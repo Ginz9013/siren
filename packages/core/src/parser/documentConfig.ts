@@ -19,12 +19,16 @@ import type { DiagramKind } from "./parseDirection";
  *   not reported here: whether the frontmatter or a directive decides each
  *   is only known once both are read (`documentConfigOf`).
  * - `position` is its opening fence, where its warnings point.
+ * - `siren` is its top-level `siren:` as the YAML reads, untouched — Siren's
+ *   own key, which Mermaid drops (ADR-0017) — or `undefined` when there is
+ *   none, or when the frontmatter is refused.
  */
 export interface FrontmatterRead {
   source: string;
   config: Record<string, unknown>;
   diagnostics: Diagnostic[];
   position: SourcePosition;
+  siren: unknown;
 }
 
 /**
@@ -63,12 +67,14 @@ const isLineBreak = (char: string | undefined): boolean => char === "\n" || char
  * - **Only the keys Mermaid knows.** `config` is kept as written, with a
  *   `displayMode` folded into `config.gantt.displayMode`; `title` is read
  *   and, like every config key, reported as not applied. A key Mermaid does
- *   not know (`siren:`) is dropped unread, as Mermaid drops it.
+ *   not know is dropped unread, as Mermaid drops it — save `siren:`, which
+ *   Mermaid drops too but Siren hands back as written, uninterpreted and
+ *   unreported (`siren`).
  */
 export function readFrontmatter(text: string): FrontmatterRead {
   const match = matchFrontmatter(text);
   if (match === undefined) {
-    return { source: text, config: {}, diagnostics: [], position: { line: 1, column: 1 } };
+    return { source: text, config: {}, diagnostics: [], position: { line: 1, column: 1 }, siren: undefined };
   }
   const yamlBody = match.indent
     ? match.body
@@ -86,6 +92,7 @@ export function readFrontmatter(text: string): FrontmatterRead {
     config: {},
     diagnostics: [{ severity: "error", message: `${why}; the document is not drawn until ${until}.`, ...openingFence }],
     position: openingFence,
+    siren: undefined,
   });
   let loaded: unknown;
   try {
@@ -95,6 +102,11 @@ export function readFrontmatter(text: string): FrontmatterRead {
     return refuse(`Frontmatter is not valid YAML (${reason})`, "the frontmatter is valid YAML");
   }
   const parsed = asMapping(loaded);
+  // Taken before `displayMode` is folded into the config below: a YAML alias
+  // can make `siren:` and `config:` one node (`config: &c …`, `siren: *c`),
+  // and the fold writes into that node in place. A copy keeps `siren:` as
+  // the author wrote it; JSON-schema values are plain data, so it clones.
+  const siren = structuredClone(parsed.siren);
   const config = isMapping(parsed.config) ? parsed.config : {};
   if (parsed.displayMode) {
     // `processFrontmatter`: a top-level `displayMode` is Gantt's, and lands
@@ -143,6 +155,7 @@ export function readFrontmatter(text: string): FrontmatterRead {
     config,
     diagnostics,
     position: openingFence,
+    siren,
   };
 }
 

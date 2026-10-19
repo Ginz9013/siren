@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render } from "../index";
 import { BASE_FONT_SIZE_PX } from "../label/label";
 import { FRAME_PAINT } from "../layout/shapes/shape";
+import { NODE_DATA_SHAPES } from "../parser/flowchartNodeData";
 
 /**
  * `default.css`'s own text — the artifact these tests are about.
@@ -874,12 +875,14 @@ describe("default theme coverage of the flowchart renderer", () => {
     expect(frameOf("D").getAttribute("rx")).toBeNull();
   });
 
-  it("leaves an unstyled arrowhead resolving through `--siren-edge-stroke`, and lets an author-colored one win over that rule", () => {
-    // Per-edge arrowheads must not quietly take the arrow out of the theme's
-    // hands. An edge nobody styled keeps pointing at a marker whose fill is
-    // still the *token*, so a consumer redeclaring `--siren-edge-stroke`
-    // recolors it exactly as before; only the edge that named a color of its
-    // own stops following.
+  it("paints an author-colored arrowhead with its line's stroke too, and keeps the author's color for a browser without `context-stroke`", () => {
+    // This rewrites what pinned an author-colored head as an inline `fill`
+    // outranking `.siren-arrow-fill`. That was right while a head could not
+    // see its line: the color had to be written on the marker. It is wrong
+    // now that a head is painted with its line's stroke, because an inline
+    // `fill` would outrank that rule too — and the line's stroke is what a
+    // highlight changes, so a coloured head would stay the author's color
+    // under every highlight (backlog 01M598E4W907957JB9H2JFG7QG).
     const svg = renderThemedSVG(`flowchart TD
 A[Start] --> B[Middle]
 B --> C[End]
@@ -900,16 +903,19 @@ linkStyle 0 stroke:#f00
       return head as SVGElement;
     };
 
-    // jsdom does not resolve `var()`, which is what makes this readable: the
-    // unstyled head's fill *is* the token, so redeclaring the token is what
-    // paints it.
-    expect(getComputedStyle(headFor("B-C")).fill).toContain("--siren-edge-stroke");
+    // Both heads take the stroke of the line they are drawn for: the theme's
+    // token at the unstyled one, the author's inline `stroke` at the other.
+    expect(getComputedStyle(headFor("B-C")).fill).toBe("context-stroke");
+    expect(getComputedStyle(headFor("A-B")).fill).toBe("context-stroke");
 
-    // The author's color is an inline declaration on the drawn shape, so it
-    // outranks the theme's `.siren-arrow-fill` rule without `!important` —
-    // ADR-0008's cascade argument, one element further in.
-    expect(getComputedStyle(headFor("A-B")).fill).toBe("#f00");
-    expect(getComputedStyle(headFor("A-B")).fill).not.toContain("--siren-edge-stroke");
+    // A browser that does not know the keyword drops it and falls back to
+    // `.siren-arrow-fill`, which paints through the token. The coloured
+    // head's marker carries the author's color *as* that token, so the
+    // fallback still draws the whole arrow red; the unstyled head carries
+    // nothing and takes the diagram's token, as before.
+    expect(themeRules).toMatch(/\.siren-arrow-fill\s*\{\s*fill:\s*var\(--siren-edge-stroke\);\s*\}/);
+    expect(getComputedStyle(headFor("A-B")).getPropertyValue("--siren-edge-stroke")).toBe("#f00");
+    expect(headFor("B-C").getAttribute("style")).toBeNull();
   });
 
   it("orders the four writers of an edge's stroke-width: base, line style, highlight, author", () => {
@@ -951,6 +957,19 @@ linkStyle 0 stroke:#f00
     expect(getComputedStyle(dotted).strokeWidth).toBe("6px");
     expect(getComputedStyle(dotted).stroke).toBe("rgb(255, 0, 0)");
     expect(getComputedStyle(dotted).strokeDasharray).toContain("--siren-edge-dash");
+  });
+
+  it("fills a subgraph's frame through `--siren-subgraph-fill`, unfilled by default, and lets an author's fill win", () => {
+    // A token at the point of use, so a theme redeclaring it on one
+    // subgraph's `data-siren-id` group repaints that frame alone; `none`, so
+    // the default picture is the outlined frame it has always been.
+    expect(themeRules).toMatch(/:root\s*\{[^}]*--siren-subgraph-fill:\s*none;/);
+    const svg = renderThemedSVG("flowchart TB\nsubgraph s1 [Box]\nA\nend\n");
+    const frame = svg.querySelector("g.siren-subgraph rect.siren-subgraph-frame")!;
+    expect(getComputedStyle(frame).fill).toBe("var(--siren-subgraph-fill)");
+
+    frame.setAttribute("style", "fill: rgb(255, 153, 102)");
+    expect(getComputedStyle(frame).fill).toBe("rgb(255, 153, 102)");
   });
 });
 
@@ -1818,7 +1837,9 @@ describe("default theme's paint for a node's shape-table frames", () => {
     const { frame } = frameOf('flowchart TB\n  A@{ shape: composite, label: "Group" }', "A");
     expect(getComputedStyle(frame).fill).toBe("none");
     expect(getComputedStyle(frame).stroke).toBe("var(--siren-node-stroke)");
-    expect(themeRules).toMatch(/\.siren-subgraph-frame\s*\{[^}]*fill:\s*none/);
+    // A subgraph's frame is unfilled through its token, which defaults to `none`.
+    expect(themeRules).toMatch(/\.siren-subgraph-frame\s*\{[^}]*fill:\s*var\(--siren-subgraph-fill\)/);
+    expect(themeRules).toMatch(/--siren-subgraph-fill:\s*none;/);
   });
 
   it("paints a note node as the class and state diagrams paint a note", () => {
@@ -1942,5 +1963,393 @@ describe("default theme's animated edge under a timeline", () => {
 
     expect(animation).toContain(keyframes);
     expect(animation).toContain("siren-edge-march");
+  });
+});
+
+describe("default theme's highlight over an author's stroke", () => {
+  /**
+   * Renders `source` under a one-step timeline with the theme attached, as
+   * `renderThemedSVG` does (which it calls once to attach it), and hands
+   * back the controller too: lifting the author's stroke is the controller's
+   * half of the bargain, so the cascade is read after a step.
+   */
+  function renderThemedWithController(source: string, step: string) {
+    renderThemedSVG("flowchart TB\n  A");
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const { svg, controller, diagnostics } = render(`${source}\ntimeline:\n${step}`, container);
+    expect(diagnostics).toEqual([]);
+    if (svg === null || controller === null) throw new Error("render() drew nothing");
+    return { svg, controller };
+  }
+
+  const KINDS = [
+    ["a node", "flowchart TB\n  A --> B\n  style A stroke:#f00 !important", "A", '[data-siren-id="A"] .siren-node-frame'],
+    ["an edge", "flowchart TB\n  A --> B\n  linkStyle 0 stroke:#f00 !important", "A-B", 'path.siren-edge[data-siren-id="A-B"]'],
+    [
+      "a subgraph",
+      "flowchart TB\n  subgraph s1 [Box]\n    A\n  end\n  style s1 stroke:#f00 !important",
+      "subgraph:1",
+      '[data-siren-id="subgraph:1"] .siren-subgraph-frame',
+    ],
+    ["a class", "classDiagram\n  class Duck\n  style Duck stroke:#f00 !important", "Duck", '[data-siren-id="Duck"] .siren-class-frame'],
+    ["a state", "stateDiagram-v2\n  [*] --> Idle\n  style Idle stroke:#f00 !important", "Idle", '[data-siren-id="Idle"] .siren-state-frame'],
+    [
+      "a composite state",
+      "stateDiagram-v2\n  state Outer {\n    Inner\n  }\n  style Outer stroke:#f00 !important",
+      "Outer",
+      '[data-siren-id="Outer"] .siren-composite-frame',
+    ],
+    [
+      "an ER entity",
+      "erDiagram\n  CUSTOMER ||--o{ ORDER : places\n  style CUSTOMER stroke:#f00",
+      "CUSTOMER",
+      '[data-siren-id="CUSTOMER"] .siren-er-entity-frame',
+    ],
+  ] as const;
+
+  it.each(KINDS.flatMap(([what, source, id, selector]) =>
+    (["outline", "glow"] as const).map((effect) => [what, effect, source, id, selector] as const),
+  ))("draws %s's border in the highlight color under `%s`, and the author's again after", (_what, effect, source, id, selector) => {
+    // The author's `stroke:#f00` (`!important` wherever the kind accepts it)
+    // must not hide the highlight: a highlight is Siren's own state, and the
+    // whole point of one is that it is seen. `glow` recolors the stroke as
+    // `outline` does, at its own width, so the same holds under both.
+    const { svg, controller } = renderThemedWithController(source, `highlight ${id} ${effect}`);
+    const drawn = svg.querySelector(selector)!;
+    expect(getComputedStyle(drawn).stroke).toBe("#f00");
+
+    controller.next();
+    expect(getComputedStyle(drawn).stroke).toContain("--siren-highlight-color");
+
+    controller.prev();
+    expect(getComputedStyle(drawn).stroke).toBe("#f00");
+  });
+
+  it.each(
+    (["outline", "glow"] as const).flatMap((effect) =>
+      [
+        ["theme's", ""],
+        ["author's", "\n  linkStyle 0 stroke:#f00 !important"],
+      ].map(([whose, style]) => [effect, whose, style] as const),
+    ),
+  )("draws an edge's head in its line's color under `%s`, from the %s color and back", (effect, _whose, style) => {
+    // The head is painted with its line's stroke, whatever the line wears, so
+    // it follows the highlight there and back with the line: no rule, lift or
+    // timer of its own. jsdom paints nothing, so what it can show is that no
+    // declaration on the head outranks that paint at any point in the step;
+    // `scripts/edge-arrowhead-colour.mjs` reads the colours Chrome draws.
+    const { svg, controller } = renderThemedWithController(
+      `flowchart TB\n  A --> B${style}`,
+      `highlight A-B ${effect}`,
+    );
+    const line = svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!;
+    const reference = line.getAttribute("marker-end")!;
+    const head = svg.querySelector(`defs > marker#${reference.slice("url(#".length, -1)} > path`)!;
+    const paints = () => [getComputedStyle(line).stroke, getComputedStyle(head).fill];
+
+    const before = paints();
+    expect(before[1]).toBe("context-stroke");
+
+    controller.next();
+    expect(paints()).toEqual(["var(--siren-highlight-color)", "context-stroke"]);
+
+    controller.prev();
+    expect(paints()).toEqual(before);
+  });
+});
+
+/**
+ * Token reach: a caller recolours one styleable target by redeclaring the
+ * colour tokens on the elements wearing its `data-siren-id`, and nothing
+ * else moves. Two facts make that true, and jsdom — which does not resolve
+ * `var()` — can read both:
+ *
+ * - every colour the theme gives the target's frame and text is a token
+ *   named at that element, never a literal and never a value resolved
+ *   higher up, so a redeclaration on the target reaches it;
+ * - no element wearing an id sits inside another one wearing an id, so a
+ *   redeclaration on a subgraph, a composite or an ER block cannot leak
+ *   into the targets drawn within it.
+ */
+describe("default theme's token reach", () => {
+  /** One document per kind that styles, each nesting what it can nest. */
+  const STYLEABLE = [
+    'flowchart TB\nsubgraph s1 [Outer]\nsubgraph s2 [Inner]\nA -->|go| B((Round))\nend\nC{Choice}\nend\nA --> C\nD([Stadium]) --> s1\n',
+    "classDiagram\nnamespace Shop {\nclass Cart {\n+int items\n+add()\n}\nclass Item\n}\nCart --> Item\n",
+    "stateDiagram-v2\nstate Outer {\nstate Mid {\nI1 --> I2\nnote right of I1 : on a state\n}\nnote left of Mid : on a composite\n}\n[*] --> Outer\n",
+    "erDiagram\nsubgraph s1\nA {\nstring name\n}\nend\nB\nA ||--o{ B : has\n",
+  ];
+
+  /** The groups and lone elements a styling statement can reach, by the class each is drawn with. */
+  const TARGET = [
+    "g.siren-node",
+    "g.siren-subgraph",
+    "path.siren-edge",
+    "text.siren-edge-label",
+    "g.siren-class",
+    "g.siren-state",
+    "g.siren-er-entity",
+    "g.siren-er-subgraph",
+  ].join(", ");
+
+  const TOKEN = /^var\(--siren-[\w-]+\)$/;
+
+  it.each(STYLEABLE)("paints every styleable target's frame and text through a token at the element: %s", (source) => {
+    const svg = renderThemedSVG(source);
+    const targets = Array.from(svg.querySelectorAll(TARGET));
+    expect(targets.length).toBeGreaterThan(0);
+
+    const untokened: string[] = [];
+    for (const target of targets) {
+      const id = target.getAttribute("data-siren-id");
+      const drawn = [target, ...Array.from(target.querySelectorAll("*"))];
+      for (const element of drawn) {
+        const style = getComputedStyle(element);
+        const classes = (element.getAttribute("class") ?? "").split(/\s+/);
+        const paints: Array<"fill" | "stroke"> =
+          element.tagName === "text"
+            ? ["fill"]
+            : classes.includes("siren-edge")
+              ? ["stroke"]
+              : classes.some((name) => name.endsWith("-frame"))
+                ? ["fill", "stroke"]
+                : [];
+        for (const paint of paints) {
+          if (!TOKEN.test(style[paint])) {
+            untokened.push(`${id} ${describeElement(element)} ${paint}: ${style[paint]}`);
+          }
+        }
+      }
+    }
+    expect(untokened).toEqual([]);
+  });
+
+  it("leaves out of token reach only a frame unfilled by design, a bare or a hollow one, which paints `none`", () => {
+    // Every flowchart shape that needs no data beyond its label: the text
+    // block and the composite are two of them, and the parts of a figure a
+    // shape draws hollow (a brace, a bucket's rim) wear the same paint.
+    // One spelling per shape, as an author writes it.
+    const spellingOf = new Map<string, string>();
+    for (const [spelling, shape] of NODE_DATA_SHAPES) {
+      if (!spellingOf.has(shape)) spellingOf.set(shape, spelling);
+    }
+    const shapes = [...spellingOf.keys()].filter((shape) => shape !== "icon" && shape !== "image");
+    const svg = renderThemedSVG(
+      `flowchart TB\n${shapes.map((shape, i) => `N${i}@{ shape: ${spellingOf.get(shape)} }`).join("\n")}\n`,
+    );
+    const UNFILLED_BY_DESIGN = ["siren-node-bare", "siren-node-hollow"];
+
+    const untokened: string[] = [];
+    const exempt = new Set<string>();
+    const exemptShapes = new Set<string>();
+    for (const node of Array.from(svg.querySelectorAll("g.siren-node"))) {
+      const shape = shapes[Number(node.getAttribute("data-siren-id")!.slice(1))]!;
+      for (const frame of Array.from(node.querySelectorAll(".siren-node-frame"))) {
+        const style = getComputedStyle(frame);
+        const paintClass = UNFILLED_BY_DESIGN.find((name) => frame.classList.contains(name));
+        for (const paint of ["fill", "stroke"] as const) {
+          // A paint the shape writes inline (a browser's dots, kept unstroked
+          // whatever the author says) is the renderer's, not the theme's.
+          if (TOKEN.test(style[paint]) || (frame as SVGElement).style.getPropertyValue(paint) !== "") continue;
+          if (paintClass === undefined) {
+            untokened.push(`${shape} ${describeElement(frame)} ${paint}: ${style[paint]}`);
+          } else {
+            exempt.add(`${paintClass} ${paint}: ${style[paint]}`);
+            exemptShapes.add(shape);
+          }
+        }
+      }
+    }
+
+    expect(untokened).toEqual([]);
+    // A bare frame is neither filled nor stroked; a hollow one is stroked
+    // through the token and left unfilled.
+    expect([...exempt].sort()).toEqual([
+      "siren-node-bare fill: none",
+      "siren-node-bare stroke: none",
+      "siren-node-hollow fill: none",
+    ]);
+    expect(exemptShapes).toContain("text");
+    expect(exemptShapes).toContain("composite");
+  });
+
+  /**
+   * What `value` paints `element` with, substituted the way a custom property
+   * is: a `var()` is looked up from the element upward and replaced by the
+   * value declared on the nearest element that declares it, itself
+   * substituted against *that* element. jsdom neither inherits a custom
+   * property nor resolves a `var()`, but it does report the ones an element
+   * declares, which is all this walk needs.
+   */
+  function resolvePaint(element: Element, value: string): string {
+    const reference = /^var\((--[\w-]+)\)$/.exec(value.trim());
+    if (reference === null) return value.trim();
+    for (let at: Element | null = element; at !== null; at = at.parentElement) {
+      const declared = getComputedStyle(at).getPropertyValue(reference[1]!).trim();
+      if (declared !== "") return resolvePaint(at, declared);
+    }
+    return "";
+  }
+
+  /** The selector of every rule in the default theme that declares `property`. */
+  function cssRulesDeclaring(property: string): string[] {
+    const style = document.createElement("style");
+    style.textContent = defaultThemeCss;
+    document.head.appendChild(style);
+    const selectors: string[] = [];
+    const walk = (rules: CSSRuleList) => {
+      for (const rule of Array.from(rules)) {
+        if ("selectorText" in rule && (rule as CSSStyleRule).style.getPropertyValue(property) !== "") {
+          selectors.push((rule as CSSStyleRule).selectorText);
+        }
+        if ("cssRules" in rule) walk((rule as CSSGroupingRule).cssRules);
+      }
+    };
+    walk(style.sheet!.cssRules);
+    style.remove();
+    return selectors;
+  }
+
+  it.each([
+    ["a state", "stateDiagram-v2\nA --> B\nnote right of A : about A\nstyle A fill:#f00,color:#0f0\n", "A"],
+    ["a composite state", "stateDiagram-v2\nstate Outer {\nI\n}\nnote right of Outer : about Outer\n", "Outer"],
+  ])("keeps %s's note out of a recolour of its state, and in a recolour of the diagram", (_what, source, id) => {
+    // A state's note is drawn inside the state's group, since it has no id of
+    // its own — so the state's tokens are inherited by its note unless the
+    // note's paint is substituted above that group. An author's `style` leaves
+    // the note alone (measured, mermaid 11.17.2), and a token redeclared on the
+    // state must too; one redeclared on the container reaches it as before.
+    const svg = renderThemedSVG(source);
+    const state = svg.querySelector(`g.siren-state[data-siren-id="${id}"]`)!;
+    const frame = state.querySelector(".siren-note-frame")!;
+    const text = state.querySelector(".siren-note-text")!;
+    const paints = () => [
+      resolvePaint(frame, getComputedStyle(frame).fill),
+      resolvePaint(frame, getComputedStyle(frame).stroke),
+      resolvePaint(text, getComputedStyle(text).fill),
+    ];
+
+    // The default theme's own colours, unchanged.
+    expect(paints()).toEqual(["#f3efff", "#6d3fd6", "#1d1730"]);
+
+    const container = svg.parentElement as HTMLElement;
+    for (const [token, value] of [["fill", "#000080"], ["stroke", "#008000"], ["text", "#800000"]]) {
+      container.style.setProperty(`--siren-node-${token}`, value);
+      (state as SVGElement).style.setProperty(`--siren-node-${token}`, "#ff00ff");
+    }
+    // The redeclaration lands on the state itself…
+    expect(resolvePaint(state, "var(--siren-node-fill)")).toBe("#ff00ff");
+    // …and stops there: the note takes the container's colours.
+    expect(paints()).toEqual(["#000080", "#008000", "#800000"]);
+  });
+
+  it("paints a state's note from the diagram when its state is not a child of the <svg>", () => {
+    // The capture of the diagram's colours must not hang on where the states
+    // sit: a caller (or a later renderer) may wrap them in a group of its own,
+    // and a browser without `:has()` must still paint the note — without the
+    // capture the note's paint is invalid and it draws black and unstroked.
+    const svg = renderThemedSVG("stateDiagram-v2\nA --> B\nnote right of A : about A\n");
+    const wrapper = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    for (const state of Array.from(svg.querySelectorAll(":scope > .siren-state"))) {
+      wrapper.appendChild(state);
+    }
+    svg.appendChild(wrapper);
+    const frame = svg.querySelector('g.siren-state[data-siren-id="A"] .siren-note-frame')!;
+    const text = svg.querySelector('g.siren-state[data-siren-id="A"] .siren-note-text')!;
+
+    expect(frame.parentElement?.closest("svg")).toBe(svg);
+    expect([
+      resolvePaint(frame, getComputedStyle(frame).fill),
+      resolvePaint(frame, getComputedStyle(frame).stroke),
+      resolvePaint(text, getComputedStyle(text).fill),
+    ]).toEqual(["#f3efff", "#6d3fd6", "#1d1730"]);
+  });
+
+  it("weighs nothing in the rule that hands a state note the diagram's colours", () => {
+    // A caller who recolours notes names the note's parts — `.siren-note-frame`
+    // and `.siren-note-text`, one class each — and redeclares `--siren-node-*`
+    // there. The theme's redeclaration on the same parts must not outrank
+    // that, so it sits wholly inside `:where()`. jsdom cannot show this through
+    // the cascade: it lets an earlier sheet's custom property beat a later,
+    // more specific one, so the selector is held instead.
+    const redeclarations = cssRulesDeclaring("--siren-node-fill").filter((selector) =>
+      selector.includes("siren-note-"),
+    );
+    expect(redeclarations.length).toBeGreaterThan(0);
+    for (const selector of redeclarations) expect(selector).toMatch(/^:where\([^()]*\)$/);
+  });
+
+  it("captures a state note's colours without :has()", () => {
+    // jsdom supports `:has()`, so the previous test cannot take it away; this
+    // one holds the rule that captures the diagram's colours to a selector
+    // every browser in the support range matches.
+    const captures = cssRulesDeclaring("--_siren-state-note-fill");
+    expect(captures.length).toBeGreaterThan(0);
+    for (const selector of captures) expect(selector).not.toContain(":has(");
+  });
+
+  /**
+   * The head an edge's path points at by `marker-end`, followed into this
+   * same SVG's `<defs>` rather than named: marker ids are minted per render.
+   */
+  function headOf(svg: SVGSVGElement, edgeId: string): SVGElement {
+    const reference = svg.querySelector(`path.siren-edge[data-siren-id="${edgeId}"]`)?.getAttribute("marker-end");
+    const head = reference == null ? null : svg.querySelector(`defs > marker#${reference.slice("url(#".length, -1)} > *`);
+    if (head === null) throw new Error(`no head for edge ${edgeId}`);
+    return head as SVGElement;
+  }
+
+  it("paints each edge head with its own edge's stroke, so a token redeclared on the edge reaches it", () => {
+    // A head lives in `<defs>` and inherits from there, never from the path
+    // that points at it, so a token redeclared on the path stopped at the
+    // line. `context-stroke` is the paint SVG gives a marker for exactly this:
+    // the stroke of the element it is drawn for. jsdom paints nothing, so the
+    // keyword is what it reads; `scripts/edge-arrowhead-colour.mjs` reads the
+    // colour Chrome draws with it.
+    const svg = renderThemedSVG("flowchart LR\nA --> B\nA --o C\nA --x D\n");
+    const arrow = getComputedStyle(headOf(svg, "A-B"));
+    const ring = getComputedStyle(headOf(svg, "A-C"));
+    const cross = getComputedStyle(headOf(svg, "A-D"));
+
+    // Each shape takes the line's colour where it shows it…
+    expect([arrow.fill, ring.stroke, cross.stroke]).toEqual(["context-stroke", "context-stroke", "context-stroke"]);
+    // …and the ring is still filled with the surface, so the line does not
+    // show through its middle.
+    expect(ring.fill).toBe("var(--siren-node-fill)");
+    // The line itself is painted through the token at the path, which is
+    // where a redeclaration lands.
+    expect(getComputedStyle(svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!).stroke).toBe(
+      "var(--siren-edge-stroke)",
+    );
+  });
+
+  it("hands an author-colored edge's head back to the token with its line, once `stroke` is omitted", () => {
+    // A host that omits the author's `stroke` recolours an edge by its token:
+    // the line drops the inline color, the head is minted from no color, and
+    // both are painted from the token at the path.
+    renderThemedSVG("flowchart TB\n  A");
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const { svg } = render("flowchart TB\n  A --> B\n  linkStyle 0 stroke:#f00\n", container, {
+      omitAuthorStyles: ["stroke"],
+    });
+    const head = headOf(svg as SVGSVGElement, "A-B");
+    const line = svg!.querySelector('path.siren-edge[data-siren-id="A-B"]')!;
+
+    expect(line.getAttribute("style")).toBeNull();
+    expect(head.getAttribute("style")).toBeNull();
+    expect([getComputedStyle(line).stroke, getComputedStyle(head).fill]).toEqual([
+      "var(--siren-edge-stroke)",
+      "context-stroke",
+    ]);
+  });
+
+  it.each(STYLEABLE)("draws no element wearing an id inside another one: %s", (source) => {
+    const svg = renderThemedSVG(source);
+    const nested = Array.from(svg.querySelectorAll("[data-siren-id] [data-siren-id]")).map(
+      (element) => `${element.parentElement?.closest("[data-siren-id]")?.getAttribute("data-siren-id")} > ${element.getAttribute("data-siren-id")}`,
+    );
+    expect(nested).toEqual([]);
   });
 });

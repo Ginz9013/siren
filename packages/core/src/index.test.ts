@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, type InteractionTarget } from "./index";
+import { render, type InteractionTarget, type StyleFact, type StyleSource } from "./index";
 import type { Point, SirenRenderResult, TextMeasurer } from "./contracts";
 import { routeOf } from "./compat/svgGeometry";
 import { readdirSync, readFileSync } from "node:fs";
@@ -4309,10 +4309,12 @@ linkStyle 0 stroke:#f00
       return marker as SVGElement;
     };
 
-    // The styled edge's head is red — asserted as the marker's own fill, not
-    // merely as "a second marker exists".
+    // The styled edge's head is red — asserted as the colour the marker
+    // itself carries, not merely as "a second marker exists". Carried as the
+    // edge token rather than an inline `fill`, which would outrank the
+    // theme's `context-stroke` and keep the head red under a highlight.
     const styledHead = markerFor("A-B").querySelector("path")!;
-    expect(styledHead.getAttribute("style")).toBe("fill:#f00");
+    expect(styledHead.getAttribute("style")).toBe("--siren-edge-stroke:#f00");
 
     // The unstyled edge still takes its head from the theme: no fill of its
     // own, just the class `--siren-edge-stroke` reaches it through.
@@ -4368,8 +4370,11 @@ linkStyle 3 stroke:#00f
       svg
         .querySelector(`defs > marker#${reference.slice("url(#".length, -1)} path`)!
         .getAttribute("style");
-    expect(fillOf([...green][0]!)).toBe("fill:#0f0");
-    expect(fillOf(markerIdOf("N3-N4"))).toBe("fill:#00f");
+    // Each colour is carried as the edge token, which the theme's fallback
+    // rule paints where `context-stroke` is unknown; an inline `fill` would
+    // outrank `context-stroke` where it is known.
+    expect(fillOf([...green][0]!)).toBe("--siren-edge-stroke:#0f0");
+    expect(fillOf(markerIdOf("N3-N4"))).toBe("--siren-edge-stroke:#00f");
   });
   it("mints no arrowhead for a `linkStyle` that names no `stroke`, and leaves a document with no `linkStyle` emitting exactly the one marker it always did", () => {
     // There is no color to carry, so there is nothing a marker of this edge's
@@ -4695,9 +4700,11 @@ Alice-)Bob: open
         .querySelector(`defs > marker#${markerRefOf(edgeId).slice("url(#".length, -1)} path`)!
         .getAttribute("style");
 
-    expect(headFillOf("Source-Parse")).toBe("fill:#f43f5e");
-    expect(headFillOf("Parse-Resolve")).toBe("fill:#94a3b8");
-    expect(headFillOf("Layout-Render")).toBe("fill:#3b82f6");
+    // Carried as the edge token, not an inline `fill`: the theme paints the
+    // head with its line's stroke, and an inline `fill` would outrank that.
+    expect(headFillOf("Source-Parse")).toBe("--siren-edge-stroke:#f43f5e");
+    expect(headFillOf("Parse-Resolve")).toBe("--siren-edge-stroke:#94a3b8");
+    expect(headFillOf("Layout-Render")).toBe("--siren-edge-stroke:#3b82f6");
     // One marker per distinct color, not per styled edge: the two edges
     // sharing a color share a def.
     expect(markerRefOf("Parse-Resolve")).toBe(markerRefOf("Resolve-Layout"));
@@ -5369,14 +5376,16 @@ enter A-B fade
     // One def, referenced from both ends, carrying the author's colour —
     // the head at the *from*-end is as much the author's arrow as the one
     // at the to-end, and a marker inherits nothing from the path that
-    // references it.
+    // references it. The colour is carried as the edge token, for a browser
+    // without `context-stroke`; an inline `fill` would outrank it where it
+    // is known and hold the head red under a highlight.
     expect(svg.querySelectorAll("defs > marker")).toHaveLength(1);
     const reference = path.getAttribute("marker-end")!;
     expect(path.getAttribute("marker-start")).toBe(reference);
     expect(
       svg.querySelector(`defs > marker#${reference.slice("url(#".length, -1)} path`)!
         .getAttribute("style"),
-    ).toBe("fill:#f00");
+    ).toBe("--siren-edge-stroke:#f00");
 
     // And it still animates: the classes land on the same `<path>`, beside
     // the line's own class rather than instead of it.
@@ -9085,4 +9094,605 @@ describe("render() — an ER declaration list ending in a `;`", () => {
       });
     }
   });
+});
+
+/**
+ * `SirenRenderResult.styles`: what the author's styling statements did to
+ * each drawn target, read back as facts — the classes that reached it and
+ * the statement each winning declaration came from. Every expectation is the
+ * cascade `CONTEXT.md` states under **Author style**, written out by hand.
+ */
+describe("render() reports each styled target's style facts", () => {
+  // Typed through the public entry, so a fact a consumer cannot name is a
+  // type error here.
+  const stylesOf = (source: string): StyleFact[] => render(source, document.createElement("div")).styles;
+  const viaStyle: StyleSource = { via: "style" };
+
+  it("states a flowchart node's classes and sources, its `style` over the class it overrides", () => {
+    expect(
+      stylesOf(
+        "flowchart TB\nA --> B\nstyle A fill:#0ff\nclassDef hot fill:#f00,stroke:#900,color:#fff\nclass A hot\n",
+      ),
+    ).toEqual([
+      {
+        id: "A",
+        kind: "node",
+        classes: ["hot"],
+        effective: {
+          frame: [
+            { property: "fill", value: "#0ff" },
+            { property: "stroke", value: "#900" },
+          ],
+          text: [{ property: "fill", value: "#fff" }],
+        },
+        sources: {
+          frame: [viaStyle, { via: "classDef", name: "hot" }],
+          text: [{ via: "classDef", name: "hot" }],
+        },
+      },
+    ]);
+  });
+
+  it("names a subgraph by its generated id, and lists `default` first on the nodes it reaches — never on the block", () => {
+    const facts = stylesOf(
+      "flowchart TB\nsubgraph s1 [Box]\nA\nend\nclassDef default stroke:#333\nclassDef warn fill:#ff0\nclass A,s1 warn\n",
+    );
+
+    expect(facts).toEqual([
+      {
+        id: "A",
+        kind: "node",
+        classes: ["default", "warn"],
+        effective: {
+          frame: [
+            { property: "stroke", value: "#333" },
+            { property: "fill", value: "#ff0" },
+          ],
+          text: [],
+        },
+        sources: {
+          frame: [
+            { via: "classDef", name: "default" },
+            { via: "classDef", name: "warn" },
+          ],
+          text: [],
+        },
+      },
+      {
+        id: "subgraph:1",
+        kind: "subgraph",
+        classes: ["warn"],
+        effective: { frame: [{ property: "fill", value: "#ff0" }], text: [] },
+        sources: { frame: [{ via: "classDef", name: "warn" }], text: [] },
+      },
+    ]);
+  });
+
+  it("states an edge's tiers: a class beneath `linkStyle default`, and a specific `linkStyle N` over both", () => {
+    const facts = stylesOf(
+      [
+        "flowchart TB",
+        "A --> B",
+        "B --> C",
+        "C e1@--> A",
+        "classDef dash stroke-dasharray:5,color:#00f",
+        "class e1 dash",
+        "linkStyle 0 stroke:#f00",
+        "linkStyle default stroke:#0f0,stroke-width:4px",
+        "",
+      ].join("\n"),
+    );
+
+    expect(facts).toEqual([
+      {
+        id: "A-B",
+        kind: "edge",
+        classes: [],
+        effective: {
+          frame: [
+            { property: "stroke", value: "#f00" },
+            { property: "stroke-width", value: "4px" },
+          ],
+          text: [],
+        },
+        sources: { frame: [{ via: "linkStyle" }, { via: "linkStyle default" }], text: [] },
+      },
+      {
+        id: "B-C",
+        kind: "edge",
+        classes: [],
+        effective: {
+          frame: [
+            { property: "stroke", value: "#0f0" },
+            { property: "stroke-width", value: "4px" },
+          ],
+          text: [],
+        },
+        sources: { frame: [{ via: "linkStyle default" }, { via: "linkStyle default" }], text: [] },
+      },
+      {
+        id: "e1",
+        kind: "edge",
+        classes: ["dash"],
+        effective: {
+          frame: [
+            { property: "stroke-dasharray", value: "5" },
+            { property: "stroke", value: "#0f0" },
+            { property: "stroke-width", value: "4px" },
+          ],
+          text: [{ property: "fill", value: "#00f" }],
+        },
+        sources: {
+          frame: [{ via: "classDef", name: "dash" }, { via: "linkStyle default" }, { via: "linkStyle default" }],
+          text: [{ via: "classDef", name: "dash" }],
+        },
+      },
+    ]);
+  });
+
+  it("states a class's classes and sources", () => {
+    expect(
+      stylesOf('classDiagram\nclass Animal\nclass Dog\nclassDef hot fill:#f00\ncssClass "Animal" hot\nstyle Animal stroke:#900\n'),
+    ).toEqual([
+      {
+        id: "Animal",
+        kind: "class",
+        classes: ["hot"],
+        effective: {
+          frame: [
+            { property: "fill", value: "#f00" },
+            { property: "stroke", value: "#900" },
+          ],
+          text: [],
+        },
+        sources: { frame: [{ via: "classDef", name: "hot" }, { via: "style" }], text: [] },
+      },
+    ]);
+  });
+
+  it("states a state's facts, a composite's frame among them", () => {
+    expect(
+      stylesOf("stateDiagram-v2\nstate Outer {\nInner\n}\nclassDef hot fill:#f00\nclass Outer hot\nstyle Inner color:#fff\n"),
+    ).toEqual([
+      {
+        id: "Outer",
+        kind: "state",
+        classes: ["hot"],
+        effective: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+        sources: { frame: [{ via: "classDef", name: "hot" }], text: [] },
+      },
+      {
+        id: "Inner",
+        kind: "state",
+        classes: [],
+        effective: { frame: [], text: [{ property: "fill", value: "#fff" }] },
+        sources: { frame: [], text: [{ via: "style" }] },
+      },
+    ]);
+  });
+
+  it("states an ER entity's facts, and an ER subgraph's under its generated id", () => {
+    const result = render(
+      "erDiagram\nA\nsubgraph s1\nB\nend\nclassDef u fill:#f00\nclass A,s1 u\nstyle A stroke:#00f\n",
+      document.createElement("div"),
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.styles).toEqual([
+      {
+        id: "A",
+        kind: "entity",
+        classes: ["u"],
+        effective: {
+          frame: [
+            { property: "fill", value: "#f00" },
+            { property: "stroke", value: "#00f" },
+          ],
+          text: [],
+        },
+        sources: { frame: [{ via: "classDef", name: "u" }, { via: "style" }], text: [] },
+      },
+      {
+        id: "subgraph:1",
+        kind: "subgraph",
+        classes: ["u"],
+        effective: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+        sources: { frame: [{ via: "classDef", name: "u" }], text: [] },
+      },
+    ]);
+  });
+
+  it("reports no facts when rendering fails, nor for a sequence diagram, which accepts no styling", () => {
+    const unmeasurable: TextMeasurer = { measure: () => ({ width: NaN, height: 10 }) };
+    const styled = "flowchart TB\nA --> B\nstyle A fill:#f00\n";
+
+    const layoutFailure = render(styled, document.createElement("div"), { measureText: unmeasurable });
+    const parseFailure = render(`${styled}timeline:\nenter\n`, document.createElement("div"));
+
+    expect(layoutFailure.svg).toBeNull();
+    expect(layoutFailure.styles).toEqual([]);
+    expect(parseFailure.svg).toBeNull();
+    expect(parseFailure.styles).toEqual([]);
+    expect(stylesOf("sequenceDiagram\nA->>B: hi\n")).toEqual([]);
+  });
+
+  it.each([
+    ["flowchart", "flowchart TB\nA --> B\n", "class A hot", "node"],
+    ["class", "classDiagram\nclass A\nclass B\n", 'cssClass "A" hot', "class"],
+    ["state", "stateDiagram-v2\nA --> B\n", "class A hot", "state"],
+    ["ER", "erDiagram\nA\nB\n", "class A hot", "entity"],
+  ])("leaves a rejected declaration out of a %s fact, and a target left with none out of the list", (_, diagram, apply, kind) => {
+    const facts = stylesOf(
+      `${diagram}style A *fill:#00f,stroke:#900\nstyle B *fill:#00f\nclassDef hot fill:#f00\n${apply}\n`,
+    );
+
+    // `*fill` is refused at the gate every kind shares (a property must be a
+    // plain CSS identifier); a refused value like `url(` stops some kinds'
+    // parsers first, and a document that does not parse reports no facts.
+    expect(facts).toEqual([
+      {
+        id: "A",
+        kind,
+        classes: ["hot"],
+        effective: {
+          frame: [
+            { property: "fill", value: "#f00" },
+            { property: "stroke", value: "#900" },
+          ],
+          text: [],
+        },
+        sources: { frame: [{ via: "classDef", name: "hot" }, { via: "style" }], text: [] },
+      },
+    ]);
+  });
+
+  it("leaves out of an animated edge's fact the dash its march replaces, as it is left out of the drawing", () => {
+    // The march's dash beats an author's, so `stroke-dasharray` is never
+    // drawn on an animated edge, and a fact is the declarations as painted.
+    expect(
+      stylesOf("flowchart TB\nA e1@--> B\ne1@{ animate: true }\nlinkStyle 0 stroke-dasharray:5,stroke:#f00\n"),
+    ).toEqual([
+      {
+        id: "e1",
+        kind: "edge",
+        classes: [],
+        effective: { frame: [{ property: "stroke", value: "#f00" }], text: [] },
+        sources: { frame: [{ via: "linkStyle" }], text: [] },
+      },
+    ]);
+  });
+
+  it("lists a defined class an edge applied even when none of its declarations survived, as it does for a node", () => {
+    const facts = stylesOf(
+      "flowchart TB\nA e1@--> B\nclassDef bad *fill:#00f\nclass A,e1 bad\nstyle A stroke:#f00\nlinkStyle 0 stroke:#f00\n",
+    );
+
+    expect(facts.map(({ id, classes }) => ({ id, classes }))).toEqual([
+      { id: "A", classes: ["bad"] },
+      { id: "e1", classes: ["bad"] },
+    ]);
+  });
+});
+
+
+/**
+ * `RenderOptions.omitAuthorStyles`: the properties a caller asks not to be
+ * drawn, named as the author spells them. Every expectation is the author's
+ * declaration with the omitted properties struck out by hand, so what is
+ * left is exactly what was not named.
+ */
+describe("render(…, { omitAuthorStyles }) — the author's properties a caller asks not to draw", () => {
+  const SITE_STYLE = ["fill", "stroke", "color"] as const;
+
+  it("leaves a flowchart node's omitted properties off its frame and label, and draws the rest", () => {
+    const result = render(
+      "flowchart TB\nA[Start] --> B\nstyle A fill:#fdd,stroke:#c00,stroke-width:4px,color:#fff,stroke-dasharray:5\n",
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const node = result.svg!.querySelector('g.siren-node[data-siren-id="A"]')!;
+    expect(node.querySelector("rect.siren-node-frame")!.getAttribute("style")).toBe(
+      "stroke-width:4px;stroke-dasharray:5",
+    );
+    expect(node.querySelector("text")!.getAttribute("style")).toBeNull();
+  });
+
+  it("reads `color` as the author's word for label text: it omits a label's `fill`, and `fill` omits only the frame's", () => {
+    const source = "flowchart TB\nA[Start] --> B\nstyle A fill:#fdd,color:#fff\n";
+    const drawn = (omitAuthorStyles: string[]) => {
+      const node = render(source, document.createElement("div"), { omitAuthorStyles }).svg!.querySelector(
+        'g.siren-node[data-siren-id="A"]',
+      )!;
+      return [node.querySelector("rect.siren-node-frame")!.getAttribute("style"), node.querySelector("text")!.getAttribute("style")];
+    };
+
+    expect(drawn(["color"])).toEqual(["fill:#fdd", null]);
+    expect(drawn(["fill"])).toEqual([null, "fill:#fff"]);
+  });
+
+  it("gives an edge whose `stroke` is omitted the theme's arrowhead, minting none in the author's colour", () => {
+    const result = render(
+      "flowchart TB\nA --> B\nB -->|go| C\nlinkStyle 0 stroke:#f00,stroke-width:4px\nlinkStyle 1 stroke:#00f,color:#0f0\n",
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+    const edge = (id: string) => svg.querySelector(`path.siren-edge[data-siren-id="${id}"]`)!;
+    // One marker, the theme's, shared by both edges — as for edges never
+    // given a colour.
+    expect(svg.querySelectorAll("defs > marker")).toHaveLength(1);
+    expect(edge("A-B").getAttribute("marker-end")).toBe(edge("B-C").getAttribute("marker-end"));
+    expect(svg.querySelector("defs > marker path")!.getAttribute("style")).toBeNull();
+    expect(edge("A-B").getAttribute("style")).toBe("stroke-width:4px");
+    expect(edge("B-C").getAttribute("style")).toBeNull();
+    expect(svg.querySelector(".siren-edge-label")!.getAttribute("style")).toBeNull();
+    // The same element carries the author's colour when nothing is omitted.
+    const unomitted = render("flowchart TB\nA -->|go| B\nlinkStyle 0 color:#0f0\n", document.createElement("div")).svg!;
+    expect(unomitted.querySelector(".siren-edge-label")!.getAttribute("style")).toBe("fill:#0f0");
+  });
+
+  it("leaves a flowchart subgraph's omitted properties off its frame and title", () => {
+    const result = render(
+      "flowchart TB\nsubgraph s1 [Box]\nA\nend\nstyle s1 fill:#ff0,stroke:#900,stroke-width:3px,color:#00f\n",
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const block = result.svg!.querySelector('g.siren-subgraph[data-siren-id="subgraph:1"]')!;
+    expect(block.querySelector("rect.siren-subgraph-frame")!.getAttribute("style")).toBe("stroke-width:3px");
+    expect(block.querySelector(".siren-subgraph-label")!.getAttribute("style")).toBeNull();
+    // The same element carries the author's colour when nothing is omitted.
+    const unomitted = render(
+      "flowchart TB\nsubgraph s1 [Box]\nA\nend\nstyle s1 color:#00f\n",
+      document.createElement("div"),
+    ).svg!;
+    expect(unomitted.querySelector(".siren-subgraph-label")!.getAttribute("style")).toBe("fill:#00f");
+  });
+
+  it("leaves a class's omitted properties off its frame and its texts", () => {
+    const result = render(
+      'classDiagram\nclass Animal {\n+name\n}\nstyle Animal fill:#111,stroke:#c00,stroke-width:3px,color:#fff\n',
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const animal = result.svg!.querySelector('g.siren-class[data-siren-id="Animal"]')!;
+    expect(animal.querySelector("rect.siren-class-frame")!.getAttribute("style")).toBe("stroke-width:3px");
+    expect(animal.querySelector(".siren-class-name")!.getAttribute("style")).toBeNull();
+    expect(animal.querySelector(".siren-member")!.getAttribute("style")).toBeNull();
+  });
+
+  it("leaves a state's omitted properties off its frame and label", () => {
+    const result = render(
+      "stateDiagram-v2\nIdle --> Running\nstyle Idle fill:#111,stroke:#c00,stroke-width:3px,color:#fff\n",
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const idle = result.svg!.querySelector('g.siren-state[data-siren-id="Idle"]')!;
+    expect(idle.querySelector("rect.siren-state-frame")!.getAttribute("style")).toBe("stroke-width:3px");
+    expect(idle.querySelector("text.siren-state-label")!.getAttribute("style")).toBeNull();
+  });
+
+  it("leaves an ER entity's and an ER subgraph's omitted properties off their frames and texts", () => {
+    const result = render(
+      [
+        "erDiagram",
+        "A {",
+        "string name",
+        "}",
+        "subgraph s1",
+        "B",
+        "end",
+        "classDef u fill:#111,stroke:#c00,stroke-width:3px,color:#fff",
+        "class A,s1 u",
+        "",
+      ].join("\n"),
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const entity = result.svg!.querySelector('g.siren-er-entity[data-siren-id="A"]')!;
+    expect(entity.querySelector("rect.siren-er-entity-frame")!.getAttribute("style")).toBe("stroke-width:3px");
+    // The name and the attribute cells' type and name: `color` was the only
+    // text declaration, so none of the three keeps a style at all.
+    expect(Array.from(entity.querySelectorAll("text"), (text) => text.getAttribute("style"))).toEqual([
+      null,
+      null,
+      null,
+    ]);
+    const block = result.svg!.querySelector('g.siren-er-subgraph[data-siren-id="subgraph:1"]')!;
+    expect(block.querySelector("rect.siren-er-subgraph-frame")!.getAttribute("style")).toBe("stroke-width:3px");
+    expect(block.querySelector(".siren-er-subgraph-label")!.getAttribute("style")).toBeNull();
+  });
+
+  it("omits from `linkStyle default` what it omits from `linkStyle N`, arrowhead included", () => {
+    const result = render(
+      "flowchart TB\nA -->|go| B\nB --> C\nlinkStyle default stroke:#f00,stroke-width:4px,color:#0f0\n",
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+    expect(
+      Array.from(svg.querySelectorAll("path.siren-edge"), (path) => [
+        path.getAttribute("data-siren-id"),
+        path.getAttribute("style"),
+      ]),
+    ).toEqual([
+      ["A-B", "stroke-width:4px"],
+      ["B-C", "stroke-width:4px"],
+    ]);
+    expect(svg.querySelector(".siren-edge-label")!.getAttribute("style")).toBeNull();
+    expect(svg.querySelectorAll("defs > marker")).toHaveLength(1);
+    expect(svg.querySelector("defs > marker path")!.getAttribute("style")).toBeNull();
+  });
+
+  it("omits from a class applied to an edge what it omits from `linkStyle`, arrowhead included", () => {
+    const result = render(
+      "flowchart TB\nA e1@-->|go| B\nclassDef hot stroke:#f00,stroke-width:4px,color:#0f0\nclass e1 hot\n",
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+    expect(svg.querySelector('path.siren-edge[data-siren-id="e1"]')!.getAttribute("style")).toBe("stroke-width:4px");
+    expect(svg.querySelector(".siren-edge-label")!.getAttribute("style")).toBeNull();
+    expect(svg.querySelectorAll("defs > marker")).toHaveLength(1);
+    expect(svg.querySelector("defs > marker path")!.getAttribute("style")).toBeNull();
+  });
+
+  it("leaves a composite state's, a choice's and a fork's omitted properties off the figure each is drawn as", () => {
+    const result = render(
+      [
+        "stateDiagram-v2",
+        "state Outer {",
+        "Inner",
+        "}",
+        "state pick <<choice>>",
+        "state split <<fork>>",
+        "Outer --> pick",
+        "pick --> split",
+        "classDef hot fill:#111,stroke:#c00,stroke-width:3px,color:#fff",
+        "class Outer,pick,split hot",
+        "",
+      ].join("\n"),
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+    const outer = svg.querySelector('g.siren-state[data-siren-id="Outer"]')!;
+    expect(outer.querySelector("rect.siren-composite-frame")!.getAttribute("style")).toBe("stroke-width:3px");
+    expect(outer.querySelector(".siren-composite-label")!.getAttribute("style")).toBeNull();
+    expect(svg.querySelector('[data-siren-id="pick"] polygon.siren-state-frame')!.getAttribute("style")).toBe(
+      "stroke-width:3px",
+    );
+    expect(svg.querySelector('[data-siren-id="split"] rect.siren-state-bar')!.getAttribute("style")).toBe(
+      "stroke-width:3px",
+    );
+  });
+
+  it.each([
+    ["flowchart", "flowchart TB\nA --> B\nsubgraph s1\nC\nend\nstyle A fill:#f00,*stroke:#00f\nclassDef hot stroke:#900,color:#fff\nclass B,s1 hot\nlinkStyle 0 stroke:#0f0\n"],
+    ["class", 'classDiagram\nclass A\nstyle A fill:#f00,*stroke:#00f\nclassDef hot stroke:#900,color:#fff\ncssClass "A" hot\n'],
+    ["state", "stateDiagram-v2\nA --> B\nstyle A fill:#f00,*stroke:#00f\nclassDef hot stroke:#900,color:#fff\nclass B hot\n"],
+    ["ER", "erDiagram\nA\nsubgraph s1\nB\nend\nstyle A fill:#f00,*stroke:#00f\nclassDef hot stroke:#900,color:#fff\nclass s1 hot\n"],
+  ])("reports a %s diagram's style facts and diagnostics exactly as without the option", (_, source) => {
+    const plain = render(source, document.createElement("div"));
+    const omitting = render(source, document.createElement("div"), { omitAuthorStyles: SITE_STYLE });
+
+    // A refused declaration is in the document, so its error is too.
+    expect(plain.diagnostics).not.toEqual([]);
+    expect(plain.styles).not.toEqual([]);
+    expect(omitting.diagnostics).toEqual(plain.diagnostics);
+    expect(omitting.styles).toEqual(plain.styles);
+  });
+
+  /** Every inline `style` the drawing carries, in document order. */
+  const inlineStyles = (source: string, options: { omitAuthorStyles?: string[] }): string[] =>
+    Array.from(
+      render(source, document.createElement("div"), options).svg!.querySelectorAll("[style]"),
+      (element) => `${element.tagName}:${element.getAttribute("style")}`,
+    );
+  const STYLED = "flowchart TB\nA --> B\nstyle A fill:#f00,stroke:#00f,color:#fff\nlinkStyle 0 stroke:#0f0\n";
+
+  it("omits nothing for an empty list or a name no declaration uses, and says nothing about either", () => {
+    const plain = inlineStyles(STYLED, {});
+    expect(plain).toContain("rect:fill:#f00;stroke:#00f");
+
+    expect(inlineStyles(STYLED, { omitAuthorStyles: [] })).toEqual(plain);
+    expect(inlineStyles(STYLED, { omitAuthorStyles: ["font-variant", "not-a-property", ""] })).toEqual(plain);
+    expect(render(STYLED, document.createElement("div"), { omitAuthorStyles: ["not-a-property"] }).diagnostics).toEqual([]);
+  });
+
+  it("matches a name case-insensitively, as CSS matches property names", () => {
+    expect(inlineStyles(STYLED, { omitAuthorStyles: ["FILL", "Stroke", "Color"] })).toEqual(
+      inlineStyles(STYLED, { omitAuthorStyles: ["fill", "stroke", "color"] }),
+    );
+    expect(inlineStyles(STYLED, { omitAuthorStyles: ["FILL"] })).toContain("rect:stroke:#00f");
+  });
+});
+
+
+describe("render() hands back the frontmatter's top-level `siren:` as written", () => {
+  const sirenOf = (source: string): unknown => render(source, document.createElement("div")).siren;
+
+  it("is the value YAML reads under the JSON schema, nested mappings, lists and scalars untouched", () => {
+    // Under the JSON schema a date-shaped scalar stays a string and `yes` is
+    // not a boolean; the default YAML schema would make them a Date and `true`.
+    expect(
+      sirenOf(
+        [
+          "---",
+          "siren:",
+          "  roles:",
+          "    warn: warning",
+          "    err: error",
+          "  groups: [a, b]",
+          "  confirmed: 2026-10-19",
+          "  flag: yes",
+          "  count: 3",
+          "---",
+          "flowchart TD",
+          "  A --> B",
+        ].join("\n"),
+      ),
+    ).toEqual({
+      roles: { warn: "warning", err: "error" },
+      groups: ["a", "b"],
+      confirmed: "2026-10-19",
+      flag: "yes",
+      count: 3,
+    });
+  });
+
+  it("is undefined with no frontmatter, no `siren:` key, or a frontmatter that is refused", () => {
+    expect(sirenOf("flowchart TD\n  A --> B")).toBeUndefined();
+    expect(sirenOf("---\ntitle: T\n---\nflowchart TD\n  A --> B")).toBeUndefined();
+    // Not YAML, and a `displayMode` with no mapping to go into: each refuses
+    // the whole document, `siren:` beside it included.
+    for (const refused of [
+      "---\nsiren: x\nconfig: [\n---\nflowchart TD\n  A --> B",
+      "---\nsiren: x\ndisplayMode: compact\nconfig: 1\n---\nflowchart TD\n  A --> B",
+    ]) {
+      const result = render(refused, document.createElement("div"));
+      expect(result.diagnostics.map((d) => [d.severity, d.line])).toEqual([["error", 1]]);
+      expect(result.siren).toBeUndefined();
+    }
+  });
+
+  it("says nothing about it: a frontmatter holding only `siren:` draws with no diagnostic", () => {
+    const result = render("---\nsiren:\n  roles: [x]\n---\nflowchart TD\n  A --> B", document.createElement("div"));
+    expect(result.svg).not.toBeNull();
+    expect(result.diagnostics).toEqual([]);
+    expect(result.siren).toEqual({ roles: ["x"] });
+  });
+
+  // The caller still needs it to show what the author's styling meant, so
+  // a frontmatter that is itself fine is handed back whatever else fails.
+  for (const [failure, diagram] of [
+    ["a header no kind accepts", "notADiagram\n  A --> B"],
+    ["a bare `%%` line in a flowchart", "flowchart TD\n  A --> B\n%%"],
+    ["a wrap directive with no mapping to go into", "%%{init: dark}%%\n%%{wrap}%%\nflowchart TD\n  A --> B"],
+    ["an icon from a pack that is not registered", 'flowchart TD\n  A --> B@{ icon: "fa:user" }'],
+  ]) {
+    it(`is still handed back when the document is not drawn for ${failure}`, () => {
+      const result = render(`---\nsiren:\n  roles:\n    hot: warning\n---\n${diagram}`, document.createElement("div"));
+      expect(result.svg).toBeNull();
+      expect(result.diagnostics.some((d) => d.severity === "error")).toBe(true);
+      expect(result.siren).toEqual({ roles: { hot: "warning" } });
+    });
+  }
 });

@@ -283,8 +283,21 @@ the container is left untouched, so a previously rendered diagram stays on scree
 | `controller`  | `AnimationController \| null`  | Plays the timeline. It is `null` exactly when `svg` is `null`.               |
 | `diagnostics` | `Diagnostic[]`                 | Every error and warning, from all stages. Can be non-empty on success.       |
 | `timelines`   | `string[]`                     | The names of the named timeline blocks, in document order. `[]` when there are none, when the only block is the unnamed `timeline:`, or when rendering failed. |
+| `styles`      | `StyleFact[]`                  | What the document's `style`, `classDef`, `class`/`:::` and `linkStyle` statements did, one fact per drawn target they reached with a declaration that was not refused. `[]` for a sequence diagram or when rendering failed. |
+| `siren`       | `unknown`                      | The frontmatter's top-level `siren:` value, exactly as its YAML reads, for your own use. Siren does not interpret, validate or report on it, and Mermaid ignores it. Still returned when rendering failed; `undefined` when there is no `siren:` key, no frontmatter, or the frontmatter itself is rejected. |
 
 A document without a `timeline:` block still gets a controller, with `totalSteps: 0`.
+
+A `StyleFact` states what the author wrote. It is not changed by what the timeline does to the
+drawing:
+
+| Property    | Description |
+| ----------- | ----------- |
+| `id`        | The target's `data-siren-id`. A flowchart or ER subgraph's id is `subgraph:N`, not the handle the author styled it by. |
+| `kind`      | `"node"`, `"edge"`, `"subgraph"`, `"class"`, `"state"` (a composite state included) or `"entity"`. |
+| `classes`   | The `classDef` names applied to it, in the order they were applied. A flowchart node lists `default` first when the document defines one. A defined class is listed even when none of its declarations survived; a name no `classDef` defines is not. |
+| `effective` | The declarations that won, as `{ frame, text }` lists of `{ property, value }`. The text half is spelled the way SVG paints text, so an author's `color` appears there as `fill`. |
+| `sources`   | `{ frame, text }`, index for index with `effective`: the statement each declaration came from. Each is `{ via: "classDef", name }`, `{ via: "style" }`, `{ via: "linkStyle" }` or `{ via: "linkStyle default" }`. |
 
 ### `AnimationController`
 
@@ -313,12 +326,13 @@ through diagnostics and does not throw for them.
 
 ### `RenderOptions`
 
-| Option        | Type                                   | Description                                                                   |
-| ------------- | -------------------------------------- | ----------------------------------------------------------------------------- |
-| `measureText` | `TextMeasurer`                         | Measures label text to size boxes. See below.                                  |
-| `onClick`     | `(target: InteractionTarget) => void`  | Called when a reader clicks an element made clickable with `call`.             |
-| `timeline`    | `boolean \| string`                    | Which timeline to apply. A document may declare several, and by default only the first applies. See below. |
-| `iconPacks`   | `IconifyJSON[]`                        | Icon packs a flowchart's icon nodes (`A@{ icon: "fa:user" }`) are drawn from. See below. |
+| Option             | Type                                   | Description                                                                   |
+| ------------------ | -------------------------------------- | ----------------------------------------------------------------------------- |
+| `measureText`      | `TextMeasurer`                         | Measures label text to size boxes. See below.                                 |
+| `onClick`          | `(target: InteractionTarget) => void`  | Called when a reader clicks an element made clickable with `call`.            |
+| `timeline`         | `boolean \| string`                    | Which timeline to apply. A document may declare several, and by default only the first applies. See below. |
+| `iconPacks`        | `IconifyJSON[]`                        | Icon packs a flowchart's icon nodes (`A@{ icon: "fa:user" }`) are drawn from. See below. |
+| `omitAuthorStyles` | `string[]`                             | Author style properties not to draw, such as `["fill", "stroke", "color"]`. See below. |
 
 #### Registering icon packs
 
@@ -365,6 +379,26 @@ visible, no enter, exit or highlight state, and a controller with `totalSteps: 0
 not the timeline's last step, which still hides whatever exited. Every timeline block is
 still parsed and checked, so `diagnostics`, and whether the render succeeds, are the same
 as without the option.
+
+#### Leaving out the author's colors
+
+`omitAuthorStyles` lists author style properties, spelled as the author writes them, that are
+not drawn. Each element they would have styled takes the theme's design tokens instead, which
+lets a page that colors targets itself, by redeclaring tokens on a target's `data-siren-id`
+element, keep the author's colors from covering its own:
+
+```ts
+render(source, container, { omitAuthorStyles: ["fill", "stroke", "color"] });
+```
+
+`color` leaves out the color an author style gives a label, and `fill` only the frame's.
+Colors written in a label's own markup (`<span style="color:…">`, `<font color>`,
+`background-color`) are not author styles: they are drawn as written, the option never removes
+them, and they have no entry in `styles`. An edge whose `stroke` is left out gets the theme's
+arrowhead. Properties not listed, such as `stroke-width`, are drawn as written.
+The option only takes declarations away; it cannot add one. `diagnostics` and `styles` are the
+same with or without it. A name no declaration uses is not an error, and `[]` is the same as
+leaving the option out.
 
 #### Measuring text
 
@@ -481,7 +515,7 @@ Override any `--siren-*` custom property in your own CSS:
 
 | Group     | Tokens                                                                                                              |
 | --------- | ------------------------------------------------------------------------------------------------------------------- |
-| Colors    | `--siren-node-fill`, `--siren-node-stroke`, `--siren-node-text`, `--siren-edge-stroke`, `--siren-highlight-color` |
+| Colors    | `--siren-node-fill`, `--siren-node-stroke`, `--siren-node-text`, `--siren-edge-stroke`, `--siren-highlight-color`, `--siren-subgraph-fill` (`none`, the frame of a flowchart subgraph, an ER subgraph or a composite state) |
 | Text      | `--siren-font-family`, `--siren-font-size`, `--siren-label-font-size`, `--siren-title-font-size`                  |
 | Lines     | `--siren-stroke-width`, `--siren-edge-thick-stroke-width`, `--siren-edge-dash`, `--siren-lifeline-dash`, `--siren-note-link-dash`, `--siren-highlight-stroke-width` |
 | Shapes    | `--siren-node-border-radius`, `--siren-box-fill-opacity`                                                           |
@@ -496,6 +530,16 @@ should repaint `--siren-label-link`, as in the example above.
 
 Per-element styling from the document itself (`classDef`, `class`, `style`, `linkStyle`,
 `:::name`) works as it does in Mermaid and takes precedence over the theme.
+
+To recolor one styleable target, redeclare the color tokens on the elements that carry its
+`data-siren-id` (for example `[data-siren-id="A"] { --siren-node-fill: #fde68a; }`). The theme
+takes every frame and text color of a node, edge, subgraph, class, state or entity from a token
+named at that element, and none of these elements sits inside another. So the change reaches
+that target and nothing drawn inside it. A flowchart edge's arrowhead is painted with its own
+line's stroke (`context-stroke`), so it follows a token redeclared on the edge, and the edge's
+highlight, with the line. Safari does not support `context-stroke` (MDN's browser compatibility
+data; Chrome and Edge have it from 124, Firefox from 111): there the arrowhead keeps the edge color
+set on the container, or the author's.
 
 ## Mermaid compatibility
 

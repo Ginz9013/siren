@@ -15,7 +15,7 @@ import type {
 import { plainLabel } from "../label/label";
 import { generatedId } from "./generatedId";
 import { resolveInteractions } from "./resolveInteractions";
-import { resolveStyles } from "./resolveStyles";
+import { asStyleFact, resolveStyleFacts } from "./resolveStyles";
 import { resolveTimelineBlocks } from "./resolveTimeline";
 
 /**
@@ -70,7 +70,8 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
     diagnostics,
   );
 
-  const styles = resolveStyles(document.styles, new Set(classesById.keys()), diagnostics);
+  const resolvedStyles = resolveStyleFacts(document.styles, new Set(classesById.keys()), diagnostics);
+  const styles = resolvedStyles.map(({ targetId, style }) => ({ targetId, style }));
 
   // Classes, relationships, namespaces and notes share one id space, the way
   // flowchart node and edge ids do, so an author animates any element of the
@@ -98,6 +99,7 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
     notes,
     interactions,
     styles,
+    styleFacts: resolvedStyles.map((resolved) => asStyleFact(resolved, "class")),
     ...timelines,
   };
 

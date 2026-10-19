@@ -7,7 +7,7 @@ import type {
   StateModelResult,
 } from "../contracts";
 import { generatedId } from "./generatedId";
-import { resolveStyles } from "./resolveStyles";
+import { asStyleFact, resolveStyleFacts } from "./resolveStyles";
 import { resolveTimelineBlocks } from "./resolveTimeline";
 
 /**
@@ -117,11 +117,12 @@ export function buildStateModel(document: StateDocument): StateModelResult {
   // no `class` statement can spell one (ADR-0010) and listing it costs
   // nothing. Transitions are deliberately absent: no styling statement in
   // this kind can name one.
-  const styles = resolveStyles(
+  const resolvedStyles = resolveStyleFacts(
     document.styles,
     new Set(states.map((state) => state.id)),
     diagnostics,
   );
+  const styles = resolvedStyles.map(({ targetId, style }) => ({ targetId, style }));
 
   // States and transitions share one id space, exactly as a flowchart's
   // nodes and edges do, so an author animates any element of the diagram the
@@ -153,6 +154,7 @@ export function buildStateModel(document: StateDocument): StateModelResult {
     states,
     transitions,
     styles,
+    styleFacts: resolvedStyles.map((resolved) => asStyleFact(resolved, "state")),
     ...timelines,
   };
 

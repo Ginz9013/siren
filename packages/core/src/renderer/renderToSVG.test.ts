@@ -1044,8 +1044,11 @@ describe("renderToSVG", () => {
     //
     // A marker still does not inherit from the path referencing it; nothing
     // about SVG changed. What changed is that an edge naming a color is given
-    // a marker carrying it, as an inline `fill` that outranks the theme's
-    // `.siren-arrow-fill` rule without `!important`.
+    // a marker carrying it. The theme paints a head with its line's stroke
+    // (`context-stroke`), which needs no color here, so the color is carried
+    // for a browser without that keyword alone: as the edge token the
+    // theme's fallback rule paints through, never as an inline `fill` that
+    // would outrank the line's stroke and pin the head under a highlight.
     const graph = buildFixture();
     graph.edges[0].style = { frame: [{ property: "stroke", value: "#f00" }], text: [] };
 
@@ -1055,7 +1058,7 @@ describe("renderToSVG", () => {
 
     const styledHead = markerFor(svg, "A-B").querySelector("path")!;
     expect(styledHead.getAttribute("class")).toBe("siren-arrow-fill");
-    expect(styledHead.getAttribute("style")).toBe("fill:#f00");
+    expect(styledHead.getAttribute("style")).toBe("--siren-edge-stroke:#f00");
 
     const themeHead = markerFor(svg, "B-C").querySelector("path")!;
     expect(themeHead.getAttribute("class")).toBe("siren-arrow-fill");
@@ -1085,7 +1088,36 @@ describe("renderToSVG", () => {
     expect(svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("style")).toBe(
       "stroke:#f00;stroke-width:4px;STROKE:#00f",
     );
-    expect(markerFor(svg, "A-B").querySelector("path")!.getAttribute("style")).toBe("fill:#00f");
+    expect(markerFor(svg, "A-B").querySelector("path")!.getAttribute("style")).toBe("--siren-edge-stroke:#00f");
+  });
+
+  it.each([
+    "var(--siren-edge-stroke)",
+    "VAR( --siren-edge-stroke , #f00)",
+    "color-mix(in srgb, var(--siren-edge-stroke) 50%, #f00)",
+  ])("never declares the edge token on a head in terms of itself: `stroke:%s` shares the theme's marker", (stroke) => {
+    // `--siren-edge-stroke:var(--siren-edge-stroke)` is a cycle, which CSS
+    // makes invalid at computed-value time; in a browser without
+    // `context-stroke` the head's own `var()` would then fail and paint it
+    // black. A line stroked through the token already takes the token's
+    // colour, so its head is the theme's head, the one an unstyled edge
+    // shares, whether the token is bare or nested in another function.
+    //
+    // The flowchart parser refuses `(` in a declaration list today, so no
+    // source text reaches this; the renderer holds the rule on its own.
+    const graph = buildFixture();
+    graph.edges[0].style = { frame: [{ property: "stroke", value: stroke }], text: [] };
+
+    const svg = renderToSVG(graph);
+
+    // The author's stroke still reaches the line, verbatim.
+    expect(svg.querySelector('path.siren-edge[data-siren-id="A-B"]')!.getAttribute("style")).toBe(`stroke:${stroke}`);
+    // No head anywhere declares the token by way of itself.
+    for (const shape of Array.from(svg.querySelectorAll("defs marker > *"))) {
+      expect(shape.getAttribute("style") ?? "").not.toMatch(/--siren-edge-stroke\s*:[^;]*var\(\s*--siren-edge-stroke/i);
+    }
+    expect(markerFor(svg, "A-B")).toBe(markerFor(svg, "B-C"));
+    expect(svg.querySelectorAll("defs marker")).toHaveLength(1);
   });
 });
 
@@ -1261,12 +1293,16 @@ describe("the line and the two ends an edge is drawn with", () => {
     );
   });
 
-  it("paints a styled edge's colour where each shape actually shows it", () => {
-    // A filled head takes the colour as its `fill`; a hollow ring and an
-    // open cross take it as their `stroke`. Painting a ring's fill would
+  it("hands a styled edge's colour to every shape as the edge token, for the theme to paint where the shape shows it", () => {
+    // A filled head shows the colour as its `fill`; a hollow ring and an
+    // open cross show it as their `stroke`. Painting a ring's fill would
     // give a filled dot in the author's colour — the wrong shape, in the
     // right colour — and painting an open cross's fill would draw nothing
-    // at all.
+    // at all. That choice used to be made here, one property per shape. It
+    // is the theme's now: each shape's class already paints the edge token
+    // in the right property, so the marker carries the colour as that token
+    // and the three are written alike. This rewrites the per-shape `fill` /
+    // `stroke` this test pinned before a head took its line's stroke.
     const colouredEnd = (toEnd: PositionedEdge["toEnd"]) => {
       const svg = drawEdge({
         toEnd,
@@ -1277,9 +1313,9 @@ describe("the line and the two ends an edge is drawn with", () => {
     };
 
     expect([colouredEnd("arrow"), colouredEnd("circle"), colouredEnd("cross")]).toEqual([
-      "fill:#f00",
-      "stroke:#f00",
-      "stroke:#f00",
+      "--siren-edge-stroke:#f00",
+      "--siren-edge-stroke:#f00",
+      "--siren-edge-stroke:#f00",
     ]);
   });
 
@@ -1537,6 +1573,99 @@ describe("renderToSVG — a subgraph", () => {
     const svg = framed([]);
 
     expect(svg.querySelectorAll(".siren-subgraph")).toHaveLength(0);
+  });
+});
+
+/**
+ * An author style naming a subgraph by the handle its block was opened with
+ * — `style s1 …`, `class s1 hot`, `s1:::hot` — lands on that block's frame
+ * and title. Measured on Mermaid 12.2.0 (`probe --markup --paint`): the
+ * cluster's `<rect>` takes every declaration but `color`, and `color` paints
+ * the title (`<span style="color:… !important">` under `htmlLabels: true`).
+ */
+describe("an author style on a subgraph", () => {
+  const drawn = (source: string) => {
+    const container = document.createElement("div");
+    const { svg, diagnostics } = render(source, container);
+    const group = svg!.querySelector("g.siren-subgraph")!;
+    return {
+      diagnostics,
+      id: group.getAttribute("data-siren-id"),
+      frame: group.querySelector("rect.siren-subgraph-frame")!.getAttribute("style"),
+      title: group.querySelector("text.siren-subgraph-label")!.getAttribute("style"),
+    };
+  };
+
+  it("draws a style statement's declarations on the frame, and its color on the title", () => {
+    expect(
+      drawn("flowchart TB\nsubgraph s1 [Box]\nA\nend\nstyle s1 fill:#f96,stroke:#333,color:#f00,stroke-width:4px\n"),
+    ).toEqual({
+      diagnostics: [],
+      id: "subgraph:1",
+      frame: "fill:#f96;stroke:#333;stroke-width:4px",
+      title: "fill:#f00",
+    });
+  });
+
+  it("draws a class applied to the handle, with a style written after it winning", () => {
+    expect(
+      drawn("flowchart TB\nsubgraph Box\nA\nend\nstyle Box fill:#f96\nclass Box hot\nclassDef hot stroke:#0f0,fill:#00f,color:#00f\n"),
+    ).toEqual({ diagnostics: [], id: "subgraph:1", frame: "stroke:#0f0;fill:#f96", title: "fill:#00f" });
+  });
+
+  it("draws a class applied with the ::: shorthand on its own line or at an edge's end", () => {
+    const shorthand = "flowchart TB\nsubgraph s1 [Box]\nA\nend\nclassDef hot fill:#0f0,color:#00f\n";
+    expect(drawn(`${shorthand}s1:::hot\n`)).toEqual({
+      diagnostics: [],
+      id: "subgraph:1",
+      frame: "fill:#0f0",
+      title: "fill:#00f",
+    });
+    expect(drawn(`${shorthand}B --> s1:::hot\n`)).toEqual({
+      diagnostics: [],
+      id: "subgraph:1",
+      frame: "fill:#0f0",
+      title: "fill:#00f",
+    });
+  });
+
+  it("draws no box for a handle the ::: shorthand names on a line of its own, above or below the block", () => {
+    // Measured on Mermaid 12.2.0: `s1:::hot` records a vertex `s1`, and the
+    // cluster stands in for it — the only `g.node` drawn is `A`.
+    for (const source of [
+      "flowchart TB\nsubgraph s1 [Box]\nA\nend\nclassDef hot fill:#0f0\ns1:::hot\n",
+      "flowchart TB\ns1:::hot\nsubgraph s1 [Box]\nA\nend\nclassDef hot fill:#0f0\n",
+    ]) {
+      const { svg } = render(source, document.createElement("div"));
+      expect(Array.from(svg!.querySelectorAll("g.siren-node")).map((g) => g.getAttribute("data-siren-id"))).toEqual(["A"]);
+      expect(svg!.querySelector("rect.siren-subgraph-frame")!.getAttribute("style")).toBe("fill:#0f0");
+    }
+  });
+
+  it("leaves the frame out of classDef default, which paints every node", () => {
+    // Measured on Mermaid 12.2.0: `classDef default` reaches node `A` and not
+    // the cluster around it.
+    const { svg } = render(
+      "flowchart TB\nclassDef default fill:#f96,color:#f00\nsubgraph s1 [Box]\nA\nend\n",
+      document.createElement("div"),
+    );
+    expect(svg!.querySelector("rect.siren-subgraph-frame")!.getAttribute("style")).toBeNull();
+    expect(svg!.querySelector("text.siren-subgraph-label")!.getAttribute("style")).toBeNull();
+    expect(svg!.querySelector('g.siren-node[data-siren-id="A"] .siren-node-frame')!.getAttribute("style")).toBe("fill:#f96");
+  });
+
+  it("styles the subgraph, not the node, when a node shares the block's handle", () => {
+    // Measured on Mermaid 12.2.0: after `A[Alpha]` and `subgraph A`, `style A`
+    // paints the cluster and its title. Mermaid draws no box for `A` there at
+    // all; Siren still does, a divergence of its own that this leaves alone.
+    const { svg, diagnostics } = render(
+      "flowchart TB\nA[Alpha]\nsubgraph A\nB\nend\nstyle A fill:#f96,color:#f00\n",
+      document.createElement("div"),
+    );
+    expect(diagnostics).toEqual([]);
+    expect(svg!.querySelector("rect.siren-subgraph-frame")!.getAttribute("style")).toBe("fill:#f96");
+    expect(svg!.querySelector("text.siren-subgraph-label")!.getAttribute("style")).toBe("fill:#f00");
+    expect(svg!.querySelector('g.siren-node[data-siren-id="A"] .siren-node-frame')!.getAttribute("style")).toBeNull();
   });
 });
 

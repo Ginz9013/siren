@@ -2932,4 +2932,448 @@ highlight A outline
       });
     });
   });
+
+  describe("author styles", () => {
+    /**
+     * Node A is styled by a `classDef` and a `style`; the `timeline:` gives
+     * two steps, so a switch has a step to keep. Strike `fill`, `stroke` and
+     * `color` out of A's declarations by hand and only `stroke-width:4px`
+     * is left on its frame, nothing on its label.
+     */
+    const STYLED_SOURCE = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+classDef hot fill:#fdd
+class A hot
+style A stroke:#c00,stroke-width:4px,color:#fff
+timeline:
+enter B fade
+enter C fade
+`;
+    const SITE_STYLE = ["fill", "stroke", "color"] as const;
+
+    /** Node A's inline frame and label styles, as drawn on the board. */
+    function drawnA(container: HTMLElement): [string | null, string | null] {
+      const node = container.querySelector('.siren-board-viewport g.siren-node[data-siren-id="A"]')!;
+      return [node.querySelector("rect.siren-node-frame")!.getAttribute("style"), node.querySelector("text")!.getAttribute("style")];
+    }
+
+    it("BoardOptions.omitAuthorStyles reaches render(), and board.omitAuthorStyles reads it back; omitted, it is empty and everything is drawn", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, {
+        source: STYLED_SOURCE,
+        measureText: FAKE_MEASURER,
+        omitAuthorStyles: SITE_STYLE,
+      });
+
+      expect(board.omitAuthorStyles).toEqual(["fill", "stroke", "color"]);
+      expect(drawnA(container)).toEqual(["stroke-width:4px", null]);
+
+      const plain = document.createElement("div");
+      const plainBoard = createBoard(plain, { source: STYLED_SOURCE, measureText: FAKE_MEASURER });
+
+      expect(plainBoard.omitAuthorStyles).toEqual([]);
+      expect(drawnA(plain)).toEqual(["fill:#fdd;stroke:#c00;stroke-width:4px", "fill:#fff"]);
+    });
+
+    /** STYLED_SOURCE's styling with two named timelines: `card` has one step, `wallet` two. */
+    const STYLED_TWO_TIMELINES = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+classDef hot fill:#fdd
+class A hot
+style A stroke:#c00,stroke-width:4px,color:#fff
+timeline card:
+enter B fade
+timeline wallet:
+enter B fade
+enter C fade
+`;
+
+    it("setOmitAuthorStyles re-renders with the new list, keeping the current timeline, its step and the view, and fires neither onStepChange nor onDiagnostics", () => {
+      const container = document.createElement("div");
+      const stepChanges: number[] = [];
+      let diagnosticsCalls = 0;
+      const board = createBoard(container, {
+        source: STYLED_TWO_TIMELINES,
+        measureText: FAKE_MEASURER,
+        onStepChange: (current) => stepChanges.push(current),
+        onDiagnostics: () => diagnosticsCalls++,
+      });
+      board.setTimeline("wallet");
+      board.controller!.next();
+      const canvas = container.querySelector<HTMLElement>(".siren-board-canvas")!;
+      stubRect(canvas, { width: 400, height: 300 });
+      canvas.dispatchEvent(
+        new WheelEvent("wheel", { clientX: 100, clientY: 100, deltaY: -500, bubbles: true, cancelable: true }),
+      );
+      const zoomed = readViewportTransform(container);
+      const diagnostics = board.diagnostics;
+      stepChanges.length = 0;
+      diagnosticsCalls = 0;
+
+      board.setOmitAuthorStyles(SITE_STYLE);
+
+      expect(board.omitAuthorStyles).toEqual(["fill", "stroke", "color"]);
+      expect(drawnA(container)).toEqual(["stroke-width:4px", null]);
+      expect(board.timeline).toBe("wallet");
+      expect(board.controller!.totalSteps).toBe(2);
+      expect(board.controller!.currentStep).toBe(1);
+      expect(board.fullDiagram).toBe(false);
+      expect(readViewportTransform(container)).toEqual(zoomed);
+      expect(board.diagnostics).toBe(diagnostics);
+      expect(stepChanges).toEqual([]);
+      expect(diagnosticsCalls).toBe(0);
+
+      board.setOmitAuthorStyles([]);
+
+      expect(board.omitAuthorStyles).toEqual([]);
+      expect(drawnA(container)).toEqual(["fill:#fdd;stroke:#c00;stroke-width:4px", "fill:#fff"]);
+      expect(board.controller!.currentStep).toBe(1);
+    });
+
+    it("in the full diagram, setOmitAuthorStyles draws the full diagram with the new list, and switching it off returns to the step shown before", () => {
+      const container = document.createElement("div");
+      const changes: boolean[] = [];
+      const board = createBoard(container, {
+        source: STYLED_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullDiagramChange: (on) => changes.push(on),
+      });
+      board.controller!.next();
+      board.setFullDiagram(true);
+
+      board.setOmitAuthorStyles(SITE_STYLE);
+
+      expect(board.fullDiagram).toBe(true);
+      expect(board.controller!.totalSteps).toBe(0);
+      expect(drawnA(container)).toEqual(["stroke-width:4px", null]);
+      expect(changes).toEqual([true]);
+
+      board.setFullDiagram(false);
+
+      expect(board.controller!.currentStep).toBe(1);
+      expect(drawnA(container)).toEqual(["stroke-width:4px", null]);
+    });
+
+    it("a ControlsFactory's update() is called once after setOmitAuthorStyles, already seeing the new list and controller", () => {
+      const seen: [readonly string[], number][] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: STYLED_SOURCE,
+        measureText: FAKE_MEASURER,
+        controls: (b) => ({
+          element: document.createElement("div"),
+          update: () => seen.push([b.omitAuthorStyles, b.controller!.currentStep]),
+        }),
+      });
+      board.controller!.next();
+      seen.length = 0;
+
+      board.setOmitAuthorStyles(["fill"]);
+
+      expect(seen).toEqual([[["fill"], 1]]);
+    });
+
+    it("setOmitAuthorStyles with an equal list — the same names in the same order — re-renders nothing and calls no update(); another order is another list", () => {
+      const container = document.createElement("div");
+      let updates = 0;
+      const board = createBoard(container, {
+        source: STYLED_SOURCE,
+        measureText: FAKE_MEASURER,
+        omitAuthorStyles: ["fill", "stroke"],
+        controls: () => ({ element: document.createElement("div"), update: () => updates++ }),
+      });
+      const svg = container.querySelector(".siren-board-viewport svg");
+      updates = 0;
+
+      board.setOmitAuthorStyles(["fill", "stroke"]);
+
+      expect(container.querySelector(".siren-board-viewport svg")).toBe(svg);
+      expect(updates).toBe(0);
+
+      board.setOmitAuthorStyles(["stroke", "fill"]);
+
+      expect(container.querySelector(".siren-board-viewport svg")).not.toBe(svg);
+      expect(board.omitAuthorStyles).toEqual(["stroke", "fill"]);
+      expect(updates).toBe(1);
+    });
+
+    it("setOmitAuthorStyles after destroy() does nothing: no throw, the list unchanged, nothing mounted again", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { source: STYLED_SOURCE, measureText: FAKE_MEASURER });
+      board.destroy();
+
+      expect(() => board.setOmitAuthorStyles(SITE_STYLE)).not.toThrow();
+
+      expect(board.omitAuthorStyles).toEqual([]);
+      expect(container.children).toHaveLength(0);
+    });
+
+    it("on a board that has not rendered yet, setOmitAuthorStyles keeps the list for the first setSource that renders", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { measureText: FAKE_MEASURER });
+
+      board.setOmitAuthorStyles(SITE_STYLE);
+
+      expect(board.omitAuthorStyles).toEqual(["fill", "stroke", "color"]);
+      expect(board.controller).toBeNull();
+
+      board.setSource(STYLED_SOURCE);
+
+      expect(drawnA(container)).toEqual(["stroke-width:4px", null]);
+    });
+
+    it("a caller changing the array it passed afterwards changes neither the list nor the drawing", () => {
+      const container = document.createElement("div");
+      const list = ["fill"];
+      const board = createBoard(container, { source: STYLED_SOURCE, measureText: FAKE_MEASURER, omitAuthorStyles: list });
+      list.push("stroke", "color");
+
+      board.setSource(STYLED_SOURCE);
+
+      expect(board.omitAuthorStyles).toEqual(["fill"]);
+      expect(drawnA(container)).toEqual(["stroke:#c00;stroke-width:4px", "fill:#fff"]);
+    });
+
+    it("setOmitAuthorStyles during playback keeps playing from the step shown, as only the full diagram, which has no steps, stops it", () => {
+      vi.useFakeTimers();
+      try {
+        const playback: boolean[] = [];
+        const board = createBoard(document.createElement("div"), {
+          source: STYLED_SOURCE,
+          measureText: FAKE_MEASURER,
+          playInterval: 1000,
+          onPlaybackChange: (playing) => playback.push(playing),
+        });
+        board.play();
+        expect(board.controller!.currentStep).toBe(1); // sanity: play() steps at once
+
+        board.setOmitAuthorStyles(SITE_STYLE);
+
+        expect(board.playing).toBe(true);
+        expect(board.controller!.currentStep).toBe(1);
+        expect(playback).toEqual([true]);
+
+        vi.advanceTimersByTime(1000);
+
+        expect(board.controller!.currentStep).toBe(2);
+        expect(board.playing).toBe(false);
+        expect(playback).toEqual([true, false]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    /** Node A's fact in STYLED_SOURCE, read off its statements by hand: `classDef hot` gave the fill, `style A` the rest. */
+    const A_FACT = {
+      id: "A",
+      kind: "node",
+      classes: ["hot"],
+      effective: {
+        frame: [
+          { property: "fill", value: "#fdd" },
+          { property: "stroke", value: "#c00" },
+          { property: "stroke-width", value: "4px" },
+        ],
+        text: [{ property: "fill", value: "#fff" }],
+      },
+      sources: {
+        frame: [{ via: "classDef", name: "hot" }, { via: "style" }, { via: "style" }],
+        text: [{ via: "style" }],
+      },
+    };
+
+    it("starts with no styles and no siren, and hands render()'s styles and siren to onStyles and board.styles/board.siren on every setSource that renders, construction included", () => {
+      const calls: [unknown, unknown][] = [];
+      const board = createBoard(document.createElement("div"), {
+        measureText: FAKE_MEASURER,
+        onStyles: (styles, siren) => calls.push([styles, siren]),
+      });
+
+      expect(board.styles).toEqual([]);
+      expect(board.siren).toBeUndefined();
+
+      board.setSource(`---\nsiren:\n  roles: [warn]\n---\n${STYLED_SOURCE}`);
+
+      expect(board.styles).toEqual([A_FACT]);
+      expect(board.siren).toEqual({ roles: ["warn"] });
+      expect(calls).toEqual([[[A_FACT], { roles: ["warn"] }]]);
+
+      board.setSource(VALID_SOURCE);
+
+      expect(board.styles).toEqual([]);
+      expect(board.siren).toBeUndefined();
+      expect(calls).toEqual([
+        [[A_FACT], { roles: ["warn"] }],
+        [[], undefined],
+      ]);
+
+      const constructed: [unknown, unknown][] = [];
+      createBoard(document.createElement("div"), {
+        source: STYLED_SOURCE,
+        measureText: FAKE_MEASURER,
+        onStyles: (styles, siren) => constructed.push([styles, siren]),
+      });
+      expect(constructed).toEqual([[[A_FACT], undefined]]);
+    });
+
+    it("onStyles fires after every re-render too: setTimeline, setFullDiagram both ways, and setOmitAuthorStyles — and not after a no-op", () => {
+      const source = `---\nsiren: plain\n---\n${STYLED_TWO_TIMELINES}`;
+      const calls: [unknown, unknown][] = [];
+      const board = createBoard(document.createElement("div"), {
+        source,
+        measureText: FAKE_MEASURER,
+        onStyles: (styles, siren) => calls.push([styles, siren]),
+      });
+      calls.length = 0;
+
+      board.setTimeline("wallet");
+      board.setFullDiagram(true);
+      board.setOmitAuthorStyles(SITE_STYLE);
+      board.setFullDiagram(false);
+      board.setTimeline("wallet");
+      board.setFullDiagram(false);
+      board.setOmitAuthorStyles(SITE_STYLE);
+
+      // The omitted properties change the drawing, never the facts (see `RenderOptions.omitAuthorStyles`).
+      expect(calls).toEqual(Array.from({ length: 4 }, () => [[A_FACT], "plain"]));
+      expect(board.styles).toEqual([A_FACT]);
+      expect(board.siren).toBe("plain");
+    });
+
+    it("a setSource that fails fires no onStyles and keeps the styles and siren of the drawing still shown", () => {
+      const calls: unknown[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: `---\nsiren: kept\n---\n${STYLED_SOURCE}`,
+        measureText: FAKE_MEASURER,
+        onStyles: (styles) => calls.push(styles),
+      });
+      calls.length = 0;
+
+      board.setSource("---\nsiren: lost\n---\nthis is not a valid siren document");
+
+      expect(board.diagnostics.some((d) => d.severity === "error")).toBe(true); // sanity
+      expect(calls).toEqual([]);
+      expect(board.styles).toEqual([A_FACT]);
+      expect(board.siren).toBe("kept");
+    });
+
+    it("a ControlsFactory's update() and onTimelineChange already read the new document's styles and siren after setSource", () => {
+      const seen: [string, unknown, unknown][] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: `---\nsiren: old\n---\n${STYLED_TWO_TIMELINES}`,
+        measureText: FAKE_MEASURER,
+        controls: (b) => ({
+          element: document.createElement("div"),
+          update: () => seen.push(["update", b.styles, b.siren]),
+        }),
+        onTimelineChange: () => seen.push(["onTimelineChange", board.styles, board.siren]),
+      });
+      seen.length = 0;
+
+      board.setSource(`---\nsiren: new\n---\n${VALID_SOURCE}`);
+
+      expect(seen).toEqual([
+        ["update", [], "new"],
+        ["onTimelineChange", [], "new"],
+      ]);
+    });
+
+    it("a setSource called from onTimelineChange leaves its own styles and siren on the board, not those of the setSource that fired it", () => {
+      const calls: [unknown, unknown][] = [];
+      let reentered = false;
+      const board = createBoard(document.createElement("div"), {
+        source: `---\nsiren: first\n---\n${STYLED_TWO_TIMELINES}`,
+        measureText: FAKE_MEASURER,
+        onStyles: (styles, siren) => calls.push([styles, siren]),
+        onTimelineChange: () => {
+          if (reentered) return;
+          reentered = true;
+          board.setSource(`---\nsiren: other\n---\n${STYLED_SOURCE}`);
+        },
+      });
+      calls.length = 0;
+
+      board.setSource(`---\nsiren: outer\n---\n${VALID_SOURCE}`);
+
+      expect(board.styles).toEqual([A_FACT]);
+      expect(board.siren).toBe("other");
+      expect(calls.at(-1)).toEqual([[A_FACT], "other"]);
+    });
+
+    it("setSource after destroy() renders nothing and fires no callback, leaving every fact as it was", () => {
+      const fired: string[] = [];
+      const container = document.createElement("div");
+      const board = createBoard(container, {
+        source: `---\nsiren: before\n---\n${STYLED_TWO_TIMELINES}`,
+        measureText: FAKE_MEASURER,
+        onStyles: () => fired.push("onStyles"),
+        onDiagnostics: () => fired.push("onDiagnostics"),
+        onTimelineChange: () => fired.push("onTimelineChange"),
+        onStepChange: () => fired.push("onStepChange"),
+        onPlaybackChange: () => fired.push("onPlaybackChange"),
+        onFullDiagramChange: () => fired.push("onFullDiagramChange"),
+      });
+      const diagnostics = board.diagnostics;
+      const controller = board.controller;
+      board.destroy();
+      fired.length = 0;
+
+      expect(() => board.setSource(`---\nsiren: after\n---\n${VALID_SOURCE}`)).not.toThrow();
+      expect(() => board.setSource("this is not a valid siren document")).not.toThrow();
+
+      expect(fired).toEqual([]);
+      expect(board.siren).toBe("before");
+      expect(board.styles).toEqual([A_FACT]);
+      expect(board.timeline).toBe("card");
+      expect(board.diagnostics).toBe(diagnostics);
+      expect(board.controller).toBe(controller);
+      expect(container.children).toHaveLength(0);
+    });
+
+    it("setOmitAuthorStyles compares names case-insensitively, as render() reads them: [\"FILL\"] after [\"fill\"] redraws nothing, calls no update() and fires no onStyles", () => {
+      const container = document.createElement("div");
+      let updates = 0;
+      let styleCalls = 0;
+      const board = createBoard(container, {
+        source: STYLED_SOURCE,
+        measureText: FAKE_MEASURER,
+        omitAuthorStyles: ["fill", "Stroke"],
+        controls: () => ({ element: document.createElement("div"), update: () => updates++ }),
+        onStyles: () => styleCalls++,
+      });
+      const svg = container.querySelector(".siren-board-viewport svg");
+      updates = 0;
+      styleCalls = 0;
+
+      board.setOmitAuthorStyles(["FILL", "stroke"]);
+
+      expect(container.querySelector(".siren-board-viewport svg")).toBe(svg);
+      expect(updates).toBe(0);
+      expect(styleCalls).toBe(0);
+      expect(board.omitAuthorStyles).toEqual(["fill", "Stroke"]);
+
+      board.setOmitAuthorStyles(["STROKE", "FILL"]);
+
+      expect(container.querySelector(".siren-board-viewport svg")).not.toBe(svg);
+      expect(board.omitAuthorStyles).toEqual(["STROKE", "FILL"]);
+      expect(updates).toBe(1);
+      expect(styleCalls).toBe(1);
+    });
+
+    it("changing the array board.omitAuthorStyles returns changes neither the list nor the next render", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { source: STYLED_SOURCE, measureText: FAKE_MEASURER, omitAuthorStyles: ["fill"] });
+
+      try {
+        (board.omitAuthorStyles as string[]).push("stroke", "color");
+      } catch {
+        // A frozen list refuses the change outright, which is as good.
+      }
+      board.setSource(STYLED_SOURCE);
+
+      expect(board.omitAuthorStyles).toEqual(["fill"]);
+      expect(drawnA(container)).toEqual(["stroke:#c00;stroke-width:4px", "fill:#fff"]);
+    });
+  });
 });

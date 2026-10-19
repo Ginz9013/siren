@@ -18,10 +18,10 @@
  * `parser/styleLines`'s `asWritten` moves each position back past it by
  * walking the result for these two pairs — a position spelled any other way
  * would silently point one character early. `styleLines.test.ts` pins it.
- * The one exception is `ParseResult.config`: it is the author's document
- * config as written, not a position, and `parseSiren` adds it only after
- * `asWritten` has run, so a config key that happens to be spelled `line` is
- * never moved.
+ * The exceptions are `ParseResult.config` and `ParseResult.siren`: each is
+ * the author's frontmatter data as written, not a position, and `parseSiren`
+ * adds them only after `asWritten` has run, so a key that happens to be
+ * spelled `line` is never moved.
  */
 
 /** Severity of a parse/build-time diagnostic. */
@@ -626,6 +626,12 @@ export interface ParseResult extends DiagramParseResult {
    * warning that it is not drawn yet.
    */
   config: Record<string, unknown>;
+  /**
+   * The frontmatter's top-level `siren:` as its YAML reads under the JSON
+   * schema, untouched — see `SirenRenderResult.siren`. Like `config`, it is
+   * the author's data, added after `asWritten` has run.
+   */
+  siren: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -1513,6 +1519,13 @@ export interface ResolvedSubgraph {
    * document's own direction.
    */
   direction: Direction | null;
+  /**
+   * Author declarations for this block's frame and title, from a `style`,
+   * `class` or `:::` that names the handle it was opened with — split as a
+   * node's are, `color` onto the title and the rest onto the frame. Absent
+   * when nothing styled it, so a model built without one still type-checks.
+   */
+  style?: AuthorStyle;
 }
 
 /** An edge after graph-model resolution, carrying its assigned id. */
@@ -1667,6 +1680,16 @@ export interface GraphModel {
    * `render()` chooses from. Absent or empty for a document with none.
    */
   namedTimelines?: NamedTimeline<ResolvedTimeline>[];
+  /**
+   * What the author's styling did to each styled node, subgraph and edge,
+   * with its provenance — what `render()` reports as
+   * `SirenRenderResult.styles`. The renderers never read it: what they paint
+   * is each target's own `style`.
+   *
+   * Optional only because a model can be built by hand, as layout's tests
+   * do; `buildFlowchartModel` always sets it, empty when nothing is styled.
+   */
+  styleFacts?: StyleFact[];
 }
 
 /**
@@ -1823,6 +1846,8 @@ export interface PositionedSubgraph {
   y: number;
   width: number;
   height: number;
+  /** Carried through unchanged from `ResolvedSubgraph.style`. */
+  style?: AuthorStyle;
 }
 
 /**
@@ -1890,6 +1915,104 @@ export interface SirenRenderResult {
    * there.
    */
   timelines: string[];
+  /**
+   * One fact per drawn target the author's styling reached with at least one
+   * surviving declaration — see `StyleFact`. A target whose every
+   * declaration was rejected, or that nothing styled, is absent.
+   *
+   * Empty for a sequence diagram, which accepts no styling, and empty when
+   * rendering failed, like `timelines`.
+   */
+  styles: StyleFact[];
+  /**
+   * The frontmatter's top-level `siren:` as its YAML reads under the JSON
+   * schema (`js-yaml`'s, as Mermaid reads a frontmatter) — a mapping, a
+   * list, a scalar, or `null` for a key with no value — handed back
+   * untouched. It is Siren's own key: Mermaid drops it and draws the diagram
+   * (ADR-0017), and Siren draws nothing from it either. It is never
+   * validated, never put in the document config, and never the subject of a
+   * diagnostic; what it means is the caller's.
+   *
+   * Unlike `timelines` and `styles`, it is handed back when rendering
+   * failed too: a refusal of the diagram does not touch the frontmatter, and
+   * a caller may need it to explain what the author meant.
+   * `undefined` when the document has no frontmatter, its frontmatter has no
+   * `siren:` key, or the frontmatter is refused — not valid YAML, or a
+   * `displayMode` with no mapping to go into.
+   */
+  siren?: unknown;
+}
+
+/**
+ * The statement one effective declaration of a `StyleFact` came from.
+ *
+ * A `classDef` is named, since it is the one statement a document can apply
+ * to several targets; the other three are the statement's keyword and say
+ * nothing more, because the target they reached is the fact they sit on.
+ * `linkStyle default` is kept apart from `linkStyle` because it is a tier
+ * of its own: a specific `linkStyle N` beats it for the edge it names.
+ */
+export type StyleSource =
+  | { via: "classDef"; name: string }
+  | { via: "style" }
+  | { via: "linkStyle" }
+  | { via: "linkStyle default" };
+
+/**
+ * What the author's styling statements did to one drawn target, as a fact
+ * a caller can read rather than an inline `style` it would have to parse
+ * back.
+ *
+ * Facts only: core says which statements reached a target and which of
+ * their declarations won, and draws no conclusion from them — no grouping,
+ * no meaning read into a colour or a class name. They describe the
+ * document, so nothing a render does to the drawing afterwards changes
+ * them: a timeline highlight lifting a `stroke` off a target leaves its
+ * fact as written.
+ */
+export interface StyleFact {
+  /**
+   * The target's `data-siren-id` — for a flowchart or ER subgraph its
+   * generated `subgraph:N`, not the handle the author styled it by.
+   */
+  id: string;
+  /** Which kind of drawn thing the target is. A composite state is a `state`. */
+  kind: "node" | "edge" | "subgraph" | "class" | "state" | "entity";
+  /**
+   * The names of the `classDef`s applied to the target, in the order they
+   * were applied, each once: a flowchart node's implicit `default` first,
+   * when the document defines one. A name no `classDef` defines applied
+   * nothing and is not listed.
+   *
+   * A defined class is listed even when none of its declarations survived
+   * — every one refused at the gate, or overridden — for every kind, an
+   * edge included: it was applied, so it is the target's class, whatever
+   * `effective` ends up holding.
+   */
+  classes: string[];
+  /**
+   * The declarations that won, exactly as the target is painted with them:
+   * the `frame` half for the shape, the `text` half for the label.
+   *
+   * **The text half is spelled the way SVG paints text**, not the way the
+   * author wrote it: an author's `color` is listed here as `fill`, as it is
+   * on the drawn element. A `fill` in `text` is therefore always the
+   * author's `color`, and a `fill` in `frame` always their `fill`.
+   *
+   * Spelled out here rather than named, so the fact is the whole of what a
+   * caller has to import: it is the shape of `AuthorStyle`, which stays
+   * internal.
+   */
+  effective: {
+    frame: { property: string; value: string }[];
+    text: { property: string; value: string }[];
+  };
+  /**
+   * The statement each effective declaration came from, index for index:
+   * `sources.frame[i]` supplied `effective.frame[i]`, and `sources.text[i]`
+   * supplied `effective.text[i]`.
+   */
+  sources: { frame: StyleSource[]; text: StyleSource[] };
 }
 
 // ---------------------------------------------------------------------------
@@ -2408,6 +2531,22 @@ export interface ResolvedStyle {
 }
 
 /**
+ * A `ResolvedStyle` with its provenance kept: what `resolveStyleFacts`
+ * returns, and what a model's `styleFacts` are made from.
+ *
+ * Kept beside `ResolvedStyle` rather than folded into it, because a model's
+ * `styles` is what its renderer paints and has no use for where a
+ * declaration came from; the provenance travels only as far as
+ * `SirenRenderResult.styles`.
+ */
+export interface ResolvedStyleFact extends ResolvedStyle {
+  /** See `StyleFact.classes`. */
+  classes: string[];
+  /** See `StyleFact.sources`. */
+  sources: StyleFact["sources"];
+}
+
+/**
  * The normalized in-memory class diagram produced by `buildClassModel`:
  * merged classes, identified relationships, resolved namespaces, notes,
  * interactions and styles, and the resolved timeline.
@@ -2427,6 +2566,8 @@ export interface ClassModel {
   timeline: ResolvedTimeline;
   /** The named blocks, resolved, on the terms of `GraphModel.namedTimelines`. */
   namedTimelines?: NamedTimeline<ResolvedTimeline>[];
+  /** The styled targets' facts, on the terms of `GraphModel.styleFacts`. */
+  styleFacts?: StyleFact[];
 }
 
 /** Result of `buildClassModel`. */
@@ -3212,6 +3353,8 @@ export interface StateModel {
   timeline: ResolvedTimeline;
   /** The named blocks, resolved, on the terms of `GraphModel.namedTimelines`. */
   namedTimelines?: NamedTimeline<ResolvedTimeline>[];
+  /** The styled targets' facts, on the terms of `GraphModel.styleFacts`. */
+  styleFacts?: StyleFact[];
 }
 
 /** Result of `buildStateModel`. */
@@ -4150,6 +4293,8 @@ export interface ErModel {
   timeline: ResolvedTimeline;
   /** The named blocks, resolved, on the terms of `GraphModel.namedTimelines`. */
   namedTimelines?: NamedTimeline<ResolvedTimeline>[];
+  /** The styled targets' facts, on the terms of `GraphModel.styleFacts`. */
+  styleFacts?: StyleFact[];
   /** Carried through unchanged from `ErDocument.accTitle` — no resolution needed for plain text with no target to validate against. */
   accTitle: string | null;
   /** Carried through unchanged from `ErDocument.accDescr` — no resolution needed for plain text with no target to validate against. */

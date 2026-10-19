@@ -90,6 +90,9 @@ A mounted, browser-only wrapper around one core-renderer `render()` call — own
 its own chrome styling, and the `AnimationController` lifecycle across source changes. A consumer
 of the core renderer (see [ADR-0005](docs/adr/0005-board-is-a-separate-package-that-owns-calling-render.md)),
 not part of it; does not parse, layout, or render anything itself.
+It passes core's style facts through untouched: it hands `omitAuthorStyles` to every `render()`
+and hands back each render's `styles` and `siren`, and makes no theme judgement of its own; what
+they mean is the host's.
 _Avoid_: canvas, viewer, widget
 
 **View**:
@@ -150,6 +153,10 @@ commas. Four verbs: `enter`/`exit`
 or `glow` — cumulative, multiple targets can be highlighted at once, a second `highlight` on the
 same target replaces its effect rather than requiring `unhighlight` first), `unhighlight` (no
 effect).
+**A highlight beats an author style's `stroke`**, `!important` included: it is Siren's own state,
+which Mermaid does not have, so winning costs no compatibility. Its width wins too: an author's
+`stroke-width` gives way to the highlight's while the target is highlighted. The moment it is not,
+the author's stroke is drawn again exactly as they wrote it, and `prev()` still snaps.
 _Avoid_: animation, timeline entry, "effect" alone (say "enter effect" / "highlight effect" when
 the verb matters)
 
@@ -203,6 +210,11 @@ always named at its point of use, never aliased into a new `--siren-*` in `:root
 property substitutes against the element its declaration sits on, so an alias in `:root` freezes
 the value there and inherits it down past any override a consumer scoped lower — on a container,
 on one diagram, on a section of the page.
+The one place the theme redeclares a token below `:root` follows from the same rule: a state
+diagram's note redeclares `--siren-node-fill`, `--siren-node-stroke` and `--siren-node-text` from
+the values they have at the diagram's `<svg>` (see **Token reach**), so a palette that recolours
+nodes recolours state notes with them, but recolouring the notes alone takes a redeclaration on
+the note's own parts, `.siren-note-frame` and `.siren-note-text`.
 **One token's reach narrowed when a flowchart node stopped being only a rectangle, and it narrowed
 for two different reasons.** `--siren-node-border-radius` is declared once, as `rx` on
 `.siren-node-frame`, and it now reaches exactly two of the fourteen node **shapes**: the
@@ -221,10 +233,49 @@ would have lost the one thing that distinguishes it. The price is that the token
 *how* round `A(Round)` is; that is a proportion, and it is the renderer's. So a consumer
 redeclaring this token changes rectangles and subroutines and nothing else — which is a documented
 token silently narrowing its reach, and the reason it is written down here.
-_Avoid_: CSS variable, theme variable (`themeVariables` is the **document config** key Mermaid
-spells a token's value under — the thing itself is still a design token), dark mode (say a
-**theme preset**'s dark variant), 主題切換 (there is no switch to name: one set of
+_Avoid_: CSS variable, theme variable (`themeVariables` is a Mermaid **document config** key that
+Siren reads and does not apply; no design token is keyed by it — decision
+`01M5964K7XEW1DA28AEP1ZYJY5`), dark mode (a dark palette is a consumer's redeclaration of the
+tokens, as `demos/theme-dark.css` is), 主題切換 (there is no switch to name: one set of
 values, and a second theme is a consumer's own CSS)
+
+**Token reach**: a caller recolours one styleable target, and nothing else, by redeclaring colour
+tokens on the elements that wear its `data-siren-id`. Two rules make that true, and
+`theme/default.test.ts` asserts both:
+- every colour the theme gives a styleable target's frame (fill and stroke) and its text is a token
+  named at the element that paints it;
+- no element wearing an id sits inside another.
+
+So a redeclaration on a **subgraph**, a **composite state** or an **ER subgraph** stops at its
+frame and never reaches the targets drawn inside it. The three frames share
+`--siren-subgraph-fill`, whose default is `none`.
+
+A state diagram's **note** is the one figure drawn inside a target's group that is not part of it,
+and a redeclaration of its colours on its state stops short of it, as the author's `style` does:
+the theme paints the note's fill, stroke and text with `--siren-node-fill`, `--siren-node-stroke`
+and `--siren-node-text` as they stand at the diagram's `<svg>`, not at its state's group. Only
+those three are shielded. `--siren-node-border-radius`, `--siren-stroke-width`, the font tokens
+and `--siren-edge-stroke`, which strokes the note's link to its state, still reach the note from
+a redeclaration on its state. A palette redeclared on a container, or on the `<svg>`, still
+reaches it; to recolour notes alone, redeclare the node tokens on `.siren-note-frame` and
+`.siren-note-text` themselves.
+
+A flowchart edge's arrowhead is drawn from a marker in `<defs>`, which inherits from the diagram
+rather than from the edge, so the theme paints it with `context-stroke`: the stroke of the line it
+is drawn for. A token redeclared on the edge's path, and the edge's highlight, reach the head
+through its line. Measured in Chrome (`scripts/edge-arrowhead-colour.mjs`); MDN's browser
+compatibility data has `context-stroke` in Chrome 124+ and Firefox 111+ and in no Safari, where the
+head falls back to the token as the diagram resolves it, or to the author's colour its marker
+carries, and so stays outside token reach.
+
+One thing falls outside token reach: a node frame unfilled by design, which the theme paints a
+literal `none` and no token. A **bare** frame (`siren-node-bare`, the text block's) is neither
+filled nor stroked, and a **hollow** one (`siren-node-hollow`: the `composite` shape's, and the
+open parts of a brace, a bucket's rim, a console or a browser) is stroked through its token but
+never filled. There is no colour there for a redeclaration to change, so no token is added for one.
+_Avoid_: scoped theme, per-target theme (there is one theme; a redeclaration on a target's
+elements is the consumer's own CSS), override (an author's inline `style` is what overrides, and it
+outranks every token)
 
 **Id scope**:
 The `__` plus exactly eight characters that every id *inside* one rendered SVG is suffixed with —
@@ -743,10 +794,17 @@ open ([ADR-0010](docs/adr/0010-generated-ids-and-connector-ids-live-in-separate-
 because a subgraph may legitimately be named after a node, and Mermaid itself accepts `A[Alpha]`
 beside `subgraph A`. The author's title is drawn and is otherwise inert; Mermaid agrees far enough
 to mint `subGraph0` of its own for `subgraph "Two Words"`, a spelling that gives the author no
-handle at all. That generated id is why a subgraph is addressable in a `timeline:` block and
-**not** by an author style: a `timeline:` entry names an id, which this has, while `style`,
-`classDef` and the apply-directive name a target the *author* spelled, which this has not. Not an
-omission — there is nothing for a directive to say.
+handle at all. That generated id is what a `timeline:` block and `data-siren-id` name it by.
+
+**An author style names it by its handle**, though, the word an edge already reaches it by:
+`style s1 …`, `class s1 hot` and `s1:::hot` after `subgraph s1 [Box]` paint the block — measured
+on Mermaid 12.2.0, the cluster's frame takes every declaration but `color`, and `color` paints the
+title, split exactly as a **node**'s are. The handle becomes the generated id inside the model and
+nowhere else, so `data-siren-id` stays `subgraph:N`. Where a node shares the handle (`A[Alpha]`
+beside `subgraph A`) the style is the block's, as it is in Mermaid; `classDef default` never reaches
+a block (measured); and `:::` written on the `subgraph` line itself is a parse error in Mermaid
+and refused here. A block's frame is unfilled through `--siren-subgraph-fill`, a **design token**
+whose default is `none`.
 _Avoid_: subgraph diagram (Mermaid has no such kind — this is a statement inside a flowchart),
 cluster (that is the engine-side word the layout cores use for the mechanism, the same way
 **namespace**'s entry reserves it — the ELK core's input field is `cluster`, and what it hands back
@@ -1024,7 +1082,8 @@ renumber). A state diagram's note (`note right of S : ...`) is laid out the clas
 box joined to its state by a connector, after its state along the diagram's direction for `right of`
 and before it for `left of` — at its state's own level, so inside the composite its state is written
 in, where Mermaid 12 lays it out outside (decision `01M4VKTJ2A1DGXAMYVF16BK2W3`); it has no id of
-its own and is drawn in its state's group.
+its own and is drawn in its state's group, so it animates with its state, but is coloured from the
+diagram rather than from its state (see **Token reach**).
 _Avoid_: annotation (that is the `<<interface>>` marker *inside* a class — a note is a box of its
 own), comment (that is a `%%` line, which is stripped before parsing and draws nothing; a line of
 nothing but `%%` is not a comment in a flowchart or ER diagram and is refused, ADR-0017), label,
@@ -1294,9 +1353,12 @@ every cell of its attribute table — the author's spelling, translated once in 
 model to the `fill` that actually paints SVG text. That now includes a flowchart **edge**'s own
 label, which is a `<text>` the same translation lands on; the connection was made once the edge
 had somewhere to put it, and only after measuring that Mermaid makes it too. Every other property
-goes to the frame, and a styled edge's arrowhead takes the edge's own `stroke` via a marker minted
-per distinct (end shape, color) pair — per color alone until an edge's ends had shapes, and minted
-only for the pairs a diagram actually draws, so one color and one head shape is still one marker.
+goes to the frame, and a styled edge's arrowhead takes the edge's own `stroke`: the theme paints
+a flowchart head with its line's stroke (`context-stroke`, see **Token reach**). For a browser
+without that keyword, a styled edge still points at a marker minted per distinct (end shape,
+color) pair, carrying the color as `--siren-edge-stroke` on the head — per color alone until an
+edge's ends had shapes, and minted only for the pairs a diagram actually draws, so one color and
+one head shape is still one marker.
 Property names must be plain CSS identifiers, and a value is read against an allowlist
 (`unsafeStyleValue`): it may call only the colour, math and gradient functions and `var(`, and is
 otherwise built from hex colours, keywords, numbers, quoted family names and `!important`; `;`,
@@ -1313,6 +1375,43 @@ reaches a stylesheet; and note that a flowchart's apply-directive is *spelled* `
 the third sense of that word in this codebase after the class-diagram box and the `siren-*` CSS
 classes — say "the apply-directive" for the statement, and see **Class**), link style (two words —
 `linkStyle` is a directive spelled one way)
+
+**Style fact**:
+What `render()` reports, as `SirenRenderResult.styles`, about one drawn target that the author's
+styling reached with a declaration that was not refused. A fact holds:
+- the target's `data-siren-id` and its kind (`node`, `edge`, `subgraph`, `class`, `state` or
+  `entity`);
+- the `classDef` names applied to it, in application order, with a flowchart node's implicit
+  `default` first;
+- the declarations that won, split into frame and text exactly as they are painted (an author's
+  `color` appears as the text half's `fill`);
+- for each declaration, the statement that supplied it: a named `classDef`, `style`, `linkStyle` or
+  `linkStyle default`.
+
+A fact is worked out in `resolveStyles`, in the same pass as the cascade it describes, so it cannot
+disagree with what is painted. It describes the document, not the drawing: a highlight lifting an
+author's `stroke` does not change it.
+Core states facts and stops there. Grouping targets by colour or class, and reading meaning into a
+class name, belong to whoever consumes them.
+_Avoid_: style info, computed style (that is the browser's word, and a fact is the author's)
+
+**Omitted author style**:
+An **author style** property a caller of `render()` asked not to draw, through
+`RenderOptions.omitAuthorStyles`, named in the author's spelling — so `color`, not the `fill` it
+becomes on label text. The element it would have styled falls back to the **design tokens**,
+which is how a host that colours targets itself, by redeclaring tokens on a target's
+`data-siren-id` element, keeps the author's colours from covering its own. An omission only takes
+declarations away and never adds one, so it is not the JS theme object ADR-0004 and ADR-0008
+rule out. It changes the drawing and nothing else: the document is validated as before, and its
+**style facts** still state what the author wrote. An edge whose `stroke` is omitted takes the
+theme's arrowhead, since no colour is left to mint one in, and it follows the edge's token with
+the line. A colour written in a label's own
+markup (`<span style="color:…">`, `<font color>`, `background-color`) is not an **author style**:
+it is drawn as written, no omission ever removes it, and it carries no **style fact**, so a host
+cannot take it back to the tokens. A name no declaration uses omits
+nothing and is not an error. Applied in `render()` alone, to the model once its facts are taken
+and before layout, so no renderer knows a property can be omitted.
+_Avoid_: hidden style, suppressed style, theme override (it overrides nothing; it removes)
 
 **Comment**:
 A whole line whose first non-blank characters are `%%` followed by at least one more character;
@@ -1331,7 +1430,10 @@ a key both set. Read by Siren because Mermaid documents carry it; a key Siren re
 act on is reported rather than silently dropped. Frontmatter keys Mermaid does not know are
 dropped unread by Mermaid, which is the one place Siren-only meaning may live in a document
 outside a **timeline block** — see
-[ADR-0017](docs/adr/0017-a-siren-document-without-its-timeline-is-mermaid.md).
+[ADR-0017](docs/adr/0017-a-siren-document-without-its-timeline-is-mermaid.md). That `theme` and
+`themeVariables` are read, reported and not applied is settled, not deferred, and `themeCSS` is
+never applied: a document-level theme is not something core supports, and a site that themes
+diagrams does it with **design tokens** (decision `01M5964K7XEW1DA28AEP1ZYJY5`).
 _Avoid_: directive (alone — `init` is one of two spellings of this, and not every directive is
 config), front matter config, settings
 
@@ -1348,34 +1450,11 @@ shape. A shape's height is its text plus its multiple of that padding, so the sh
 how they compare with one another, differ from Mermaid's (nook `01M52VP2KM`).
 _Avoid_: theme (a look is how shapes are drawn, not their colours), style, hand-drawn mode
 
-**Theme preset**:
-A named, complete set of **design token** values a consumer or user applies to diagrams, each
-with a light and a dark variant. Mermaid's built-in themes (`default`, `neutral`, `dark`, `forest`,
-`base`) are theme presets under their Mermaid names, so a document's `theme:` names one.
-_Avoid_: skin, template, theme (alone — ambiguous between the token mechanism and one set of values)
-
-**Apply mode**:
-How far a **theme preset** takes over the colors an author wrote. *Respect author* keeps every
-**author style**, as Mermaid does. *Semantic* gives **role classes** and **category classes** the
-preset's colors and keeps **decorative colors**. *Force* gives everything the preset's colors,
-keeping only which elements share a role, a category or a color.
-_Avoid_: override mode, strict mode
-
-**Role class**:
-A `classDef` whose name is in Siren's semantic vocabulary (a warning, an error, a success…): its
-meaning is the same under every **theme preset**, and a preset owns how it looks. The `classDef`'s
-own declarations are what Mermaid, and the *respect author* **apply mode**, draw.
-_Avoid_: semantic color, status class, token class
-
-**Category class**:
-A `classDef` whose name is not in the semantic vocabulary. It marks elements as one group; under
-a preset that takes it over, the group keeps a distinct color but the preset chooses it.
-_Avoid_: group color, custom class
-
-**Decorative color**:
-An author color carried by nothing named: `style X`, `classDef default`, a label's own
-`<span style>`, a `linkStyle`. It says how one element looks and not what it means.
-_Avoid_: hardcoded color, literal style (the values of a role or category class are literal too)
+**Theme preset**, **apply mode**, **role class**, **category class**, **decorative color**:
+siren-website's terms, not Siren's: themes, semantic roles, groups and how a theme takes over an
+author's colours are the site's, defined in siren-website's CONTEXT.md (decision
+`01M5964K7XEW1DA28AEP1ZYJY5`). Core has none of them; what it gives a site is the **style facts**
+and the **omitted author style** option.
 
 **Interaction target**:
 A class, a flowchart node, or a sequence diagram participant the author made clickable, with

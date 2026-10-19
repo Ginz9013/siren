@@ -10,7 +10,7 @@ import type {
 } from "../contracts";
 import { plainLabel } from "../label/label";
 import { generatedId } from "./generatedId";
-import { resolveStyles } from "./resolveStyles";
+import { asStyleFact, resolveStyleFacts } from "./resolveStyles";
 import { resolveTimelineBlocks } from "./resolveTimeline";
 
 /**
@@ -170,7 +170,7 @@ export function buildErModel(document: ErDocument): ErModelResult {
   // set handed to the shared resolver, never in the resolver, which four
   // other kinds call and none of which can style a generated id.
   const entityIds = new Set(entities.map((entity) => entity.id));
-  const styles = resolveStyles(
+  const resolvedStyles = resolveStyleFacts(
     document.styles.map((declaration) => ({
       ...declaration,
       targetIds: declaration.targetIds.flatMap((targetId) =>
@@ -180,6 +180,7 @@ export function buildErModel(document: ErDocument): ErModelResult {
     new Set([...entityIds, ...subgraphs.map((subgraph) => subgraph.id)]),
     diagnostics,
   );
+  const styles = resolvedStyles.map(({ targetId, style }) => ({ targetId, style }));
 
   // A relationship is a connector — two ids joined by a drawn line — so the
   // rule that already covers a flowchart edge, a class relationship, a
@@ -203,6 +204,9 @@ export function buildErModel(document: ErDocument): ErModelResult {
       relationships,
       subgraphs,
       styles,
+      styleFacts: resolvedStyles.map((resolved) =>
+        asStyleFact(resolved, entityIds.has(resolved.targetId) ? "entity" : "subgraph"),
+      ),
       ...timelines,
       // Plain text with nothing in the document to resolve it against, so
       // this stage has nothing to decide — the same straight-through

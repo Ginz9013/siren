@@ -67,14 +67,12 @@ const EDGE_LINE_CLASS: Record<EdgeLine, string | null> = {
  * every id this renderer mints carries the render's own scope, because
  * `url(#id)` resolves against the whole page.
  *
- * `colours` says which property an author's `stroke` paints on this shape,
- * and it is not the same one for all three. A filled head takes the colour
- * as its `fill`; a hollow ring and an open cross take it as their
- * `stroke`, because a ring's `fill` is the *surface* it sits on (that is
- * what makes it read as hollow rather than letting the line show through
- * its middle) and an open cross has no interior at all. Painting a ring's
- * fill would produce a filled dot in the author's colour — the wrong
- * shape, in the right colour.
+ * A filled head shows its edge's colour as its `fill`; a hollow ring and an
+ * open cross show it as their `stroke`, because a ring's `fill` is the
+ * *surface* it sits on (that is what makes it read as hollow rather than
+ * letting the line show through its middle) and an open cross has no
+ * interior at all. That choice is the theme's, made by each shape's class,
+ * so nothing here names a property.
  *
  * The three CSS classes are the ones the sequence and class renderers
  * already emit, so the theme paints every one of them without learning a
@@ -87,25 +85,22 @@ const END_SHAPES = {
     width: 8,
     height: 6,
     shapeClass: "siren-arrow-fill",
-    colours: "fill",
   },
   circle: {
     name: "siren-circle",
     width: 8,
     height: 8,
     shapeClass: "siren-arrow-hollow",
-    colours: "stroke",
   },
   cross: {
     name: "siren-cross",
     width: 8,
     height: 8,
     shapeClass: "siren-arrow-stroke",
-    colours: "stroke",
   },
 } as const satisfies Record<
   Exclude<EdgeEnd, "none">,
-  { name: string; width: number; height: number; shapeClass: string; colours: "fill" | "stroke" }
+  { name: string; width: number; height: number; shapeClass: string }
 >;
 
 /**
@@ -243,10 +238,13 @@ export function renderToSVG(graph: PositionedGraph): SVGSVGElement {
     //
     // The markers are the one part of the arrow these declarations cannot
     // reach: a `<marker>` lives in `<defs>` and its content inherits from
-    // its own ancestors, never from the path referencing it. So an edge that
-    // names a `stroke` is given markers of its own above, carrying that
-    // colour — which is why `stroke` colours the whole arrow here as it does
-    // in Mermaid, rather than the line alone.
+    // its own ancestors, never from the path referencing it. The theme
+    // paints a head with this path's stroke instead (`context-stroke`, see
+    // `.siren-edge-marker` in default.css), which is why `stroke` colours
+    // the whole arrow here as it does in Mermaid, rather than the line
+    // alone. A browser without that keyword paints the head from the
+    // marker's own token, so an edge that names a `stroke` is still given
+    // markers of its own above, carrying that colour.
     //
     // Only the frame half. The text half goes to the label, drawn in the
     // label layer after every line, which is
@@ -492,10 +490,16 @@ function buildSubgraph(subgraph: PositionedSubgraph): SVGGElement {
   frame.setAttribute("y", String(subgraph.y));
   frame.setAttribute("width", String(subgraph.width));
   frame.setAttribute("height", String(subgraph.height));
+  // The author's `style`/`class` on the block's handle, split by
+  // `resolveStyles` as a node's is: the frame takes all but `color`.
+  applyInlineStyle(frame, subgraph.style?.frame ?? []);
   g.appendChild(frame);
 
   // Over the frame and under the title, since document order is paint order.
-  appendLabel(g, drawPlaced(subgraph.label, "siren-subgraph-label"));
+  // The title takes the `color` half, translated to the `fill` text paints with.
+  const title = drawPlaced(subgraph.label, "siren-subgraph-label");
+  applyInlineStyle(title.text, subgraph.style?.text ?? []);
+  appendLabel(g, title);
 
   return g;
 }
@@ -624,6 +628,20 @@ function applyInlineStyle(element: SVGElement, style: readonly StyleProperty[]):
  * because that is the one a browser applies out of the inline attribute
  * these same declarations are written to. The arrowhead has to be the color
  * the line actually takes, not the color it was first told to take.
+ *
+ * A `stroke` that reads the edge token itself — `var(--siren-edge-stroke)`,
+ * bare or nested, as in `color-mix(in srgb, var(--siren-edge-stroke) 50%,
+ * red)` — is `null` too, so its edge shares the theme's marker. The colour
+ * is carried on a minted head as `--siren-edge-stroke:<stroke>`, and here
+ * that would declare the token in terms of itself: a cycle, invalid at
+ * computed-value time, which leaves a browser without `context-stroke` a
+ * head whose `var()` fails, painted with whatever fill it inherits (black,
+ * where nothing sets one). The theme's head already
+ * paints through the token, which is what such a line reads, so sharing it
+ * is the head the line asks for and writes nothing that can cycle. (The
+ * flowchart parser refuses `(` in a declaration list, so no source text
+ * reaches this today; the renderer keeps the rule on its own rather than
+ * lean on that.)
  */
 function strokeOf(style: StyleProperty[]): string | null {
   let stroke: string | null = null;
@@ -632,27 +650,44 @@ function strokeOf(style: StyleProperty[]): string | null {
       stroke = value;
     }
   }
-  return stroke;
+  return stroke !== null && READS_EDGE_TOKEN.test(stroke) ? null : stroke;
 }
+
+/**
+ * A `var()` of the edge token anywhere in a value. The function name is
+ * case-insensitive in CSS and a custom property's name is not, and a longer
+ * name (`--siren-edge-stroke-width`) is a different property.
+ */
+const READS_EDGE_TOKEN = /[vV][aA][rR]\(\s*--siren-edge-stroke(?![-\w])/;
 
 /**
  * Builds one end's `<marker>`: the theme's when `stroke` is `null`, and an
  * edge's own when it is a colour.
  *
- * The colour is written as an inline `style` rather than as a presentation
- * attribute, and the shape's class stays on either way. That is ADR-0008's
- * cascade argument applied to a marker: a presentation attribute loses to
- * *any* stylesheet rule, so `fill="#f00"` here would be silently overruled
- * by the theme's own `.siren-arrow-fill` rule, while an inline declaration
- * outranks it without needing `!important`. Keeping the class also keeps
- * the theme in charge of every marker no author coloured — and, for the
- * hollow ring, in charge of the surface colour filling it, which the
- * author's `stroke` deliberately does not touch.
+ * The colour is written as the edge token, `--siren-edge-stroke`, declared
+ * inline on the drawn shape, and never as the `fill` or `stroke` it ends up
+ * painting. The theme paints a flowchart head with its line's stroke
+ * (`context-stroke`), which already is the author's colour, a redeclared
+ * token or a highlight, whichever the line wears; an inline `fill` would
+ * outrank that rule (ADR-0008's cascade argument, which made it the right
+ * spelling while a head could not see its line) and pin the head to the
+ * author's colour under a highlight. The token outranks nothing: it only
+ * matters to a browser that drops `context-stroke`, whose fallback rule for
+ * each shape's class paints the token in the property that shape shows its
+ * colour with. Keeping the class keeps the theme in charge of the ring's
+ * surface fill too, which the author's `stroke` deliberately does not touch.
+ *
+ * So where `context-stroke` is supported, a coloured marker draws exactly
+ * what the theme's does, and the per-(shape, colour) minting above is moot
+ * there; it is kept, at the same economy, for the browsers that do not.
  */
 function buildEndMarker(id: string, end: Exclude<EdgeEnd, "none">, stroke: string | null): SVGMarkerElement {
   const shape = END_SHAPES[end];
   const marker = document.createElementNS(SVG_NS, "marker") as SVGMarkerElement;
   marker.setAttribute("id", id);
+  // What the theme paints a flowchart head through: its own edge's stroke,
+  // where the browser knows `context-stroke` (default.css says which do).
+  marker.setAttribute("class", "siren-edge-marker");
   // userSpaceOnUse (not the SVG default, strokeWidth) keeps the marker a
   // fixed absolute size regardless of the edge's current stroke-width —
   // otherwise it silently doubles when an edge is highlighted (stroke-width
@@ -678,7 +713,7 @@ function buildEndMarker(id: string, end: Exclude<EdgeEnd, "none">, stroke: strin
   // the same way every other themeable part of the SVG is class-driven.
   drawn.setAttribute("class", shape.shapeClass);
   if (stroke !== null) {
-    drawn.setAttribute("style", `${shape.colours}:${stroke}`);
+    drawn.setAttribute("style", `--siren-edge-stroke:${stroke}`);
   }
   marker.appendChild(drawn);
 

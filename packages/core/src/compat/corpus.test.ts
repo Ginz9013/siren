@@ -35,6 +35,7 @@ function rendered(diagnostics: Diagnostic[] = []): SirenRenderResult {
     controller: null,
     diagnostics,
     timelines: [],
+    styles: [],
   };
 }
 

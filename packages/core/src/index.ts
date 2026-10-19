@@ -20,14 +20,16 @@ import { type IconifyJSON, resolveIcon } from "./icon/iconPacks";
 import { mintIdScope } from "./renderer/mintIdScope";
 import type {
   AnimationController,
+  AuthorStyle,
   Diagnostic,
   GraphModel,
+  ResolvedStyle,
   ResolvedTimeline,
   SirenRenderResult,
   TextMeasurer,
 } from "./contracts";
 
-export type { AnimationController, Diagnostic, SirenRenderResult, TextMeasurer } from "./contracts";
+export type { AnimationController, Diagnostic, SirenRenderResult, StyleFact, StyleSource, TextMeasurer } from "./contracts";
 export type { IconifyIcon, IconifyJSON } from "./icon/iconPacks";
 
 /**
@@ -112,6 +114,30 @@ export interface RenderOptions {
    * event handlers, links and anything that fetches are never drawn.
    */
   iconPacks?: readonly IconifyJSON[];
+
+  /**
+   * Author style properties not to draw, named as the author spells them:
+   * `fill`, `stroke`, `stroke-width`, and `color` for label text (which is
+   * painted with `fill`, so `color` is what leaves a label's colour out and
+   * `fill` leaves only the frame's). Matched case-insensitively, as CSS
+   * matches property names.
+   *
+   * **It can only take an author's declaration away, never add one**, so it
+   * is not a JS theme object of the kind ADR-0004 and ADR-0008 rule out: an
+   * omitted property is simply not written, and the element falls back to
+   * whatever the theme's design tokens give it — which is how a host that
+   * owns the colours (by redeclaring tokens on a target's `data-siren-id`
+   * element) keeps the author's from covering its own. Properties left off
+   * the list are drawn as written. An edge whose `stroke` is omitted takes
+   * the theme's arrowhead again rather than one minted in that colour.
+   *
+   * It changes the drawing and nothing else: the document is parsed and
+   * validated exactly as without it, so `diagnostics` and
+   * `SirenRenderResult.styles` — which state what the author wrote — are
+   * identical either way. A name no declaration uses omits nothing and is
+   * not an error, and an empty list is the same as leaving this out.
+   */
+  omitAuthorStyles?: readonly string[];
 }
 
 const DEFAULT_CHAR_WIDTH = 8;
@@ -412,12 +438,44 @@ function withIcons(
 }
 
 /**
- * What `render()` returns when there is no diagram to mount: no SVG, no
- * controller (the two are null together), and no timelines to offer. One
- * place, so a field the result gains is added to every failure at once.
+ * `style` with each declaration a caller named in
+ * `RenderOptions.omitAuthorStyles` struck out.
+ *
+ * Only `render()` applies it, to each kind's model once its style facts
+ * were taken and before layout, so no layout module or renderer knows a
+ * property can be omitted: a renderer simply never sees the declaration,
+ * and an edge with no `stroke` left takes the theme's arrowhead as an edge
+ * never given one does. A new object rather than an edit, since a fact may
+ * share this one and must keep what was written.
+ *
+ * The list is in the author's spelling and the text half in SVG's: the
+ * model holds an author's `color` as the `fill` a `<text>` is painted with
+ * (see `AuthorStyle.text`), so that `fill` is matched as `color`.
  */
-function failedRender(diagnostics: Diagnostic[]): SirenRenderResult {
-  return { svg: null, controller: null, diagnostics, timelines: [] };
+function withoutOmitted(style: AuthorStyle, omitted: ReadonlySet<string>): AuthorStyle {
+  return {
+    frame: style.frame.filter(({ property }) => !omitted.has(property.toLowerCase())),
+    text: style.text.filter(({ property }) => {
+      const name = property.toLowerCase();
+      return !omitted.has(name === "fill" ? "color" : name);
+    }),
+  };
+}
+
+/** A class, state or ER model's `styles`, each struck out as `withoutOmitted` does. */
+function withoutOmittedStyles(styles: ResolvedStyle[], omitted: ReadonlySet<string>): ResolvedStyle[] {
+  return styles.map((resolved) => ({ ...resolved, style: withoutOmitted(resolved.style, omitted) }));
+}
+
+/**
+ * What `render()` returns when there is no diagram to mount: no SVG, no
+ * controller (the two are null together), and no timelines or style facts
+ * to offer — but the frontmatter's `siren`, which the diagram's failure does
+ * not touch. One place, so a field the result gains is added to every
+ * failure at once.
+ */
+function failedRender(diagnostics: Diagnostic[], siren: unknown): SirenRenderResult {
+  return { svg: null, controller: null, diagnostics, timelines: [], styles: [], siren };
 }
 
 /**
@@ -460,15 +518,23 @@ export function render(
 
   const parseResult = parseSiren(source);
   diagnostics.push(...parseResult.diagnostics);
+  // Handed back on every outcome, a failed render's included: it is the
+  // frontmatter's, and a refusal of the diagram below does not touch it.
+  const { siren } = parseResult;
 
   if (parseResult.document === null) {
-    return failedRender(diagnostics);
+    return failedRender(diagnostics, siren);
   }
 
   const graphResult = buildGraphModel(parseResult.document);
   diagnostics.push(...graphResult.diagnostics);
 
   const timelines = (graphResult.model.namedTimelines ?? []).map((block) => block.name);
+  // A sequence model has no styling to report, so it has no field to read.
+  const styles = graphResult.kind === "sequence" ? [] : (graphResult.model.styleFacts ?? []);
+  // Read only after the facts above were taken, which is why they state what
+  // the author wrote whatever is omitted (see `withoutOmitted`).
+  const omitted = new Set((options.omitAuthorStyles ?? []).map((name) => name.toLowerCase()));
 
   // Dispatch on the *result's* tag rather than on the document's. They are
   // the same word — `buildGraphModel` carries the document's kind out
@@ -479,11 +545,11 @@ export function render(
     // it: it reaches the shared core, so `LayoutEngineError` is possible in
     // principle, and a consumer's measurer can refuse a name here exactly as
     // it can refuse a label anywhere else.
-    const erModel = graphResult.model;
+    const erModel = { ...graphResult.model, styles: withoutOmittedStyles(graphResult.model.styles, omitted) };
     const erLayout = attemptLayout(() => layoutErDiagram(erModel, { measureText }));
     if (!erLayout.placed) {
       diagnostics.push(erLayout.diagnostic);
-      return failedRender(diagnostics);
+      return failedRender(diagnostics, siren);
     }
 
     const positionedErDiagram = erLayout.value;
@@ -493,15 +559,15 @@ export function render(
     // entities and relationships carry `data-siren-id`.
     const erController = mountAtStepZero(container, erSvg, graphResult.model, options);
 
-    return { svg: erSvg, controller: erController, diagnostics, timelines };
+    return { svg: erSvg, controller: erController, diagnostics, timelines, styles, siren };
   }
 
   if (graphResult.kind === "state") {
-    const stateModel = graphResult.model;
+    const stateModel = { ...graphResult.model, styles: withoutOmittedStyles(graphResult.model.styles, omitted) };
     const stateLayout = attemptLayout(() => layoutStateDiagram(stateModel, { measureText }));
     if (!stateLayout.placed) {
       diagnostics.push(stateLayout.diagnostic);
-      return failedRender(diagnostics);
+      return failedRender(diagnostics, siren);
     }
 
     const positionedStateDiagram = stateLayout.value;
@@ -512,7 +578,7 @@ export function render(
     // `data-siren-id`, so the one controller drives them unchanged.
     const stateController = mountAtStepZero(container, stateSvg, graphResult.model, options);
 
-    return { svg: stateSvg, controller: stateController, diagnostics, timelines };
+    return { svg: stateSvg, controller: stateController, diagnostics, timelines, styles, siren };
   }
 
   if (graphResult.kind === "class") {
@@ -526,11 +592,11 @@ export function render(
     // site bare would mean a future source of a missing coordinate escapes
     // `render()` as a thrown error here while the other two kinds report it,
     // and `Diagnostic`'s contract is that it is returned and never thrown.
-    const classModel = graphResult.model;
+    const classModel = { ...graphResult.model, styles: withoutOmittedStyles(graphResult.model.styles, omitted) };
     const classLayout = attemptLayout(() => layoutClassDiagram(classModel, { measureText }));
     if (!classLayout.placed) {
       diagnostics.push(classLayout.diagnostic);
-      return failedRender(diagnostics);
+      return failedRender(diagnostics, siren);
     }
 
     const positionedClassDiagram = classLayout.value;
@@ -545,7 +611,7 @@ export function render(
     // edges — and sequence participants — drives them unchanged.
     const classController = mountAtStepZero(container, classSvg, graphResult.model, options);
 
-    return { svg: classSvg, controller: classController, diagnostics, timelines };
+    return { svg: classSvg, controller: classController, diagnostics, timelines, styles, siren };
   }
 
   if (graphResult.kind === "sequence") {
@@ -561,7 +627,7 @@ export function render(
     const sequenceLayout = attemptLayout(() => layoutSequence(model, { measureText }));
     if (!sequenceLayout.placed) {
       diagnostics.push(sequenceLayout.diagnostic);
-      return failedRender(diagnostics);
+      return failedRender(diagnostics, siren);
     }
 
     const positionedSequence = sequenceLayout.value;
@@ -575,7 +641,7 @@ export function render(
     // lifeline move together under one timeline entry.
     const sequenceController = mountAtStepZero(container, sequenceSvg, graphResult.model, options);
 
-    return { svg: sequenceSvg, controller: sequenceController, diagnostics, timelines };
+    return { svg: sequenceSvg, controller: sequenceController, diagnostics, timelines, styles, siren };
   }
 
   // Bound to a local here, and in the three branches above, to give the model
@@ -588,9 +654,16 @@ export function render(
   const iconed = withIcons(graphResult.model, options.iconPacks ?? []);
   diagnostics.push(...iconed.diagnostics);
   if (iconed.diagnostics.length > 0) {
-    return failedRender(diagnostics);
+    return failedRender(diagnostics, siren);
   }
-  const graph = iconed.graph;
+  const graph = {
+    ...iconed.graph,
+    nodes: iconed.graph.nodes.map((node) => ({ ...node, style: withoutOmitted(node.style, omitted) })),
+    edges: iconed.graph.edges.map((edge) => ({ ...edge, style: withoutOmitted(edge.style, omitted) })),
+    subgraphs: iconed.graph.subgraphs.map((subgraph) =>
+      subgraph.style === undefined ? subgraph : { ...subgraph, style: withoutOmitted(subgraph.style, omitted) },
+    ),
+  };
   // A subgraph is laid out by its generated id (`subgraph:2`); the author
   // knows it by its title. A node's and an edge's ids are the author's own.
   const subgraphTitles = new Map(graph.subgraphs.map((subgraph) => [subgraph.id, subgraph.label.text]));
@@ -600,7 +673,7 @@ export function render(
   );
   if (!flowchartLayout.placed) {
     diagnostics.push(flowchartLayout.diagnostic);
-    return failedRender(diagnostics);
+    return failedRender(diagnostics, siren);
   }
 
   const positioned = flowchartLayout.value;
@@ -617,5 +690,5 @@ export function render(
 
   const controller = mountAtStepZero(container, svg, graphResult.model, options);
 
-  return { svg, controller, diagnostics, timelines };
+  return { svg, controller, diagnostics, timelines, styles, siren };
 }

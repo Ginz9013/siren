@@ -197,6 +197,26 @@ off. Both are disabled while the full diagram shows and when the document has no
 step change playback did not make stops it — Prev, Next or Reset, a new document, or
 switching to the full diagram.
 
+### Leaving out the author's styles
+
+```js
+const board = createBoard(container, {
+  source,
+  omitAuthorStyles: ["fill", "stroke", "color"], // draw these from the theme instead
+  onStyles(styles, siren) {
+    // what the author's style, classDef and linkStyle statements did, and their `siren:` frontmatter
+  },
+});
+board.setOmitAuthorStyles([]); // draw everything the author wrote again
+```
+
+Board passes `omitAuthorStyles` to every `render()` call unchanged, and hands every render's
+`styles` and `siren` back unchanged; what they mean is up to you (see `RenderOptions.omitAuthorStyles`
+and `SirenRenderResult` in [siren-core](https://www.npmjs.com/package/siren-core#api)). Switching
+redraws the document where it was: the same step, timeline or full diagram, pan and zoom, and
+playback keeps going. Passing the list the board already has (the same names in the same order)
+does nothing.
+
 ### Keyboard navigation
 
 ```js
@@ -333,6 +353,8 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `onPlaybackChange` | `(playing: boolean) => void`                |         | Called whenever `playing` changes: playback starts, is paused, reaches the last step, or is stopped. |
 | `measureText`   | `TextMeasurer`                                 | canvas  | Replaces the canvas-based text measurer, for example to match a custom font.        |
 | `iconPacks`     | `readonly IconifyJSON[]`                       |         | Icon packs, as Iconify JSON handed over as data, that a flowchart node's `@{ icon: "prefix:name" }` is drawn from. Nothing is fetched: an icon no pack holds, or a pack not of Iconify JSON's shape, is an error diagnostic. Only shapes and local references in an icon's body are drawn. |
+| `omitAuthorStyles` | `readonly string[]`                         | `[]`    | The author's style properties not to draw, passed to `render()` unchanged. Change it with `setOmitAuthorStyles()`. |
+| `onStyles`      | `(styles: readonly StyleFact[], siren: unknown) => void` |  | Called after every render that draws — from `setSource()`, `setTimeline()`, `setFullDiagram()` or `setOmitAuthorStyles()` — with that render's `styles` and `siren`, unchanged. Not called when `setSource()` fails. It is the render's last callback: `board.styles` and `board.siren` already hold the new values in `update()`, `onTimelineChange` and every other callback before it. |
 
 ### `Board`
 
@@ -341,18 +363,22 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `controller`      | The current `AnimationController` (`next()`, `prev()`, `reset()`, `currentStep`, `totalSteps`). `null` until a render succeeds. |
 | `diagnostics`     | The diagnostics from the most recent render.                                             |
 | `fullDiagram`     | Whether the full diagram is showing. Starts `false`.                                     |
-| `setSource(src)`  | Renders a new document in place.                                                         |
+| `setSource(src)`  | Renders a new document in place. Does nothing after `destroy()`.                         |
 | `timelines`       | The document's `timeline <name>:` names, in document order. Empty without named blocks. |
 | `timeline`        | The timeline applied: the first by default, `null` when `timelines` is empty. `setSource()` keeps it when the new document declares it. |
 | `setTimeline(name)` | Applies another timeline from step 0 and stops playback. Keeps pan and zoom and `diagnostics`, and replaces `controller`. Leaves the full diagram if it shows, back to the step shown before when `name` is the current one; otherwise the current one does nothing. Throws a `RangeError`, changing nothing, for a name not in `timelines`. |
 | `setFullDiagram(on)` | Shows the full diagram, or returns to the current timeline at the step shown before. Keeps pan and zoom and `diagnostics`, and replaces `controller` once a document has rendered. Before that, it only records the choice for the first render. Setting the current value does nothing. |
+| `omitAuthorStyles` | The list every render is given as `omitAuthorStyles`. Starts as the option, or `[]`. Frozen: change it with `setOmitAuthorStyles()`. |
+| `setOmitAuthorStyles(list)` | Redraws the document with another `omitAuthorStyles`, keeping the step, the timeline, the full diagram, pan and zoom, `diagnostics` and playback, and replaces `controller` once a document has rendered. Before that, it only records the list for the first render. An equal list (the same names in the same order, compared case-insensitively as `render()` reads them, so `["FILL"]` equals `["fill"]`) does nothing. |
+| `styles`          | The `styles` of the last render that drew, as `render()` returned them. `[]` until one has; unchanged by a `setSource()` that fails. |
+| `siren`           | The `siren` (the frontmatter's `siren:` value) of the last render that drew, on the same terms as `styles`. `undefined` until one has. |
 | `playing`         | Whether playback is running. Starts `false`.                                             |
 | `playInterval`    | Milliseconds between playback steps.                                                     |
 | `play()`          | Starts playback: steps at once, then once per `playInterval`, and stops by itself on the last step. On the last step, it goes back to step 0 and takes step 1 one interval later. Does nothing while playing, while the full diagram shows, or when the document has no steps. |
 | `pause()`         | Stops playback. Playback also stops on any step change it did not make (the built-in bar, `board.controller` in code), on every `setSource()`, and on `setFullDiagram(true)`. |
 | `setPlayInterval(ms)` | Changes `playInterval`. Throws a `RangeError` unless `ms` is finite and greater than 0. While playing, the next step comes `ms` after the call. |
 | `resetView()`     | Resets pan and zoom to fit the container.                                                |
-| `destroy()`       | Removes everything the board added to the container and detaches its listeners.         |
+| `destroy()`       | Removes everything the board added to the container and detaches its listeners. Afterwards the board draws nothing and calls no callback. |
 
 ### `ControlsFactory`
 
@@ -366,13 +392,13 @@ type ControlsFactory = (board: Board) => {
 
 `update` is called once after each change the bar may show: a `setSource()` that rendered,
 a step change from any source (including `board.controller.next()` in code), a
-`fullDiagram` or `timeline` switch, and a change to `playing` or `playInterval`. It is never called after
+`fullDiagram`, `timeline` or `omitAuthorStyles` switch, and a change to `playing` or `playInterval`. It is never called after
 `destroy()`. The built-in bar is an ordinary
 `ControlsFactory` kept in step through this same hook.
 
 `destroy` is called when the board is destroyed.
 
-`Diagnostic`, `AnimationController` and `TextMeasurer` come from `siren-core`. See the
+`Diagnostic`, `AnimationController`, `StyleFact` and `TextMeasurer` come from `siren-core`. See the
 [siren-core API](https://www.npmjs.com/package/siren-core#api).
 
 ## Styling

@@ -2953,11 +2953,11 @@ export function parseFlowchart(source: string): DiagramParseResult {
     { id, label, labelAt, definitionName, shape, data }: EdgeEndpoint,
     statement: Statement,
     /**
-     * Where this mention was written. Only an *edge endpoint* can mean a
+     * Where this mention was written. A bare *edge endpoint* can mean a
      * subgraph's frame rather than a node — that is Mermaid's rule and the
      * reason this parameter exists — so a bare mention there declares the
-     * node provisionally, while the same spelling on a line of its own
-     * declares it outright.
+     * node provisionally, as does a bare `X:::cls` on a line of its own;
+     * any other spelling on a line of its own declares it outright.
      */
     writtenAs: "an edge endpoint" | "a declaration" = "a declaration",
   ) => {
@@ -3027,11 +3027,14 @@ export function parseFlowchart(source: string): DiagramParseResult {
       applyAtDeclaration(id, definitionName, line, column);
     }
 
-    // A bare edge endpoint declares its node provisionally; anything else —
-    // a label written here, or the same id written anywhere as a declaration
-    // — settles it as a node the author asked for, whatever a `subgraph`
+    // A bare edge endpoint declares its node provisionally, and so does the
+    // `:::` shorthand on a line of its own: Mermaid 12.2.0 lets a subgraph of
+    // that name stand in for both, drawing `s1:::hot` as the frame painted
+    // with `hot` and no box beside it (measured). Anything else — a label
+    // written here, or the same id written anywhere as a declaration —
+    // settles it as a node the author asked for, whatever a `subgraph`
     // further down happens to be called.
-    if (writtenAs === "an edge endpoint" && label === undefined) {
+    if (label === undefined && (writtenAs === "an edge endpoint" || definitionName !== undefined)) {
       if (undeclared) {
         provisionalEndpointNodes.set(id, claimedBy);
       }

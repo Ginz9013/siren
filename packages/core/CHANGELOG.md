@@ -195,6 +195,47 @@ can carry one.
 
 ### Added
 
+- `render()` now returns `siren`: the frontmatter's top-level `siren:` value, exactly as its YAML
+  reads (JSON schema) (nook `01M5964RY4`). Siren does not interpret, validate or report on it, and
+  Mermaid ignores the key. It is still returned when the diagram fails to render. It is `undefined`
+  when there is no frontmatter, no `siren:` key, or the frontmatter itself is rejected.
+- A flowchart `style`, `class` or `:::` naming a subgraph's handle paints that subgraph, as
+  Mermaid 12.2.0 draws it (measured): `style s1 fill:#f96,color:#f00` after `subgraph s1 [Box]`
+  fills its frame and colors its title, `class s1 hot` and `s1:::hot` apply `hot` the same way, a
+  `style` beats a class, and `classDef default` still reaches nodes only. These used to be dropped
+  with no diagnostic, and a `s1:::hot` line also drew a stray box named `s1`, which Mermaid does
+  not. The subgraph keeps its generated `data-siren-id`. Where a name is both a node and a
+  subgraph (`A[Alpha]` beside `subgraph A`), a `style`, `class` or `:::` on it used to paint the
+  node's box and now paints the subgraph, as Mermaid does; the node's box loses that paint.
+- A design token, `--siren-subgraph-fill`, for the fill of a flowchart subgraph's frame, an ER
+  subgraph's frame and a composite state's frame. It defaults to `none`, so frames are drawn
+  exactly as before.
+- `SirenRenderResult.styles`: one `StyleFact` per drawn target that the author's styling reached
+  with at least one declaration that was not refused. A fact lists:
+  - the target's `data-siren-id` (a subgraph's is its `subgraph:N`) and its kind;
+  - the classes applied to it, in order, with a flowchart node's implicit `default` first; a
+    defined class is listed even when none of its declarations survived;
+  - the declarations that won, split into frame and text, with an author's `color` spelled `fill`
+    in the text half;
+  - for each declaration, the statement that supplied it: a named `classDef`, `style`,
+    `linkStyle` or `linkStyle default`.
+
+  `styles` is `[]` for a sequence diagram and when rendering fails. `StyleFact` and `StyleSource`
+  are exported types. Every colour the theme gives a styleable target's frame and text is a
+  design token named at the element that wears its `data-siren-id`, and no such element sits
+  inside another. So redeclaring a colour token on a target's elements recolours that target
+  alone, and leaves alone the targets drawn inside a subgraph, composite state or ER subgraph.
+- `RenderOptions.omitAuthorStyles`: author style properties not to draw, named as the author
+  spells them. `render(source, container, { omitAuthorStyles: ["fill", "stroke", "color"] })`
+  draws every flowchart node, edge and subgraph, class, state, ER entity and ER subgraph without
+  the author's colours, so each takes the theme's design tokens again; properties not listed
+  (`stroke-width`, `stroke-dasharray`, …) are drawn as written. `color` leaves out the colour an
+  author style gives a label, and an edge whose `stroke` is left out takes the theme's arrowhead.
+  Colours written in a label's own markup (`<span style="color:…">`, `<font color>`,
+  `background-color`) are not author styles: they are drawn as written, the option never removes
+  them, and they carry no style fact. The option only
+  takes declarations away and never adds one. `diagnostics` and `styles` are the same with or
+  without it, a name no declaration uses is not an error, and `[]` is the same as leaving it out.
 - A flowchart node's `@{ shape: … }` block draws the shapes Mermaid 12.2.0 draws at a fixed size
   and with no text (nook `01M51XACB6`, measured in headless Chrome): `fork` (`join`; a 70x10 bar,
   upright in a left-to-right or right-to-left flow or subgraph), `hourglass` (`collate`), `bolt`
@@ -1132,6 +1173,39 @@ can carry one.
 
 ### Fixed
 
+- A flowchart edge's arrowhead now takes its own line's color (nook `01M5994RB2`): a
+  `--siren-edge-stroke` redeclared on the edge's `path[data-siren-id]` used to recolour the line
+  and leave the head the diagram's color, and a timeline `highlight A-B outline` or `glow` left
+  the head the theme's or the author's color (backlog `01M598E4W9`). The default theme paints a
+  flowchart head (`.siren-edge-marker`) with `context-stroke`, the stroke of the line it is drawn
+  for, so in a browser that supports it each head follows its own line: as drawn, under a
+  redeclared token and under a highlight, and back at once on `prev()`, including two edges that
+  share one marker. Measured in headless Chrome (`scripts/edge-arrowhead-colour.mjs`); Firefox and
+  Safari were not measured. `context-stroke` is in Chrome and Edge 124+ and Firefox 111+ and in no
+  Safari (MDN's browser compatibility data); a browser without it draws the head as before, the
+  diagram's colour or the author's, following neither a token redeclared on the edge nor a
+  highlight. An author-colored edge's marker now carries its color as `--siren-edge-stroke` on the
+  head rather than as an inline `fill` or `stroke`, which would have kept the head the author's
+  color under a highlight; the default theme draws it the same.
+- A state's note is no longer recoloured when a caller redeclares `--siren-node-fill`,
+  `--siren-node-stroke` or `--siren-node-text` on its state's `data-siren-id` group (nook
+  `01M599CNTX`). The note's fill, stroke and text take the diagram's colours, as they already did
+  under an author's `style`. Only those three are shielded: `--siren-node-border-radius`,
+  `--siren-stroke-width`, the font tokens and `--siren-edge-stroke` (the stroke of the note's link
+  to its state) still reach the note from its state. A palette redeclared on a container, or on
+  the `<svg>`, still reaches it, and the default theme's appearance is unchanged. To recolour
+  notes alone, redeclare the node tokens on `.siren-note-frame` and `.siren-note-text`; the
+  theme's own rule there weighs nothing, so a caller's rule on those parts wins.
+- A timeline `highlight X outline` or `glow` draws the target's border in `--siren-highlight-color`
+  even when the author gave it a `stroke` (nook `01M5964R8Z`): `style A stroke:#f00`, or
+  `stroke:#f00 !important`, on a flowchart node, edge (`linkStyle`) or subgraph, a class, a state
+  or composite state, or an ER entity used to keep the author's color through the highlight. The
+  animation controller now lifts the author's `stroke` and `stroke-width` while the target is
+  highlighted and puts those two back, each with its own priority, when it is not, `prev()`
+  included, with no delay; the rest of the author's style, and anything else written on the element
+  meanwhile, stays. `glow` now recolors a state's, a composite's and an ER entity's border
+  too, as it already did every other kind's. Measured in headless Chrome
+  (`scripts/highlight-author-stroke.mjs`).
 - **An icon pack could make a browser fetch at render time.** An icon's body kept any `mask`,
   `clip-path` or paint value `url(` was not in, so `mask: image-set('https://…' 1x)` (in `style` or
   as the attribute) and `-webkit-image-set(…)` made Chrome request the image. A paint or reference

@@ -14,9 +14,22 @@ While the version is 0.x, a minor release may contain breaking changes.
   handed over as data, that a flowchart node's `@{ icon: "prefix:name" }` is drawn from. Nothing is
   fetched at render time; an icon's body is read through an allowlist that keeps shapes, colours
   and local references only.
+- `BoardOptions.omitAuthorStyles`, `board.setOmitAuthorStyles(list)` and `board.omitAuthorStyles`,
+  passed through to `render()`'s `omitAuthorStyles`. Switching redraws the document in place: the
+  step, the current timeline, the full diagram, pan and zoom and playback are kept. An equal list,
+  its names compared case-insensitively as `render()` reads them, does nothing. The list
+  `board.omitAuthorStyles` returns is frozen.
+- `BoardOptions.onStyles(styles, siren)`, `board.styles` and `board.siren`: every render's
+  `styles` and frontmatter `siren:` value from `render()`, handed over unchanged after each
+  `setSource`, `setTimeline`, `setFullDiagram` and `setOmitAuthorStyles` that draws, as that render's
+  last callback; `board.styles` and `board.siren` already hold them in every callback before it.
+  Board draws no conclusion from them.
 
 ### Fixed
 
+- `setSource()` after `destroy()` does nothing. It used to render into the detached board and call
+  `onDiagnostics` (and, when the timeline changed, `onTimelineChange`), though a destroyed board
+  reports nothing more.
 - `BoardOptions.onClick` delivers `click X call fn()` interactions, as `render()`'s `onClick` does.
   Board had no such option, so on a board every callback interaction did nothing when clicked, with
   no diagnostic (nook `01M2WWHF4`). `click X href` links were never affected.

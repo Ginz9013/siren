@@ -244,6 +244,7 @@ export function layoutGraph(
   const subgraphs = graph.subgraphs.map<PositionedSubgraph>((subgraph) => ({
     id: subgraph.id,
     ...placedFrame(boxById.get(subgraph.id)!, subgraph.label, titleBoxById.get(subgraph.id)!),
+    ...(subgraph.style === undefined ? {} : { style: subgraph.style }),
   }));
 
   return {
