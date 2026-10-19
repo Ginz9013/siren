@@ -1161,9 +1161,10 @@ can carry one.
   even when the author gave it a `stroke` (nook `01M5964R8Z`): `style A stroke:#f00`, or
   `stroke:#f00 !important`, on a flowchart node, edge (`linkStyle`) or subgraph, a class, a state
   or composite state, or an ER entity used to keep the author's color through the highlight. The
-  animation controller now lifts the author's `stroke` while the target is highlighted and puts the
-  `style` attribute back as written when it is not, `prev()` included, with no delay; the rest of
-  the author's style stays. `glow` now recolors a state's, a composite's and an ER entity's border
+  animation controller now lifts the author's `stroke` and `stroke-width` while the target is
+  highlighted and puts those two back, each with its own priority, when it is not, `prev()`
+  included, with no delay; the rest of the author's style, and anything else written on the element
+  meanwhile, stays. `glow` now recolors a state's, a composite's and an ER entity's border
   too, as it already did every other kind's. Measured in headless Chrome
   (`scripts/highlight-author-stroke.mjs`).
 - **An icon pack could make a browser fetch at render time.** An icon's body kept any `mask`,

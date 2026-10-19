@@ -151,9 +151,9 @@ or `glow` — cumulative, multiple targets can be highlighted at once, a second 
 same target replaces its effect rather than requiring `unhighlight` first), `unhighlight` (no
 effect).
 **A highlight beats an author style's `stroke`**, `!important` included: it is Siren's own state,
-which Mermaid does not have, so winning costs no compatibility. The controller lifts the author's
-inline `stroke` off the target while it is highlighted and puts the attribute back as written the
-moment it is not, in the same synchronous class change, so `prev()` still snaps.
+which Mermaid does not have, so winning costs no compatibility. Its width wins too: an author's
+`stroke-width` gives way to the highlight's while the target is highlighted. The moment it is not,
+the author's stroke is drawn again exactly as they wrote it, and `prev()` still snaps.
 _Avoid_: animation, timeline entry, "effect" alone (say "enter effect" / "highlight effect" when
 the verb matters)
 
