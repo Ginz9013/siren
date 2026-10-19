@@ -331,6 +331,7 @@ through diagnostics and does not throw for them.
 | `onClick`     | `(target: InteractionTarget) => void`  | Called when a reader clicks an element made clickable with `call`.             |
 | `timeline`    | `boolean \| string`                    | Which timeline to apply. A document may declare several, and by default only the first applies. See below. |
 | `iconPacks`   | `IconifyJSON[]`                        | Icon packs a flowchart's icon nodes (`A@{ icon: "fa:user" }`) are drawn from. See below. |
+| `omitAuthorStyles` | `string[]`                        | Author style properties not to draw, such as `["fill", "stroke", "color"]`. See below. |
 
 #### Registering icon packs
 
@@ -377,6 +378,23 @@ visible, no enter, exit or highlight state, and a controller with `totalSteps: 0
 not the timeline's last step, which still hides whatever exited. Every timeline block is
 still parsed and checked, so `diagnostics`, and whether the render succeeds, are the same
 as without the option.
+
+#### Leaving out the author's colours
+
+`omitAuthorStyles` lists author style properties, spelled as the author writes them, that are
+not drawn. Each element they would have styled takes the theme's design tokens instead, which
+lets a page that colours targets itself, by redeclaring tokens on a target's `data-siren-id`
+element, keep the author's colours from covering its own:
+
+```ts
+render(source, container, { omitAuthorStyles: ["fill", "stroke", "color"] });
+```
+
+`color` leaves out a label's colour and `fill` only the frame's. An edge whose `stroke` is left out
+gets the theme's arrowhead. Properties not listed, such as `stroke-width`, are drawn as written.
+The option only takes declarations away; it cannot add one. `diagnostics` and `styles` are the
+same with or without it. A name no declaration uses is not an error, and `[]` is the same as
+leaving the option out.
 
 #### Measuring text
 

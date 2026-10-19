@@ -9338,3 +9338,180 @@ describe("render() reports each styled target's style facts", () => {
   });
 });
 
+
+/**
+ * `RenderOptions.omitAuthorStyles`: the properties a caller asks not to be
+ * drawn, named as the author spells them. Every expectation is the author's
+ * declaration with the omitted properties struck out by hand, so what is
+ * left is exactly what was not named.
+ */
+describe("render(…, { omitAuthorStyles }) — the author's properties a caller asks not to draw", () => {
+  const SITE_STYLE = ["fill", "stroke", "color"] as const;
+
+  it("leaves a flowchart node's omitted properties off its frame and label, and draws the rest", () => {
+    const result = render(
+      "flowchart TB\nA[Start] --> B\nstyle A fill:#fdd,stroke:#c00,stroke-width:4px,color:#fff,stroke-dasharray:5\n",
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const node = result.svg!.querySelector('g.siren-node[data-siren-id="A"]')!;
+    expect(node.querySelector("rect.siren-node-frame")!.getAttribute("style")).toBe(
+      "stroke-width:4px;stroke-dasharray:5",
+    );
+    expect(node.querySelector("text")!.getAttribute("style")).toBeNull();
+  });
+
+  it("reads `color` as the author's word for label text: it omits a label's `fill`, and `fill` omits only the frame's", () => {
+    const source = "flowchart TB\nA[Start] --> B\nstyle A fill:#fdd,color:#fff\n";
+    const drawn = (omitAuthorStyles: string[]) => {
+      const node = render(source, document.createElement("div"), { omitAuthorStyles }).svg!.querySelector(
+        'g.siren-node[data-siren-id="A"]',
+      )!;
+      return [node.querySelector("rect.siren-node-frame")!.getAttribute("style"), node.querySelector("text")!.getAttribute("style")];
+    };
+
+    expect(drawn(["color"])).toEqual(["fill:#fdd", null]);
+    expect(drawn(["fill"])).toEqual([null, "fill:#fff"]);
+  });
+
+  it("gives an edge whose `stroke` is omitted the theme's arrowhead, minting none in the author's colour", () => {
+    const result = render(
+      "flowchart TB\nA --> B\nB -->|go| C\nlinkStyle 0 stroke:#f00,stroke-width:4px\nlinkStyle 1 stroke:#00f,color:#0f0\n",
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+    const edge = (id: string) => svg.querySelector(`path.siren-edge[data-siren-id="${id}"]`)!;
+    // One marker, the theme's, shared by both edges — as for edges never
+    // given a colour.
+    expect(svg.querySelectorAll("defs > marker")).toHaveLength(1);
+    expect(edge("A-B").getAttribute("marker-end")).toBe(edge("B-C").getAttribute("marker-end"));
+    expect(svg.querySelector("defs > marker path")!.getAttribute("style")).toBeNull();
+    expect(edge("A-B").getAttribute("style")).toBe("stroke-width:4px");
+    expect(edge("B-C").getAttribute("style")).toBeNull();
+    expect(svg.querySelector(".siren-edge-label")!.getAttribute("style")).toBeNull();
+    // The same element carries the author's colour when nothing is omitted.
+    const unomitted = render("flowchart TB\nA -->|go| B\nlinkStyle 0 color:#0f0\n", document.createElement("div")).svg!;
+    expect(unomitted.querySelector(".siren-edge-label")!.getAttribute("style")).toBe("fill:#0f0");
+  });
+
+  it("leaves a flowchart subgraph's omitted properties off its frame and title", () => {
+    const result = render(
+      "flowchart TB\nsubgraph s1 [Box]\nA\nend\nstyle s1 fill:#ff0,stroke:#900,stroke-width:3px,color:#00f\n",
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const block = result.svg!.querySelector('g.siren-subgraph[data-siren-id="subgraph:1"]')!;
+    expect(block.querySelector("rect.siren-subgraph-frame")!.getAttribute("style")).toBe("stroke-width:3px");
+    expect(block.querySelector(".siren-subgraph-label")!.getAttribute("style")).toBeNull();
+    // The same element carries the author's colour when nothing is omitted.
+    const unomitted = render(
+      "flowchart TB\nsubgraph s1 [Box]\nA\nend\nstyle s1 color:#00f\n",
+      document.createElement("div"),
+    ).svg!;
+    expect(unomitted.querySelector(".siren-subgraph-label")!.getAttribute("style")).toBe("fill:#00f");
+  });
+
+  it("leaves a class's omitted properties off its frame and its texts", () => {
+    const result = render(
+      'classDiagram\nclass Animal {\n+name\n}\nstyle Animal fill:#111,stroke:#c00,stroke-width:3px,color:#fff\n',
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const animal = result.svg!.querySelector('g.siren-class[data-siren-id="Animal"]')!;
+    expect(animal.querySelector("rect.siren-class-frame")!.getAttribute("style")).toBe("stroke-width:3px");
+    expect(animal.querySelector(".siren-class-name")!.getAttribute("style")).toBeNull();
+    expect(animal.querySelector(".siren-member")!.getAttribute("style")).toBeNull();
+  });
+
+  it("leaves a state's omitted properties off its frame and label", () => {
+    const result = render(
+      "stateDiagram-v2\nIdle --> Running\nstyle Idle fill:#111,stroke:#c00,stroke-width:3px,color:#fff\n",
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const idle = result.svg!.querySelector('g.siren-state[data-siren-id="Idle"]')!;
+    expect(idle.querySelector("rect.siren-state-frame")!.getAttribute("style")).toBe("stroke-width:3px");
+    expect(idle.querySelector("text.siren-state-label")!.getAttribute("style")).toBeNull();
+  });
+
+  it("leaves an ER entity's and an ER subgraph's omitted properties off their frames and texts", () => {
+    const result = render(
+      [
+        "erDiagram",
+        "A {",
+        "string name",
+        "}",
+        "subgraph s1",
+        "B",
+        "end",
+        "classDef u fill:#111,stroke:#c00,stroke-width:3px,color:#fff",
+        "class A,s1 u",
+        "",
+      ].join("\n"),
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const entity = result.svg!.querySelector('g.siren-er-entity[data-siren-id="A"]')!;
+    expect(entity.querySelector("rect.siren-er-entity-frame")!.getAttribute("style")).toBe("stroke-width:3px");
+    expect(Array.from(entity.querySelectorAll("text"), (text) => text.getAttribute("style"))).not.toContain(
+      "fill:#fff",
+    );
+    const block = result.svg!.querySelector('g.siren-er-subgraph[data-siren-id="subgraph:1"]')!;
+    expect(block.querySelector("rect.siren-er-subgraph-frame")!.getAttribute("style")).toBe("stroke-width:3px");
+    expect(block.querySelector(".siren-er-subgraph-label")!.getAttribute("style")).toBeNull();
+  });
+
+  it.each([
+    ["flowchart", "flowchart TB\nA --> B\nsubgraph s1\nC\nend\nstyle A fill:#f00,*stroke:#00f\nclassDef hot stroke:#900,color:#fff\nclass B,s1 hot\nlinkStyle 0 stroke:#0f0\n"],
+    ["class", 'classDiagram\nclass A\nstyle A fill:#f00,*stroke:#00f\nclassDef hot stroke:#900,color:#fff\ncssClass "A" hot\n'],
+    ["state", "stateDiagram-v2\nA --> B\nstyle A fill:#f00,*stroke:#00f\nclassDef hot stroke:#900,color:#fff\nclass B hot\n"],
+    ["ER", "erDiagram\nA\nsubgraph s1\nB\nend\nstyle A fill:#f00,*stroke:#00f\nclassDef hot stroke:#900,color:#fff\nclass s1 hot\n"],
+  ])("reports a %s diagram's style facts and diagnostics exactly as without the option", (_, source) => {
+    const plain = render(source, document.createElement("div"));
+    const omitting = render(source, document.createElement("div"), { omitAuthorStyles: SITE_STYLE });
+
+    // A refused declaration is in the document, so its error is too.
+    expect(plain.diagnostics).not.toEqual([]);
+    expect(plain.styles).not.toEqual([]);
+    expect(omitting.diagnostics).toEqual(plain.diagnostics);
+    expect(omitting.styles).toEqual(plain.styles);
+  });
+
+  /** Every inline `style` the drawing carries, in document order. */
+  const inlineStyles = (source: string, options: { omitAuthorStyles?: string[] }): string[] =>
+    Array.from(
+      render(source, document.createElement("div"), options).svg!.querySelectorAll("[style]"),
+      (element) => `${element.tagName}:${element.getAttribute("style")}`,
+    );
+  const STYLED = "flowchart TB\nA --> B\nstyle A fill:#f00,stroke:#00f,color:#fff\nlinkStyle 0 stroke:#0f0\n";
+
+  it("omits nothing for an empty list or a name no declaration uses, and says nothing about either", () => {
+    const plain = inlineStyles(STYLED, {});
+    expect(plain).toContain("rect:fill:#f00;stroke:#00f");
+
+    expect(inlineStyles(STYLED, { omitAuthorStyles: [] })).toEqual(plain);
+    expect(inlineStyles(STYLED, { omitAuthorStyles: ["font-variant", "not-a-property", ""] })).toEqual(plain);
+    expect(render(STYLED, document.createElement("div"), { omitAuthorStyles: ["not-a-property"] }).diagnostics).toEqual([]);
+  });
+
+  it("matches a name case-insensitively, as CSS matches property names", () => {
+    expect(inlineStyles(STYLED, { omitAuthorStyles: ["FILL", "Stroke", "Color"] })).toEqual(
+      inlineStyles(STYLED, { omitAuthorStyles: ["fill", "stroke", "color"] }),
+    );
+    expect(inlineStyles(STYLED, { omitAuthorStyles: ["FILL"] })).toContain("rect:stroke:#00f");
+  });
+});
+

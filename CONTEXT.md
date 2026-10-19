@@ -1361,6 +1361,20 @@ Core states facts and stops there. Grouping targets by colour or class, and read
 class name, belong to whoever consumes them.
 _Avoid_: style info, computed style (that is the browser's word, and a fact is the author's)
 
+**Omitted author style**:
+An **author style** property a caller of `render()` asked not to draw, through
+`RenderOptions.omitAuthorStyles`, named in the author's spelling — so `color`, not the `fill` it
+becomes on label text. The element it would have styled falls back to the **design tokens**,
+which is how a host that colours targets itself, by redeclaring tokens on a target's
+`data-siren-id` element, keeps the author's colours from covering its own. An omission only takes
+declarations away and never adds one, so it is not the JS theme object ADR-0004 and ADR-0008
+rule out. It changes the drawing and nothing else: the document is validated as before, and its
+**style facts** still state what the author wrote. An edge whose `stroke` is omitted takes the
+theme's arrowhead, since no colour is left to mint one in. A name no declaration uses omits
+nothing and is not an error. Applied in `render()` alone, to the model once its facts are taken
+and before layout, so no renderer knows a property can be omitted.
+_Avoid_: hidden style, suppressed style, theme override (it overrides nothing; it removes)
+
 **Comment**:
 A whole line whose first non-blank characters are `%%` followed by at least one more character;
 it is removed before any diagram is read and draws nothing. A `%%` anywhere else on a line is not a

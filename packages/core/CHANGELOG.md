@@ -220,6 +220,14 @@ can carry one.
   design token named at the element that wears its `data-siren-id`, and no such element sits
   inside another. So redeclaring a colour token on a target's elements recolours that target
   alone, and leaves alone the targets drawn inside a subgraph, composite state or ER subgraph.
+- `RenderOptions.omitAuthorStyles`: author style properties not to draw, named as the author
+  spells them. `render(source, container, { omitAuthorStyles: ["fill", "stroke", "color"] })`
+  draws every flowchart node, edge and subgraph, class, state, ER entity and ER subgraph without
+  the author's colours, so each takes the theme's design tokens again; properties not listed
+  (`stroke-width`, `stroke-dasharray`, …) are drawn as written. `color` leaves out a label's
+  colour, and an edge whose `stroke` is left out takes the theme's arrowhead. The option only
+  takes declarations away and never adds one. `diagnostics` and `styles` are the same with or
+  without it, a name no declaration uses is not an error, and `[]` is the same as leaving it out.
 - A flowchart node's `@{ shape: … }` block draws the shapes Mermaid 12.2.0 draws at a fixed size
   and with no text (nook `01M51XACB6`, measured in headless Chrome): `fork` (`join`; a 70x10 bar,
   upright in a left-to-right or right-to-left flow or subgraph), `hourglass` (`collate`), `bolt`
