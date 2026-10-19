@@ -3040,6 +3040,14 @@ describe("a document's frontmatter", () => {
     ]);
   });
 
+  it("hands back `siren:` as written even where a YAML alias shares its node with the config displayMode is folded into", () => {
+    const { siren, config } = parseSiren(
+      "---\nconfig: &c\n  gantt: {}\nsiren: *c\ndisplayMode: compact\n---\nflowchart TD\n  A --> B",
+    );
+    expect(config).toEqual({ gantt: { displayMode: "compact" } });
+    expect(siren).toEqual({ gantt: {} });
+  });
+
   it("hands back a top-level `siren:` as written, outside the config and with nothing said about it", () => {
     const { document, diagnostics, config, siren } = parseSiren(
       "---\nsiren:\n  roles:\n    hot: warning\nconfig:\n  theme: forest\n---\nflowchart TD\n  A --> B",

@@ -102,6 +102,11 @@ export function readFrontmatter(text: string): FrontmatterRead {
     return refuse(`Frontmatter is not valid YAML (${reason})`, "the frontmatter is valid YAML");
   }
   const parsed = asMapping(loaded);
+  // Taken before `displayMode` is folded into the config below: a YAML alias
+  // can make `siren:` and `config:` one node (`config: &c …`, `siren: *c`),
+  // and the fold writes into that node in place. A copy keeps `siren:` as
+  // the author wrote it; JSON-schema values are plain data, so it clones.
+  const siren = structuredClone(parsed.siren);
   const config = isMapping(parsed.config) ? parsed.config : {};
   if (parsed.displayMode) {
     // `processFrontmatter`: a top-level `displayMode` is Gantt's, and lands
@@ -150,7 +155,7 @@ export function readFrontmatter(text: string): FrontmatterRead {
     config,
     diagnostics,
     position: openingFence,
-    siren: parsed.siren,
+    siren,
   };
 }
 
