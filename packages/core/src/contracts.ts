@@ -18,10 +18,10 @@
  * `parser/styleLines`'s `asWritten` moves each position back past it by
  * walking the result for these two pairs — a position spelled any other way
  * would silently point one character early. `styleLines.test.ts` pins it.
- * The one exception is `ParseResult.config`: it is the author's document
- * config as written, not a position, and `parseSiren` adds it only after
- * `asWritten` has run, so a config key that happens to be spelled `line` is
- * never moved.
+ * The exceptions are `ParseResult.config` and `ParseResult.siren`: each is
+ * the author's frontmatter data as written, not a position, and `parseSiren`
+ * adds them only after `asWritten` has run, so a key that happens to be
+ * spelled `line` is never moved.
  */
 
 /** Severity of a parse/build-time diagnostic. */
@@ -626,6 +626,12 @@ export interface ParseResult extends DiagramParseResult {
    * warning that it is not drawn yet.
    */
   config: Record<string, unknown>;
+  /**
+   * The frontmatter's top-level `siren:` as its YAML reads under the JSON
+   * schema, untouched — see `SirenRenderResult.siren`. Like `config`, it is
+   * the author's data, added after `asWritten` has run.
+   */
+  siren: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -1918,6 +1924,23 @@ export interface SirenRenderResult {
    * rendering failed, like `timelines`.
    */
   styles: StyleFact[];
+  /**
+   * The frontmatter's top-level `siren:` as its YAML reads under the JSON
+   * schema (`js-yaml`'s, as Mermaid reads a frontmatter) — a mapping, a
+   * list, a scalar, or `null` for a key with no value — handed back
+   * untouched. It is Siren's own key: Mermaid drops it and draws the diagram
+   * (ADR-0017), and Siren draws nothing from it either. It is never
+   * validated, never put in the document config, and never the subject of a
+   * diagnostic; what it means is the caller's.
+   *
+   * Unlike `timelines` and `styles`, it is handed back when rendering
+   * failed too: a refusal of the diagram does not touch the frontmatter, and
+   * a caller may need it to explain what the author meant.
+   * `undefined` when the document has no frontmatter, its frontmatter has no
+   * `siren:` key, or the frontmatter is refused — not valid YAML, or a
+   * `displayMode` with no mapping to go into.
+   */
+  siren?: unknown;
 }
 
 /**

@@ -195,6 +195,10 @@ can carry one.
 
 ### Added
 
+- `render()` now returns `siren`: the frontmatter's top-level `siren:` value, exactly as its YAML
+  reads (JSON schema) (nook `01M5964RY4`). Siren does not interpret, validate or report on it, and
+  Mermaid ignores the key. It is still returned when the diagram fails to render. It is `undefined`
+  when there is no frontmatter, no `siren:` key, or the frontmatter itself is rejected.
 - A flowchart `style`, `class` or `:::` naming a subgraph's handle paints that subgraph, as
   Mermaid 12.2.0 draws it (measured): `style s1 fill:#f96,color:#f00` after `subgraph s1 [Box]`
   fills its frame and colors its title, `class s1 hot` and `s1:::hot` apply `hot` the same way, a

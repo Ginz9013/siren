@@ -9616,3 +9616,74 @@ describe("render(…, { omitAuthorStyles }) — the author's properties a caller
   });
 });
 
+
+describe("render() hands back the frontmatter's top-level `siren:` as written", () => {
+  const sirenOf = (source: string): unknown => render(source, document.createElement("div")).siren;
+
+  it("is the value YAML reads under the JSON schema, nested mappings, lists and scalars untouched", () => {
+    // Under the JSON schema a date-shaped scalar stays a string and `yes` is
+    // not a boolean; the default YAML schema would make them a Date and `true`.
+    expect(
+      sirenOf(
+        [
+          "---",
+          "siren:",
+          "  roles:",
+          "    warn: warning",
+          "    err: error",
+          "  groups: [a, b]",
+          "  confirmed: 2026-10-19",
+          "  flag: yes",
+          "  count: 3",
+          "---",
+          "flowchart TD",
+          "  A --> B",
+        ].join("\n"),
+      ),
+    ).toEqual({
+      roles: { warn: "warning", err: "error" },
+      groups: ["a", "b"],
+      confirmed: "2026-10-19",
+      flag: "yes",
+      count: 3,
+    });
+  });
+
+  it("is undefined with no frontmatter, no `siren:` key, or a frontmatter that is refused", () => {
+    expect(sirenOf("flowchart TD\n  A --> B")).toBeUndefined();
+    expect(sirenOf("---\ntitle: T\n---\nflowchart TD\n  A --> B")).toBeUndefined();
+    // Not YAML, and a `displayMode` with no mapping to go into: each refuses
+    // the whole document, `siren:` beside it included.
+    for (const refused of [
+      "---\nsiren: x\nconfig: [\n---\nflowchart TD\n  A --> B",
+      "---\nsiren: x\ndisplayMode: compact\nconfig: 1\n---\nflowchart TD\n  A --> B",
+    ]) {
+      const result = render(refused, document.createElement("div"));
+      expect(result.diagnostics.map((d) => [d.severity, d.line])).toEqual([["error", 1]]);
+      expect(result.siren).toBeUndefined();
+    }
+  });
+
+  it("says nothing about it: a frontmatter holding only `siren:` draws with no diagnostic", () => {
+    const result = render("---\nsiren:\n  roles: [x]\n---\nflowchart TD\n  A --> B", document.createElement("div"));
+    expect(result.svg).not.toBeNull();
+    expect(result.diagnostics).toEqual([]);
+    expect(result.siren).toEqual({ roles: ["x"] });
+  });
+
+  // The caller still needs it to show what the author's styling meant, so
+  // a frontmatter that is itself fine is handed back whatever else fails.
+  for (const [failure, diagram] of [
+    ["a header no kind accepts", "notADiagram\n  A --> B"],
+    ["a bare `%%` line in a flowchart", "flowchart TD\n  A --> B\n%%"],
+    ["a wrap directive with no mapping to go into", "%%{init: dark}%%\n%%{wrap}%%\nflowchart TD\n  A --> B"],
+    ["an icon from a pack that is not registered", 'flowchart TD\n  A --> B@{ icon: "fa:user" }'],
+  ]) {
+    it(`is still handed back when the document is not drawn for ${failure}`, () => {
+      const result = render(`---\nsiren:\n  roles:\n    hot: warning\n---\n${diagram}`, document.createElement("div"));
+      expect(result.svg).toBeNull();
+      expect(result.diagnostics.some((d) => d.severity === "error")).toBe(true);
+      expect(result.siren).toEqual({ roles: { hot: "warning" } });
+    });
+  }
+});

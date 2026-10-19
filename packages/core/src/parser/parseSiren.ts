@@ -372,7 +372,9 @@ function withBareCommentLines(
  * the header names — is `config` on the result, added after `asWritten` has
  * moved the diagram's positions: it is the author's data as written, and a
  * config key spelled `line` or `column` is not a position to move. Its
- * diagnostics come first, as its lines do. A
+ * diagnostics come first, as its lines do. The frontmatter's `siren:` is
+ * `siren` on the result, added the same way and on every outcome, a refused
+ * diagram's included — but not a refused frontmatter's, which has none. A
  * frontmatter Mermaid refuses — one that is not YAML, or whose
  * `displayMode` has no mapping to go into — refuses the whole document
  * here too, as its one error, and the diagram below it is not read; so does
@@ -395,7 +397,7 @@ export function parseSiren(source: string): ParseResult {
   } = asMermaidReads(source);
   for (const read of [frontmatter, directives]) {
     if (read.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-      return { document: null, diagnostics: read.diagnostics, config: {} };
+      return { document: null, diagnostics: read.diagnostics, config: {}, siren: frontmatter.siren };
     }
   }
   // One reading of the header serves both: `dispatch` hands the document to
@@ -411,7 +413,7 @@ export function parseSiren(source: string): ParseResult {
     return typeof outcome === "string" ? [] : [{ severity: "error", message: outcome.refused, ...at }];
   });
   if (bareCommentRefusals.length > 0) {
-    return { document: null, diagnostics: bareCommentRefusals, config: {} };
+    return { document: null, diagnostics: bareCommentRefusals, config: {}, siren: frontmatter.siren };
   }
   const documentConfig = documentConfigOf(frontmatter, directives, header?.kind ?? null);
   const parsed = dispatch(withBareCommentLines(lines, header, timelineStart, bareCommentLines), header, droppedOn);
@@ -419,7 +421,12 @@ export function parseSiren(source: string): ParseResult {
     ...parsed,
     diagnostics: explainCommentedTargets(parsed.diagnostics, commentedTargets),
   });
-  return { document, diagnostics: [...documentConfig.diagnostics, ...diagnostics], config: documentConfig.config };
+  return {
+    document,
+    diagnostics: [...documentConfig.diagnostics, ...diagnostics],
+    config: documentConfig.config,
+    siren: frontmatter.siren,
+  };
 }
 
 /**

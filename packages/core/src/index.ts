@@ -470,11 +470,12 @@ function withoutOmittedStyles(styles: ResolvedStyle[], omitted: ReadonlySet<stri
 /**
  * What `render()` returns when there is no diagram to mount: no SVG, no
  * controller (the two are null together), and no timelines or style facts
- * to offer. One place, so a field the result gains is added to every
+ * to offer — but the frontmatter's `siren`, which the diagram's failure does
+ * not touch. One place, so a field the result gains is added to every
  * failure at once.
  */
-function failedRender(diagnostics: Diagnostic[]): SirenRenderResult {
-  return { svg: null, controller: null, diagnostics, timelines: [], styles: [] };
+function failedRender(diagnostics: Diagnostic[], siren: unknown): SirenRenderResult {
+  return { svg: null, controller: null, diagnostics, timelines: [], styles: [], siren };
 }
 
 /**
@@ -517,9 +518,12 @@ export function render(
 
   const parseResult = parseSiren(source);
   diagnostics.push(...parseResult.diagnostics);
+  // Handed back on every outcome, a failed render's included: it is the
+  // frontmatter's, and a refusal of the diagram below does not touch it.
+  const { siren } = parseResult;
 
   if (parseResult.document === null) {
-    return failedRender(diagnostics);
+    return failedRender(diagnostics, siren);
   }
 
   const graphResult = buildGraphModel(parseResult.document);
@@ -545,7 +549,7 @@ export function render(
     const erLayout = attemptLayout(() => layoutErDiagram(erModel, { measureText }));
     if (!erLayout.placed) {
       diagnostics.push(erLayout.diagnostic);
-      return failedRender(diagnostics);
+      return failedRender(diagnostics, siren);
     }
 
     const positionedErDiagram = erLayout.value;
@@ -555,7 +559,7 @@ export function render(
     // entities and relationships carry `data-siren-id`.
     const erController = mountAtStepZero(container, erSvg, graphResult.model, options);
 
-    return { svg: erSvg, controller: erController, diagnostics, timelines, styles };
+    return { svg: erSvg, controller: erController, diagnostics, timelines, styles, siren };
   }
 
   if (graphResult.kind === "state") {
@@ -563,7 +567,7 @@ export function render(
     const stateLayout = attemptLayout(() => layoutStateDiagram(stateModel, { measureText }));
     if (!stateLayout.placed) {
       diagnostics.push(stateLayout.diagnostic);
-      return failedRender(diagnostics);
+      return failedRender(diagnostics, siren);
     }
 
     const positionedStateDiagram = stateLayout.value;
@@ -574,7 +578,7 @@ export function render(
     // `data-siren-id`, so the one controller drives them unchanged.
     const stateController = mountAtStepZero(container, stateSvg, graphResult.model, options);
 
-    return { svg: stateSvg, controller: stateController, diagnostics, timelines, styles };
+    return { svg: stateSvg, controller: stateController, diagnostics, timelines, styles, siren };
   }
 
   if (graphResult.kind === "class") {
@@ -592,7 +596,7 @@ export function render(
     const classLayout = attemptLayout(() => layoutClassDiagram(classModel, { measureText }));
     if (!classLayout.placed) {
       diagnostics.push(classLayout.diagnostic);
-      return failedRender(diagnostics);
+      return failedRender(diagnostics, siren);
     }
 
     const positionedClassDiagram = classLayout.value;
@@ -607,7 +611,7 @@ export function render(
     // edges — and sequence participants — drives them unchanged.
     const classController = mountAtStepZero(container, classSvg, graphResult.model, options);
 
-    return { svg: classSvg, controller: classController, diagnostics, timelines, styles };
+    return { svg: classSvg, controller: classController, diagnostics, timelines, styles, siren };
   }
 
   if (graphResult.kind === "sequence") {
@@ -623,7 +627,7 @@ export function render(
     const sequenceLayout = attemptLayout(() => layoutSequence(model, { measureText }));
     if (!sequenceLayout.placed) {
       diagnostics.push(sequenceLayout.diagnostic);
-      return failedRender(diagnostics);
+      return failedRender(diagnostics, siren);
     }
 
     const positionedSequence = sequenceLayout.value;
@@ -637,7 +641,7 @@ export function render(
     // lifeline move together under one timeline entry.
     const sequenceController = mountAtStepZero(container, sequenceSvg, graphResult.model, options);
 
-    return { svg: sequenceSvg, controller: sequenceController, diagnostics, timelines, styles };
+    return { svg: sequenceSvg, controller: sequenceController, diagnostics, timelines, styles, siren };
   }
 
   // Bound to a local here, and in the three branches above, to give the model
@@ -650,7 +654,7 @@ export function render(
   const iconed = withIcons(graphResult.model, options.iconPacks ?? []);
   diagnostics.push(...iconed.diagnostics);
   if (iconed.diagnostics.length > 0) {
-    return failedRender(diagnostics);
+    return failedRender(diagnostics, siren);
   }
   const graph = {
     ...iconed.graph,
@@ -669,7 +673,7 @@ export function render(
   );
   if (!flowchartLayout.placed) {
     diagnostics.push(flowchartLayout.diagnostic);
-    return failedRender(diagnostics);
+    return failedRender(diagnostics, siren);
   }
 
   const positioned = flowchartLayout.value;
@@ -686,5 +690,5 @@ export function render(
 
   const controller = mountAtStepZero(container, svg, graphResult.model, options);
 
-  return { svg, controller, diagnostics, timelines, styles };
+  return { svg, controller, diagnostics, timelines, styles, siren };
 }

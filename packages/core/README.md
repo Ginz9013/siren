@@ -284,6 +284,7 @@ the container is left untouched, so a previously rendered diagram stays on scree
 | `diagnostics` | `Diagnostic[]`                 | Every error and warning, from all stages. Can be non-empty on success.       |
 | `timelines`   | `string[]`                     | The names of the named timeline blocks, in document order. `[]` when there are none, when the only block is the unnamed `timeline:`, or when rendering failed. |
 | `styles`      | `StyleFact[]`                  | What the document's `style`, `classDef`, `class`/`:::` and `linkStyle` statements did, one fact per drawn target they reached with a declaration that was not refused. `[]` for a sequence diagram or when rendering failed. |
+| `siren`       | `unknown`                      | The frontmatter's top-level `siren:` value, exactly as its YAML reads, for your own use. Siren does not interpret, validate or report on it, and Mermaid ignores it. Still returned when rendering failed; `undefined` when there is no `siren:` key, no frontmatter, or the frontmatter itself is rejected. |
 
 A document without a `timeline:` block still gets a controller, with `totalSteps: 0`.
 

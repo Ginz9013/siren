@@ -3040,6 +3040,24 @@ describe("a document's frontmatter", () => {
     ]);
   });
 
+  it("hands back a top-level `siren:` as written, outside the config and with nothing said about it", () => {
+    const { document, diagnostics, config, siren } = parseSiren(
+      "---\nsiren:\n  roles:\n    hot: warning\nconfig:\n  theme: forest\n---\nflowchart TD\n  A --> B",
+    );
+    expect(document?.kind).toBe("flowchart");
+    expect(siren).toEqual({ roles: { hot: "warning" } });
+    expect(config).toEqual({ theme: "forest" });
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      'Document config "theme" is read but not applied yet; the diagram is drawn without it.',
+    ]);
+    // A key with no value is YAML's null, handed back as such.
+    expect(parseSiren("---\nsiren:\n---\nflowchart TD\n  A --> B")).toMatchObject({
+      diagnostics: [],
+      config: {},
+      siren: null,
+    });
+  });
+
   it("reads an indented frontmatter, closed at the same indent, with the indent taken off each YAML line", () => {
     // Measured (probe, 12.2.0): this document draws A --> B.
     const { document, diagnostics, config } = parseSiren(
