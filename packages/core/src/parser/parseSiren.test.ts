@@ -3028,7 +3028,7 @@ describe("a document's frontmatter", () => {
     });
   }
 
-  it("drops a top-level key Mermaid does not know, unread and unreported, as Mermaid does", () => {
+  it("keeps a top-level key Mermaid does not know out of the config, and says nothing about it, as Mermaid does", () => {
     // Measured (probe, 12.2.0): `siren:` beside `config:` draws A --> B.
     const { document, diagnostics, config } = parseSiren(
       "---\nsiren:\n  roles: x\nconfig:\n  theme: forest\n---\nflowchart TD\n  A --> B",
