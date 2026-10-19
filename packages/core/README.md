@@ -519,7 +519,7 @@ Override any `--siren-*` custom property in your own CSS:
 | Text      | `--siren-font-family`, `--siren-font-size`, `--siren-label-font-size`, `--siren-title-font-size`                  |
 | Lines     | `--siren-stroke-width`, `--siren-edge-thick-stroke-width`, `--siren-edge-dash`, `--siren-lifeline-dash`, `--siren-note-link-dash`, `--siren-highlight-stroke-width` |
 | Shapes    | `--siren-node-border-radius`, `--siren-box-fill-opacity`                                                           |
-| Motion    | `--siren-fade-duration`, `--siren-slide-duration`, `--siren-slide-distance`, `--siren-highlight-duration`          |
+| Motion    | `--siren-fade-duration`, `--siren-slide-duration`, `--siren-slide-distance`, `--siren-highlight-duration`, `--siren-edge-march-dash` (`9 5`, the dash an animated edge marches), `--siren-edge-march-offset` (`900`, how far one march cycle moves the dash), `--siren-edge-march-fast-duration` (`20s`, one cycle of a fast animated edge), `--siren-edge-march-slow-duration` (`50s`, one cycle of a slow animated edge) |
 | Label paint | `--siren-label-mark-fill` (`#ff0`, the rect behind `<mark>` text), `--siren-label-mark-text` (`#000`, `<mark>` text), `--siren-label-link` (`#0000ee`, `<a href>` link text), `--siren-edge-label-fill` (`rgb(255 255 255 / 0.8)`, the background behind every connector label) |
 
 The first three label-paint tokens are what the browser's default stylesheet paints these tags
