@@ -14,6 +14,14 @@ While the version is 0.x, a minor release may contain breaking changes.
   handed over as data, that a flowchart node's `@{ icon: "prefix:name" }` is drawn from. Nothing is
   fetched at render time; an icon's body is read through an allowlist that keeps shapes, colours
   and local references only.
+- `BoardOptions.omitAuthorStyles`, `board.setOmitAuthorStyles(list)` and `board.omitAuthorStyles`,
+  passed through to `render()`'s `omitAuthorStyles`. Switching redraws the document in place: the
+  step, the current timeline, the full diagram, pan and zoom and playback are kept. An equal list
+  does nothing.
+- `BoardOptions.onStyles(styles, siren)`, `board.styles` and `board.siren`: every render's
+  `styles` and frontmatter `siren:` value from `render()`, handed over unchanged after each
+  `setSource`, `setTimeline`, `setFullDiagram` and `setOmitAuthorStyles` that draws. Board draws no
+  conclusion from them.
 
 ### Fixed
 
