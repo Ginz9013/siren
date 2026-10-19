@@ -1421,8 +1421,12 @@ describe("default theme's design tokens", () => {
     const declared = new Set(
       tokenBlocks.flatMap((block) => block.body.match(/--siren-[\w-]+(?=\s*:)/g) ?? []),
     );
+    // An internal hook such as `--siren-edge-march` is no token block's
+    // (decision 01M59N4KXRKK7R9Y55K64R4013): the core rule that sets it is
+    // its declaration, so a name nothing sets is still caught.
+    const setByRules = new Set(themeRules.match(/--siren-[\w-]+(?=\s*:)/g) ?? []);
     const referenced = new Set(
-      (themeRules.match(/var\(\s*(--siren-[\w-]+)(?=\s*\))/g) ?? []).map((use) =>
+      (themeRules.match(/var\(\s*(--siren-[\w-]+)/g) ?? []).map((use) =>
         use.replace(/^var\(\s*/, ""),
       ),
     );
@@ -1430,9 +1434,9 @@ describe("default theme's design tokens", () => {
     // A `var()` naming a token that was never declared silently resolves to
     // nothing — for `stroke` or `fill` that means an invisible element, which
     // is the exact class of defect this file's sequence rules exist to fix.
-    // A `var()` with its own fallback cannot: that is how a rule reads an
-    // internal hook such as `--siren-edge-march`, which no token block holds.
-    const dangling = [...referenced].filter((token) => !declared.has(token)).sort();
+    const dangling = [...referenced]
+      .filter((token) => !declared.has(token) && !setByRules.has(token))
+      .sort();
     expect(dangling).toEqual([]);
   });
 });
@@ -1942,7 +1946,8 @@ describe("default theme's animated edge", () => {
     // `--siren-edge-march` passes the march from a speed class to the rules
     // that run it; a value on `:root` never reaches an animated edge, so it
     // is no token a theme could redeclare (ADR-0014: `:root` is the whole
-    // styling interface). Its four numbers are.
+    // styling interface; decision 01M59N4KXRKK7R9Y55K64R4013: `:root` holds
+    // only design tokens). Its four numbers are.
     const root = themeRules.match(/:root\s*\{([^}]*)\}/)?.[1] ?? "";
 
     expect(root).not.toMatch(/--siren-edge-march:/);

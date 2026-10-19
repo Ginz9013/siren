@@ -200,8 +200,8 @@ property that passes a value between core's own rules (an **internal hook**, suc
 `--siren-edge-march`) is not a design token and is not declared in `:root` — its reads carry
 their own fallback and core's own classes set it (decision `01M59N4KXRKK7R9Y55K64R4013`).
 Siren never picks a palette on the page's behalf: nothing in the file reads the reader's system
-color preference or any theme attribute, so **a second theme is the consumer's**, made by redeclaring tokens under a selector
-they choose and apply when they decide — see
+color preference or any theme attribute, so **a second theme is the consumer's**, made by
+redeclaring tokens under a selector they choose and apply when they decide — see
 [ADR-0014](docs/adr/0014-the-default-theme-ships-one-palette.md), which supersedes
 [ADR-0011](docs/adr/0011-core-ships-a-light-and-a-dark-palette.md)'s light/dark switch, and
 `demos/theme-dark.css` for that done in full. `siren-board`'s `--siren-board-*` properties are

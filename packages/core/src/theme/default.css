@@ -329,9 +329,9 @@
  * token: a value on `:root` would never reach an animated edge, so it is
  * not declared there, and each rule reading it falls back to `none`. A
  * drawing of its own, independent of the timeline: an edge runs one
- * `animation` shorthand, so a timeline effect's keyframes on
- * an animated edge are run beside the march (the rules after the exit
- * effects below) rather than one taking the property from the other. Under
+ * `animation` shorthand, so a timeline effect's keyframes on an animated
+ * edge are run beside the march (the rules after the exit effects below)
+ * rather than one taking the property from the other. Under
  * `prefers-reduced-motion` the march is `none` and the effects still run.
  */
 @keyframes siren-edge-march {

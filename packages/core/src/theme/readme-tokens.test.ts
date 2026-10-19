@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 
 /**
  * The README's token table and `default.css`'s `:root` block must name the
- * same tokens: `:root` is the theme's whole styling interface (ADR-0014), and
- * the table is where a theme author reads what that interface is.
+ * same tokens: `:root` is the theme's whole styling interface (ADR-0014) and
+ * holds only design tokens (decision 01M59N4KXRKK7R9Y55K64R4013), and the
+ * table is where a theme author reads what that interface is.
  *
  * Both files are read off disk the way `default.test.ts` reads `default.css`
  * (see the note there on why neither `?raw` nor `import "node:fs"` works in
