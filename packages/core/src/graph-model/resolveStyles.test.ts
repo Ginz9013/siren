@@ -715,4 +715,21 @@ describe("resolveStyleFacts", () => {
       },
     ]);
   });
+
+  it("refuses to name a source for an apply-directive that names no class, rather than reporting it as a class called \"\"", () => {
+    // No parser builds this: an apply-directive always names its class. A
+    // hand-built one that does not, beside a class defined under the empty
+    // name, is a broken contract, and a fact saying `name: ""` would hide it.
+    const resolving = () =>
+      resolveStyleFacts(
+        [
+          styleDecl({ styleKind: "classDef", name: "", properties: [{ property: "fill", value: "#f00" }] }),
+          styleDecl({ styleKind: "apply", authoredAs: "class", targetIds: ["A"], name: null }),
+        ],
+        new Set(["A"]),
+        [],
+      );
+
+    expect(resolving).toThrow(/names no class/);
+  });
 });

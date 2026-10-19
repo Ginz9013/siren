@@ -179,7 +179,9 @@ export function buildFlowchartModel(
   // The class definitions were read once already, for the nodes above, so
   // what reading them again finds is not reported a second time.
   const edgeClassDiagnostics: Diagnostic[] = [];
-  const resolvedEdgeClasses = resolveStyleFacts([...classDefs, ...edgeClasses], edgeIds, edgeClassDiagnostics);
+  const resolvedEdgeClasses = resolveStyleFacts([...classDefs, ...edgeClasses], edgeIds, edgeClassDiagnostics, {
+    keepUnstyled: true,
+  });
   const reported = new Set(diagnostics.map((diagnostic) => JSON.stringify(diagnostic)));
   diagnostics.push(...edgeClassDiagnostics.filter((diagnostic) => !reported.has(JSON.stringify(diagnostic))));
   // The class whose definition animates, per class name.
@@ -233,14 +235,6 @@ export function buildFlowchartModel(
       edgeSources.set(targetId, laid.sources);
     }
   }
-  for (const edge of edges) {
-    const sources = edgeSources.get(edge.id);
-    if (sources !== undefined && edge.style.frame.length + edge.style.text.length > 0) {
-      const classes = edgeClassNames.get(edge.id) ?? [];
-      styleFacts.push({ id: edge.id, kind: "edge", classes, effective: edge.style, sources });
-    }
-  }
-
   // The curve rides the same two tiers, from the same resolved addresses,
   // so an index that names no edge is diagnosed once, above, and not again.
   // An edge no `interpolate` reached is left without one, which the
@@ -251,7 +245,18 @@ export function buildFlowchartModel(
 
   // What an edge's own `e1@{ … }` data says: its animation, and its curve
   // on the terms `GraphEdge.curve` states against `linkStyle`.
-  applyEdgeData(document, edges, addressed, diagnostics);
+  applyEdgeData(document, edges, addressed, edgeSources, diagnostics);
+
+  // Each styled edge's fact, read off only now: an edge's own data can still
+  // take a declaration back (an animated edge's dash), and a fact is the
+  // declarations as painted.
+  for (const edge of edges) {
+    const sources = edgeSources.get(edge.id);
+    if (sources !== undefined && edge.style.frame.length + edge.style.text.length > 0) {
+      const classes = edgeClassNames.get(edge.id) ?? [];
+      styleFacts.push({ id: edge.id, kind: "edge", classes, effective: edge.style, sources });
+    }
+  }
 
   // A subgraph is a timeline target on the same terms as a node and an edge:
   // it is a drawn thing with an id, and board 2's rule is that a diagram kind
@@ -732,11 +737,15 @@ function resolveCurves(
  * `fast`. The curve is the one a `linkStyle N interpolate` written later
  * does not take back: Mermaid sets an edge's one curve as each is read, so
  * the later of the two wins, and either beats `linkStyle default`.
+ *
+ * `edgeSources` is each styled edge's provenance, index for index with its
+ * `style`, so a declaration the data takes back takes its source with it.
  */
 function applyEdgeData(
   document: FlowchartDocument,
   edges: readonly GraphEdge[],
   addressed: readonly AddressedLinkStyle[],
+  edgeSources: Map<string, StyleFact["sources"]>,
   diagnostics: Diagnostic[],
 ): void {
   // Where the last `linkStyle N interpolate` naming each edge was written.
@@ -757,11 +766,14 @@ function applyEdgeData(
     if (animation !== undefined) {
       edge.animation = animation;
       // The march's dash beats an author's (Mermaid writes it
-      // `!important`, measured), so none is handed on to be drawn.
-      edge.style = {
-        ...edge.style,
-        frame: edge.style.frame.filter(({ property }) => property !== "stroke-dasharray"),
-      };
+      // `!important`, measured), so none is handed on to be drawn — nor
+      // reported: the statement it came from goes with it, index for index.
+      const kept = edge.style.frame.map(({ property }) => property !== "stroke-dasharray");
+      edge.style = { ...edge.style, frame: edge.style.frame.filter((_, i) => kept[i]) };
+      const sources = edgeSources.get(edge.id);
+      if (sources !== undefined) {
+        edgeSources.set(edge.id, { ...sources, frame: sources.frame.filter((_, i) => kept[i]) });
+      }
     }
     if (data.curve === undefined) {
       return;

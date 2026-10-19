@@ -64,11 +64,18 @@ import { unsafeStyleValue } from "../unsafeStyleValue";
  * what `render()` reports as `SirenRenderResult.styles`. It is worked out
  * in the same pass rather than reconstructed afterwards, so the fact a
  * caller reads cannot follow a cascade other than the one painted.
+ *
+ * `keepUnstyled` keeps the targets a statement reached but left with no
+ * declaration — a class applied whose every declaration was refused — for a
+ * caller that lays further tiers over this result: a flowchart edge's
+ * classes sit beneath its `linkStyle`s, and the classes it was given are
+ * still its classes when only a `linkStyle` paints it.
  */
 export function resolveStyleFacts(
   declarations: readonly StyleDecl[],
   validTargetIds: ReadonlySet<string>,
   diagnostics: Diagnostic[],
+  { keepUnstyled = false }: { keepUnstyled?: boolean } = {},
 ): ResolvedStyleFact[] {
   const definitions = new Map<string, StyleProperty[]>();
   for (const declaration of declarations) {
@@ -188,7 +195,7 @@ export function resolveStyleFacts(
   }
 
   return [...byTargetId]
-    .filter(([, { frame, text }]) => frame.size + text.size > 0)
+    .filter(([, { frame, text }]) => keepUnstyled || frame.size + text.size > 0)
     .map(([targetId, { classes, frame, text }]) => ({
       targetId,
       style: { frame: asProperties(frame), text: asProperties(text) },
@@ -235,7 +242,14 @@ interface Sourced {
  * knows which of its tiers it was.
  */
 function sourceOf(declaration: StyleDecl): StyleSource {
-  return declaration.styleKind === "apply" ? { via: "classDef", name: declaration.name ?? "" } : { via: "style" };
+  if (declaration.styleKind !== "apply") return { via: "style" };
+  // Every parser names the class an apply-directive applies; one that names
+  // none is a broken contract, and reporting it as a class called "" would
+  // hand a caller a fact nobody wrote.
+  if (declaration.name === null) {
+    throw new Error(`${declaration.authoredAs} at line ${declaration.line} names no class to apply.`);
+  }
+  return { via: "classDef", name: declaration.name };
 }
 
 /**

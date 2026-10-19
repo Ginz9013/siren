@@ -225,6 +225,11 @@ would have lost the one thing that distinguishes it. The price is that the token
 *how* round `A(Round)` is; that is a proportion, and it is the renderer's. So a consumer
 redeclaring this token changes rectangles and subroutines and nothing else — which is a documented
 token silently narrowing its reach, and the reason it is written down here.
+_Avoid_: CSS variable, theme variable (`themeVariables` is the **document config** key Mermaid
+spells a token's value under — the thing itself is still a design token), dark mode (say a
+**theme preset**'s dark variant), 主題切換 (there is no switch to name: one set of
+values, and a second theme is a consumer's own CSS)
+
 **Token reach**: a caller recolours one styleable target, and nothing else, by redeclaring colour
 tokens on the elements that wear its `data-siren-id`. Two rules make that true, and
 `theme/default.test.ts` asserts both:
@@ -240,12 +245,14 @@ Two things fall outside token reach:
 - an edge's arrowhead, drawn from a marker in `<defs>` that inherits from the diagram rather than
   from the edge, so it follows a token redeclared on the container and not one redeclared on the
   edge;
-- the node shapes the theme leaves deliberately unfilled (`composite`, the text block), whose
-  frames take no fill from any token.
-_Avoid_: CSS variable, theme variable (`themeVariables` is the **document config** key Mermaid
-spells a token's value under — the thing itself is still a design token), dark mode (say a
-**theme preset**'s dark variant), 主題切換 (there is no switch to name: one set of
-values, and a second theme is a consumer's own CSS)
+- a node frame unfilled by design, which the theme paints a literal `none` and no token: a
+  **bare** frame (`siren-node-bare`, the text block's) is neither filled nor stroked, and a
+  **hollow** one (`siren-node-hollow`: the `composite` shape's, and the open parts of a brace, a
+  bucket's rim, a console or a browser) is stroked through its token but never filled. There is
+  no colour there for a redeclaration to change, so no token is added for one.
+_Avoid_: scoped theme, per-target theme (there is one theme; a redeclaration on a target's
+elements is the consumer's own CSS), override (an author's inline `style` is what overrides, and it
+outranks every token)
 
 **Id scope**:
 The `__` plus exactly eight characters that every id *inside* one rendered SVG is suffixed with —

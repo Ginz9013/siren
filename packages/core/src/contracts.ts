@@ -1960,6 +1960,11 @@ export interface StyleFact {
    * were applied, each once: a flowchart node's implicit `default` first,
    * when the document defines one. A name no `classDef` defines applied
    * nothing and is not listed.
+   *
+   * A defined class is listed even when none of its declarations survived
+   * — every one refused at the gate, or overridden — for every kind, an
+   * edge included: it was applied, so it is the target's class, whatever
+   * `effective` ends up holding.
    */
   classes: string[];
   /**
@@ -1968,10 +1973,17 @@ export interface StyleFact {
    *
    * **The text half is spelled the way SVG paints text**, not the way the
    * author wrote it: an author's `color` is listed here as `fill`, as it is
-   * in `AuthorStyle`. A `fill` in `text` is therefore always the author's
-   * `color`, and a `fill` in `frame` always their `fill`.
+   * on the drawn element. A `fill` in `text` is therefore always the
+   * author's `color`, and a `fill` in `frame` always their `fill`.
+   *
+   * Spelled out here rather than named, so the fact is the whole of what a
+   * caller has to import: it is the shape of `AuthorStyle`, which stays
+   * internal.
    */
-  effective: AuthorStyle;
+  effective: {
+    frame: { property: string; value: string }[];
+    text: { property: string; value: string }[];
+  };
   /**
    * The statement each effective declaration came from, index for index:
    * `sources.frame[i]` supplied `effective.frame[i]`, and `sources.text[i]`

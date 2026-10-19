@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render } from "../index";
 import { BASE_FONT_SIZE_PX } from "../label/label";
 import { FRAME_PAINT } from "../layout/shapes/shape";
+import { NODE_DATA_SHAPES } from "../parser/flowchartNodeData";
 
 /**
  * `default.css`'s own text — the artifact these tests are about.
@@ -2085,6 +2086,55 @@ describe("default theme's token reach", () => {
       }
     }
     expect(untokened).toEqual([]);
+  });
+
+  it("leaves out of token reach only a frame unfilled by design, a bare or a hollow one, which paints `none`", () => {
+    // Every flowchart shape that needs no data beyond its label: the text
+    // block and the composite are two of them, and the parts of a figure a
+    // shape draws hollow (a brace, a bucket's rim) wear the same paint.
+    // One spelling per shape, as an author writes it.
+    const spellingOf = new Map<string, string>();
+    for (const [spelling, shape] of NODE_DATA_SHAPES) {
+      if (!spellingOf.has(shape)) spellingOf.set(shape, spelling);
+    }
+    const shapes = [...spellingOf.keys()].filter((shape) => shape !== "icon" && shape !== "image");
+    const svg = renderThemedSVG(
+      `flowchart TB\n${shapes.map((shape, i) => `N${i}@{ shape: ${spellingOf.get(shape)} }`).join("\n")}\n`,
+    );
+    const UNFILLED_BY_DESIGN = ["siren-node-bare", "siren-node-hollow"];
+
+    const untokened: string[] = [];
+    const exempt = new Set<string>();
+    const exemptShapes = new Set<string>();
+    for (const node of Array.from(svg.querySelectorAll("g.siren-node"))) {
+      const shape = shapes[Number(node.getAttribute("data-siren-id")!.slice(1))]!;
+      for (const frame of Array.from(node.querySelectorAll(".siren-node-frame"))) {
+        const style = getComputedStyle(frame);
+        const paintClass = UNFILLED_BY_DESIGN.find((name) => frame.classList.contains(name));
+        for (const paint of ["fill", "stroke"] as const) {
+          // A paint the shape writes inline (a browser's dots, kept unstroked
+          // whatever the author says) is the renderer's, not the theme's.
+          if (TOKEN.test(style[paint]) || (frame as SVGElement).style.getPropertyValue(paint) !== "") continue;
+          if (paintClass === undefined) {
+            untokened.push(`${shape} ${describeElement(frame)} ${paint}: ${style[paint]}`);
+          } else {
+            exempt.add(`${paintClass} ${paint}: ${style[paint]}`);
+            exemptShapes.add(shape);
+          }
+        }
+      }
+    }
+
+    expect(untokened).toEqual([]);
+    // A bare frame is neither filled nor stroked; a hollow one is stroked
+    // through the token and left unfilled.
+    expect([...exempt].sort()).toEqual([
+      "siren-node-bare fill: none",
+      "siren-node-bare stroke: none",
+      "siren-node-hollow fill: none",
+    ]);
+    expect(exemptShapes).toContain("text");
+    expect(exemptShapes).toContain("composite");
   });
 
   it.each(STYLEABLE)("draws no element wearing an id inside another one: %s", (source) => {

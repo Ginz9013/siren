@@ -9336,6 +9336,33 @@ describe("render() reports each styled target's style facts", () => {
       },
     ]);
   });
+
+  it("leaves out of an animated edge's fact the dash its march replaces, as it is left out of the drawing", () => {
+    // The march's dash beats an author's, so `stroke-dasharray` is never
+    // drawn on an animated edge, and a fact is the declarations as painted.
+    expect(
+      stylesOf("flowchart TB\nA e1@--> B\ne1@{ animate: true }\nlinkStyle 0 stroke-dasharray:5,stroke:#f00\n"),
+    ).toEqual([
+      {
+        id: "e1",
+        kind: "edge",
+        classes: [],
+        effective: { frame: [{ property: "stroke", value: "#f00" }], text: [] },
+        sources: { frame: [{ via: "linkStyle" }], text: [] },
+      },
+    ]);
+  });
+
+  it("lists a defined class an edge applied even when none of its declarations survived, as it does for a node", () => {
+    const facts = stylesOf(
+      "flowchart TB\nA e1@--> B\nclassDef bad *fill:#00f\nclass A,e1 bad\nstyle A stroke:#f00\nlinkStyle 0 stroke:#f00\n",
+    );
+
+    expect(facts.map(({ id, classes }) => ({ id, classes }))).toEqual([
+      { id: "A", classes: ["bad"] },
+      { id: "e1", classes: ["bad"] },
+    ]);
+  });
 });
 
 

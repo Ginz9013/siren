@@ -294,7 +294,7 @@ drawing:
 | ----------- | ----------- |
 | `id`        | The target's `data-siren-id`. A flowchart or ER subgraph's id is `subgraph:N`, not the handle the author styled it by. |
 | `kind`      | `"node"`, `"edge"`, `"subgraph"`, `"class"`, `"state"` (a composite state included) or `"entity"`. |
-| `classes`   | The `classDef` names applied to it, in the order they were applied. A flowchart node lists `default` first when the document defines one. |
+| `classes`   | The `classDef` names applied to it, in the order they were applied. A flowchart node lists `default` first when the document defines one. A defined class is listed even when none of its declarations survived; a name no `classDef` defines is not. |
 | `effective` | The declarations that won, as `{ frame, text }` lists of `{ property, value }`. The text half is spelled the way SVG paints text, so an author's `color` appears there as `fill`. |
 | `sources`   | `{ frame, text }`, index for index with `effective`: the statement each declaration came from. Each is `{ via: "classDef", name }`, `{ via: "style" }`, `{ via: "linkStyle" }` or `{ via: "linkStyle default" }`. |
 
@@ -379,18 +379,18 @@ not the timeline's last step, which still hides whatever exited. Every timeline 
 still parsed and checked, so `diagnostics`, and whether the render succeeds, are the same
 as without the option.
 
-#### Leaving out the author's colours
+#### Leaving out the author's colors
 
 `omitAuthorStyles` lists author style properties, spelled as the author writes them, that are
 not drawn. Each element they would have styled takes the theme's design tokens instead, which
-lets a page that colours targets itself, by redeclaring tokens on a target's `data-siren-id`
-element, keep the author's colours from covering its own:
+lets a page that colors targets itself, by redeclaring tokens on a target's `data-siren-id`
+element, keep the author's colors from covering its own:
 
 ```ts
 render(source, container, { omitAuthorStyles: ["fill", "stroke", "color"] });
 ```
 
-`color` leaves out a label's colour and `fill` only the frame's. An edge whose `stroke` is left out
+`color` leaves out a label's color and `fill` only the frame's. An edge whose `stroke` is left out
 gets the theme's arrowhead. Properties not listed, such as `stroke-width`, are drawn as written.
 The option only takes declarations away; it cannot add one. `diagnostics` and `styles` are the
 same with or without it. A name no declaration uses is not an error, and `[]` is the same as
@@ -527,12 +527,12 @@ should repaint `--siren-label-link`, as in the example above.
 Per-element styling from the document itself (`classDef`, `class`, `style`, `linkStyle`,
 `:::name`) works as it does in Mermaid and takes precedence over the theme.
 
-To recolour one styleable target, redeclare the colour tokens on the elements that carry its
+To recolor one styleable target, redeclare the color tokens on the elements that carry its
 `data-siren-id` (for example `[data-siren-id="A"] { --siren-node-fill: #fde68a; }`). The theme
-takes every frame and text colour of a node, edge, subgraph, class, state or entity from a token
+takes every frame and text color of a node, edge, subgraph, class, state or entity from a token
 named at that element, and none of these elements sits inside another. So the change reaches
 that target and nothing drawn inside it. An edge's arrowhead is the exception: it is drawn from
-a shared marker and keeps the edge colour set on the container.
+a shared marker and keeps the edge color set on the container.
 
 ## Mermaid compatibility
 

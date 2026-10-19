@@ -209,7 +209,8 @@ can carry one.
 - `SirenRenderResult.styles`: one `StyleFact` per drawn target that the author's styling reached
   with at least one declaration that was not refused. A fact lists:
   - the target's `data-siren-id` (a subgraph's is its `subgraph:N`) and its kind;
-  - the classes applied to it, in order, with a flowchart node's implicit `default` first;
+  - the classes applied to it, in order, with a flowchart node's implicit `default` first; a
+    defined class is listed even when none of its declarations survived;
   - the declarations that won, split into frame and text, with an author's `color` spelled `fill`
     in the text half;
   - for each declaration, the statement that supplied it: a named `classDef`, `style`,

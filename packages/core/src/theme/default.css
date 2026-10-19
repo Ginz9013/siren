@@ -165,6 +165,10 @@
  *
  * `siren-node-bare` is a text block's frame: drawn, but neither filled nor
  * stroked, so the label alone shows.
+ *
+ * The `none`s here and in `siren-node-hollow` are literals, not tokens: a
+ * frame unfilled by design is token reach's documented exception
+ * (CONTEXT.md), since there is no colour for a token to carry.
  */
 .siren-node-frame.siren-node-bare {
   fill: none;
