@@ -5,3 +5,4 @@
 {"id":"01M4XSJNAK6D216XF760YQPKY3","t":5,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M4XX59D8TYB4RAJP2VDBD35Y","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
 {"id":"01M4Z7TBRBYGD4QEPYM9J9PNMZ","t":7,"a":"83a1","op":"set","k":"archived","v":true}
+{"id":"01M59C5T2FB8V178CVXC47M0KP","t":8,"a":"83a1","op":"comment","body":"2026-10-19：Part A（總架構）的第 1、2、3 步由 decision 01M5964K7XEW1DA28AEP1ZYJY5 取代。主題邏輯（theme preset、apply mode、role／category class、GUI）歸 siren-website；文件層級的 theme／themeVariables 不支援；core 端的實作是 board siren-theme-semantic-blocks（spec 01M59652EJG895451N1K3ET9VX）。"}
