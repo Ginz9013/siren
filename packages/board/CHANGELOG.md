@@ -8,8 +8,17 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-20
+
+Requires `siren-core` ^0.7.0. Diagrams look different, and documents siren-core now refuses are
+refused on a board too: see the
+[siren-core changelog](https://github.com/Ginz9013/siren/blob/main/packages/core/CHANGELOG.md#070---2026-10-20).
+
 ### Added
 
+- `BoardOptions.onClick` delivers `click X call fn()` interactions, as `render()`'s `onClick` does.
+  Board had no such option, so on a board every callback interaction did nothing when clicked, with
+  no diagnostic (nook `01M2WWHF4`). `click X href` links were never affected.
 - `BoardOptions.iconPacks`, passed through to `render()`'s `iconPacks`: Iconify JSON icon packs,
   handed over as data, that a flowchart node's `@{ icon: "prefix:name" }` is drawn from. Nothing is
   fetched at render time; an icon's body is read through an allowlist that keeps shapes, colours
@@ -24,15 +33,23 @@ While the version is 0.x, a minor release may contain breaking changes.
   `setSource`, `setTimeline`, `setFullDiagram` and `setOmitAuthorStyles` that draws, as that render's
   last callback; `board.styles` and `board.siren` already hold them in every callback before it.
   Board draws no conclusion from them.
+- `StyleFact` and `IconifyJSON`, the types `BoardOptions` uses for `onStyles` and `iconPacks`, are
+  imported from `siren-core`; board does not re-export them.
+
+### Changed
+
+- With `siren-core`'s change: a document that opens with a frontmatter (`---` … `---`) or holds
+  `%%{init: …}%%` directives is drawn on a board, where it used to be refused. Its config is read
+  but not applied yet, and each setting is reported as a warning through `onDiagnostics`.
+- The standalone `dist/siren-board.js` is about 610 KB gzipped (0.6.0: about 547 KB). It now also
+  includes js-yaml, `siren-core`'s new dependency, and its `dist/THIRD-PARTY-NOTICES.md` carries
+  js-yaml's MIT licence beside elkjs's.
 
 ### Fixed
 
 - `setSource()` after `destroy()` does nothing. It used to render into the detached board and call
   `onDiagnostics` (and, when the timeline changed, `onTimelineChange`), though a destroyed board
   reports nothing more.
-- `BoardOptions.onClick` delivers `click X call fn()` interactions, as `render()`'s `onClick` does.
-  Board had no such option, so on a board every callback interaction did nothing when clicked, with
-  no diagnostic (nook `01M2WWHF4`). `click X href` links were never affected.
 - A consumer's `:root { --siren-board-… }` override now wins, as the Theming section shows it.
   Board injects its stylesheet after the page's own CSS, and its token block was also `:root`, so
   board's defaults won on order and the override did nothing. The block is now `:where(:root)`,

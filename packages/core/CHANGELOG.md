@@ -8,6 +8,8 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-20
+
 Breaking for a flowchart `style`, `classDef` or `linkStyle` whose value uses a CSS function —
 `fill:rgb(255,0,0)`, `stroke:rgba(…)`, `fill:hsl(…)`, `stroke:var(--x)` — or holds a `(`, `)`, `[`,
 `]`, `|`, `->` or a `"` (`font-family:"a b"`), which is now refused: Mermaid 12.2.0 draws nothing
@@ -47,7 +49,8 @@ Breaking for a flowchart document with a class name that begins with a digit (`c
 
 Breaking for a flowchart document with a node id that begins with a keyword such as `end`,
 `style`, `class` or `graph` followed by a character other than a letter, digit or `_` (`end-x`,
-`style.x`, `A --> end`), which is now refused (see **Changed**).
+`style.x`, `A --> end`), or with an endpoint that is nothing but `click`, `call` or `href`
+(`A --> click`, `click --> A`), which is now refused (see **Changed**).
 
 Breaking for a flowchart or ER document with a line that is nothing but `%%` outside its timeline
 blocks, which is now refused (see **Changed**).
@@ -182,12 +185,13 @@ block, which used to be dropped and is now refused; and for one whose attribute 
 only lines that draw no text (`$` beside methods), which used to take a compartment's room and
 divider and now takes none (see **Changed**).
 
-Breaking for a class or state `style` or `classDef`, or an ER `style`, whose value calls a function
-other than a colour function, a math function, `var(` or a gradient — `fill:attr(x)`, `fill:env(x)`,
+Breaking for a class or state `style` or `classDef` whose value calls a function other than a
+colour function, a math function, `var(` or a gradient — `fill:attr(x)`, `fill:env(x)`,
 `fill:paint(x)`, a vendor-prefixed `-webkit-linear-gradient(…)` — or holds a character no colour,
 length, keyword or quoted name is written with (`fill:a$b`, `fill:a?b`, `fill:a!b`, an unclosed
 quote or parenthesis), which Mermaid 12.2.0 accepts and is now refused; the same characters in a
-flowchart `style`, `classDef` or `linkStyle` are refused too. A label's `<span style>` or
+flowchart `style`, `classDef` or `linkStyle` are refused too, and a flowchart or ER value refuses
+every function (see above). A label's `<span style>` or
 `<font face>` value of that kind is now drawn as though it were not written, and an icon's
 geometry attribute with no `(` that holds `$`, `?`, `!` or `{` is now dropped (see **Changed**).
 A `:` stays allowed: a colon calls nothing, and a flowchart `style` line whose `;` Mermaid drops
@@ -215,6 +219,66 @@ Breaking for a page that recolours states by redeclaring `--siren-node-fill`, `-
 or `--siren-node-text` on `.siren-state` groups and expected their notes to follow: a state's note
 now takes the diagram's colours; redeclare the tokens on `.siren-note-frame` and `.siren-note-text`
 to recolour notes (see **Fixed**).
+
+Breaking for a document with a `%%` in the middle of a line, which used to cut the line there as a
+comment and is now read as text or as part of a name, as Mermaid 12.2.0 reads it (see
+**Changed**). In a flowchart, `subgraph S %% x` is the one title "S %% x" with no handle `S`,
+`A-->B%%C` draws the node `B%%C`, and a timeline's `enter A%%B fade` names `A%%B`. In a sequence
+diagram, `participant A %% x` declares a participant named "A %% x", `A->>B %% x: m` is sent to
+"B %% x", and a message's, note's, block's or title's text keeps its `%%` (`A->>B: 50%% done`). In
+a class or state diagram, a member's, label's, note's or description's text keeps it,
+`class A { %% x` has the member "%% x", and a state `class A u extra` paints A with `u`. In an ER
+diagram, a relationship's quoted label, an attribute's quoted comment, a backticked name, a
+generic and `accDescr` keep it, and `A %% direction LR` is read as a direction.
+
+Breaking for an ER document with a cardinality word where a name belongs (`CUSTOMER one ORDER`,
+`to`, `zero or one`), which used to draw a box per word and is now refused, and for one with a
+name that begins with a digit (`123abc`), which used to be one entity and is now two, `123` and
+`abc` (see **Changed**).
+
+Breaking for an ER document whose class list (`class A …`, `A:::…`) names a reserved word
+(`end`, `one`, `erDiagram`) or a class that begins with a digit (`class A 1x`), which used to be
+read as a class and is now refused (see **Changed**).
+
+Breaking for a class document with `:::` on a class in a relationship or an inline member
+(`X:::c --> Y`, `Y --> X:::c`, `X:::c : m`), which used to be drawn as a member or a relationship
+label and is now refused (see **Changed**).
+
+Breaking for a sequence document with a `create` or `destroy` that no message follows: a lone
+`destroy X` no longer ends X's lifeline, which now runs to the bottom row, and a lone
+`create participant X` no longer puts X's box on a row of its own — X has boxes in the top and
+bottom rows and a full-height lifeline (see **Changed**).
+
+Breaking for a state document that names a state `href`, `default` or `stateDiagram`, or gives a
+reserved word a description (`note : hi`, `style : hi`), which used to be drawn as a box of that
+name and is now refused (see **Fixed**).
+
+Breaking for an ER document with an `ACCDESCR {` block in capitals, which used to draw an entity
+called `ACCDESCR` and is now read as the diagram's description (see **Added**).
+
+Breaking for a document with a `%%{wrap}%%` beside a lone bare-word init (`%%{init: dark}%%`),
+which used to be drawn and now refuses the document (see **Added**).
+
+Breaking for a flowchart, class, state or ER document with a `style` written above a class applied
+to the same target: the class used to win and the `style` now does. Breaking too for a flowchart
+with a `classDef default`, which used to style nothing and now styles every node (see **Changed**
+and **Fixed**).
+
+Breaking for a flowchart document with a one-word quoted subgraph title (`subgraph "t"`) and an
+edge naming that word (`t --> B`), which used to draw a stray node `t` and now joins the subgraph's
+frame (see **Fixed**).
+
+Breaking for code that matches diagnostic text: many messages are reworded, none mentions Mermaid
+any more, and many refusals that read "Unrecognized … line" now name the cause and the fix (see
+**Changed**).
+
+Many diagrams that mean what they meant look different (see **Changed** and **Fixed**): a sequence
+diagram's lanes shift where a participant is created after something drawn, a created participant
+gets a box in the bottom row, and a `destroy Z` no longer makes a lane for `Z`; an actor's figure is
+a fixed 36px wide; a class note written in a namespace moves into its frame, and a namespace holding
+another draws the outer frame too; flowchart nodes have twice their text padding and subgraphs 24px;
+a flowchart or state edge ends on its node's outline; and flowchart lines paint below frames,
+labels and nodes. Code that reads a positioned layout's coordinates sees them change.
 
 ### Added
 
@@ -265,8 +329,12 @@ to recolour notes (see **Fixed**).
   (`com-link`, `lightning-bolt`), `sm-circ` (`start`, `small-circle`), `fr-circ` (`stop`,
   `framed-circle`), `f-circ` (`junction`, `filled-circle`; filled in the line colour, which an
   author's `fill` repaints), `cross-circ` (`summary`, `crossed-circle`), and the undocumented
-  `choice` (a 28px diamond) and `anchor` (a 2px dot). None of them draws a label. Each used to be
-  refused as a shape not drawn yet.
+  `choice` (a 28px diamond) and `anchor` (a 2px dot). None of them draws a label: a label written
+  for one — in brackets (`A[Ready]@{ shape: fork }`), as the block's `label:`, or on another line
+  for the same node — is refused where it was written, where Mermaid drops it and draws the bare
+  shape. An anchor takes none of an author's `style`, as in Mermaid; a `style`, `class` or `:::`
+  naming a small circle (`sm-circ`) or an anchor is refused where it is written, since it would
+  change nothing.
 - A flowchart invisible edge, `A ~~~ B` (nook `01M51XAE1J`): laid out like any edge and drawn with no
   stroke width and no marker, as Mermaid 12.2.0 draws it, with or without spaces, to an `&` group,
   after an edge id and in a chain. A `|label|` on it is drawn; it counts among the edges a
@@ -281,10 +349,12 @@ to recolour notes (see **Fixed**).
   in place of `A-B`, and a `timeline:` names it by that id. A pair's repeats are still numbered
   across every edge between it, named or not, so naming one edge never renumbers another
   (`A e1@--> B` then `A --> B` is `e1` and `A-B#2`, as Mermaid 12.2.0 numbers them). Each used to
-  be refused, saying to leave the id out.
-- An `@{ … }` block on an edge id written below the edge (`e1@{ … }`) is read as that edge's data:
-  a key other than `animate`, `animation` and `curve` is ignored with a warning, as Mermaid 12.2.0
-  ignores it. The block used to be refused whole.
+  be refused as an unrecognized line.
+- An `@{ … }` block on an edge id written below the edge (`e1@{ … }`) is read as that edge's data: a
+  key other than `animate`, `animation` and `curve` is ignored with a warning, as Mermaid 12.2.0
+  ignores it. One written above the edge (`e1@{ … }` then `A e1@--> B`) declares a node `e1` beside
+  the edge, as Mermaid draws it, and is refused, saying to move it below the edge. Such a block used
+  to be refused as an unrecognized line.
 - A flowchart edge's `e1@{ … }` data animates it and picks its curve (nook `01M51XAE8B`, measured
   in headless Chrome). `animate: true` (any true value) and `animation: fast` march the edge's
   dashes once every 20s, `animation: slow` every 50s, as Mermaid 12.2.0 draws them, with the march's
@@ -305,16 +375,23 @@ to recolour notes (see **Fixed**).
   `01M51XAE8B`, measured): its declarations reach the line, and `color` the label, beneath any
   `linkStyle` naming the edge wherever either is written. A `class` written above the edge, which
   Mermaid applies to nothing, and a class that would animate the edge (write `e1@{ animate: true }`)
-  are refused. It used to be refused as not drawn yet.
+  are refused.
 - A flowchart node's `@{ shape: … }` block draws six figures (nook `01M51XACRX8H03160HPE1WQFZ4`,
   measured in headless Chrome): `bucket` (a body tapering under an open rim), `person` (a rounded
   body under a round head), `console` (a window with a `>_` prompt), `browser` (a window with a bar
   of three dots and an address bar), `cloud` and `bang`. Each is sized by Mermaid's formula for it,
   with Mermaid's minimum widths, and puts its label where Mermaid does — on the person's body, below
   the console's prompt and the browser's bar, on the corners a cloud's and a bang's arcs join. A
-  cloud's box is how far its arcs reach, which grows at the sides with a taller label as in
-  Mermaid. The console's prompt is drawn as two stroked glyphs in the line colour, where Mermaid
-  writes it as monospace text. Each used to be refused as a shape not drawn yet.
+  `bang` and a `cloud` pad their text with Siren's own node padding where Mermaid's handlers pad
+  with its 15px (nook `01M521T9NX`), so each stands to a rectangle as Mermaid's does in its classic
+  look. A cloud's box is how far its arcs reach, which grows at the sides with a taller label as
+  in Mermaid, and its outline is fitted to that box exactly, however tall its label. An edge into
+  or out of a cloud or a bang ends on the arcs the shape is drawn with rather than on its box, so
+  the arrow touches a cloud's bulge or a bang's scallop; Mermaid 12.2.0 meets both at their box,
+  and Siren departs from it so the arrow reaches the figure, as it does a state diagram's end
+  circle (backlog `01M548R9CB`). The console's prompt is drawn as two stroked glyphs in the line
+  colour, where Mermaid writes it as monospace text. A browser's bar line, dots and address bar and
+  a console's prompt take none of an author's `style`, as in Mermaid.
 - A flowchart node's `@{ shape: … }` block draws sixteen more of Mermaid 12.2.0's shapes (nook
   `01M51XAC4N7X7GE0CS5TK2PMTY`, measured in headless Chrome): `notch-rect` (`card`,
   `notched-rectangle`), `notch-pent` (`loop-limit`, `notched-pentagon`), `sl-rect`
@@ -326,22 +403,26 @@ to recolour notes (see **Fixed**).
   `datastore` (`data-store`), and the undocumented `note`, `composite` and `state`. Each is sized
   by Mermaid's formula for it and puts its label where Mermaid does — on a folder's body, under a
   sloped rectangle's slope, on a triangle's wide side — which `PositionedNode.labelOffset` now
-  carries from layout to the renderer. `state` draws the 5px-cornered rectangle Mermaid's handler
-  asks for; Mermaid itself draws it sized `NaN`, so only the label shows. Each used to be refused
-  as a shape not drawn yet.
+  carries from layout to the renderer. A `datastore` is wider than a rectangle by twice the node
+  padding, as Mermaid sizes it, with Siren's own node padding in place of Mermaid's 15px (nook
+  `01M521T9NX`). `state` draws the 5px-cornered rectangle Mermaid's handler asks for; Mermaid
+  itself draws it sized `NaN`, so only the label shows.
 - A flowchart node's `@{ shape: … }` block draws the thirteen shapes of Mermaid 12.2.0 with a
   curved outline (nook 01M51XACHPG8EB9R9JNH0C71HV, measured in headless Chrome): `delay`
   (`half-rounded-rectangle`), `curv-trap` (`curved-trapezoid`, `display`), `h-cyl` (`das`,
   `horizontal-cylinder`), `lin-cyl` (`disk`, `lined-cylinder`), `bow-rect` (`stored-data`,
   `bow-tie-rectangle`), `doc` (`document`), `lin-doc` (`lined-document`), `tag-doc`
   (`tagged-document`), `docs` (`documents`, `st-doc`, `stacked-document`), `flag` (`paper-tape`),
-  `brace` (`comment`, `brace-l`), `brace-r` and `braces`. Each is sized by Mermaid's formula for
-  it and puts its label where Mermaid does; round ends, cylinder ends and brace curls are SVG
+  `brace` (`comment`, `brace-l`), `brace-r` and `braces`. Each is sized by its own Mermaid padding
+  rule, with Siren's node padding in place of Mermaid's (nook `01M521T9NX`, measured at one and
+  three rows): `h-cyl` is padded by half the node padding, `bow-rect`, `flag` and the three curly
+  braces once, `docs` three times in height, and `delay` and `curv-trap` clear their round end by
+  the cap's depth at the text's own corners. Each puts its label where Mermaid does; round ends,
+  cylinder ends and brace curls are SVG
   arcs, and a wavy edge is Mermaid's sine wave in its 51 points. A brace is an open path painted
   hollow, as Mermaid leaves it unfilled. Where Mermaid sizes a round end's clearance from the
   unpadded text, Siren sizes it from the padded label, so a `delay` or `curv-trap` holds its whole
   padded label; and a `lin-doc`'s line stops on the wave, where Mermaid runs it a little past.
-  Each used to be refused as a shape not drawn yet.
 - Node shapes are drawn and sized from one table (`layout/shapes/`): each shape is a record of its
   box, where its label goes and the elements its outline is drawn with, read by `layoutGraph` and
   `renderToSVG`. The fourteen bracket shapes draw exactly as before. A frame can wear a paint of
@@ -363,22 +444,32 @@ to recolour notes (see **Fixed**).
   (`A&B`, which Mermaid draws as the one node `A&B`) gets the spacing error an edge's group gets;
   an `&` with no node on one side (`& A`, `A &`) is refused saying so.
 - A flowchart node's `@{ … }` data block is read as Mermaid 12.2.0 reads it, for what Siren can
-  draw (nook `01M51Q7F65`): `shape:` takes the 45 names that are one of the fourteen node shapes
-  (`rect`, `rounded`, `stadium`, `fr-rect`, `cyl`, `circle`, `diam`, `hex`, `lean-r`, `lean-l`,
-  `trap-b`, `trap-t`, `dbl-circ`, `odd` and their aliases, such as `db`, `decision` or
-  `subroutine`), and `label:` gives the node's text, read as a Markdown string unless
-  `labelType` is `text` or `string`. The block's text is YAML (a one-line block a flow mapping, a
-  block across lines block YAML, a line break inside a quoted string a `<br/>`), and it may be
-  written on a line of its own or at either end of an edge, after a bracket or a `:::name`
-  (`A[x]:::c@{ shape: circle }`), and on a node written before, whose text it keeps. A shape
-  Siren does not draw yet (`cloud`, `doc` and the rest), a name that is no shape (`foo`, `Rect`,
-  `lean_right`), the keys `icon`, `img`, `form`, `pos`, `w`, `h` and `constraint`, a block that is
-  not YAML, a space before the `@`, text after the `}`, a second block, a block never closed and a
-  block on a subgraph's id are each refused at the `@` or the text, saying what to write instead;
-  another key is ignored with a warning. Each used to be refused as `@{ … }` not supported yet. A
-  node with a block followed by `& B` and no arrow gets the error a bare `A & B` line gets; a
+  draw (nook `01M51Q7F65`): `shape:` takes the 45 names of the fourteen bracket shapes (`rect`,
+  `rounded`, `stadium`, `fr-rect`, `cyl`, `circle`, `diam`, `hex`, `lean-r`, `lean-l`, `trap-b`,
+  `trap-t`, `dbl-circ`, `odd` and their aliases, such as `db`, `decision` or `subroutine`) and
+  every name of the shapes the entries above and `shape: icon` add, and `label:` gives the node's
+  text, read as a Markdown string unless `labelType` is `text` or `string`; `icon`, `img`, `form`,
+  `pos`, `w`, `h` and `constraint` are read as the icon and image entries below say. The block's
+  text is YAML (a one-line block a flow mapping, a block across lines block YAML, a line break
+  inside a quoted string a `<br/>`), and it may be written on a line of its own or at either end
+  of an edge, after a bracket or a `:::name` (`A[x]:::c@{ shape: circle }`), and on a node written
+  before, whose text it keeps. A name that is no shape (`foo`, `Rect`, `lean_right`), a block that
+  is not YAML, a space before the `@`, text after the `}`, a second block, a block never closed and
+  a block on a subgraph's id are each refused at the `@` or the text, saying what to write
+  instead; a refused name is offered the fourteen bracket shapes as examples ("Use a shape such
+  as: …"). Another key is ignored with a warning. Each used to be refused as an unrecognized line.
+  A node with a block followed by `& B` and no arrow gets the error a bare `A & B` line gets; a
   block never closed is read to the end of the document, and many blocks written across lines are
-  read, in time linear in the document.
+  read, in time linear in the document. A block runs on across lines only where a node is written
+  — at an edge's end or as a node of its own — and never from an arrow's label, a `|label|`, a
+  quoted string, `accTitle`, a subgraph title, `classDef` or `style`, so `A -- x@{y --> B` draws
+  the edge labelled `x@{y`, as Mermaid does (nook `01M51RE5K5`). After a block written across
+  lines, a statement after its `}` (`}; E --> F`), the nodes and edges it declares and a mistake
+  there (`} ~~> B`, `}:::c`) are placed on their own line and column, and a YAML error inside a
+  block is reported where the YAML reader stopped — save one inside a quoted string that crosses
+  lines, which stays at the `@` — while a message quoting such a statement quotes the block on one
+  line (`A@{ shape: circle } --> B C`) and a fix it suggests shows it as `@{ … }` (nook
+  `01M51S4P5S`).
 - A dotted class namespace name (`namespace N.M { class A }`) is read as Mermaid 12.2.0 reads it
   (nook `01M51B43T8`): the `M` inside N, drawn as the frame N around the frame M, the same picture
   as the nested spelling. An `N` no block opens is created, titled `N` and numbered before `N.M`;
@@ -424,9 +515,14 @@ to recolour notes (see **Fixed**).
   `A%x`, `A%.-B` one node), and `A%>a]` is an asymmetric node `A%`. A `class` statement's targets
   also take a `-` (`class a-b,c hot`), as every other statement naming an id already did. A timeline
   names such a node by its id: in a flowchart, a `%%` glued to an action's target no longer cuts the
-  line, so `enter A%%B fade` names `A%%B`, where it used to name `A`. A `%%` anywhere else in a
-  timeline line (`enter A fade%% note`), and every `%%` in another kind's timeline, still starts a
-  comment.
+  line, so `enter A%%B fade` names `A%%B`, where it used to name `A`, and a target may begin with
+  `%%` (`enter %%B fade` reaches the node `%%B` that `A --> %%B` draws; nook `01M51TJRT0`). A `%%`
+  with a space after it (`enter %% note`), one after the action (`enter %%B fade %% note`), a `%%`
+  after a timeline header (`timeline: %%note`), a `%%` line, and every `%%` in another kind's
+  timeline still start a comment. A note glued after a lone verb (`enter %%todo`) is read as that
+  action's target, so the line is still refused but says what is missing: `enter %%todo` reports
+  its missing effect and `unhighlight %%todo` names an id that is not in the diagram, where both
+  reported `Unrecognized timeline action`; write `%% todo`, with a space, for a comment.
 - A document may open with a Mermaid frontmatter (`---` … `---`), read as Mermaid 12.2.0 reads it,
   each rule measured with the probe: only at the very top, optionally indented, closed by the first
   `---` at the same indent, and parsed as YAML under the JSON schema (with `js-yaml`, now a
@@ -435,7 +531,8 @@ to recolour notes (see **Fixed**).
   `ParseResult.config`, `{}` when there is none, but **not applied yet**: each top-level config key,
   and a `title`, is reported as a warning at the opening fence. A `config` that is not a mapping
   (`config: foo`) is ignored with a warning; Mermaid draws such a document too. A key Mermaid does
-  not know, such as `siren:`, is dropped in silence, as Mermaid drops it. A frontmatter that is not
+  not know is dropped in silence, as Mermaid drops it, save `siren:`, which Mermaid drops too and
+  `render()` returns as `siren` (see above). A frontmatter that is not
   valid YAML, or whose `displayMode` would have to be written into a `config` or `config.gantt`
   that is a scalar (`gantt: true`), refuses the document with an error, as Mermaid refuses it. Line
   and column numbers of every other diagnostic still point at the lines the author wrote
@@ -491,15 +588,17 @@ to recolour notes (see **Fixed**).
   12.2.0 reads them (nook `01M2SVAFT`). They used to be refused.
 - Flowcharts and ER diagrams read the braced `accDescr { ... }` block, as sequence diagrams do, and
   flowcharts read `accTitle : text` and `accDescr : text` with a space before the colon (nook
-  `01M4WS1P6`). ER used to refuse the block by name; a flowchart refused it.
+  `01M4WS1P6`). ER used to refuse the block by name; a flowchart refused it. ER reads the block in
+  any case (`ACCDESCR {`), where a block in capitals used to be read as an entity called `ACCDESCR`,
+  so a body like `string x` drew an extra box with no diagnostic.
 - A class block may open and close on one line — `class A { +int x }`, `class A {}`, with a
   generic, a label or `:::name` — and its `}` may end its last member's line (`+int y }`), as
   Mermaid 12.2.0 reads both (nook `01M4ZWT8XF`). Such a block used to be refused as an unrecognized
   line or member. Text after the `}` on its line, and a member on the line below it, are refused
   as Mermaid refuses them, each error saying what to move.
 - A namespace block may open and close on one line — `namespace N { class A }`, with a class block
-  inside (`namespace N { class A { +x } }`) or nested (`namespace N { namespace M { class A } }`,
-  though an outer namespace holding only namespaces still draws no frame of its own) — and its `}`
+  inside (`namespace N { class A { +x } }`) or nested (`namespace N { namespace M { class A } }`)
+  — and its `}`
   may end its last statement's line (`class B }`), as Mermaid 12.2.0 reads each (nook
   `01M4ZY2DA1`). Such a namespace used to be refused as an unrecognized line. Text after its `}`
   on its line is refused as Mermaid refuses it, the error saying to move it to a line of its own.
@@ -529,10 +628,23 @@ to recolour notes (see **Fixed**).
   `form`, `pos` and `h` on a node that is no icon are ignored with a warning. An icon's SVG is read
   through an allowlist (shapes, groups, gradients, clips and masks, with their geometry and paint)
   and drawn element by element, so a pack's script, event handlers, links, embedded content and
-  references outside the icon are never drawn; its ids are renamed per drawing. A circle form's
-  diameter is computed from the icon's square rather than from the ink its glyph covers. `icon`,
-  `form`, `pos` and `h` used to be refused as not supported yet, and `shape: icon` as a shape not
-  drawn yet. `siren-board` passes a board's `iconPacks` option to `render()`.
+  references outside the icon are never drawn; its ids are renamed per drawing. A paint or
+  reference value in an icon (`fill`, `stroke`, `stop-color`, `color`, `mask`, `clip-path` and the
+  rest, as an attribute or in its `style`) is kept only when it is a `#hex` colour, a keyword
+  (`none`, `currentColor`), a number or length, a local `url(#id)` to an id the icon declares, or
+  one colour function — `rgb`, `rgba`, `hsl`, `hsla`, `hwb`, `lab`, `lch`, `oklab`, `oklch` or
+  `color` — with plain arguments (numbers, percentages, angles, `none`, `/` and a colour space's
+  name); `var(`, `calc(`, `image-set(`, any other function and a function inside another are
+  dropped, so an icon cannot make the browser fetch (nook `01M52VP2B9`). A geometry value is kept
+  only without a function, a transform's own excepted, and a gradient keeps a local `href` to
+  another gradient the icon declares. An alias's `hFlip` and `vFlip` combine with its parent's by
+  exclusive or, and its `rotate` adds, as Iconify merges them. A pack that is not of Iconify
+  JSON's shape (`iconPacks: [null]`, a pack with no `icons`, an icon with no text `body`, a width of
+  0 or that is not a number) is an error diagnostic naming the icon, and a body nested more than
+  256 deep is refused. A circle form's diameter is computed from the icon's square rather than
+  from the ink its glyph covers. `icon`, `form`, `pos`, `h` and `shape: icon` used to be refused as
+  an unrecognized line, as every `@{ … }` block was. `siren-board` passes a board's `iconPacks`
+  option to `render()`.
 - An icon node's keys may be written over several `@{ … }` blocks (nook
   `01M51XACZJ8QSCSGEDZE7M4XDK`), as Mermaid 12.2.0 merges them: each keeps its last value, a `form`
   or `h` written before or after the `icon:` still shapes it, and a node with an `icon:` stays an
@@ -543,13 +655,54 @@ to recolour notes (see **Fixed**).
   size — read off the data's own header for PNG, GIF, JPEG (turned as its Exif orientation says),
   WebP and SVG (sized as the browser sizes one with no `width` or `height`) — or `w` by `h`, keeping
   its proportions with `constraint: on`, at least 120 wide with a label, which goes below it or,
-  with `pos: t`, above. An image node given no label draws none. **Only a data URL is drawn:**
-  Siren never fetches while drawing, so an image at any other URL is an error saying to embed it,
-  where Mermaid loads it. A data URL of another type, data that is not the image its type names,
-  and an image over 4 MB are refused, as are a `constraint` other than `on` or `off`, a `w` or `h`
-  that is no positive number, and an `icon:` beside an `img:`, which Mermaid drops. The image is
-  drawn as an `<image>` whose `href` is the data URL, so an SVG image runs no script and loads
-  nothing. `img`, `w` and `constraint` used to be refused as not supported yet.
+  with `pos: t`, above. An image node given no label draws none. **Only a data URL is drawn:** Siren
+  never fetches while drawing, so an image at any other URL is an error saying to embed it, where
+  Mermaid loads it. A data URL of another type, data that is not the image its type names, an image
+  over 4 MB once decoded, one whose header gives a side over 16384 px, and an SVG 0 px wide or tall
+  are refused, as are a `constraint` other than `on` or `off`, a `w` or `h` that is no positive
+  number, and an `icon:` beside an `img:`, which Mermaid drops. A data URL is read as the browser
+  reads it: base64 data may hold whitespace, which is stripped; `;base64` counts only as the last
+  parameter; data without it is counted as it decodes, a `%XX` one byte, a `%` without two hex
+  digits after it itself and any other character its UTF-8 bytes; and an SVG's invalid length is
+  read as absent and a negative one as 0. The image is drawn as an `<image>` whose `href` is the
+  data URL, so an SVG image runs no script and loads nothing. `img`, `w` and `constraint` used to be
+  refused as an unrecognized line.
+- Sequence diagrams read `links A: {"Docs": "https://…", "Repo": "https://…"}`, as Mermaid 12.2.0
+  does (nook `01M3NM3BZJVSQKEN211SQ2HC6Y`); the line used to be refused. Each entry is a link,
+  merged with the `link A:` lines in document order, a later link of the same label replacing the
+  earlier url in its place. `link A : …` and `links A : …`, with a space before the colon, are read
+  too. A participant with one link keeps its box as the link; one with two or more draws a menu of
+  real links under its box (and over its bottom-row box), opening toward the diagram's interior and
+  shown only on hover or keyboard focus, with no script, its look the default theme's new
+  `.siren-link-menu`, `.siren-link-menu-trigger`, `.siren-link-menu-items` and
+  `.siren-link-menu-item` rules. The lifeline stretches until both menus fit between the boxes, so
+  neither leaves the canvas. A `links` array or string becomes links labelled by index, as Mermaid's
+  loop over it records them, and a value that is not a string is linked to as its text, with a
+  warning; text that is not JSON or names no link adds none, with a warning, and still creates and
+  places the lane.
+- A class diagram reads `class X:::c` and `class X:::c { … }`, applying `c` to X as `cssClass "X" c`
+  does (nook `01M4WT4KYFED54ZXH1A7ZX24YT`); it used to be refused. Mermaid paints such a class only
+  when it is written before its `classDef`; Siren paints it in either order.
+- An ER relationship's ends may carry `:::` and a class list (`A:::x ||--o{ B:::z : y`), as Mermaid
+  12.2.0 reads them (nook `01M39FA7F2T3J8MHFQ1Q2T3847`): each list applies to its entity, and the
+  relationship keeps the id `A:B`. A `:::` may have spaces on either side (`A ::: u`). Each used to
+  be refused as an unrecognized line.
+- An ER attribute's backticked word may continue onto the next line, as Mermaid 12.2.0's lexer reads
+  it (nook `01M39CT0G04FHJWEV7AJME1Y9A`): `` string `a `` then `` b` `` is one attribute, drawn as
+  one row per line (`a` and `b`), trimmed of the source's indentation, with blank lines dropped.
+  Both halves used to be refused. A backtick with no partner anywhere is still refused, now with one
+  diagnostic.
+- An ER `style s1 …` or `class s1 …` written below `subgraph s1 … end` paints that cluster, as
+  Mermaid 12.2.0 paints it: the frame half lands on the frame and an author's `color` on the title
+  (nook `01M3BXN5N45XAAXZ9WJASSZWJT`). It used to be refused by name. Written above the block it
+  paints nothing, as in Mermaid; where blocks share a name, the most recent one closed before the
+  line is painted.
+- An ER relationship end naming a `subgraph` cluster (`B ||--o{ s1 : r`) draws its line to the
+  cluster's frame, with no box for the name, as Mermaid 12.2.0 draws it (nook
+  `01M3BXNYRZ6C27GHAFWM43XHE9`). It used to be refused. Written above the block it is drawn the
+  same, where Mermaid fails to draw the diagram. Only a plain end outside every block, with no
+  `:::`, naming exactly one cluster is read so; any other use of a cluster's name as an entity is
+  still refused by name.
 
 ### Changed
 
@@ -558,11 +711,6 @@ to recolour notes (see **Fixed**).
   choice meets the diamond, rather than the box around either, as Mermaid 12.2.0 draws them. The
   note's own end stays on its box, and the line hops are read again off the moved connector
   (backlog `01M548R9CB`).
-- A flowchart edge into or out of a `cloud` or a `bang` now ends on the arcs the shape is drawn
-  with rather than on its box, so the arrow touches a cloud's bulge or a bang's scallop instead of
-  stopping short of it. Mermaid 12.2.0 meets both at their box; Siren departs from it here so the
-  arrow reaches the figure, as it does a state diagram's end circle. The shapes are drawn exactly
-  as before (backlog `01M548R9CB`).
 - An ER `style` or `classDef` value is now read in the characters Mermaid 12.2.0 reads it in:
   letters, digits, non-ASCII characters, spaces, `-`, `_`, `*`, `#`, `:` and `,`, with a `;` only
   at the end of the line (see the next entry). Any other character — a function's `(`, a
@@ -629,9 +777,10 @@ to recolour notes (see **Fixed**).
   draws a look no look has rather than refusing it, so Siren does not refuse one either (nook
   `01M52VP2KM`). `pnpm parity` now compares with Mermaid's classic look by default; `--look neo`
   compares with Mermaid's own default.
-- An author's style value (`style`, `classDef`, `linkStyle`, a label's `<span style>` and
-  `<font face>`) is read against an allowlist rather than a list of fetching functions (nook
-  `01M52VP2B9`): a value may call only `rgb`, `rgba`, `hsl`, `hsla`, `hwb`, `lab`, `lch`, `oklab`,
+- A class or state diagram's style value (`style`, `classDef`) and a label's `<span style>` and
+  `<font face>` are read against an allowlist rather than a list of fetching functions (nook
+  `01M52VP2B9`); a flowchart or ER style value refuses every function (see below and above). A
+  value may call only `rgb`, `rgba`, `hsl`, `hsla`, `hwb`, `lab`, `lch`, `oklab`,
   `oklch`, `color`, `color-mix`, `calc`, `min`, `max`, `clamp`, `var` and the linear, radial and
   conic gradients with their `repeating-` forms — matched case-insensitively, with their arguments
   read by the same rule — and is otherwise built from hex colours, keywords, numbers with or
@@ -640,26 +789,6 @@ to recolour notes (see **Fixed**).
   keyword or quoted name is written with; so a function a browser adds later cannot fetch before it
   is listed. `;`, `\` and an unclosed `/*` are refused as before, and comments are still read out
   first.
-- An icon's paint (`fill`, `stroke`, `stop-color`, `color` and the rest, as an attribute or in its
-  `style`) keeps a colour written as a colour function — `rgb`, `rgba`, `hsl`, `hsla`, `hwb`,
-  `lab`, `lch`, `oklab`, `oklch` or `color` — where it used to be dropped (nook `01M52VP2B9`).
-  Only one call, and only with plain arguments: numbers, percentages, angles, `none`, `/` and a
-  colour space's name. `var(`, `calc(`, any other function and a function inside another are
-  still dropped, and a `url(…)` is kept only as a local `url(#id)`, as before.
-- A flowchart `bang`, `cloud` and `datastore` pad their text with Siren's own node padding where
-  Mermaid 12.2.0's handlers pad with its 15px (nook `01M521T9NX`), as the curved shapes already do,
-  so each stands to a rectangle as Mermaid's does in its classic look. `pnpm parity` compares with
-  Mermaid in that look (`--look neo` for Mermaid's default).
-- The curved flowchart shapes are sized by each one's own Mermaid 12.2.0 padding rule (nook
-  `01M521T9NX`, measured in headless Chrome at one and three rows), with Siren's node padding in
-  place of Mermaid's: `h-cyl` is padded by half the node padding, `bow-rect`, `flag` and the three
-  curly braces once, `docs` three times in height, `delay` and `curv-trap` clear their round end by
-  the cap's depth at the text's own corners. Each used to take a rectangle's padding, so `h-cyl`,
-  `bow-rect` and the braces drew taller than Mermaid's and `docs` shorter.
-- A browser's bar line, dots and address bar, a console's prompt, and an anchor take none of an
-  author's `style`, as in Mermaid 12.2.0; a `style`, `class` or `:::` naming a small circle
-  (`sm-circ`) or an anchor is refused where it is written, since it would change nothing.
-- A cloud's outline is fitted to its box exactly, however tall its label.
 - **A flowchart styling value holding a CSS function, a bracket, a `|` or a `->` is refused** (nook
   `01M51Z206K`): `style A fill:rgb(255,0,0)` and every other `(`…`)` value (`rgba(`, `hsl(`,
   `var(--x)`), `fill:a[b]`, `fill:a|b` and `fill:a->b` are parse errors in Mermaid 12.2.0, which
@@ -679,12 +808,6 @@ to recolour notes (see **Fixed**).
   member, and says to remove the direction from `A` or to connect `B` to something outside it. It
   is decided before the layout engine is asked, exactly where that engine fails: not once another
   edge has pulled the subgraph above `B` into its own parent's layout.
-- A label written for a flowchart shape that draws no text — in brackets (`A[Ready]@{ shape: fork
-  }`), as the block's `label:`, or on another line for the same node — is refused where it was
-  written (nook `01M51XACB6`): Mermaid 12.2.0 drops it and draws the bare shape.
-- A refused `@{ shape: … }` name now offers the fourteen bracket shapes as examples ("Use a shape
-  such as: …") rather than as the only choices.
-- A flowchart `datastore` is wider by twice Mermaid's 15px node padding, as Mermaid sizes it.
 - **A class diagram's bare `%%` line is read by where it stands** (nook `01M521P5NA`, measured in
   Chrome): a comment line needs a character after its `%%`, so Mermaid 12.2.0 draws a class
   block's `%%` line as the member `%%`, reads one between statements as nothing, and refuses one
@@ -748,9 +871,6 @@ to recolour notes (see **Fixed**).
   edge does — written, or derived as `A-B` or `A-B#2`; and when it holds a character outside a
   node id's alphabet (`e$1`, `é1`). Mermaid 12.2.0 draws the first three other than as written
   and accepts the last; each is refused at the id.
-- **An `@{ … }` block on an edge id written above the edge is refused** (nook `01M51XADJK`):
-  `e1@{ … }` then `A e1@--> B` declares a node `e1` beside the edge, as Mermaid 12.2.0 draws it.
-  It used to be drawn as that node, with only a warning about the block's keys.
 - **A `timeline:` action naming an id more than one drawn thing holds is refused** (nook
   `01M51XADJK`): the node `A-B` and the edge `A --> B` are both stamped `data-siren-id="A-B"`, so
   `enter A-B fade` cannot say which it means. The document is still drawn; give the edge an id of
@@ -884,13 +1004,6 @@ to recolour notes (see **Fixed**).
   was already refused (`A[a]b]`, `A(a)b)`, `A{{a}b}}`, `A{a@{b}}`) now gets the same error instead
   of "Unrecognized flowchart line". Two nodes written side by side (`A[x] B[y]`) are offered no
   quoting fix, since quoting would merge them; they keep the generic error.
-- A flowchart refusal that used to read "Unrecognized flowchart line" now says what Siren does not
-  support yet and what to write instead (nook `01M4ZWT8G2`): a node's `@{ … }` data
-  (`A@{ shape: rect }`, on a line of its own or at either end of an edge) is pointed at its `@` and
-  asked to write the shape with brackets (`A[text]`, `A((text))`, `A{text}`); an edge id
-  (`A e1@--> B`) is pointed at and asked to be left out, with the line rewritten without it (a
-  label's own text, such as `A["p q@-->r"]`, is left as written); and an
-  `@{ … }` on an id an edge was given (`e1@{ animate: true }`) is asked to be left out.
 - A flowchart `style`, `classDef` or `linkStyle` declaration with no `:` (`linkStyle 0 zz`,
   `linkStyle 0 interpolate basis zz`) is still refused, now saying how a declaration is written
   (`property:value`, such as `stroke:#f00`) instead of "Unrecognized style declaration" (nook
@@ -922,7 +1035,7 @@ to recolour notes (see **Fixed**).
   directives are read, wrap ones only while every wrap directive's arguments are valid JSON, so
   remove the directive or rewrite it to be read; an ER class-list number or reserved word says the
   line is refused and asks to rename the class; an `<img>` in a label asks for the image to be
-  described in the label's text (it used to point at `A@{ img: "…" }`, which Siren refuses); a
+  described in the label's text (it used to point at `A@{ img: "…" }`); a
   `linkStyle interpolate` curve Siren does not draw is now "a curve Siren does not draw yet" and
   lists the curves it does, and an unknown curve name drops "as Mermaid does". Code that matches
   diagnostic text exactly must be updated.
@@ -1122,10 +1235,11 @@ to recolour notes (see **Fixed**).
   box, and X still gets no box in the bottom row. The arrow stops at the box's near edge (an actor's
   arm tip), as a creating message's arrow does, whatever the arrowhead. Every row after the
   destroying message, the bottom row and the diagram's height move down by half the box, and a block
-  around the pair grows with it. The SVG no longer has a `path.siren-destroy-mark`; the closing box
-  is a `g.siren-participant` wearing the participant's `data-siren-id`, so a timeline action on the
-  participant still reaches it. `PositionedDestroyMark` and the `destroyMark` element kind are
-  removed from the positioned layout, and the default theme drops their styles.
+  around the pair grows with it. The closing box is a `g.siren-participant` wearing the
+  participant's `data-siren-id`, so a timeline action on the participant still reaches it; the X
+  mark is gone (see **Removed**). The warning for a later message naming X now says the arrow
+  "points into empty space below" X's closing box and to move the message above `destroy X` or
+  remove it, where it said the arrow pointed past the destroy mark.
 - **A class diagram's `direction TD` is refused** (nook `01M51Q7G098SYMMW8BCGM22H2R`), alone, after
   another `direction` or with a `%%` comment, saying to write `direction TB` for top to bottom;
   inside a namespace it gets the namespace's placement error, as `direction LR` there does. Mermaid
@@ -1145,7 +1259,9 @@ to recolour notes (see **Fixed**).
   `class A~List~int~~`, its block form and the same on a relationship's end, which Mermaid 12.2.0
   refuses (a generic ends at its second `~`). Siren used to draw `A<List<int>>`. The error suggests
   writing the inner angle brackets as entity codes, `~List#lt;int#gt;~`, which both draw
-  `A<List<int>>`. A nested generic in a member's type (`+List~List~int~~ x`) is unchanged.
+  `A<List<int>>`. Two generics back to back (`class A~T~~U~`), which Mermaid refuses the same way
+  and Siren used to draw, are refused saying to write them as one generic, such as `~T,U~`. A
+  nested generic in a member's type (`+List~List~int~~ x`) is unchanged.
 - **Entity codes in a class name's generic are decoded** (nook `01M51Q7G6R5TY4NGMMNCMJ9JVJ`), as a
   member line's are: `class A~#lt;~`, `~&lt;~` and `~#60;~` draw `A<<>`, `~&amp;~` `A<&>` and
   `~#quot;~` `A<">`, as Mermaid 12.2.0 draws them, and the box is sized from the decoded name. A
@@ -1171,8 +1287,7 @@ to recolour notes (see **Fixed**).
   `01M51RR6AJKAR05VBT12A2BSB4`): `class A` then `class A~T~`, `A --> C` or `A : +x` then `class
   A~T~`, and `class A` then `A~T~ --> B`. Mermaid 12.2.0 keeps what a class's first naming gave it
   and draws `A`, dropping the `T`; Siren drew `A<T>`. The error says to write the generic where the
-  class is first named. A different generic after a first one is still kept to the first, with a
-  warning.
+  class is first named. A different generic after a first one is refused too (see below).
 - **A `<` opening a tag in a class name's generic is refused** (nook `01M51RR6AJKAR05VBT12A2BSB4`):
   before a letter, `/` or `!` (`class A~List<int>~`, `A~List<int>~ --> B`), where Mermaid 12.2.0 reads
   markup and draws `A<List>`; Siren drew `A<List<int>>`. The error suggests `#lt;`. Any other `<`
@@ -1196,6 +1311,40 @@ to recolour notes (see **Fixed**).
   (`enter %%B fade`) is refused saying that the `%%` starts a comment, so the verb has no target,
   and that an id in that diagram cannot begin with `%%`, where it was called an unrecognized
   action (nook `01M51XAEVWWTPSDYAR8E54F80R`). A flowchart still reads `%%B` as the target.
+- **An ER name is read where Mermaid 12.2.0's lexer ends it** (nook `01M3C621W8PYHMDJ9D0PBBF90Y`):
+  a cardinality word standing where a name belongs (`CUSTOMER one ORDER`, `to`, `only one`,
+  `zero or one`, `to-do`), a parse error in Mermaid, is refused, where Siren drew a box per word
+  with no diagnostic; and a name that begins with a number (`123abc`, `1-2`, `1.5.7`) is split
+  where the number ends, as Mermaid splits it, so `123abc` is the two entities `123` and `abc`,
+  where Siren drew one. This holds at an entity's head, at both ends of a relationship, for a bare
+  label and for a subgraph's name.
+- **An ER class list refuses what Mermaid 12.2.0 cannot read there**, by name (nook
+  `01M3BXNYRZ6C27GHAFWM43XHE9`): a reserved word, a cardinality or body word, `erDiagram` or a
+  member that begins with a digit, in `class A …`, after `:::` or on either end of a relationship
+  (`class A end`, `A:::one`, `class A 1x`), is refused with `Reserved word "end" cannot stand in a
+  class list in erDiagram: …` or `Number "1" cannot stand in a class list in erDiagram: …`, saying
+  to rename the class. Siren used to read each as a class name. `style` targets and `classDef` names
+  are left alone, as Mermaid accepts the words there. `style A:B`, which names a relationship, is
+  refused saying that relationships cannot be styled, where it was refused as an unrecognized line.
+- **A class `:::` is refused where Mermaid 12.2.0 cannot parse it** (nook
+  `01M4WT4KYFED54ZXH1A7ZX24YT`): on a class in a relationship (`X:::c --> Y`, `Y --> X:::c`) or
+  before an inline member (`X:::c : m`), which Siren used to draw as a member or a relationship
+  label. `class X:::c` is read (see **Added**).
+- A class named by more than one namespace is still an error, now reading `Class "X" is named by
+  more than one namespace ("N" and "M"), and a class can sit in only one; keeping it in "N". Name it
+  in only one of the namespaces.`, where it ended `keeping the first.`
+- Flowchart nodes have twice their original positive text padding, without scaling text or
+  changing wrapping; subgraphs use 24px padding, including nested frames and title bands. Other
+  diagram kinds retain their existing geometry (nook `01M4XKQXA`).
+- `siren-core` now depends on `js-yaml` 4.3.0 (MIT), which reads frontmatter; its licence is in
+  `dist/THIRD-PARTY-NOTICES.md` beside elkjs's. The standalone `dist/siren-core.js` is now about
+  604 KB gzipped (0.6.0: about 545 KB).
+
+### Removed
+
+- A destroyed sequence participant's X mark (nook decision `01M4ZXTTY3`; see **Changed**): the
+  SVG's `path.siren-destroy-mark`, the positioned layout's `PositionedDestroyMark` and its
+  `destroyMark` element kind, and the default theme's styles for them.
 
 ### Fixed
 
@@ -1232,20 +1381,6 @@ to recolour notes (see **Fixed**).
   meanwhile, stays. `glow` now recolors a state's, a composite's and an ER entity's border
   too, as it already did every other kind's. Measured in headless Chrome
   (`scripts/highlight-author-stroke.mjs`).
-- **An icon pack could make a browser fetch at render time.** An icon's body kept any `mask`,
-  `clip-path` or paint value `url(` was not in, so `mask: image-set('https://…' 1x)` (in `style` or
-  as the attribute) and `-webkit-image-set(…)` made Chrome request the image. A paint or reference
-  value in an icon is now kept only when it is a `#hex` colour, a keyword (`none`, `currentColor`),
-  a number or length, or a local `url(#id)` to an id the icon declares; a geometry value only
-  without a function, a transform's own excepted. An author's style value (`style`, `classDef`,
-  a label's `<span style>`) now refuses `image-set(`, `cross-fade(`, `image(`, `element(` and
-  `src(` as it refused `url(`, with or without a vendor prefix and with comments read out first.
-- An icon pack that is not of Iconify JSON's shape (`iconPacks: [null]`, a pack with no `icons`, an
-  icon with no text `body`, a width of 0 or that is not a number) is an error diagnostic naming the
-  icon, where it used to throw or draw nothing; a body nested more than 256 deep is refused rather
-  than overflowing the stack. An icon gradient keeps a local `href` to another gradient it declares.
-  An alias's `hFlip` and `vFlip` combine with its parent's by exclusive or, and its `rotate` adds,
-  as Iconify merges them, so an alias that flips a flipped icon back is drawn.
 - A flowchart `|label|` opening with a quoted run keeps what follows it, as Mermaid 12.2.0 joins
   them (nook `01M51Z206K`): `A -->|"a" b| B` is drawn `a b` and `A -->|"a"b| B` `ab`; they used to
   be drawn with their quotes.
@@ -1258,38 +1393,10 @@ to recolour notes (see **Fixed**).
   laid out in its ends' common ancestor's pass, as Mermaid 12.2.0 lays it out, so the edge is routed
   and `F` and `G` are drawn side by side. A sweep over nested subgraphs, directions and edges
   across levels finds no other throw; an edge from a subgraph to its own member inside one that
-  keeps a direction, which Mermaid 12.2.0 cannot draw either, is still refused with the layout
-  engine's error.
+  keeps a direction, which Mermaid 12.2.0 cannot draw either, is refused (see **Changed**).
 - A flowchart `accTitle:` or `accDescr:` holding an arrow (`accTitle: a --> b`) keeps the whole line
   as the title or description, as Mermaid 12.2.0 does (nook `01M51XADTQ`). It used to be cut at the
   arrow and refused as an unrecognized line.
-- Positions after a flowchart node's `@{ … }` block written across lines are where the author
-  wrote them (nook `01M51S4P5S`): a statement after the block's `}` (`}; E --> F`), the nodes and
-  edges it declares, and a mistake after the `}` (`} ~~> B`, `}:::c`, `} --> end-x`) are placed
-  on their own line and column, where they were all counted from the line the block opened on. A
-  YAML error inside a block is reported where the YAML reader stopped rather than at the `@` —
-  save one inside a quoted string that crosses lines, which stays at the `@`, since that string is
-  read with its line breaks as `<br/>` — and a message that quotes such a statement quotes the
-  block on one line (`A@{ shape: circle } --> B C`), while a fix it suggests shows a block written
-  across lines as `@{ … }` rather than flattening its YAML.
-- A flowchart timeline can name a node or an edge whose id begins with `%%` (nook `01M51TJRT0`):
-  `A --> %%B` draws a node `%%B`, and `enter %%B fade` now reaches it, where the line was cut at its
-  `%%` and refused as `Unrecognized timeline action: "enter"`. Only a `%%` glued to the start of the
-  target's text is the id's; a `%%` with a space after it (`enter %% note`), one after the action
-  (`enter %%B fade %% note`), and a `%%` line stay comments. Other kinds' ids hold no `%`, so their
-  timelines still cut every such `%%`.
-- In a flowchart timeline, a note glued after a lone verb (`enter %%todo`) is now read as that
-  action's target, not as a comment (nook `01M51TJRT0`). The line is still refused, with a
-  different message: `enter %%todo` reports its missing effect where it reported
-  `Unrecognized timeline action: "enter"`, and `unhighlight %%todo` names an id that is not in the
-  diagram. Write `%% todo`, with a space, for a comment. A `%%` after a timeline header
-  (`timeline: %%note`, glued or tabbed) is a comment, as before.
-- An `@{` that a flowchart statement holds as text no longer opens a node data block that runs on
-  into the lines below (nook `01M51RE5K5`): `A -- x@{y --> B` followed by `C` draws A, B and C, the
-  edge labelled `x@{y`, as Mermaid 12.2.0 does, where it was refused with the next line folded into
-  it. A block runs on across lines only where a node is written — at an edge's end or as a node of
-  its own — and never from an arrow's label, a `|label|`, a quoted string, `accTitle`, a subgraph
-  title, `classDef` or `style`.
 - A flowchart subgraph whose quoted title is one word (`subgraph "t"`) now takes that word as its
   handle, as Mermaid 12.2.0 records it (id `t`, measured), so an edge naming it (`t --> B`) joins
   the frame, where Siren used to draw a stray node `t` beside it. A quoted title holding whitespace
@@ -1301,9 +1408,6 @@ to recolour notes (see **Fixed**).
   removed whole before comments are, and blanked in place with spaces, so the line and column of
   every other diagnostic still point at what the author wrote — on the directive's own line too
   (`  %%{wrap}%%  classDiagrm` reports column 15, not 5) (nook `01M4XSF9J`).
-- Flowchart nodes have twice their original positive text padding, without scaling text or changing
-  wrapping; subgraphs use 24px padding, including nested frames and title bands. Other diagram kinds
-  retain their existing geometry (nook `01M4XKQXA`).
 - Flowchart lines paint below subgraph frames and titles, edge labels and nodes, so a crossing
   line cannot paint over their text (nook `01M4XJ8Y0`). Routes, styling and timeline targets stay
   the same; transparent fills can still reveal the lines beneath them.
@@ -1325,9 +1429,21 @@ to recolour notes (see **Fixed**).
   references a target that does not exist` when only a message created B; now the link is a
   mention like any other, creating the lane where it is written, as Mermaid 12.2.0 does
   (nook `01M3NNNE6`).
-- An ER `ACCDESCR {` block in capitals is refused by name, as the lower-case block is. It used to be
-  read as an entity called `ACCDESCR`, so a body like `string x` drew an extra box with no
-  diagnostic.
+- A second sequence `link A:` line on one participant no longer drops the first: both are kept,
+  in document order, as Mermaid 12.2.0 keeps them (nook `01M3NM3BZJVSQKEN211SQ2HC6Y`), and two or
+  more are drawn as a menu (see **Added**).
+
+### Security
+
+- **An author's style value could make a browser fetch at render time.** A `style`, `classDef` or
+  `linkStyle` value, or a label's `<span style>`, was refused for `url(` and `expression(` but kept
+  `image-set(`, `-webkit-image-set(`, `cross-fade(`, `image(`, `element(` and `src(`, which can
+  make a browser request an image. Each is now refused, with or without a vendor prefix and with
+  comments read out first: a flowchart or ER value refuses every function, and a class or state
+  value or a label's style may call only the colour, math and gradient functions of an allowlist,
+  so a function a browser adds later cannot fetch before it is listed (see **Changed**). An icon
+  from a registered pack is held to a rule of its own that keeps no fetching value (see
+  **Added**).
 
 ## [0.6.0] - 2026-10-14
 

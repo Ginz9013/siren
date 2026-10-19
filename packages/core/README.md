@@ -145,16 +145,17 @@ if (svg === null) {
 
 The package also ships `dist/siren-core.js`, a single ES module that includes every
 dependency — including the [elkjs](https://github.com/kieler/elkjs) layout engine, which is
-licensed EPL-2.0, not MIT; its licence and notices ship beside the bundle
-as `dist/THIRD-PARTY-NOTICES.md`. You can load it directly from a CDN:
+licensed EPL-2.0, not MIT, and the [js-yaml](https://github.com/nodeca/js-yaml) frontmatter
+parser (MIT); their licences and notices ship beside the bundle as `dist/THIRD-PARTY-NOTICES.md`.
+You can load it directly from a CDN:
 
 ```html
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/siren-core@0.6/dist/theme.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/siren-core@0.7/dist/theme.css" />
 
 <div id="diagram"></div>
 
 <script type="module">
-  import { render } from "https://cdn.jsdelivr.net/npm/siren-core@0.6/dist/siren-core.js";
+  import { render } from "https://cdn.jsdelivr.net/npm/siren-core@0.7/dist/siren-core.js";
 
   const { controller } = render(
     "flowchart LR\n  A --> B\n\ntimeline:\n  enter B fade",
@@ -570,14 +571,15 @@ layout.
   that, a 40-node flowchart takes about 20ms.
 - **Bundle size.** elkjs is a dependency, and the npm entry (`dist/index.js`) leaves it external
   so your bundler can dedupe it. Its compiled engine is about 1.6 MB minified (about 465 KB
-  gzipped). The standalone `dist/siren-core.js` includes it: about 2.1 MB minified, about 545 KB
+  gzipped). The standalone `dist/siren-core.js` includes it: about 2.3 MB minified, about 604 KB
   gzipped.
 - **Licence of the standalone build.** elkjs 0.9.3 is licensed EPL-2.0, not MIT.
   `dist/siren-core.js` distributes it under the Eclipse Public License 2.0, so
-  `dist/THIRD-PARTY-NOTICES.md` ships beside the bundle with elkjs's licence text, and the
-  bundle's first line points to that file. If you serve or redistribute `dist/siren-core.js`,
-  keep the notice file with it. The npm entry bundles no third-party code; elkjs's licence
-  travels in its own package.
+  `dist/THIRD-PARTY-NOTICES.md` ships beside the bundle with elkjs's licence text, and with the
+  MIT licence of js-yaml 4.3.0, which the bundle also includes; the bundle's first line points to
+  that file. If you serve or redistribute `dist/siren-core.js`, keep the notice file with it. The
+  npm entry bundles no third-party code; elkjs's and js-yaml's licences travel in their own
+  packages.
 
 ## Environment
 
@@ -598,6 +600,6 @@ layout.
 ## License
 
 [MIT](https://github.com/Ginz9013/siren/blob/main/LICENSE). siren-core depends on
-[elkjs](https://github.com/kieler/elkjs) (EPL-2.0); the standalone
-`dist/siren-core.js` bundles it, and `dist/THIRD-PARTY-NOTICES.md` carries its licence (see
-[Layout engine](#layout-engine)).
+[elkjs](https://github.com/kieler/elkjs) (EPL-2.0) and [js-yaml](https://github.com/nodeca/js-yaml)
+(MIT); the standalone `dist/siren-core.js` bundles both, and `dist/THIRD-PARTY-NOTICES.md` carries
+their licences (see [Layout engine](#layout-engine)).
