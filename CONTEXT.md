@@ -1377,7 +1377,10 @@ which is how a host that colours targets itself, by redeclaring tokens on a targ
 declarations away and never adds one, so it is not the JS theme object ADR-0004 and ADR-0008
 rule out. It changes the drawing and nothing else: the document is validated as before, and its
 **style facts** still state what the author wrote. An edge whose `stroke` is omitted takes the
-theme's arrowhead, since no colour is left to mint one in. A name no declaration uses omits
+theme's arrowhead, since no colour is left to mint one in. A colour written in a label's own
+markup (`<span style="color:…">`, `<font color>`, `background-color`) is not an **author style**:
+it is drawn as written, no omission ever removes it, and it carries no **style fact**, so a host
+cannot take it back to the tokens. A name no declaration uses omits
 nothing and is not an error. Applied in `render()` alone, to the model once its facts are taken
 and before layout, so no renderer knows a property can be omitted.
 _Avoid_: hidden style, suppressed style, theme override (it overrides nothing; it removes)

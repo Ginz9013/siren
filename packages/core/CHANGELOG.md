@@ -225,8 +225,11 @@ can carry one.
   spells them. `render(source, container, { omitAuthorStyles: ["fill", "stroke", "color"] })`
   draws every flowchart node, edge and subgraph, class, state, ER entity and ER subgraph without
   the author's colours, so each takes the theme's design tokens again; properties not listed
-  (`stroke-width`, `stroke-dasharray`, …) are drawn as written. `color` leaves out a label's
-  colour, and an edge whose `stroke` is left out takes the theme's arrowhead. The option only
+  (`stroke-width`, `stroke-dasharray`, …) are drawn as written. `color` leaves out the colour an
+  author style gives a label, and an edge whose `stroke` is left out takes the theme's arrowhead.
+  Colours written in a label's own markup (`<span style="color:…">`, `<font color>`,
+  `background-color`) are not author styles: they are drawn as written, the option never removes
+  them, and they carry no style fact. The option only
   takes declarations away and never adds one. `diagnostics` and `styles` are the same with or
   without it, a name no declaration uses is not an error, and `[]` is the same as leaving it out.
 - A flowchart node's `@{ shape: … }` block draws the shapes Mermaid 12.2.0 draws at a fixed size

@@ -9493,12 +9493,86 @@ describe("render(…, { omitAuthorStyles }) — the author's properties a caller
     expect(result.diagnostics).toEqual([]);
     const entity = result.svg!.querySelector('g.siren-er-entity[data-siren-id="A"]')!;
     expect(entity.querySelector("rect.siren-er-entity-frame")!.getAttribute("style")).toBe("stroke-width:3px");
-    expect(Array.from(entity.querySelectorAll("text"), (text) => text.getAttribute("style"))).not.toContain(
-      "fill:#fff",
-    );
+    // The name and the attribute cells' type and name: `color` was the only
+    // text declaration, so none of the three keeps a style at all.
+    expect(Array.from(entity.querySelectorAll("text"), (text) => text.getAttribute("style"))).toEqual([
+      null,
+      null,
+      null,
+    ]);
     const block = result.svg!.querySelector('g.siren-er-subgraph[data-siren-id="subgraph:1"]')!;
     expect(block.querySelector("rect.siren-er-subgraph-frame")!.getAttribute("style")).toBe("stroke-width:3px");
     expect(block.querySelector(".siren-er-subgraph-label")!.getAttribute("style")).toBeNull();
+  });
+
+  it("omits from `linkStyle default` what it omits from `linkStyle N`, arrowhead included", () => {
+    const result = render(
+      "flowchart TB\nA -->|go| B\nB --> C\nlinkStyle default stroke:#f00,stroke-width:4px,color:#0f0\n",
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+    expect(
+      Array.from(svg.querySelectorAll("path.siren-edge"), (path) => [
+        path.getAttribute("data-siren-id"),
+        path.getAttribute("style"),
+      ]),
+    ).toEqual([
+      ["A-B", "stroke-width:4px"],
+      ["B-C", "stroke-width:4px"],
+    ]);
+    expect(svg.querySelector(".siren-edge-label")!.getAttribute("style")).toBeNull();
+    expect(svg.querySelectorAll("defs > marker")).toHaveLength(1);
+    expect(svg.querySelector("defs > marker path")!.getAttribute("style")).toBeNull();
+  });
+
+  it("omits from a class applied to an edge what it omits from `linkStyle`, arrowhead included", () => {
+    const result = render(
+      "flowchart TB\nA e1@-->|go| B\nclassDef hot stroke:#f00,stroke-width:4px,color:#0f0\nclass e1 hot\n",
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+    expect(svg.querySelector('path.siren-edge[data-siren-id="e1"]')!.getAttribute("style")).toBe("stroke-width:4px");
+    expect(svg.querySelector(".siren-edge-label")!.getAttribute("style")).toBeNull();
+    expect(svg.querySelectorAll("defs > marker")).toHaveLength(1);
+    expect(svg.querySelector("defs > marker path")!.getAttribute("style")).toBeNull();
+  });
+
+  it("leaves a composite state's, a choice's and a fork's omitted properties off the figure each is drawn as", () => {
+    const result = render(
+      [
+        "stateDiagram-v2",
+        "state Outer {",
+        "Inner",
+        "}",
+        "state pick <<choice>>",
+        "state split <<fork>>",
+        "Outer --> pick",
+        "pick --> split",
+        "classDef hot fill:#111,stroke:#c00,stroke-width:3px,color:#fff",
+        "class Outer,pick,split hot",
+        "",
+      ].join("\n"),
+      document.createElement("div"),
+      { omitAuthorStyles: SITE_STYLE },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const svg = result.svg!;
+    const outer = svg.querySelector('g.siren-state[data-siren-id="Outer"]')!;
+    expect(outer.querySelector("rect.siren-composite-frame")!.getAttribute("style")).toBe("stroke-width:3px");
+    expect(outer.querySelector(".siren-composite-label")!.getAttribute("style")).toBeNull();
+    expect(svg.querySelector('[data-siren-id="pick"] polygon.siren-state-frame')!.getAttribute("style")).toBe(
+      "stroke-width:3px",
+    );
+    expect(svg.querySelector('[data-siren-id="split"] rect.siren-state-bar')!.getAttribute("style")).toBe(
+      "stroke-width:3px",
+    );
   });
 
   it.each([

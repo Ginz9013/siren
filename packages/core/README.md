@@ -325,13 +325,13 @@ through diagnostics and does not throw for them.
 
 ### `RenderOptions`
 
-| Option        | Type                                   | Description                                                                   |
-| ------------- | -------------------------------------- | ----------------------------------------------------------------------------- |
-| `measureText` | `TextMeasurer`                         | Measures label text to size boxes. See below.                                  |
-| `onClick`     | `(target: InteractionTarget) => void`  | Called when a reader clicks an element made clickable with `call`.             |
-| `timeline`    | `boolean \| string`                    | Which timeline to apply. A document may declare several, and by default only the first applies. See below. |
-| `iconPacks`   | `IconifyJSON[]`                        | Icon packs a flowchart's icon nodes (`A@{ icon: "fa:user" }`) are drawn from. See below. |
-| `omitAuthorStyles` | `string[]`                        | Author style properties not to draw, such as `["fill", "stroke", "color"]`. See below. |
+| Option             | Type                                   | Description                                                                   |
+| ------------------ | -------------------------------------- | ----------------------------------------------------------------------------- |
+| `measureText`      | `TextMeasurer`                         | Measures label text to size boxes. See below.                                 |
+| `onClick`          | `(target: InteractionTarget) => void`  | Called when a reader clicks an element made clickable with `call`.            |
+| `timeline`         | `boolean \| string`                    | Which timeline to apply. A document may declare several, and by default only the first applies. See below. |
+| `iconPacks`        | `IconifyJSON[]`                        | Icon packs a flowchart's icon nodes (`A@{ icon: "fa:user" }`) are drawn from. See below. |
+| `omitAuthorStyles` | `string[]`                             | Author style properties not to draw, such as `["fill", "stroke", "color"]`. See below. |
 
 #### Registering icon packs
 
@@ -390,8 +390,11 @@ element, keep the author's colors from covering its own:
 render(source, container, { omitAuthorStyles: ["fill", "stroke", "color"] });
 ```
 
-`color` leaves out a label's color and `fill` only the frame's. An edge whose `stroke` is left out
-gets the theme's arrowhead. Properties not listed, such as `stroke-width`, are drawn as written.
+`color` leaves out the color an author style gives a label, and `fill` only the frame's.
+Colors written in a label's own markup (`<span style="color:…">`, `<font color>`,
+`background-color`) are not author styles: they are drawn as written, the option never removes
+them, and they have no entry in `styles`. An edge whose `stroke` is left out gets the theme's
+arrowhead. Properties not listed, such as `stroke-width`, are drawn as written.
 The option only takes declarations away; it cannot add one. `diagnostics` and `styles` are the
 same with or without it. A name no declaration uses is not an error, and `[]` is the same as
 leaving the option out.
