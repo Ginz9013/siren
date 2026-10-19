@@ -200,7 +200,9 @@ can carry one.
   fills its frame and colors its title, `class s1 hot` and `s1:::hot` apply `hot` the same way, a
   `style` beats a class, and `classDef default` still reaches nodes only. These used to be dropped
   with no diagnostic, and a `s1:::hot` line also drew a stray box named `s1`, which Mermaid does
-  not. The subgraph keeps its generated `data-siren-id`.
+  not. The subgraph keeps its generated `data-siren-id`. Where a name is both a node and a
+  subgraph (`A[Alpha]` beside `subgraph A`), a `style`, `class` or `:::` on it used to paint the
+  node's box and now paints the subgraph, as Mermaid does; the node's box loses that paint.
 - A design token, `--siren-subgraph-fill`, for a subgraph frame's fill. It defaults to `none`, so
   frames are drawn exactly as before.
 - A flowchart node's `@{ shape: … }` block draws the shapes Mermaid 12.2.0 draws at a fixed size
