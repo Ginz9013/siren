@@ -78,6 +78,11 @@
      label paint above, but a second theme has to redeclare it: on a dark
      canvas a white background is the one thing on the page. */
   --siren-edge-label-fill: rgb(255 255 255 / 0.8);
+  /* What a subgraph's frame is filled with: nothing, so the default picture
+     is the outlined frame (see `.siren-subgraph-frame`). A token rather than
+     a bare `none` so a theme can tint one block by redeclaring it on that
+     subgraph's `data-siren-id` group, or every block at once here. */
+  --siren-subgraph-fill: none;
 
   /* Typography tokens */
   --siren-font-family: system-ui, sans-serif;
@@ -239,7 +244,8 @@
  * Outlined and not filled: the frame encloses node boxes that are drawn
  * *over* it, so a fill here would sit behind the whole group and tint nothing
  * usefully while still hiding whatever the frame overlaps — and a nested
- * frame would tint its parent's fill a second time. It tracks the node stroke
+ * frame would tint its parent's fill a second time. The fill is still a token,
+ * `--siren-subgraph-fill`, so a theme that wants a tint can have one. It tracks the node stroke
  * because it is a container of boxes, not a connector.
  *
  * No `font-size` on the title: `layoutGraph` measures it in
@@ -248,7 +254,7 @@
  * the strip built to hold it.
  */
 .siren-subgraph-frame {
-  fill: none;
+  fill: var(--siren-subgraph-fill);
   stroke: var(--siren-node-stroke);
   stroke-width: var(--siren-stroke-width);
   rx: var(--siren-node-border-radius);

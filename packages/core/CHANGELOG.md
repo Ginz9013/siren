@@ -195,6 +195,14 @@ can carry one.
 
 ### Added
 
+- A flowchart `style`, `class` or `:::` naming a subgraph's handle paints that subgraph, as
+  Mermaid 12.2.0 draws it (measured): `style s1 fill:#f96,color:#f00` after `subgraph s1 [Box]`
+  fills its frame and colors its title, `class s1 hot` and `s1:::hot` apply `hot` the same way, a
+  `style` beats a class, and `classDef default` still reaches nodes only. These used to be dropped
+  with no diagnostic, and a `s1:::hot` line also drew a stray box named `s1`, which Mermaid does
+  not. The subgraph keeps its generated `data-siren-id`.
+- A design token, `--siren-subgraph-fill`, for a subgraph frame's fill. It defaults to `none`, so
+  frames are drawn exactly as before.
 - A flowchart node's `@{ shape: … }` block draws the shapes Mermaid 12.2.0 draws at a fixed size
   and with no text (nook `01M51XACB6`, measured in headless Chrome): `fork` (`join`; a 70x10 bar,
   upright in a left-to-right or right-to-left flow or subgraph), `hourglass` (`collate`), `bolt`

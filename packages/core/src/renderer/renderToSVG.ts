@@ -492,10 +492,16 @@ function buildSubgraph(subgraph: PositionedSubgraph): SVGGElement {
   frame.setAttribute("y", String(subgraph.y));
   frame.setAttribute("width", String(subgraph.width));
   frame.setAttribute("height", String(subgraph.height));
+  // The author's `style`/`class` on the block's handle, split by
+  // `resolveStyles` as a node's is: the frame takes all but `color`.
+  applyInlineStyle(frame, subgraph.style?.frame ?? []);
   g.appendChild(frame);
 
   // Over the frame and under the title, since document order is paint order.
-  appendLabel(g, drawPlaced(subgraph.label, "siren-subgraph-label"));
+  // The title takes the `color` half, translated to the `fill` text paints with.
+  const title = drawPlaced(subgraph.label, "siren-subgraph-label");
+  applyInlineStyle(title.text, subgraph.style?.text ?? []);
+  appendLabel(g, title);
 
   return g;
 }

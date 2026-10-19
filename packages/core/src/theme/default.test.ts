@@ -952,6 +952,19 @@ linkStyle 0 stroke:#f00
     expect(getComputedStyle(dotted).stroke).toBe("rgb(255, 0, 0)");
     expect(getComputedStyle(dotted).strokeDasharray).toContain("--siren-edge-dash");
   });
+
+  it("fills a subgraph's frame through `--siren-subgraph-fill`, unfilled by default, and lets an author's fill win", () => {
+    // A token at the point of use, so a theme redeclaring it on one
+    // subgraph's `data-siren-id` group repaints that frame alone; `none`, so
+    // the default picture is the outlined frame it has always been.
+    expect(themeRules).toMatch(/:root\s*\{[^}]*--siren-subgraph-fill:\s*none;/);
+    const svg = renderThemedSVG("flowchart TB\nsubgraph s1 [Box]\nA\nend\n");
+    const frame = svg.querySelector("g.siren-subgraph rect.siren-subgraph-frame")!;
+    expect(getComputedStyle(frame).fill).toBe("var(--siren-subgraph-fill)");
+
+    frame.setAttribute("style", "fill: rgb(255, 153, 102)");
+    expect(getComputedStyle(frame).fill).toBe("rgb(255, 153, 102)");
+  });
 });
 
 describe("default theme coverage of the class renderer", () => {
@@ -1818,7 +1831,9 @@ describe("default theme's paint for a node's shape-table frames", () => {
     const { frame } = frameOf('flowchart TB\n  A@{ shape: composite, label: "Group" }', "A");
     expect(getComputedStyle(frame).fill).toBe("none");
     expect(getComputedStyle(frame).stroke).toBe("var(--siren-node-stroke)");
-    expect(themeRules).toMatch(/\.siren-subgraph-frame\s*\{[^}]*fill:\s*none/);
+    // A subgraph's frame is unfilled through its token, which defaults to `none`.
+    expect(themeRules).toMatch(/\.siren-subgraph-frame\s*\{[^}]*fill:\s*var\(--siren-subgraph-fill\)/);
+    expect(themeRules).toMatch(/--siren-subgraph-fill:\s*none;/);
   });
 
   it("paints a note node as the class and state diagrams paint a note", () => {

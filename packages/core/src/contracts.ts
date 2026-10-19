@@ -1513,6 +1513,13 @@ export interface ResolvedSubgraph {
    * document's own direction.
    */
   direction: Direction | null;
+  /**
+   * Author declarations for this block's frame and title, from a `style`,
+   * `class` or `:::` that names the handle it was opened with — split as a
+   * node's are, `color` onto the title and the rest onto the frame. Absent
+   * when nothing styled it, so a model built without one still type-checks.
+   */
+  style?: AuthorStyle;
 }
 
 /** An edge after graph-model resolution, carrying its assigned id. */
@@ -1823,6 +1830,8 @@ export interface PositionedSubgraph {
   y: number;
   width: number;
   height: number;
+  /** Carried through unchanged from `ResolvedSubgraph.style`. */
+  style?: AuthorStyle;
 }
 
 /**

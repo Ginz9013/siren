@@ -964,6 +964,24 @@ function nodeStyle(result: SirenRenderResult, id: string): string {
 }
 
 /**
+ * The inline author style on one subgraph's frame and on its title, as
+ * `frame | title`, the subgraph found by the title drawn on it — `nodeStyle`
+ * for the flowchart's grouping construct, whose `data-siren-id` is generated
+ * and so no handle an author could have written.
+ */
+function subgraphStyle(result: SirenRenderResult, title: string): string {
+  const group = elements(result, "g.siren-subgraph").find(
+    (g) => g.querySelector("text.siren-subgraph-label")?.textContent === title,
+  );
+  if (group === undefined) {
+    throw new Error(`no subgraph titled "${title}" was drawn`);
+  }
+  const frame = group.querySelector("rect.siren-subgraph-frame")?.getAttribute("style") ?? "";
+  const label = group.querySelector("text.siren-subgraph-label")?.getAttribute("style") ?? "";
+  return `${frame} | ${label}`;
+}
+
+/**
  * The inline author style on one state's drawn rectangle — its own box, or a
  * composite's frame — or `""` when the author styled it with nothing.
  *
@@ -4325,6 +4343,91 @@ line2\`"]`,
       "diagnostic (01M39F9N1; ADR-0008's 2026-10-14 amendment).",
     assert: (result) => {
       expectSame("A's frame", nodeStyle(result, "A"), "fill:#0ff;stroke:#00f");
+    },
+  },
+  {
+    id: "fc-style-subgraph-style",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph s1 [Box]
+        A
+      end
+      B
+      style s1 fill:#f96,stroke:#333,color:#f00,stroke-width:4px`,
+    status: "supported",
+    meaning:
+      "`style` naming a subgraph's handle paints the block. Measured on " +
+      "12.2.0 (`probe --markup --paint`): the parser records the declarations " +
+      "on a vertex `s1` but draws no node for it; the cluster's `<rect>` takes " +
+      "`fill:#f96 !important;stroke:#333 !important;stroke-width:4px`, and " +
+      "`color` paints the title (`<span style=\"color:#f00 !important\">` " +
+      "under `htmlLabels: true`; nothing reaches the title's `<text>` under " +
+      "`htmlLabels: false`). A `style` above the `subgraph` line reaches it " +
+      "too. Siren used to drop the statement with no diagnostic.",
+    assert: (result) => {
+      expectSame("Box's frame | title", subgraphStyle(result, "Box"), "fill:#f96;stroke:#333;stroke-width:4px | fill:#f00");
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]"]);
+      expectSame("no diagnostic", result.diagnostics, []);
+    },
+  },
+  {
+    id: "fc-style-subgraph-class",
+    kind: "flowchart",
+    source: `flowchart TB
+      subgraph Box
+        A
+      end
+      subgraph Other
+        B
+      end
+      classDef default fill:#abc
+      classDef hot stroke:#0f0,fill:#00f,color:#00f
+      style Box fill:#f96
+      class Box,Other hot`,
+    status: "supported",
+    meaning:
+      "`class` naming a subgraph's handle applies the class to the block, " +
+      "under any `style` as on a node. Measured on 12.2.0 (`--markup`): " +
+      "`Box`'s cluster `<g class=\"cluster hot\">` draws " +
+      "`<rect style=\"stroke:#0f0 !important;fill:#f96 !important\">`, " +
+      "`Other`'s `fill:#00f`, and each title `color:#00f !important`. " +
+      "`classDef default` reaches the nodes and not the clusters. Siren used " +
+      "to drop the statement with no diagnostic.",
+    assert: (result) => {
+      expectSame("Box's frame | title", subgraphStyle(result, "Box"), "stroke:#0f0;fill:#f96 | fill:#00f");
+      expectSame("Other's frame | title", subgraphStyle(result, "Other"), "stroke:#0f0;fill:#00f | fill:#00f");
+      expectSame("A wears default", nodeStyle(result, "A"), "fill:#abc");
+    },
+  },
+  {
+    id: "fc-style-subgraph-shorthand",
+    kind: "flowchart",
+    source: `flowchart TB
+      s1:::hot
+      subgraph s1 [Box]
+        A
+      end
+      subgraph s2 [Other]
+        B
+      end
+      C --> s2:::hot
+      classDef hot fill:#0f0,color:#00f`,
+    status: "supported",
+    meaning:
+      "The `:::` shorthand naming a subgraph's handle, on a line of its own " +
+      "or at an edge's end, applies the class to the block. Measured on " +
+      "12.2.0 (`--markup`): each cluster draws `<rect style=\"fill:#0f0 " +
+      "!important\">` and its title `color:#00f !important`, and no node box " +
+      "is drawn for `s1` or `s2` — the cluster stands in for the vertex the " +
+      "shorthand recorded. `:::` on the `subgraph` line itself " +
+      "(`subgraph s1 [Box]:::hot`) is a parse error in Mermaid, and Siren " +
+      "already refuses it. Siren used to drop the class and draw a stray box " +
+      "named `s1`.",
+    assert: (result) => {
+      expectSame("Box's frame | title", subgraphStyle(result, "Box"), "fill:#0f0 | fill:#00f");
+      expectSame("Other's frame | title", subgraphStyle(result, "Other"), "fill:#0f0 | fill:#00f");
+      expectSame("nodes", nodes(result), ["A[A]", "B[B]", "C[C]"]);
+      expectSame("edges", edges(result), ["C-s2"]);
     },
   },
   {

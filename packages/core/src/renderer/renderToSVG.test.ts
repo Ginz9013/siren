@@ -1540,6 +1540,99 @@ describe("renderToSVG — a subgraph", () => {
   });
 });
 
+/**
+ * An author style naming a subgraph by the handle its block was opened with
+ * — `style s1 …`, `class s1 hot`, `s1:::hot` — lands on that block's frame
+ * and title. Measured on Mermaid 12.2.0 (`probe --markup --paint`): the
+ * cluster's `<rect>` takes every declaration but `color`, and `color` paints
+ * the title (`<span style="color:… !important">` under `htmlLabels: true`).
+ */
+describe("an author style on a subgraph", () => {
+  const drawn = (source: string) => {
+    const container = document.createElement("div");
+    const { svg, diagnostics } = render(source, container);
+    const group = svg!.querySelector("g.siren-subgraph")!;
+    return {
+      diagnostics,
+      id: group.getAttribute("data-siren-id"),
+      frame: group.querySelector("rect.siren-subgraph-frame")!.getAttribute("style"),
+      title: group.querySelector("text.siren-subgraph-label")!.getAttribute("style"),
+    };
+  };
+
+  it("draws a style statement's declarations on the frame, and its color on the title", () => {
+    expect(
+      drawn("flowchart TB\nsubgraph s1 [Box]\nA\nend\nstyle s1 fill:#f96,stroke:#333,color:#f00,stroke-width:4px\n"),
+    ).toEqual({
+      diagnostics: [],
+      id: "subgraph:1",
+      frame: "fill:#f96;stroke:#333;stroke-width:4px",
+      title: "fill:#f00",
+    });
+  });
+
+  it("draws a class applied to the handle, with a style written after it winning", () => {
+    expect(
+      drawn("flowchart TB\nsubgraph Box\nA\nend\nstyle Box fill:#f96\nclass Box hot\nclassDef hot stroke:#0f0,fill:#00f,color:#00f\n"),
+    ).toEqual({ diagnostics: [], id: "subgraph:1", frame: "stroke:#0f0;fill:#f96", title: "fill:#00f" });
+  });
+
+  it("draws a class applied with the ::: shorthand on its own line or at an edge's end", () => {
+    const shorthand = "flowchart TB\nsubgraph s1 [Box]\nA\nend\nclassDef hot fill:#0f0,color:#00f\n";
+    expect(drawn(`${shorthand}s1:::hot\n`)).toEqual({
+      diagnostics: [],
+      id: "subgraph:1",
+      frame: "fill:#0f0",
+      title: "fill:#00f",
+    });
+    expect(drawn(`${shorthand}B --> s1:::hot\n`)).toEqual({
+      diagnostics: [],
+      id: "subgraph:1",
+      frame: "fill:#0f0",
+      title: "fill:#00f",
+    });
+  });
+
+  it("draws no box for a handle the ::: shorthand names on a line of its own, above or below the block", () => {
+    // Measured on Mermaid 12.2.0: `s1:::hot` records a vertex `s1`, and the
+    // cluster stands in for it — the only `g.node` drawn is `A`.
+    for (const source of [
+      "flowchart TB\nsubgraph s1 [Box]\nA\nend\nclassDef hot fill:#0f0\ns1:::hot\n",
+      "flowchart TB\ns1:::hot\nsubgraph s1 [Box]\nA\nend\nclassDef hot fill:#0f0\n",
+    ]) {
+      const { svg } = render(source, document.createElement("div"));
+      expect(Array.from(svg!.querySelectorAll("g.siren-node")).map((g) => g.getAttribute("data-siren-id"))).toEqual(["A"]);
+      expect(svg!.querySelector("rect.siren-subgraph-frame")!.getAttribute("style")).toBe("fill:#0f0");
+    }
+  });
+
+  it("leaves the frame out of classDef default, which paints every node", () => {
+    // Measured on Mermaid 12.2.0: `classDef default` reaches node `A` and not
+    // the cluster around it.
+    const { svg } = render(
+      "flowchart TB\nclassDef default fill:#f96,color:#f00\nsubgraph s1 [Box]\nA\nend\n",
+      document.createElement("div"),
+    );
+    expect(svg!.querySelector("rect.siren-subgraph-frame")!.getAttribute("style")).toBeNull();
+    expect(svg!.querySelector("text.siren-subgraph-label")!.getAttribute("style")).toBeNull();
+    expect(svg!.querySelector('g.siren-node[data-siren-id="A"] .siren-node-frame')!.getAttribute("style")).toBe("fill:#f96");
+  });
+
+  it("styles the subgraph, not the node, when a node shares the block's handle", () => {
+    // Measured on Mermaid 12.2.0: after `A[Alpha]` and `subgraph A`, `style A`
+    // paints the cluster and its title. Mermaid draws no box for `A` there at
+    // all; Siren still does, a divergence of its own that this leaves alone.
+    const { svg, diagnostics } = render(
+      "flowchart TB\nA[Alpha]\nsubgraph A\nB\nend\nstyle A fill:#f96,color:#f00\n",
+      document.createElement("div"),
+    );
+    expect(diagnostics).toEqual([]);
+    expect(svg!.querySelector("rect.siren-subgraph-frame")!.getAttribute("style")).toBe("fill:#f96");
+    expect(svg!.querySelector("text.siren-subgraph-label")!.getAttribute("style")).toBe("fill:#f00");
+    expect(svg!.querySelector('g.siren-node[data-siren-id="A"] .siren-node-frame')!.getAttribute("style")).toBeNull();
+  });
+});
+
 describe("renderToSVG's accTitle/accDescr", () => {
   it("draws accTitle as the SVG's own <title>, wiring aria-labelledby to it, with no role attribute", () => {
     const svg = renderToSVG({ ...buildFixture(), accTitle: "A short title" });

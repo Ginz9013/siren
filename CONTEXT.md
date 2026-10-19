@@ -743,10 +743,17 @@ open ([ADR-0010](docs/adr/0010-generated-ids-and-connector-ids-live-in-separate-
 because a subgraph may legitimately be named after a node, and Mermaid itself accepts `A[Alpha]`
 beside `subgraph A`. The author's title is drawn and is otherwise inert; Mermaid agrees far enough
 to mint `subGraph0` of its own for `subgraph "Two Words"`, a spelling that gives the author no
-handle at all. That generated id is why a subgraph is addressable in a `timeline:` block and
-**not** by an author style: a `timeline:` entry names an id, which this has, while `style`,
-`classDef` and the apply-directive name a target the *author* spelled, which this has not. Not an
-omission — there is nothing for a directive to say.
+handle at all. That generated id is what a `timeline:` block and `data-siren-id` name it by.
+
+**An author style names it by its handle**, though, the word an edge already reaches it by:
+`style s1 …`, `class s1 hot` and `s1:::hot` after `subgraph s1 [Box]` paint the block — measured
+on Mermaid 12.2.0, the cluster's frame takes every declaration but `color`, and `color` paints the
+title, split exactly as a **node**'s are. The handle becomes the generated id inside the model and
+nowhere else, so `data-siren-id` stays `subgraph:N`. Where a node shares the handle (`A[Alpha]`
+beside `subgraph A`) the style is the block's, as it is in Mermaid; `classDef default` never reaches
+a block (measured); and `:::` written on the `subgraph` line itself is a parse error in Mermaid
+and refused here. A block's frame is unfilled through `--siren-subgraph-fill`, a **design token**
+whose default is `none`.
 _Avoid_: subgraph diagram (Mermaid has no such kind — this is a statement inside a flowchart),
 cluster (that is the engine-side word the layout cores use for the mechanism, the same way
 **namespace**'s entry reserves it — the ELK core's input field is `cluster`, and what it hands back

@@ -88,9 +88,23 @@ export function buildFlowchartModel(
       ? declaration
       : { ...declaration, targetIds: declaration.targetIds.filter((id) => !onEdges.includes(id)) };
   });
+  // A target that is a block's handle is the block: Mermaid 12.2.0 paints
+  // `style s1 …`, `class s1 hot` and `s1:::hot` after `subgraph s1 [Box]` on
+  // the cluster's frame and title (measured), and on the cluster even where
+  // a node of that name exists too. The handle becomes the generated id
+  // here, so the author's word never reaches `data-siren-id`; a colon
+  // cannot be in a node id, so the two sets of targets cannot collide.
+  const subgraphById = new Map(subgraphs.map((subgraph) => [subgraph.id, subgraph]));
+  const styles = nodeStyles.map((declaration) =>
+    declaration.styleKind === "classDef" || !declaration.targetIds.some((id) => idByName.has(id))
+      ? declaration
+      : { ...declaration, targetIds: declaration.targetIds.map((id) => idByName.get(id) ?? id) },
+  );
   for (const { targetId, style } of resolveStyles(
-    withImplicitDefaultClass(nodeStyles, [...nodeById.keys()]),
-    new Set(nodeById.keys()),
+    // `default` is applied to nodes only: Mermaid does not paint a subgraph's
+    // frame with it (measured on 12.2.0).
+    withImplicitDefaultClass(styles, [...nodeById.keys()]),
+    new Set([...nodeById.keys(), ...subgraphById.keys()]),
     diagnostics,
   )) {
     // Every id `resolveStyles` returns is one it was handed, so this cannot
@@ -100,7 +114,8 @@ export function buildFlowchartModel(
     // elements a declaration is about was settled by `resolveStyles`, and
     // re-deciding it here would be the second opinion that split is meant
     // to prevent.
-    nodeById.get(targetId)!.style = style;
+    const target = nodeById.get(targetId) ?? subgraphById.get(targetId)!;
+    target.style = style;
   }
 
   // The same resolver `resolveStyles` above already shares with the class
