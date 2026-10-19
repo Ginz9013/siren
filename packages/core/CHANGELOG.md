@@ -193,6 +193,29 @@ geometry attribute with no `(` that holds `$`, `?`, `!` or `{` is now dropped (s
 A `:` stays allowed: a colon calls nothing, and a flowchart `style` line whose `;` Mermaid drops
 can carry one.
 
+Breaking for a flowchart document that names a subgraph's handle in a `style`, `class` or `:::`
+(`style s1 fill:#f96` after `subgraph s1 [Box]`), which used to draw nothing and now paints the
+subgraph's frame and title; where the name is a node's too (`A[Alpha]` beside `subgraph A`), the
+paint moves from the node's box to the subgraph (see **Added**).
+
+Breaking for a document whose timeline highlights a target the author gave a `stroke` or
+`stroke-width`: the highlight's colour and width now win while it is highlighted, where the
+author's used to, and `glow` now recolours a state's, a composite state's and an ER entity's
+border too (see **Fixed**).
+
+Breaking for a page that draws a flowchart without `siren-core/theme.css`, replaces it with a
+stylesheet that paints `.siren-arrow-fill` or `.siren-arrow-stroke` with a literal colour, or
+copies computed paint onto an exported SVG. An author-coloured arrowhead now carries its colour as
+`--siren-edge-stroke` rather than an inline `fill`/`stroke`, so with no theme rule to read the
+token the head is drawn in SVG's default black; and in a browser with `context-stroke` the computed
+paint of every flowchart head is the keyword `context-stroke`, which an exporter has to resolve to
+its line's colour before the file is opened anywhere without it (see **Fixed**).
+
+Breaking for a page that recolours states by redeclaring `--siren-node-fill`, `--siren-node-stroke`
+or `--siren-node-text` on `.siren-state` groups and expected their notes to follow: a state's note
+now takes the diagram's colours; redeclare the tokens on `.siren-note-frame` and `.siren-note-text`
+to recolour notes (see **Fixed**).
+
 ### Added
 
 - `render()` now returns `siren`: the frontmatter's top-level `siren:` value, exactly as its YAML
