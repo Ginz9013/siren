@@ -9,12 +9,14 @@ import type {
   ResolvedSubgraph,
   SirenSubgraph,
   StyleDecl,
+  StyleFact,
   StyleProperty,
+  StyleSource,
 } from "../contracts";
 import { CURVES, FLOWCHART_DEFAULT_CURVE, isCurve, isMermaidOnlyCurve, type Curve } from "../curve/curve";
 import { generatedId } from "./generatedId";
 import { resolveInteractions } from "./resolveInteractions";
-import { resolveStyles } from "./resolveStyles";
+import { asStyleFact, resolveStyleFacts, resolveStyles } from "./resolveStyles";
 import { resolveTimelineBlocks } from "./resolveTimeline";
 
 /**
@@ -101,7 +103,8 @@ export function buildFlowchartModel(
       ? declaration
       : { ...declaration, targetIds: declaration.targetIds.map((id) => idByName.get(id) ?? id) },
   );
-  for (const { targetId, style } of resolveStyles(
+  const styleFacts: StyleFact[] = [];
+  for (const resolved of resolveStyleFacts(
     // `default` is applied to nodes only: Mermaid does not paint a subgraph's
     // frame with it (measured on 12.2.0).
     withImplicitDefaultClass(styles, [...nodeById.keys()]),
@@ -115,8 +118,10 @@ export function buildFlowchartModel(
     // elements a declaration is about was settled by `resolveStyles`, and
     // re-deciding it here would be the second opinion that split is meant
     // to prevent.
+    const { targetId, style } = resolved;
     const target = nodeById.get(targetId) ?? subgraphById.get(targetId)!;
     target.style = style;
+    styleFacts.push(asStyleFact(resolved, subgraphById.has(targetId) ? "subgraph" : "node"));
   }
 
   // The same resolver `resolveStyles` above already shares with the class
@@ -174,7 +179,7 @@ export function buildFlowchartModel(
   // The class definitions were read once already, for the nodes above, so
   // what reading them again finds is not reported a second time.
   const edgeClassDiagnostics: Diagnostic[] = [];
-  const resolvedEdgeClasses = resolveStyles([...classDefs, ...edgeClasses], edgeIds, edgeClassDiagnostics);
+  const resolvedEdgeClasses = resolveStyleFacts([...classDefs, ...edgeClasses], edgeIds, edgeClassDiagnostics);
   const reported = new Set(diagnostics.map((diagnostic) => JSON.stringify(diagnostic)));
   diagnostics.push(...edgeClassDiagnostics.filter((diagnostic) => !reported.has(JSON.stringify(diagnostic))));
   // The class whose definition animates, per class name.
@@ -183,7 +188,11 @@ export function buildFlowchartModel(
       name !== null && properties.some(({ property }) => property === "animation") ? [name] : [],
     ),
   );
-  for (const { targetId, style } of resolvedEdgeClasses) {
+  // Where each styled edge's declarations came from, kept beside
+  // `edge.style` as the tiers below lay over it, index for index.
+  const edgeSources = new Map<string, StyleFact["sources"]>();
+  const edgeClassNames = new Map<string, string[]>();
+  for (const { targetId, style, classes, sources } of resolvedEdgeClasses) {
     const animating = style.frame.some(({ property }) => property === "animation");
     if (animating) {
       // The statement that applied an animating class to this edge — the
@@ -201,18 +210,35 @@ export function buildFlowchartModel(
         column: applied.column,
       });
     }
-    edgeById.get(targetId)!.style = {
-      ...style,
-      frame: style.frame.filter(({ property }) => property !== "animation"),
-    };
+    const kept = style.frame.flatMap((declaration, i) =>
+      declaration.property === "animation" ? [] : [{ declaration, source: sources.frame[i]! }],
+    );
+    edgeById.get(targetId)!.style = { ...style, frame: kept.map(({ declaration }) => declaration) };
+    edgeSources.set(targetId, { ...sources, frame: kept.map(({ source }) => source) });
+    edgeClassNames.set(targetId, classes);
   }
-  for (const { targetId, style } of resolveStyles(fallback, edgeIds, diagnostics)) {
-    const edge = edgeById.get(targetId)!;
-    edge.style = overriding(edge.style, style);
+  // A `linkStyle` reaches `resolveStyles` as a `style`, so the tier it was
+  // is said here, where it is known.
+  for (const [tier, via] of [
+    [fallback, "linkStyle default"],
+    [specific, "linkStyle"],
+  ] as const) {
+    for (const { targetId, style } of resolveStyles(tier, edgeIds, diagnostics)) {
+      const edge = edgeById.get(targetId)!;
+      const laid = overriding(
+        { style: edge.style, sources: edgeSources.get(targetId) ?? { frame: [], text: [] } },
+        { style, sources: { frame: style.frame.map(() => ({ via })), text: style.text.map(() => ({ via })) } },
+      );
+      edge.style = laid.style;
+      edgeSources.set(targetId, laid.sources);
+    }
   }
-  for (const { targetId, style } of resolveStyles(specific, edgeIds, diagnostics)) {
-    const edge = edgeById.get(targetId)!;
-    edge.style = overriding(edge.style, style);
+  for (const edge of edges) {
+    const sources = edgeSources.get(edge.id);
+    if (sources !== undefined && edge.style.frame.length + edge.style.text.length > 0) {
+      const classes = edgeClassNames.get(edge.id) ?? [];
+      styleFacts.push({ id: edge.id, kind: "edge", classes, effective: edge.style, sources });
+    }
   }
 
   // The curve rides the same two tiers, from the same resolved addresses,
@@ -262,6 +288,7 @@ export function buildFlowchartModel(
     accTitle: document.accTitle,
     accDescr: document.accDescr,
     ...timelines,
+    styleFacts,
   };
 
   return { graph, diagnostics };
@@ -280,29 +307,38 @@ export function buildFlowchartModel(
  *
  * The property keeps the position of its first declaration and takes the
  * value of its last, which is the rule `resolveStyles` already applies
- * within a tier, applied here between two.
+ * within a tier, applied here between two. Its source goes with its value.
  */
-function overriding(fallback: AuthorStyle, specific: AuthorStyle): AuthorStyle {
+function overriding(fallback: SourcedStyle, specific: SourcedStyle): SourcedStyle {
+  // Half by half, because the two tiers are two statements about the same
+  // edge and each half is about a different element of it. Merging them
+  // together would let a `linkStyle default color:#fff` be taken back by
+  // a `linkStyle 0 stroke:#f00` that never mentioned the label.
+  const frame = overridingHalf(fallback, specific, "frame");
+  const text = overridingHalf(fallback, specific, "text");
   return {
-    frame: overridingProperties(fallback.frame, specific.frame),
-    // Half by half, because the two tiers are two statements about the same
-    // edge and each half is about a different element of it. Merging them
-    // together would let a `linkStyle default color:#fff` be taken back by
-    // a `linkStyle 0 stroke:#f00` that never mentioned the label.
-    text: overridingProperties(fallback.text, specific.text),
+    style: { frame: frame.map(({ declaration }) => declaration), text: text.map(({ declaration }) => declaration) },
+    sources: { frame: frame.map(({ source }) => source), text: text.map(({ source }) => source) },
   };
 }
 
+/** An edge's declarations so far, with the statement each came from, index for index. */
+interface SourcedStyle {
+  style: AuthorStyle;
+  sources: StyleFact["sources"];
+}
+
 /** One half of `overriding`: the fallback's declarations with the specific statement's laid over them. */
-function overridingProperties(
-  fallback: readonly StyleProperty[],
-  specific: readonly StyleProperty[],
-): StyleProperty[] {
-  const merged = new Map(fallback.map(({ property, value }) => [property, value]));
-  for (const { property, value } of specific) {
-    merged.set(property, value);
+function overridingHalf(
+  fallback: SourcedStyle,
+  specific: SourcedStyle,
+  half: keyof AuthorStyle,
+): { declaration: StyleProperty; source: StyleSource }[] {
+  const merged = new Map<string, { value: string; source: StyleSource }>();
+  for (const { style, sources } of [fallback, specific]) {
+    style[half].forEach(({ property, value }, i) => merged.set(property, { value, source: sources[half][i]! }));
   }
-  return [...merged].map(([property, value]) => ({ property, value }));
+  return [...merged].map(([property, { value, source }]) => ({ declaration: { property, value }, source }));
 }
 
 /**

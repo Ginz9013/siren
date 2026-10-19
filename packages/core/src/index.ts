@@ -27,7 +27,7 @@ import type {
   TextMeasurer,
 } from "./contracts";
 
-export type { AnimationController, Diagnostic, SirenRenderResult, TextMeasurer } from "./contracts";
+export type { AnimationController, Diagnostic, SirenRenderResult, StyleFact, StyleSource, TextMeasurer } from "./contracts";
 export type { IconifyIcon, IconifyJSON } from "./icon/iconPacks";
 
 /**
@@ -413,11 +413,12 @@ function withIcons(
 
 /**
  * What `render()` returns when there is no diagram to mount: no SVG, no
- * controller (the two are null together), and no timelines to offer. One
- * place, so a field the result gains is added to every failure at once.
+ * controller (the two are null together), and no timelines or style facts
+ * to offer. One place, so a field the result gains is added to every
+ * failure at once.
  */
 function failedRender(diagnostics: Diagnostic[]): SirenRenderResult {
-  return { svg: null, controller: null, diagnostics, timelines: [] };
+  return { svg: null, controller: null, diagnostics, timelines: [], styles: [] };
 }
 
 /**
@@ -469,6 +470,8 @@ export function render(
   diagnostics.push(...graphResult.diagnostics);
 
   const timelines = (graphResult.model.namedTimelines ?? []).map((block) => block.name);
+  // A sequence model has no styling to report, so it has no field to read.
+  const styles = graphResult.kind === "sequence" ? [] : (graphResult.model.styleFacts ?? []);
 
   // Dispatch on the *result's* tag rather than on the document's. They are
   // the same word — `buildGraphModel` carries the document's kind out
@@ -493,7 +496,7 @@ export function render(
     // entities and relationships carry `data-siren-id`.
     const erController = mountAtStepZero(container, erSvg, graphResult.model, options);
 
-    return { svg: erSvg, controller: erController, diagnostics, timelines };
+    return { svg: erSvg, controller: erController, diagnostics, timelines, styles };
   }
 
   if (graphResult.kind === "state") {
@@ -512,7 +515,7 @@ export function render(
     // `data-siren-id`, so the one controller drives them unchanged.
     const stateController = mountAtStepZero(container, stateSvg, graphResult.model, options);
 
-    return { svg: stateSvg, controller: stateController, diagnostics, timelines };
+    return { svg: stateSvg, controller: stateController, diagnostics, timelines, styles };
   }
 
   if (graphResult.kind === "class") {
@@ -545,7 +548,7 @@ export function render(
     // edges — and sequence participants — drives them unchanged.
     const classController = mountAtStepZero(container, classSvg, graphResult.model, options);
 
-    return { svg: classSvg, controller: classController, diagnostics, timelines };
+    return { svg: classSvg, controller: classController, diagnostics, timelines, styles };
   }
 
   if (graphResult.kind === "sequence") {
@@ -575,7 +578,7 @@ export function render(
     // lifeline move together under one timeline entry.
     const sequenceController = mountAtStepZero(container, sequenceSvg, graphResult.model, options);
 
-    return { svg: sequenceSvg, controller: sequenceController, diagnostics, timelines };
+    return { svg: sequenceSvg, controller: sequenceController, diagnostics, timelines, styles };
   }
 
   // Bound to a local here, and in the three branches above, to give the model
@@ -617,5 +620,5 @@ export function render(
 
   const controller = mountAtStepZero(container, svg, graphResult.model, options);
 
-  return { svg, controller, diagnostics, timelines };
+  return { svg, controller, diagnostics, timelines, styles };
 }

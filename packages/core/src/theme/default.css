@@ -78,10 +78,11 @@
      label paint above, but a second theme has to redeclare it: on a dark
      canvas a white background is the one thing on the page. */
   --siren-edge-label-fill: rgb(255 255 255 / 0.8);
-  /* What a subgraph's frame is filled with: nothing, so the default picture
-     is the outlined frame (see `.siren-subgraph-frame`). A token rather than
-     a bare `none` so a theme can tint one block by redeclaring it on that
-     subgraph's `data-siren-id` group, or every block at once here. */
+  /* What a subgraph's frame is filled with — a flowchart's, an ER diagram's,
+     and a composite state's, the same figure: nothing, so the default
+     picture is the outlined frame (see `.siren-subgraph-frame`). A token
+     rather than a bare `none` so a theme can tint one block by redeclaring
+     it on that block's `data-siren-id` group, or every block at once here. */
   --siren-subgraph-fill: none;
 
   /* Typography tokens */
@@ -925,11 +926,13 @@
  * so it is outlined and not filled — the same reason `.siren-subgraph-frame`
  * and `.siren-namespace-frame` are, and the reason it cannot simply take
  * `.siren-state-frame`'s rule: a fill here would sit behind the whole group
- * and hide whatever the frame overlaps. Rounded like the state box it is a
- * frame around, through the same token.
+ * and hide whatever the frame overlaps. Unfilled through the subgraph's
+ * token, as that frame is, so a theme can still tint one composite by
+ * redeclaring it on the composite's `data-siren-id` group. Rounded like the
+ * state box it is a frame around, through the same token.
  */
 .siren-composite-frame {
-  fill: none;
+  fill: var(--siren-subgraph-fill);
   stroke: var(--siren-node-stroke);
   stroke-width: var(--siren-stroke-width);
   rx: var(--siren-node-border-radius);
@@ -1493,8 +1496,9 @@
  * Outlined and not filled: the frame encloses entity boxes that are drawn
  * *over* it, so a fill here would sit behind the whole group and tint
  * nothing usefully while still hiding whatever the frame overlaps — and a
- * nested frame would tint its parent's fill a second time. It tracks the
- * node stroke because it is a container of boxes, not a connector.
+ * nested frame would tint its parent's fill a second time. The fill is the
+ * flowchart subgraph's token, for the same figure. It tracks the node stroke
+ * because it is a container of boxes, not a connector.
  *
  * No `font-size` on the title: `layoutErDiagram` measures it in
  * `--siren-font-size` and grows the frame's top strip from what it
@@ -1502,7 +1506,7 @@
  * disagreeing with the strip built to hold it.
  */
 .siren-er-subgraph-frame {
-  fill: none;
+  fill: var(--siren-subgraph-fill);
   stroke: var(--siren-node-stroke);
   stroke-width: var(--siren-stroke-width);
   rx: var(--siren-node-border-radius);

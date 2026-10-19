@@ -203,8 +203,23 @@ can carry one.
   not. The subgraph keeps its generated `data-siren-id`. Where a name is both a node and a
   subgraph (`A[Alpha]` beside `subgraph A`), a `style`, `class` or `:::` on it used to paint the
   node's box and now paints the subgraph, as Mermaid does; the node's box loses that paint.
-- A design token, `--siren-subgraph-fill`, for a subgraph frame's fill. It defaults to `none`, so
-  frames are drawn exactly as before.
+- A design token, `--siren-subgraph-fill`, for the fill of a flowchart subgraph's frame, an ER
+  subgraph's frame and a composite state's frame. It defaults to `none`, so frames are drawn
+  exactly as before.
+- `SirenRenderResult.styles`: one `StyleFact` per drawn target that the author's styling reached
+  with at least one declaration that was not refused. A fact lists:
+  - the target's `data-siren-id` (a subgraph's is its `subgraph:N`) and its kind;
+  - the classes applied to it, in order, with a flowchart node's implicit `default` first;
+  - the declarations that won, split into frame and text, with an author's `color` spelled `fill`
+    in the text half;
+  - for each declaration, the statement that supplied it: a named `classDef`, `style`,
+    `linkStyle` or `linkStyle default`.
+
+  `styles` is `[]` for a sequence diagram and when rendering fails. `StyleFact` and `StyleSource`
+  are exported types. Every colour the theme gives a styleable target's frame and text is a
+  design token named at the element that wears its `data-siren-id`, and no such element sits
+  inside another. So redeclaring a colour token on a target's elements recolours that target
+  alone, and leaves alone the targets drawn inside a subgraph, composite state or ER subgraph.
 - A flowchart node's `@{ shape: … }` block draws the shapes Mermaid 12.2.0 draws at a fixed size
   and with no text (nook `01M51XACB6`, measured in headless Chrome): `fork` (`join`; a 70x10 bar,
   upright in a left-to-right or right-to-left flow or subgraph), `hourglass` (`collate`), `bolt`

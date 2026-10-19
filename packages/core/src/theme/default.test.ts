@@ -2020,3 +2020,78 @@ describe("default theme's highlight over an author's stroke", () => {
     expect(getComputedStyle(drawn).stroke).toBe("#f00");
   });
 });
+
+/**
+ * Token reach: a caller recolours one styleable target by redeclaring the
+ * colour tokens on the elements wearing its `data-siren-id`, and nothing
+ * else moves. Two facts make that true, and jsdom — which does not resolve
+ * `var()` — can read both:
+ *
+ * - every colour the theme gives the target's frame and text is a token
+ *   named at that element, never a literal and never a value resolved
+ *   higher up, so a redeclaration on the target reaches it;
+ * - no element wearing an id sits inside another one wearing an id, so a
+ *   redeclaration on a subgraph, a composite or an ER block cannot leak
+ *   into the targets drawn within it.
+ */
+describe("default theme's token reach", () => {
+  /** One document per kind that styles, each nesting what it can nest. */
+  const STYLEABLE = [
+    'flowchart TB\nsubgraph s1 [Outer]\nsubgraph s2 [Inner]\nA -->|go| B((Round))\nend\nC{Choice}\nend\nA --> C\nD([Stadium]) --> s1\n',
+    "classDiagram\nnamespace Shop {\nclass Cart {\n+int items\n+add()\n}\nclass Item\n}\nCart --> Item\n",
+    "stateDiagram-v2\nstate Outer {\nstate Mid {\nI1 --> I2\n}\n}\n[*] --> Outer\n",
+    "erDiagram\nsubgraph s1\nA {\nstring name\n}\nend\nB\nA ||--o{ B : has\n",
+  ];
+
+  /** The groups and lone elements a styling statement can reach, by the class each is drawn with. */
+  const TARGET = [
+    "g.siren-node",
+    "g.siren-subgraph",
+    "path.siren-edge",
+    "text.siren-edge-label",
+    "g.siren-class",
+    "g.siren-state",
+    "g.siren-er-entity",
+    "g.siren-er-subgraph",
+  ].join(", ");
+
+  const TOKEN = /^var\(--siren-[\w-]+\)$/;
+
+  it.each(STYLEABLE)("paints every styleable target's frame and text through a token at the element: %s", (source) => {
+    const svg = renderThemedSVG(source);
+    const targets = Array.from(svg.querySelectorAll(TARGET));
+    expect(targets.length).toBeGreaterThan(0);
+
+    const untokened: string[] = [];
+    for (const target of targets) {
+      const id = target.getAttribute("data-siren-id");
+      const drawn = [target, ...Array.from(target.querySelectorAll("*"))];
+      for (const element of drawn) {
+        const style = getComputedStyle(element);
+        const classes = (element.getAttribute("class") ?? "").split(/\s+/);
+        const paints: Array<"fill" | "stroke"> =
+          element.tagName === "text"
+            ? ["fill"]
+            : classes.includes("siren-edge")
+              ? ["stroke"]
+              : classes.some((name) => name.endsWith("-frame"))
+                ? ["fill", "stroke"]
+                : [];
+        for (const paint of paints) {
+          if (!TOKEN.test(style[paint])) {
+            untokened.push(`${id} ${describeElement(element)} ${paint}: ${style[paint]}`);
+          }
+        }
+      }
+    }
+    expect(untokened).toEqual([]);
+  });
+
+  it.each(STYLEABLE)("draws no element wearing an id inside another one: %s", (source) => {
+    const svg = renderThemedSVG(source);
+    const nested = Array.from(svg.querySelectorAll("[data-siren-id] [data-siren-id]")).map(
+      (element) => `${element.parentElement?.closest("[data-siren-id]")?.getAttribute("data-siren-id")} > ${element.getAttribute("data-siren-id")}`,
+    );
+    expect(nested).toEqual([]);
+  });
+});

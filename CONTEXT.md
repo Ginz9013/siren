@@ -225,6 +225,23 @@ would have lost the one thing that distinguishes it. The price is that the token
 *how* round `A(Round)` is; that is a proportion, and it is the renderer's. So a consumer
 redeclaring this token changes rectangles and subroutines and nothing else — which is a documented
 token silently narrowing its reach, and the reason it is written down here.
+**Token reach**: a caller recolours one styleable target, and nothing else, by redeclaring colour
+tokens on the elements that wear its `data-siren-id`. Two rules make that true, and
+`theme/default.test.ts` asserts both:
+- every colour the theme gives a styleable target's frame (fill and stroke) and its text is a token
+  named at the element that paints it;
+- no element wearing an id sits inside another.
+
+So a redeclaration on a **subgraph**, a **composite state** or an **ER subgraph** stops at its
+frame and never reaches the targets drawn inside it. The three frames share
+`--siren-subgraph-fill`, whose default is `none`.
+
+Two things fall outside token reach:
+- an edge's arrowhead, drawn from a marker in `<defs>` that inherits from the diagram rather than
+  from the edge, so it follows a token redeclared on the container and not one redeclared on the
+  edge;
+- the node shapes the theme leaves deliberately unfilled (`composite`, the text block), whose
+  frames take no fill from any token.
 _Avoid_: CSS variable, theme variable (`themeVariables` is the **document config** key Mermaid
 spells a token's value under — the thing itself is still a design token), dark mode (say a
 **theme preset**'s dark variant), 主題切換 (there is no switch to name: one set of
@@ -1324,6 +1341,25 @@ reaches a stylesheet; and note that a flowchart's apply-directive is *spelled* `
 the third sense of that word in this codebase after the class-diagram box and the `siren-*` CSS
 classes — say "the apply-directive" for the statement, and see **Class**), link style (two words —
 `linkStyle` is a directive spelled one way)
+
+**Style fact**:
+What `render()` reports, as `SirenRenderResult.styles`, about one drawn target that the author's
+styling reached with a declaration that was not refused. A fact holds:
+- the target's `data-siren-id` and its kind (`node`, `edge`, `subgraph`, `class`, `state` or
+  `entity`);
+- the `classDef` names applied to it, in application order, with a flowchart node's implicit
+  `default` first;
+- the declarations that won, split into frame and text exactly as they are painted (an author's
+  `color` appears as the text half's `fill`);
+- for each declaration, the statement that supplied it: a named `classDef`, `style`, `linkStyle` or
+  `linkStyle default`.
+
+A fact is worked out in `resolveStyles`, in the same pass as the cascade it describes, so it cannot
+disagree with what is painted. It describes the document, not the drawing: a highlight lifting an
+author's `stroke` does not change it.
+Core states facts and stops there. Grouping targets by colour or class, and reading meaning into a
+class name, belong to whoever consumes them.
+_Avoid_: style info, computed style (that is the browser's word, and a fact is the author's)
 
 **Comment**:
 A whole line whose first non-blank characters are `%%` followed by at least one more character;

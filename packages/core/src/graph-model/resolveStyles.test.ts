@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Diagnostic, StyleDecl } from "../contracts";
-import { resolveStyles } from "./resolveStyles";
+import { resolveStyleFacts, resolveStyles } from "./resolveStyles";
 
 /**
  * A styling statement with the fields a test does not care about defaulted.
@@ -635,5 +635,84 @@ describe("resolveStyles", () => {
         },
       ]);
     });
+  });
+});
+
+/**
+ * The same resolution with its provenance kept: which classes reached each
+ * target, and which statement supplied each declaration that won. It is
+ * what `render()` reports as `styles`, so the cascade it states has to be
+ * the one `resolveStyles` paints — the expectations below are the rules
+ * pinned above, read back as sources.
+ */
+describe("resolveStyleFacts", () => {
+  it("names the statement each winning declaration came from, a later `style` over the class it overrides", () => {
+    const facts = resolveStyleFacts(
+      [
+        styleDecl({ styleKind: "style", targetIds: ["A"], properties: [{ property: "fill", value: "#0ff" }] }),
+        styleDecl({
+          styleKind: "classDef",
+          name: "hot",
+          properties: [
+            { property: "fill", value: "#f00" },
+            { property: "stroke", value: "#900" },
+            { property: "color", value: "#fff" },
+          ],
+        }),
+        styleDecl({ styleKind: "apply", authoredAs: "class", targetIds: ["A"], name: "hot" }),
+      ],
+      new Set(["A"]),
+      [],
+    );
+
+    expect(facts).toEqual([
+      {
+        targetId: "A",
+        style: {
+          frame: [
+            { property: "fill", value: "#0ff" },
+            { property: "stroke", value: "#900" },
+          ],
+          text: [{ property: "fill", value: "#fff" }],
+        },
+        classes: ["hot"],
+        sources: {
+          frame: [{ via: "style" }, { via: "classDef", name: "hot" }],
+          text: [{ via: "classDef", name: "hot" }],
+        },
+      },
+    ]);
+  });
+
+  it("lists only what survived: no rejected declaration, no undefined class, no target left with nothing", () => {
+    const facts = resolveStyleFacts(
+      [
+        styleDecl({
+          styleKind: "classDef",
+          name: "hot",
+          properties: [
+            { property: "fill", value: "url(#evil)" },
+            { property: "stroke", value: "#900" },
+          ],
+        }),
+        styleDecl({ styleKind: "classDef", name: "void", properties: [{ property: "fill", value: "url(#evil)" }] }),
+        styleDecl({ styleKind: "apply", authoredAs: "class", targetIds: ["A"], name: "hot" }),
+        styleDecl({ styleKind: "apply", authoredAs: "class", targetIds: ["A"], name: "typo" }),
+        styleDecl({ styleKind: "apply", authoredAs: "class", targetIds: ["A"], name: "hot" }),
+        styleDecl({ styleKind: "apply", authoredAs: "class", targetIds: ["B"], name: "void" }),
+        styleDecl({ styleKind: "style", targetIds: ["B"], properties: [{ property: "fill", value: "expression(1)" }] }),
+      ],
+      new Set(["A", "B"]),
+      [],
+    );
+
+    expect(facts).toEqual([
+      {
+        targetId: "A",
+        style: { frame: [{ property: "stroke", value: "#900" }], text: [] },
+        classes: ["hot"],
+        sources: { frame: [{ via: "classDef", name: "hot" }], text: [] },
+      },
+    ]);
   });
 });

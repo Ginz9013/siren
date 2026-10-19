@@ -1,8 +1,11 @@
 import type {
   Diagnostic,
   ResolvedStyle,
+  ResolvedStyleFact,
   StyleDecl,
+  StyleFact,
   StyleProperty,
+  StyleSource,
 } from "../contracts";
 import { unsafeStyleValue } from "../unsafeStyleValue";
 
@@ -55,12 +58,18 @@ import { unsafeStyleValue } from "../unsafeStyleValue";
  * `nodeById.get(targetId)!`, so a result naming an unknown id would crash
  * `render()` with a TypeError instead of returning a diagnostic (found by
  * mutation, 01M37GQS1). `resolveStyles.test.ts` pins it.
+ *
+ * Each result also keeps its provenance — the classes that reached the
+ * target, and the statement each surviving declaration came from — which is
+ * what `render()` reports as `SirenRenderResult.styles`. It is worked out
+ * in the same pass rather than reconstructed afterwards, so the fact a
+ * caller reads cannot follow a cascade other than the one painted.
  */
-export function resolveStyles(
+export function resolveStyleFacts(
   declarations: readonly StyleDecl[],
   validTargetIds: ReadonlySet<string>,
   diagnostics: Diagnostic[],
-): ResolvedStyle[] {
+): ResolvedStyleFact[] {
   const definitions = new Map<string, StyleProperty[]>();
   for (const declaration of declarations) {
     if (declaration.styleKind !== "classDef" || declaration.name === null) continue;
@@ -74,9 +83,10 @@ export function resolveStyles(
    * A half is keyed by the property as it will be *written*, so the two
    * never collide: `fill:#111,color:#fff` is one declaration of `fill` in
    * each half rather than one overwriting the other, and a second `color`
-   * still replaces the first.
+   * still replaces the first. A value travels with the statement that
+   * wrote it, so replacing one replaces its source too.
    */
-  const byTargetId = new Map<string, { frame: Map<string, string>; text: Map<string, string> }>();
+  const byTargetId = new Map<string, { classes: string[]; frame: Map<string, Sourced>; text: Map<string, Sourced> }>();
 
   // Each statement's contribution, worked out in source order so the
   // diagnostics come out in the order the author wrote the lines.
@@ -159,15 +169,19 @@ export function resolveStyles(
 
       let halves = byTargetId.get(targetId);
       if (halves === undefined) {
-        halves = { frame: new Map<string, string>(), text: new Map<string, string>() };
+        halves = { classes: [], frame: new Map<string, Sourced>(), text: new Map<string, Sourced>() };
         byTargetId.set(targetId, halves);
       }
+      if (declaration.name !== null && !halves.classes.includes(declaration.name)) {
+        halves.classes.push(declaration.name);
+      }
+      const source = sourceOf(declaration);
       for (const accepted of applied) {
         const asText = asTextDeclaration(accepted);
         if (asText === null) {
-          halves.frame.set(accepted.property, accepted.value);
+          halves.frame.set(accepted.property, { value: accepted.value, source });
         } else {
-          halves.text.set(asText.property, asText.value);
+          halves.text.set(asText.property, { value: asText.value, source });
         }
       }
     }
@@ -175,10 +189,53 @@ export function resolveStyles(
 
   return [...byTargetId]
     .filter(([, { frame, text }]) => frame.size + text.size > 0)
-    .map(([targetId, { frame, text }]) => ({
+    .map(([targetId, { classes, frame, text }]) => ({
       targetId,
       style: { frame: asProperties(frame), text: asProperties(text) },
+      classes,
+      sources: { frame: [...frame.values()].map(({ source }) => source), text: [...text.values()].map(({ source }) => source) },
     }));
+}
+
+/**
+ * `resolveStyleFacts` without the provenance: the declarations each styled
+ * target is painted with, which is all a model's `styles` carries. The
+ * rules, and the promise that every `targetId` is one of `validTargetIds`,
+ * are that function's.
+ */
+export function resolveStyles(
+  declarations: readonly StyleDecl[],
+  validTargetIds: ReadonlySet<string>,
+  diagnostics: Diagnostic[],
+): ResolvedStyle[] {
+  return resolveStyleFacts(declarations, validTargetIds, diagnostics).map(({ targetId, style }) => ({ targetId, style }));
+}
+
+/**
+ * One resolved target as the fact `render()` reports, once its caller has
+ * said what kind of target it is — the one thing this module cannot know.
+ */
+export function asStyleFact(
+  { targetId, style, classes, sources }: ResolvedStyleFact,
+  kind: StyleFact["kind"],
+): StyleFact {
+  return { id: targetId, kind, classes, effective: style, sources };
+}
+
+/** One surviving declaration's value, and the statement that wrote it. */
+interface Sourced {
+  value: string;
+  source: StyleSource;
+}
+
+/**
+ * The statement a declaration is reported as coming from: the `classDef` an
+ * apply-directive applied, by name, or the `style` itself. A `linkStyle`
+ * arrives here as a `style` and is told apart by the caller, which alone
+ * knows which of its tiers it was.
+ */
+function sourceOf(declaration: StyleDecl): StyleSource {
+  return declaration.styleKind === "apply" ? { via: "classDef", name: declaration.name ?? "" } : { via: "style" };
 }
 
 /**
@@ -210,8 +267,8 @@ function asTextDeclaration({ property, value }: StyleProperty): StyleProperty | 
 }
 
 /** One half's accumulated declarations, back as the list a renderer emits. */
-function asProperties(half: ReadonlyMap<string, string>): StyleProperty[] {
-  return [...half].map(([property, value]) => ({ property, value }));
+function asProperties(half: ReadonlyMap<string, Sourced>): StyleProperty[] {
+  return [...half].map(([property, { value }]) => ({ property, value }));
 }
 
 /**

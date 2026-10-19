@@ -283,8 +283,20 @@ the container is left untouched, so a previously rendered diagram stays on scree
 | `controller`  | `AnimationController \| null`  | Plays the timeline. It is `null` exactly when `svg` is `null`.               |
 | `diagnostics` | `Diagnostic[]`                 | Every error and warning, from all stages. Can be non-empty on success.       |
 | `timelines`   | `string[]`                     | The names of the named timeline blocks, in document order. `[]` when there are none, when the only block is the unnamed `timeline:`, or when rendering failed. |
+| `styles`      | `StyleFact[]`                  | What the document's `style`, `classDef`, `class`/`:::` and `linkStyle` statements did, one fact per drawn target they reached with a declaration that was not refused. `[]` for a sequence diagram or when rendering failed. |
 
 A document without a `timeline:` block still gets a controller, with `totalSteps: 0`.
+
+A `StyleFact` states what the author wrote. It is not changed by what the timeline does to the
+drawing:
+
+| Property    | Description |
+| ----------- | ----------- |
+| `id`        | The target's `data-siren-id`. A flowchart or ER subgraph's id is `subgraph:N`, not the handle the author styled it by. |
+| `kind`      | `"node"`, `"edge"`, `"subgraph"`, `"class"`, `"state"` (a composite state included) or `"entity"`. |
+| `classes`   | The `classDef` names applied to it, in the order they were applied. A flowchart node lists `default` first when the document defines one. |
+| `effective` | The declarations that won, as `{ frame, text }` lists of `{ property, value }`. The text half is spelled the way SVG paints text, so an author's `color` appears there as `fill`. |
+| `sources`   | `{ frame, text }`, index for index with `effective`: the statement each declaration came from. Each is `{ via: "classDef", name }`, `{ via: "style" }`, `{ via: "linkStyle" }` or `{ via: "linkStyle default" }`. |
 
 ### `AnimationController`
 
@@ -481,7 +493,7 @@ Override any `--siren-*` custom property in your own CSS:
 
 | Group     | Tokens                                                                                                              |
 | --------- | ------------------------------------------------------------------------------------------------------------------- |
-| Colors    | `--siren-node-fill`, `--siren-node-stroke`, `--siren-node-text`, `--siren-edge-stroke`, `--siren-highlight-color`, `--siren-subgraph-fill` (`none`, a flowchart subgraph's frame) |
+| Colors    | `--siren-node-fill`, `--siren-node-stroke`, `--siren-node-text`, `--siren-edge-stroke`, `--siren-highlight-color`, `--siren-subgraph-fill` (`none`, the frame of a flowchart subgraph, an ER subgraph or a composite state) |
 | Text      | `--siren-font-family`, `--siren-font-size`, `--siren-label-font-size`, `--siren-title-font-size`                  |
 | Lines     | `--siren-stroke-width`, `--siren-edge-thick-stroke-width`, `--siren-edge-dash`, `--siren-lifeline-dash`, `--siren-note-link-dash`, `--siren-highlight-stroke-width` |
 | Shapes    | `--siren-node-border-radius`, `--siren-box-fill-opacity`                                                           |
@@ -496,6 +508,13 @@ should repaint `--siren-label-link`, as in the example above.
 
 Per-element styling from the document itself (`classDef`, `class`, `style`, `linkStyle`,
 `:::name`) works as it does in Mermaid and takes precedence over the theme.
+
+To recolour one styleable target, redeclare the colour tokens on the elements that carry its
+`data-siren-id` (for example `[data-siren-id="A"] { --siren-node-fill: #fde68a; }`). The theme
+takes every frame and text colour of a node, edge, subgraph, class, state or entity from a token
+named at that element, and none of these elements sits inside another. So the change reaches
+that target and nothing drawn inside it. An edge's arrowhead is the exception: it is drawn from
+a shared marker and keeps the edge colour set on the container.
 
 ## Mermaid compatibility
 

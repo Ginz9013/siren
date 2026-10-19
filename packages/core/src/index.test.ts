@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, type InteractionTarget } from "./index";
+import { render, type InteractionTarget, type StyleFact, type StyleSource } from "./index";
 import type { Point, SirenRenderResult, TextMeasurer } from "./contracts";
 import { routeOf } from "./compat/svgGeometry";
 import { readdirSync, readFileSync } from "node:fs";
@@ -9086,3 +9086,255 @@ describe("render() — an ER declaration list ending in a `;`", () => {
     }
   });
 });
+
+/**
+ * `SirenRenderResult.styles`: what the author's styling statements did to
+ * each drawn target, read back as facts — the classes that reached it and
+ * the statement each winning declaration came from. Every expectation is the
+ * cascade `CONTEXT.md` states under **Author style**, written out by hand.
+ */
+describe("render() reports each styled target's style facts", () => {
+  // Typed through the public entry, so a fact a consumer cannot name is a
+  // type error here.
+  const stylesOf = (source: string): StyleFact[] => render(source, document.createElement("div")).styles;
+  const viaStyle: StyleSource = { via: "style" };
+
+  it("states a flowchart node's classes and sources, its `style` over the class it overrides", () => {
+    expect(
+      stylesOf(
+        "flowchart TB\nA --> B\nstyle A fill:#0ff\nclassDef hot fill:#f00,stroke:#900,color:#fff\nclass A hot\n",
+      ),
+    ).toEqual([
+      {
+        id: "A",
+        kind: "node",
+        classes: ["hot"],
+        effective: {
+          frame: [
+            { property: "fill", value: "#0ff" },
+            { property: "stroke", value: "#900" },
+          ],
+          text: [{ property: "fill", value: "#fff" }],
+        },
+        sources: {
+          frame: [viaStyle, { via: "classDef", name: "hot" }],
+          text: [{ via: "classDef", name: "hot" }],
+        },
+      },
+    ]);
+  });
+
+  it("names a subgraph by its generated id, and lists `default` first on the nodes it reaches — never on the block", () => {
+    const facts = stylesOf(
+      "flowchart TB\nsubgraph s1 [Box]\nA\nend\nclassDef default stroke:#333\nclassDef warn fill:#ff0\nclass A,s1 warn\n",
+    );
+
+    expect(facts).toEqual([
+      {
+        id: "A",
+        kind: "node",
+        classes: ["default", "warn"],
+        effective: {
+          frame: [
+            { property: "stroke", value: "#333" },
+            { property: "fill", value: "#ff0" },
+          ],
+          text: [],
+        },
+        sources: {
+          frame: [
+            { via: "classDef", name: "default" },
+            { via: "classDef", name: "warn" },
+          ],
+          text: [],
+        },
+      },
+      {
+        id: "subgraph:1",
+        kind: "subgraph",
+        classes: ["warn"],
+        effective: { frame: [{ property: "fill", value: "#ff0" }], text: [] },
+        sources: { frame: [{ via: "classDef", name: "warn" }], text: [] },
+      },
+    ]);
+  });
+
+  it("states an edge's tiers: a class beneath `linkStyle default`, and a specific `linkStyle N` over both", () => {
+    const facts = stylesOf(
+      [
+        "flowchart TB",
+        "A --> B",
+        "B --> C",
+        "C e1@--> A",
+        "classDef dash stroke-dasharray:5,color:#00f",
+        "class e1 dash",
+        "linkStyle 0 stroke:#f00",
+        "linkStyle default stroke:#0f0,stroke-width:4px",
+        "",
+      ].join("\n"),
+    );
+
+    expect(facts).toEqual([
+      {
+        id: "A-B",
+        kind: "edge",
+        classes: [],
+        effective: {
+          frame: [
+            { property: "stroke", value: "#f00" },
+            { property: "stroke-width", value: "4px" },
+          ],
+          text: [],
+        },
+        sources: { frame: [{ via: "linkStyle" }, { via: "linkStyle default" }], text: [] },
+      },
+      {
+        id: "B-C",
+        kind: "edge",
+        classes: [],
+        effective: {
+          frame: [
+            { property: "stroke", value: "#0f0" },
+            { property: "stroke-width", value: "4px" },
+          ],
+          text: [],
+        },
+        sources: { frame: [{ via: "linkStyle default" }, { via: "linkStyle default" }], text: [] },
+      },
+      {
+        id: "e1",
+        kind: "edge",
+        classes: ["dash"],
+        effective: {
+          frame: [
+            { property: "stroke-dasharray", value: "5" },
+            { property: "stroke", value: "#0f0" },
+            { property: "stroke-width", value: "4px" },
+          ],
+          text: [{ property: "fill", value: "#00f" }],
+        },
+        sources: {
+          frame: [{ via: "classDef", name: "dash" }, { via: "linkStyle default" }, { via: "linkStyle default" }],
+          text: [{ via: "classDef", name: "dash" }],
+        },
+      },
+    ]);
+  });
+
+  it("states a class's classes and sources", () => {
+    expect(
+      stylesOf('classDiagram\nclass Animal\nclass Dog\nclassDef hot fill:#f00\ncssClass "Animal" hot\nstyle Animal stroke:#900\n'),
+    ).toEqual([
+      {
+        id: "Animal",
+        kind: "class",
+        classes: ["hot"],
+        effective: {
+          frame: [
+            { property: "fill", value: "#f00" },
+            { property: "stroke", value: "#900" },
+          ],
+          text: [],
+        },
+        sources: { frame: [{ via: "classDef", name: "hot" }, { via: "style" }], text: [] },
+      },
+    ]);
+  });
+
+  it("states a state's facts, a composite's frame among them", () => {
+    expect(
+      stylesOf("stateDiagram-v2\nstate Outer {\nInner\n}\nclassDef hot fill:#f00\nclass Outer hot\nstyle Inner color:#fff\n"),
+    ).toEqual([
+      {
+        id: "Outer",
+        kind: "state",
+        classes: ["hot"],
+        effective: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+        sources: { frame: [{ via: "classDef", name: "hot" }], text: [] },
+      },
+      {
+        id: "Inner",
+        kind: "state",
+        classes: [],
+        effective: { frame: [], text: [{ property: "fill", value: "#fff" }] },
+        sources: { frame: [], text: [{ via: "style" }] },
+      },
+    ]);
+  });
+
+  it("states an ER entity's facts, and an ER subgraph's under its generated id", () => {
+    const result = render(
+      "erDiagram\nA\nsubgraph s1\nB\nend\nclassDef u fill:#f00\nclass A,s1 u\nstyle A stroke:#00f\n",
+      document.createElement("div"),
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.styles).toEqual([
+      {
+        id: "A",
+        kind: "entity",
+        classes: ["u"],
+        effective: {
+          frame: [
+            { property: "fill", value: "#f00" },
+            { property: "stroke", value: "#00f" },
+          ],
+          text: [],
+        },
+        sources: { frame: [{ via: "classDef", name: "u" }, { via: "style" }], text: [] },
+      },
+      {
+        id: "subgraph:1",
+        kind: "subgraph",
+        classes: ["u"],
+        effective: { frame: [{ property: "fill", value: "#f00" }], text: [] },
+        sources: { frame: [{ via: "classDef", name: "u" }], text: [] },
+      },
+    ]);
+  });
+
+  it("reports no facts when rendering fails, nor for a sequence diagram, which accepts no styling", () => {
+    const unmeasurable: TextMeasurer = { measure: () => ({ width: NaN, height: 10 }) };
+    const styled = "flowchart TB\nA --> B\nstyle A fill:#f00\n";
+
+    const layoutFailure = render(styled, document.createElement("div"), { measureText: unmeasurable });
+    const parseFailure = render(`${styled}timeline:\nenter\n`, document.createElement("div"));
+
+    expect(layoutFailure.svg).toBeNull();
+    expect(layoutFailure.styles).toEqual([]);
+    expect(parseFailure.svg).toBeNull();
+    expect(parseFailure.styles).toEqual([]);
+    expect(stylesOf("sequenceDiagram\nA->>B: hi\n")).toEqual([]);
+  });
+
+  it.each([
+    ["flowchart", "flowchart TB\nA --> B\n", "class A hot", "node"],
+    ["class", "classDiagram\nclass A\nclass B\n", 'cssClass "A" hot', "class"],
+    ["state", "stateDiagram-v2\nA --> B\n", "class A hot", "state"],
+    ["ER", "erDiagram\nA\nB\n", "class A hot", "entity"],
+  ])("leaves a rejected declaration out of a %s fact, and a target left with none out of the list", (_, diagram, apply, kind) => {
+    const facts = stylesOf(
+      `${diagram}style A *fill:#00f,stroke:#900\nstyle B *fill:#00f\nclassDef hot fill:#f00\n${apply}\n`,
+    );
+
+    // `*fill` is refused at the gate every kind shares (a property must be a
+    // plain CSS identifier); a refused value like `url(` stops some kinds'
+    // parsers first, and a document that does not parse reports no facts.
+    expect(facts).toEqual([
+      {
+        id: "A",
+        kind,
+        classes: ["hot"],
+        effective: {
+          frame: [
+            { property: "fill", value: "#f00" },
+            { property: "stroke", value: "#900" },
+          ],
+          text: [],
+        },
+        sources: { frame: [{ via: "classDef", name: "hot" }, { via: "style" }], text: [] },
+      },
+    ]);
+  });
+});
+

@@ -1322,6 +1322,8 @@ describe("buildGraphModel", () => {
       "direction",
       "edges",
       "nodes",
+      // The styling's provenance, which `render()` reports as `styles`; layout and the renderers never read it.
+      "styleFacts",
       // The grouping a `subgraph` block declares, resolved. It joins the
       // model's field set for the same reason the fields above are pinned
       // here at all: what leaves this stage is the whole of what layout and
