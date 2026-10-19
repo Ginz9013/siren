@@ -90,6 +90,9 @@ A mounted, browser-only wrapper around one core-renderer `render()` call — own
 its own chrome styling, and the `AnimationController` lifecycle across source changes. A consumer
 of the core renderer (see [ADR-0005](docs/adr/0005-board-is-a-separate-package-that-owns-calling-render.md)),
 not part of it; does not parse, layout, or render anything itself.
+It passes core's style facts through untouched: it hands `omitAuthorStyles` to every `render()`
+and hands back each render's `styles` and `siren`, and makes no theme judgement of its own; what
+they mean is the host's.
 _Avoid_: canvas, viewer, widget
 
 **View**:
