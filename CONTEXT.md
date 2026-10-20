@@ -645,6 +645,23 @@ title, a composite state's title, a class name, a class member, a class diagram'
 entity name, an ER attribute's comment, anything in a sequence diagram, including its notes (Mermaid wraps none of them).
 _Avoid_: word wrap, line wrap, auto-wrap (say "wrap"); line (for a wrapped row — it is a row)
 
+**Connector**:
+The line joining two nodes in a **graph-shaped diagram**, whatever its kind calls it — the general
+word for a flowchart's **edge**, a class diagram's **relationship**, a state diagram's
+**transition** and an ER diagram's **ER relationship**. The code already uses it in that sense:
+`wrapConnectorLabel` wraps any of their labels, `drawConnectorRoute` draws any of their routes,
+`CONNECTOR_CURVE` is the curve a class, state or ER connector is always drawn with (and a flowchart
+edge unless its author chose another), and `drawConnectorLabel` draws any of their placed labels.
+After layout a connector is a `PlacedConnector` (`contracts.ts`):
+its id, its two endpoints, its routed points, its line hops and its placed label — the one record
+every kind's positioned connector extends, because it is exactly what the shared layout core hands
+back for every kind (nook decision `01M5D99KNB4R5FVDRWCG902ZAC`, which replaces the old rule that
+two kinds never share a type). What a kind adds on top — a flowchart edge's curve and ends, a class
+relationship's multiplicities, an ER relationship's cardinalities — stays on its own type. A note's
+connector line (a class or state diagram's note, attached to its target) is not one: it has no id
+and no label.
+_Avoid_: link; line (the line is the drawn `<path>`, not the thing it draws)
+
 **Edge**:
 A directed connector between two flowchart nodes, written `A --> B`. Its id is `${from}-${to}`,
 then `#2` for a repeat pair — the convention a class diagram's **relationship** copies verbatim.
@@ -721,7 +738,9 @@ outranked the theme, an author's `linkStyle` and a `timeline:` block's `highligh
 alike — on the one element all three already land on.
 _Avoid_: link, arrow (say "arrow" for the drawn line and its ends, or "arrow token" for the
 spelling that wrote them — never for the edge itself, the same split **message** makes),
-connector, relationship (class-diagram vocabulary), message (sequence vocabulary)
+relationship (class-diagram vocabulary), message (sequence vocabulary). "Connector" is not
+avoided but wider: it is the general word for any kind's line (see **Connector**), and "edge"
+means a flowchart's one only
 
 **Curve**:
 How a connector's routed points are joined into the line that is drawn: `basis` (a smooth spline),
