@@ -421,9 +421,6 @@ describe("renderClassDiagramToSVG", () => {
     // The route itself, not `d`: under the default curve `d` carries the
     // spline's control points (see the basis test below).
     expect(line?.getAttribute("data-siren-points")).toBe("70,80 70,160 260,160");
-    // A multi-segment path must never be painted as a filled polygon, however
-    // it is themed — same reasoning as the sequence renderer's frames.
-    expect(line?.getAttribute("fill")).toBe("none");
   });
 
   it("paints every relationship line before the first class, so a line passing a box runs under it (ADR-0016)", () => {

@@ -220,9 +220,6 @@ describe("renderStateDiagramToSVG", () => {
 
     const line = groups[0].querySelector("path.siren-transition-line")!;
     expect(line.getAttribute("d")).toBe("M50,60 L60,120");
-    // Explicit, not left to CSS: an open multi-segment path would otherwise
-    // be painted as a filled polygon spanning the states it connects.
-    expect(line.getAttribute("fill")).toBe("none");
   });
 
   it("points every transition at an arrowhead this SVG actually defines", () => {

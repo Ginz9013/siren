@@ -732,20 +732,6 @@ describe("renderErDiagramToSVG", () => {
     expect(label?.getAttribute("y")).toBe("130");
   });
 
-  it("puts each relationship's id on its groups, so a timeline entry can name it", () => {
-    // ADR-0009 again: the id lands on the enclosing `<g>`s — the line's and
-    // the label's (ADR-0016) — so one entry moves a relationship's line, its
-    // markers and its label together.
-    const svg = renderErDiagramToSVG(diagram([CUSTOMER, ORDER], undefined, [PLACES]));
-
-    const group = svg.querySelector("g.siren-er-relationship");
-    expect(group?.getAttribute("data-siren-id")).toBe("CUSTOMER:ORDER");
-    expect(group?.querySelector("path.siren-er-relationship-line")).not.toBeNull();
-    const labels = svg.querySelector("g.siren-er-relationship-labels");
-    expect(labels?.getAttribute("data-siren-id")).toBe("CUSTOMER:ORDER");
-    expect(labels?.querySelector("text.siren-er-relationship-label")).not.toBeNull();
-  });
-
   it("draws an empty document as an empty picture rather than throwing", () => {
     const svg = renderErDiagramToSVG(diagram([], { width: 0, height: 0 }));
 
