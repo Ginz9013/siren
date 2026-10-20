@@ -1,7 +1,13 @@
 /**
  * Draws a **connector** — a class diagram's relationship, a state diagram's
- * transition, an ER diagram's relationship — as the two groups ADR-0016
- * splits it into: its line, and its text.
+ * transition, an ER diagram's **ER relationship** — as the two groups
+ * ADR-0016 splits it into: its line, and its text.
+ *
+ * Shared because each renderer kept a copy of the ADR-0016 two-group figure,
+ * and what it draws from is one record, `PlacedConnector`, every kind's
+ * connector extends (nook decision `01M5D99KNB4R5FVDRWCG902ZAC`). This is the
+ * renderer-side half; `layout/connectors.ts` is the layout-side half, which
+ * wraps the label and places the record this module draws.
  *
  * Every connector's line is drawn before every connector's text, and both
  * before the nodes: Mermaid's `edgePaths → edgeLabels → nodes`. A line routed
@@ -65,8 +71,9 @@ export function buildConnectorLine(
 
   const line = document.createElementNS(SVG_NS, "path");
   line.setAttribute("class", `${options.className}-line`);
-  // Rounded, with the line hops the layout found (`CONNECTOR_CURVE`: the
-  // curve layout kept the hops clear of).
+  // Drawn with `CONNECTOR_CURVE`, the rounded curve: the layout handed the
+  // core that curve's corner radius, so the line hops it found already keep
+  // clear of the corners cut back here.
   drawConnectorRoute(line, connector.points, CONNECTOR_CURVE, connector.hops);
   // Explicit, not left to CSS: a route is an open, multi-segment path, which
   // a default fill would paint as a filled polygon spanning the nodes it
@@ -92,6 +99,13 @@ export function buildConnectorLine(
  * group, holding the connector's label — drawn centred on the anchor layout
  * reserved room for, over the background every connector label is painted
  * on — when it has one.
+ *
+ * The label is drawn by `drawConnectorLabel`: one plain row is the
+ * `<text>`'s own `textContent`, anything else a tspan per row (ADR-0015).
+ * `drawLabel` centres it on the anchor with `dominant-baseline: middle`; a
+ * state transition's label used to sit with its baseline on the anchor,
+ * above the middle of the room reserved for it, and the move is half the
+ * font's x-height — about 0.26em, some 4px at 14px.
  *
  * Always a group, empty when the connector has no label: whether an empty
  * group is drawn is the caller's call. A state transition or ER relationship

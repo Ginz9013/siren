@@ -111,10 +111,12 @@ const placedGo = {
 };
 
 describe("buildConnectorLine's serialised form", () => {
-  it("writes its attributes in the order every renderer wrote them before it existed", () => {
-    // `outerHTML` follows `setAttribute` order, so the order is part of the
-    // output. This is the shape the ER renderer serialised before the helper
-    // (group: class, id; path: class, d, points, fill, markers, dash).
+  it("writes the path's attributes in the order class, d, data-siren-points, fill, markers, stroke-dasharray, so a serialised connector never changes shape", () => {
+    // The renderer's `outerHTML` is what the compat corpus, the renderer
+    // tests and any consumer diff see, and jsdom (like browsers) serialises
+    // attributes in `setAttribute` order — so the order is part of the
+    // byte-identical output this board promised. The expected string was
+    // taken from the ER renderer's output before the refactor.
     const g = buildConnectorLine(connector(), {
       className: "siren-er-relationship",
       scope: "__s",
