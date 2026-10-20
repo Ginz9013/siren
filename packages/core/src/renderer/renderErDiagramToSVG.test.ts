@@ -158,6 +158,7 @@ const PLACES: PositionedErRelationship = {
     { x: 56, y: 60 },
     { x: 56, y: 200 },
   ],
+  hops: [],
   label: { label: plainLabel("places"), labelBox: boxOf("places"), anchor: { x: 56, y: 130 } },
 };
 

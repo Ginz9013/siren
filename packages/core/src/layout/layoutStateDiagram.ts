@@ -22,13 +22,13 @@ import {
 } from "./layoutDirectedGraph";
 import { clusterNode, SUBGRAPH_PADDING } from "./clusters";
 import { clipRoutesAndHop } from "./clipToOutline";
+import { placeConnectors } from "./connectors";
 import { circleOutline, edgesOf } from "./shapes/shape";
 import { noteBoxSize, noteLinkEdgeId, noteNodeId } from "./notes";
 import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
 import { plainLabel } from "../label/label";
 import {
   NO_WRAP,
-  wrapConnectorLabel,
   wrapLabel,
   wrapNodeLabel,
   type WrappedLabel,
@@ -184,21 +184,8 @@ export function layoutStateDiagram(
     notedStates.map(({ state, label, labelBox }) => [state.id, { label, labelBox }]),
   );
 
-  /**
-   * Each labelled transition's label wrapped and measured at the 12px it is
-   * drawn at (`wrapConnectorLabel`: 150px of text, Mermaid's 200 scaled to
-   * that size, by the label-wrap ADR, nook `01M4R4WDZ`), by the
-   * transition's id — once, so the box the core keeps clear and the box the
-   * renderer draws in are the same box, and the rows drawn are the wrapped
-   * label's.
-   */
-  const wrappedTransitionLabelById = new Map(
-    model.transitions.flatMap((transition) =>
-      transition.label === null
-        ? []
-        : [[transition.id, wrapConnectorLabel(transition.label, options.measureText)] as const],
-    ),
-  );
+  /** Each transition's label wrapped once, before the core (`placeConnectors`). */
+  const connectors = placeConnectors(model.transitions, options.measureText);
 
   /**
    * A state as the core is handed it. A composite or a concurrent region
@@ -254,7 +241,7 @@ export function layoutStateDiagram(
     // line, and reports back where that room ended up.
     ...(transition.label === null
       ? {}
-      : { label: wrappedTransitionLabelById.get(transition.id)!.labelBox }),
+      : { label: connectors.wrappedById.get(transition.id)!.labelBox }),
     // The radius the line hops keep clear of: a transition is drawn rounded
     // (`CONNECTOR_CURVE`).
     cornerRadius: CONNECTOR_CORNER_RADIUS,
@@ -392,23 +379,7 @@ export function layoutStateDiagram(
     };
   });
 
-  const transitions = model.transitions.map<PositionedStateTransition>((transition) => {
-    const route = routeById.get(transition.id)!;
-    return {
-      id: transition.id,
-      from: transition.from,
-      to: transition.to,
-      points: route.points,
-      hops: route.hops,
-      label:
-        transition.label === null || route.labelAnchor === undefined
-          ? null
-          : {
-              ...wrappedTransitionLabelById.get(transition.id)!,
-              anchor: route.labelAnchor,
-            },
-    };
-  });
+  const transitions: PositionedStateTransition[] = connectors.place(routeById);
 
   return {
     accTitle: model.accTitle,

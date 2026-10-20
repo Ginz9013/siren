@@ -66,6 +66,7 @@ function buildFixture(): PositionedGraph {
           { x: 40, y: 20 },
           { x: 40, y: 100 },
         ],
+        hops: [],
       },
       {
         id: "B-C",
@@ -77,6 +78,7 @@ function buildFixture(): PositionedGraph {
           { x: 40, y: 120 },
           { x: 40, y: 200 },
         ],
+        hops: [],
       },
     ],
     subgraphs: [],

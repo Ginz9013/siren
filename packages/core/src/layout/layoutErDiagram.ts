@@ -24,6 +24,7 @@ import {
   type DirectedGraphNode,
 } from "./layoutDirectedGraph";
 import { clusterNode, measureTitles, mermaidClosingOrder, placedFrame } from "./clusters";
+import { placeConnectors } from "./connectors";
 
 /**
  * Horizontal padding between an entity box's edge and its name, and vertical
@@ -305,19 +306,12 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
     model.entities.map((entity) => [entity.id, planErBox(entity, options)] as const),
   );
   /**
-   * Each relationship's label wrapped and measured at the 12px it is drawn
-   * at (`wrapErRelationshipLabel`: 200 × 12/14 ≈ 171.43px of text, as
-   * Mermaid wraps its 14px ER label at 200px — the label-wrap ADR, nook
-   * `01M4R4WDZ`, as amended), by the relationship's
-   * id — once, so the box the core keeps clear and the box the renderer
-   * draws in are the same box, and the rows drawn are the wrapped label's.
+   * Each relationship's label wrapped once, before the core
+   * (`placeConnectors`) — at ER's own width, `wrapErRelationshipLabel`'s
+   * 200 × 12/14 ≈ 171.43px of text rather than every other connector's
+   * 150px, as Mermaid wraps its 14px ER label at 200px.
    */
-  const wrappedRelationshipLabelById = new Map(
-    model.relationships.map(
-      (relationship) =>
-        [relationship.id, wrapErRelationshipLabel(relationship.label, options.measureText)] as const,
-    ),
-  );
+  const connectors = placeConnectors(model.relationships, options.measureText, wrapErRelationshipLabel);
   /** Each block's title, measured once (`measureTitles`). */
   const titleBoxById = measureTitles(model.subgraphs, options.measureText);
 
@@ -369,7 +363,7 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
         // required — so the core is always asked to keep room for one on the
         // line, and it reports back where that room ended up. Sized from
         // every row of the label (ADR-0015).
-        label: wrappedRelationshipLabelById.get(relationship.id)!.labelBox,
+        label: connectors.wrappedById.get(relationship.id)!.labelBox,
         // The radius the line hops keep clear of: a relationship is drawn
         // rounded (`CONNECTOR_CURVE`).
         cornerRadius: CONNECTOR_CORNER_RADIUS,
@@ -438,25 +432,14 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
     };
   });
 
-  const relationships: PositionedErRelationship[] = model.relationships.map(
-    (relationship) => {
-      const route = routeById.get(relationship.id)!;
+  const relationships: PositionedErRelationship[] = connectors.place(routeById).map(
+    (placed, index) => {
+      const relationship = model.relationships[index]!;
       return {
-        id: relationship.id,
-        from: relationship.from,
-        to: relationship.to,
+        ...placed,
         fromCardinality: relationship.fromCardinality,
         toCardinality: relationship.toCardinality,
         line: relationship.line,
-        points: route.points,
-        hops: route.hops,
-        label:
-          route.labelAnchor === undefined
-            ? null
-            : {
-                ...wrappedRelationshipLabelById.get(relationship.id)!,
-                anchor: route.labelAnchor,
-              },
       };
     },
   );

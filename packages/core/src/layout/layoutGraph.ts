@@ -8,8 +8,9 @@ import type {
 } from "../contracts";
 import { type Curve, curveCornerRadius, FLOWCHART_DEFAULT_CURVE } from "../curve/curve";
 import { layoutDirectedGraph } from "./layoutDirectedGraph";
+import { placeConnectors } from "./connectors";
 import { clusterNode, measureTitles, mermaidClosingOrder, placedFrame, SUBGRAPH_PADDING } from "./clusters";
-import { wrapConnectorLabel, wrapNodeLabel } from "../label/wrapLabel";
+import { wrapNodeLabel } from "../label/wrapLabel";
 import { BASE_FONT_SIZE_PX } from "../label/label";
 import { LINE_HEIGHT_RATIO } from "../label/layoutLabel";
 import { SHAPES } from "./shapes/shapeTable";
@@ -102,15 +103,10 @@ export function layoutGraph(
   // title band the core keeps in the frame, and the renderer.
   const titleBoxById = measureTitles(graph.subgraphs, options.measureText);
 
-  // At the 12px an edge label is drawn at, not the node's 14px, and wrapped
-  // at Mermaid's 200px scaled to that size (the label-wrap ADR, nook
-  // `01M4R4WDZ`): the box handed to the core below and the one the renderer
-  // draws in are this one, and the rows drawn are the wrapped label's.
-  const wrappedEdgeLabelById = new Map(
-    graph.edges.flatMap((edge) =>
-      edge.label === null ? [] : [[edge.id, wrapConnectorLabel(edge.label, options.measureText)] as const],
-    ),
-  );
+  // Each edge label wrapped at the 12px an edge label is drawn at, not the
+  // node's 14px (`placeConnectors`): the box handed to the core below and
+  // the one the renderer draws in are this one.
+  const connectors = placeConnectors(graph.edges, options.measureText);
 
   const laidOut = layoutDirectedGraph({
     direction: graph.direction,
@@ -173,7 +169,7 @@ export function layoutGraph(
       // renderer: the core keeps this much room on the line and reports
       // where it put it. Measured with `options.measureText`, the one
       // measurer every other piece of text in this pipeline goes through.
-      ...(edge.label === null ? {} : { label: wrappedEdgeLabelById.get(edge.id)!.labelBox }),
+      ...(edge.label === null ? {} : { label: connectors.wrappedById.get(edge.id)!.labelBox }),
       // How the renderer will draw the edge's corners, which the line hops
       // keep clear of: the radius of the curve it will be drawn with (the
       // flowchart's default unless an `interpolate` chose another), absent
@@ -223,21 +219,8 @@ export function layoutGraph(
   );
   const routeById = new Map(laidOut.edges.map((route, index) => [route.id, { ...route, ...clipped[index]! }]));
 
-  const edges = graph.edges.map((edge) => {
-    const route = routeById.get(edge.id)!;
-    return {
-      ...edge,
-      points: route.points,
-      hops: route.hops,
-      // `null` rather than absent: an edge that asked for no space has
-      // nowhere to draw text, and one state is easier to read than a
-      // missing field.
-      label:
-        edge.label === null || route.labelAnchor === undefined
-          ? null
-          : { ...wrappedEdgeLabelById.get(edge.id)!, anchor: route.labelAnchor },
-    };
-  });
+  // Each edge keeps the rest of its `GraphEdge` (curve, line, ends, style).
+  const edges = connectors.place(routeById).map((placed, index) => ({ ...graph.edges[index]!, ...placed }));
 
   // Back into the model's own order — outermost first, which is the order
   // they are drawn in so that an inner frame is painted over its parent.

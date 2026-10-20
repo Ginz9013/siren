@@ -111,6 +111,7 @@ function buildRelationship(
       { x: 70, y: 160 },
       { x: 260, y: 160 },
     ],
+    hops: [],
     label: null,
     fromMultiplicity: null,
     fromMultiplicityAnchor: null,
