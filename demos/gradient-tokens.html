@@ -22,8 +22,8 @@
           default objectBoundingBox is undefined on an element whose box has
           zero width or height, so a horizontal or vertical straight edge
           would vanish — arrowhead included. The arrowhead is painted with
-          context-stroke, so it takes the same gradient (Chrome; Safari keeps
-          its fallback colour).
+          context-stroke, so it takes the same gradient (Chrome, Edge and
+          Firefox; Safari keeps its fallback colour).
         */
         --siren-edge-stroke: url(#demo-edge-gradient);
         /* --siren-highlight-color stays a colour: the glow puts it in drop-shadow(). */
@@ -81,7 +81,8 @@
       re-gradiented on its own through <code>[data-siren-id="Render"]</code>.
     </p>
     <p class="intro">
-      Limits, spelled out in README › Theming: a CSS <code>linear-gradient()</code> is not SVG paint
+      Limits, spelled out in
+      <a href="../packages/core/README.md#gradients-and-patterns">README › Gradients and patterns</a>: a CSS <code>linear-gradient()</code> is not SVG paint
       and renders black with no diagnostic; a horizontal or vertical straight edge stroked with an
       <code>objectBoundingBox</code> gradient disappears, so stroke tokens need
       <code>userSpaceOnUse</code>, whose coordinates are the diagram's, not each edge's direction;
