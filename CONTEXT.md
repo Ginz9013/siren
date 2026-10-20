@@ -229,6 +229,16 @@ diagram's note redeclares `--siren-node-fill`, `--siren-node-stroke` and `--sire
 the values they have at the diagram's `<svg>` (see **Token reach**), so a palette that recolours
 nodes recolours state notes with them, but recolouring the notes alone takes a redeclaration on
 the note's own parts, `.siren-note-frame` and `.siren-note-text`.
+**A color token may name a paint server, not only a color.** A consumer can set one to `url(#id)`
+pointing at a `<linearGradient>`, `<radialGradient>` or `<pattern>` on their own page, and the
+diagram paints with it. That holds only because the theme never computes with a color token: it
+hands the value to `fill` or `stroke` whole, or carries it whole into another `--siren-*` or
+`--_siren-*` property, so the paint server reaches SVG paint untouched; one `color-mix()` around a
+token would turn every gradient black without a word (decision `01M5D5ZQQM84YNK3FJ1NE1G2S8`).
+`--siren-highlight-color` is the exception and must stay a color, because the highlight glow also
+uses it as the color of a `drop-shadow()`. Redeclaring a gradient on one target follows
+**Token reach**; the limits a consumer meets (CSS gradients paint black, a straight edge needs
+`userSpaceOnUse`) are in the README. `theme/paint-tokens.test.ts` holds the theme to this.
 **One token's reach narrowed when a flowchart node stopped being only a rectangle, and it narrowed
 for two different reasons.** `--siren-node-border-radius` is declared once, as `rx` on
 `.siren-node-frame`, and it now reaches exactly two of the fourteen node **shapes**: the

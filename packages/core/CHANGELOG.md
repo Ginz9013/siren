@@ -8,6 +8,14 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- A colour token can hold `url(#id)`, pointing at a `<linearGradient>`, `<radialGradient>` or
+  `<pattern>` the page defines, and the diagram paints with it. This is now a documented contract
+  guarded by `theme/paint-tokens.test.ts`; the README's **Gradients and patterns** lists its
+  limits, and `demos/gradient-tokens.html` shows it. `--siren-highlight-color` is the exception and
+  must stay a colour, because the glow uses it inside `drop-shadow()`.
+
 ## [0.7.0] - 2026-10-20
 
 Breaking for a flowchart `style`, `classDef` or `linkStyle` whose value uses a CSS function —

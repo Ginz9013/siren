@@ -542,6 +542,60 @@ highlight, with the line. Safari does not support `context-stroke` (MDN's browse
 data; Chrome and Edge have it from 124, Firefox from 111): there the arrowhead keeps the edge color
 set on the container, or the author's.
 
+#### Gradients and patterns
+
+A color token reaches SVG paint (`fill` and `stroke`), so it takes what SVG paint takes — a color,
+or `url(#id)` pointing at a `<linearGradient>`, `<radialGradient>` or `<pattern>` on your page. Put
+the paint server in a zero-size `<svg>` of your own and point the token at it:
+
+```html
+<svg width="0" height="0" aria-hidden="true">
+  <defs>
+    <linearGradient id="node-paint" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fef3c7" />
+      <stop offset="1" stop-color="#fbcfe8" />
+    </linearGradient>
+    <linearGradient id="edge-paint" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="600" y2="0">
+      <stop offset="0" stop-color="#d97706" />
+      <stop offset="1" stop-color="#db2777" />
+    </linearGradient>
+  </defs>
+</svg>
+```
+
+```css
+:root {
+  --siren-node-fill: url(#node-paint);
+  --siren-edge-stroke: url(#edge-paint);
+}
+```
+
+Every color token in the Colors and Label paint rows can hold one except
+`--siren-highlight-color`, which must stay a color: the highlight glow wraps it in
+`filter: drop-shadow()`, and a `url()` there drops the whole filter, so the glow silently
+disappears. Redeclaring one target works as above
+(`[data-siren-id="A"] { --siren-node-fill: url(#other); }`). Know the limits before you reach for
+it:
+
+- A CSS gradient is not SVG paint. `--siren-node-fill: linear-gradient(...)` paints black, and
+  nothing reports it.
+- A gradient's default `gradientUnits="objectBoundingBox"` does nothing on an element with zero
+  width or height, so a straight horizontal or vertical edge vanishes with its arrowhead. Give
+  anything painted on a line — `--siren-edge-stroke`, and `--siren-node-stroke` where it strokes
+  a straight line — `gradientUnits="userSpaceOnUse"`. Its coordinates are the diagram's, not
+  each edge's own direction. A node fill can keep the default, which stretches across each node.
+- A flowchart arrowhead is painted with `context-stroke`, so it takes the edge's gradient.
+  Safari has no `context-stroke`, and there the arrowhead keeps its usual fallback.
+- The highlight cannot fade between a paint server and a color; its stroke changes in one step.
+- The `<defs>` live on your page, not in the diagram's `<svg>`: an SVG copied or serialized on its
+  own loses the gradient.
+- Keeping the gradient's `id` unique on the page is yours. Siren's own ids carry a per-render
+  suffix, so they will not collide with it.
+
+The repo's
+[`demos/gradient-tokens.html`](https://github.com/Ginz9013/siren/blob/main/demos/gradient-tokens.html)
+is a node gradient and an edge gradient done this way, ready to copy.
+
 ## Mermaid compatibility
 
 Siren follows one rule: **a document that renders in Mermaid must render here.**
