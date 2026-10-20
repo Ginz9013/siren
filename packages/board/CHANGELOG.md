@@ -8,6 +8,17 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- `board.fullscreen`, `board.setFullscreen(on)` and `BoardOptions.onFullscreenChange(on)`, shaped
+  like `fullDiagram`, `setFullDiagram` and `onFullDiagramChange`. The board's container goes
+  fullscreen through the Fullscreen API; where that is unavailable or refused (iPhone Safari, an
+  iframe without `allowfullscreen`), it fills the browser window instead, and Escape leaves it.
+  Both are `fullscreen === true`; which one is in use is not exposed. Switching keeps the view, the
+  step, playback and the full diagram, and does not re-render. Both draw the board on
+  `--siren-board-surface` (nook decision `01M5D3SBB`).
+- The built-in bar has a Fullscreen button after Reset view, pressed while fullscreen is on.
+
 ## [0.7.0] - 2026-10-20
 
 Requires `siren-core` ^0.7.0. Diagrams look different, and documents siren-core now refuses are
