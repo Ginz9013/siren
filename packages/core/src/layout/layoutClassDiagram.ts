@@ -523,9 +523,7 @@ export function layoutClassDiagram(
         to: rel.to,
         // A labelled relationship asks the core to keep its ranks far enough
         // apart for the text, and reports back where that space ended up.
-        ...(rel.label === null
-          ? {}
-          : { label: connectors.wrappedById.get(rel.id)!.labelBox }),
+        ...(rel.label === null ? {} : { label: connectors.labelBoxOf(rel.id) }),
         // The radius the line hops keep clear of: the connector is drawn
         // rounded (`CONNECTOR_CURVE`).
         cornerRadius: CONNECTOR_CORNER_RADIUS,

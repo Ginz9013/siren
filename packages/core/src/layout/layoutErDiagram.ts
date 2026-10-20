@@ -363,7 +363,7 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
         // required — so the core is always asked to keep room for one on the
         // line, and it reports back where that room ended up. Sized from
         // every row of the label (ADR-0015).
-        label: connectors.wrappedById.get(relationship.id)!.labelBox,
+        label: connectors.labelBoxOf(relationship.id),
         // The radius the line hops keep clear of: a relationship is drawn
         // rounded (`CONNECTOR_CURVE`).
         cornerRadius: CONNECTOR_CORNER_RADIUS,

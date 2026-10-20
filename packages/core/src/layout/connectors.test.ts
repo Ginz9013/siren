@@ -40,7 +40,7 @@ describe("placeConnectors — the wrap phase, before the core", () => {
     const no = plainLabel("no");
     const { calls, wrap } = spyWrap();
 
-    const { wrappedById } = placeConnectors(
+    const placement = placeConnectors(
       [
         { id: "a-b", from: "a", to: "b", label: yes },
         { id: "b-c", from: "b", to: "c", label: no },
@@ -50,25 +50,25 @@ describe("placeConnectors — the wrap phase, before the core", () => {
     );
 
     expect(calls).toEqual([yes, no]);
-    expect(wrappedById.get("a-b")).toEqual(cannedWrap(yes));
-    expect(wrappedById.get("b-c")).toEqual(cannedWrap(no));
+    expect(placement.labelBoxOf("a-b")).toEqual(cannedWrap(yes).labelBox);
+    expect(placement.labelBoxOf("b-c")).toEqual(cannedWrap(no).labelBox);
   });
 
   it("wraps at the connector width, 150px, unless handed another wrap", () => {
     // Long enough that the 150px and ER ≈171.43px widths break it differently.
     const long = plainLabel("aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj");
 
-    const { wrappedById } = placeConnectors([{ id: "a-b", from: "a", to: "b", label: long }], fakeMeasurer);
+    const placement = placeConnectors([{ id: "a-b", from: "a", to: "b", label: long }], fakeMeasurer);
 
-    expect(wrappedById.get("a-b")).toEqual(wrapConnectorLabel(long, fakeMeasurer));
-    expect(wrappedById.get("a-b")).not.toEqual(wrapErRelationshipLabel(long, fakeMeasurer));
+    expect(placement.labelBoxOf("a-b")).toEqual(wrapConnectorLabel(long, fakeMeasurer).labelBox);
+    expect(placement.labelBoxOf("a-b")).not.toEqual(wrapErRelationshipLabel(long, fakeMeasurer).labelBox);
   });
 
   it("leaves an unlabelled connector unwrapped", () => {
     const yes = plainLabel("yes");
     const { calls, wrap } = spyWrap();
 
-    const { wrappedById } = placeConnectors(
+    placeConnectors(
       [
         { id: "a-b", from: "a", to: "b", label: null },
         { id: "b-c", from: "b", to: "c", label: yes },
@@ -78,7 +78,22 @@ describe("placeConnectors — the wrap phase, before the core", () => {
     );
 
     expect(calls).toEqual([yes]);
-    expect(wrappedById.has("a-b")).toBe(false);
+  });
+
+  it("answers the box it wrapped for a labelled connector, and none for an unlabelled one", () => {
+    const yes = plainLabel("yes");
+
+    const placement = placeConnectors(
+      [
+        { id: "a-b", from: "a", to: "b", label: null },
+        { id: "b-c", from: "b", to: "c", label: yes },
+      ],
+      fakeMeasurer,
+      spyWrap().wrap,
+    );
+
+    expect(placement.labelBoxOf("b-c")).toEqual(cannedWrap(yes).labelBox);
+    expect(placement.labelBoxOf("a-b")).toBeUndefined();
   });
 });
 
@@ -102,14 +117,15 @@ describe("placeConnectors — the place phase, after the core", () => {
       { x: 10, y: 60 },
       { x: 40, y: 60 },
     ];
-    const placement = placeConnectors(
-      [{ id: "a-b", from: "a", to: "b", label: yes }],
-      fakeMeasurer,
-      spyWrap().wrap,
-    );
+    const { calls, wrap } = spyWrap();
+    const placement = placeConnectors([{ id: "a-b", from: "a", to: "b", label: yes }], fakeMeasurer, wrap);
 
     const placed = placement.place(new Map([["a-b", route({ points, labelAnchor: { x: 10, y: 40 } })]]));
 
+    // `place` reuses the label wrapped before the core and never wraps again:
+    // a second wrap could break the rows differently from the box the core
+    // kept clear.
+    expect(calls).toEqual([yes]);
     expect(placed).toEqual([
       {
         id: "a-b",

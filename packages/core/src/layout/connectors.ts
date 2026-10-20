@@ -1,4 +1,20 @@
-import type { Label, PlacedConnector, TextMeasurer } from "../contracts";
+/**
+ * What the adapters over the shared layout core (`layoutDirectedGraph`) do
+ * alike with a connector — a flowchart edge, a class relationship, a state
+ * transition, an ER relationship: wrap and measure its label once, before the
+ * core, so the box the core keeps clear on the line is the box the renderer
+ * draws in; then, after the core, re-attach the route, its line hops and the
+ * label placed at the anchor the core reserved.
+ *
+ * Shared because the four adapters each kept a copy of these two steps, and
+ * what comes out of them is one record, `PlacedConnector`, every kind's
+ * connector extends (nook decision `01M5D99KNB4R5FVDRWCG902ZAC`). The wrap
+ * function is a parameter because it is the one thing that differs: an ER
+ * relationship wraps at 200 × 12/14 ≈ 171.43px (`wrapErRelationshipLabel`),
+ * the others at 150px (`wrapConnectorLabel`) — the label-wrap ADR, nook
+ * `01M4R4WDZ`, as amended.
+ */
+import type { Label, LabelBox, PlacedConnector, PlacedLabel, Point, TextMeasurer } from "../contracts";
 import { type WrappedLabel, wrapConnectorLabel } from "../label/wrapLabel";
 import type { DirectedGraphEdgeRoute } from "./layoutDirectedGraph";
 
@@ -23,13 +39,14 @@ export type ConnectorLabelWrap = (label: Label, measureText: TextMeasurer) => Wr
 /** What `placeConnectors` answers: each label wrapped, and the step that places them once the core has routed them. */
 export interface ConnectorPlacement {
   /**
-   * Each labelled connector's label, wrapped and measured, by the
-   * connector's id; an unlabelled connector has no entry. Its `labelBox` is
-   * the size the adapter hands `layoutDirectedGraph` as the edge's label, so
-   * the box the core keeps clear and the box the renderer draws in are the
-   * same box, and the rows drawn are the wrapped label's.
+   * The box a connector's label was wrapped and measured to, by the
+   * connector's id; `undefined` for an unlabelled connector. It is the size
+   * the adapter hands `layoutDirectedGraph` as the core edge's label (the
+   * `DirectedGraphEdge` it builds for the connector), so the box the core
+   * keeps clear and the box the renderer draws in are the same box, and the
+   * rows drawn are the wrapped label's.
    */
-  wrappedById: ReadonlyMap<string, WrappedLabel>;
+  labelBoxOf(id: string): LabelBox | undefined;
   /**
    * Places every connector on the route the core gave it, by id: one
    * `PlacedConnector` per item, in the items' order. A connector with no
@@ -67,7 +84,7 @@ export function placeConnectors(
     items.flatMap((item) => (item.label === null ? [] : [[item.id, wrap(item.label, measureText)] as const])),
   );
   return {
-    wrappedById,
+    labelBoxOf: (id) => wrappedById.get(id)?.labelBox,
     place: (routeById) =>
       items.map((item) => {
         const route = routeById.get(item.id);
@@ -81,10 +98,22 @@ export function placeConnectors(
           points: route.points,
           hops: route.hops,
           label:
-            item.label === null || route.labelAnchor === undefined
-              ? null
-              : { ...wrappedById.get(item.id)!, anchor: route.labelAnchor },
+            item.label === null || route.labelAnchor === undefined ? null : placedLabel(item.id, route.labelAnchor),
         };
       }),
   };
+
+  /**
+   * A labelled connector's wrapped label at the anchor the core reserved.
+   * Every labelled item was wrapped above, by this same placement, so a
+   * missing entry is a programmer error and throws rather than placing
+   * nothing.
+   */
+  function placedLabel(id: string, anchor: Point): PlacedLabel {
+    const wrapped = wrappedById.get(id);
+    if (wrapped === undefined) {
+      throw new Error(`placeConnectors: no wrapped label for labelled connector ${id}`);
+    }
+    return { ...wrapped, anchor };
+  }
 }

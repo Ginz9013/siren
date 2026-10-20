@@ -239,9 +239,7 @@ export function layoutStateDiagram(
     to: transition.to,
     // A labelled transition asks the core to keep room for the text on the
     // line, and reports back where that room ended up.
-    ...(transition.label === null
-      ? {}
-      : { label: connectors.wrappedById.get(transition.id)!.labelBox }),
+    ...(transition.label === null ? {} : { label: connectors.labelBoxOf(transition.id) }),
     // The radius the line hops keep clear of: a transition is drawn rounded
     // (`CONNECTOR_CURVE`).
     cornerRadius: CONNECTOR_CORNER_RADIUS,

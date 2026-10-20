@@ -169,7 +169,7 @@ export function layoutGraph(
       // renderer: the core keeps this much room on the line and reports
       // where it put it. Measured with `options.measureText`, the one
       // measurer every other piece of text in this pipeline goes through.
-      ...(edge.label === null ? {} : { label: connectors.wrappedById.get(edge.id)!.labelBox }),
+      ...(edge.label === null ? {} : { label: connectors.labelBoxOf(edge.id) }),
       // How the renderer will draw the edge's corners, which the line hops
       // keep clear of: the radius of the curve it will be drawn with (the
       // flowchart's default unless an `interpolate` chose another), absent
