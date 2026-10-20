@@ -19,6 +19,11 @@ While the version is 0.x, a minor release may contain breaking changes.
   `--siren-board-surface` (nook decision `01M5D3SBB`).
 - The built-in bar has a Fullscreen button after Reset view, pressed while fullscreen is on.
 
+### Changed
+
+- The built-in bar's Reset view button draws Lucide `locate` in place of `scan`, whose four
+  corners looked like the new Fullscreen button beside it.
+
 ## [0.7.0] - 2026-10-20
 
 Requires `siren-core` ^0.7.0. Diagrams look different, and documents siren-core now refuses are

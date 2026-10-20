@@ -70,12 +70,17 @@ const ICONS = {
   ],
   /** Lucide `chevron-up` — every dropdown trigger's: its listbox opens upward. */
   chevronUp: ["m18 15-6-6-6 6"],
-  /** Lucide `scan` */
+  /**
+   * Lucide `locate` — its `<line>`s and `<circle>` redrawn as paths, like
+   * `image` above. Not `scan`, whose four corners read as Fullscreen's
+   * `maximize` beside it.
+   */
   resetView: [
-    "M3 7V5a2 2 0 0 1 2-2h2",
-    "M17 3h2a2 2 0 0 1 2 2v2",
-    "M21 17v2a2 2 0 0 1-2 2h-2",
-    "M7 21H5a2 2 0 0 1-2-2v-2",
+    "M2 12h3",
+    "M19 12h3",
+    "M12 2v3",
+    "M12 19v3",
+    "M5 12a7 7 0 1 0 14 0a7 7 0 1 0 -14 0",
   ],
   /**
    * Lucide `maximize` — the Fullscreen button's icon while off: corners
