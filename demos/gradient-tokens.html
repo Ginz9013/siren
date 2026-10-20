@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Siren — gradient colour tokens demo</title>
+    <link rel="stylesheet" href="../packages/core/src/theme/default.css" />
+    <link rel="stylesheet" href="./demo-chrome.css" />
+    <style>
+      /*
+        Everything a page needs to give a diagram gradients is in this block
+        and the <svg> of <defs> below — no Siren option, no renderer change.
+        A colour token ends up as an SVG `fill` or `stroke`, and SVG paint
+        accepts `url(#id)` pointing at a paint server on the same page.
+
+        Nodes: the default objectBoundingBox units, so each node frame
+        stretches the gradient across its own box.
+      */
+      #siren-container {
+        --siren-node-fill: url(#demo-node-gradient);
+        /*
+          Edges: userSpaceOnUse, in the diagram's own coordinates. The
+          default objectBoundingBox is undefined on an element whose box has
+          zero width or height, so a horizontal or vertical straight edge
+          would vanish — arrowhead included. The arrowhead is painted with
+          context-stroke, so it takes the same gradient (Chrome; Safari keeps
+          its fallback colour).
+        */
+        --siren-edge-stroke: url(#demo-edge-gradient);
+        /* --siren-highlight-color stays a colour: the glow puts it in drop-shadow(). */
+      }
+
+      /* Token reach: one node re-declared on its own. */
+      #siren-container [data-siren-id="Render"] {
+        --siren-node-fill: url(#demo-accent-gradient);
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      The paint servers live on the page, not inside the diagram's <svg>.
+      A zero-size svg keeps them out of the layout while staying in the
+      document, where url(#id) can reach them. The ids are the page's to
+      keep unique; Siren's own ids carry an Id scope suffix, so they cannot
+      collide with these.
+    -->
+    <svg width="0" height="0" aria-hidden="true" style="position: absolute">
+      <defs>
+        <linearGradient id="demo-node-gradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#e0f2fe" />
+          <stop offset="100%" stop-color="#a5b4fc" />
+        </linearGradient>
+        <linearGradient id="demo-accent-gradient" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#fde68a" />
+          <stop offset="100%" stop-color="#f472b6" />
+        </linearGradient>
+        <linearGradient
+          id="demo-edge-gradient"
+          gradientUnits="userSpaceOnUse"
+          x1="0"
+          y1="0"
+          x2="780"
+          y2="0"
+        >
+          <stop offset="0%" stop-color="#0ea5e9" />
+          <stop offset="100%" stop-color="#d946ef" />
+        </linearGradient>
+      </defs>
+    </svg>
+
+    <div class="page-header">
+      <h1>Siren gradient colour tokens</h1>
+    </div>
+    <p class="intro">
+      A colour token such as <code>--siren-node-fill</code> or <code>--siren-edge-stroke</code>
+      can hold <code>url(#id)</code> pointing at a <code>&lt;linearGradient&gt;</code>,
+      <code>&lt;radialGradient&gt;</code> or <code>&lt;pattern&gt;</code> the page puts in its own
+      <code>&lt;defs&gt;</code>. View source: the whole recipe is one <code>&lt;style&gt;</code> block and
+      one zero-size <code>&lt;svg&gt;</code>. The node fills use the default
+      <code>objectBoundingBox</code> units; the edges use <code>userSpaceOnUse</code>, which is why
+      the straight horizontal edges below stay visible, arrowheads and all. <code>Render</code> is
+      re-gradiented on its own through <code>[data-siren-id="Render"]</code>.
+    </p>
+    <p class="intro">
+      Limits, spelled out in README › Theming: a CSS <code>linear-gradient()</code> is not SVG paint
+      and renders black with no diagnostic; a horizontal or vertical straight edge stroked with an
+      <code>objectBoundingBox</code> gradient disappears, so stroke tokens need
+      <code>userSpaceOnUse</code>, whose coordinates are the diagram's, not each edge's direction;
+      arrowheads follow the gradient through <code>context-stroke</code>, which Safari lacks;
+      the highlight's stroke transition cannot interpolate between a paint server and a colour, so
+      it switches instantly; an SVG copied out of the page loses the gradients, because the
+      <code>&lt;defs&gt;</code> stay behind; and the page keeps its gradient ids unique.
+      <code>--siren-highlight-color</code> must stay a colour — the glow uses it inside
+      <code>drop-shadow()</code>.
+    </p>
+
+    <p class="status" id="status">Loading…</p>
+
+    <div id="siren-container"></div>
+
+    <!--
+      Inline source rather than an examples/*.srn file: the document exists
+      only to carry the gradients. Run `pnpm -r build` first —
+      packages/board/dist is not version-controlled — and serve the repo
+      over http(s): Chrome blocks module imports from file://.
+    -->
+    <script type="module">
+      import { createBoard } from "../packages/board/dist/siren-board.js";
+
+      const source = [
+        "flowchart LR",
+        "Source[Source] --> Parse[Parse]",
+        "Parse --> Resolve[Resolve]",
+        "Resolve --> Layout[Layout]",
+        "Layout --> Render[Render]",
+        "Render --> Output[Output]",
+      ].join("\n");
+
+      const container = document.getElementById("siren-container");
+      const statusEl = document.getElementById("status");
+
+      let failed = false;
+      createBoard(container, {
+        source,
+        controls: false,
+        onDiagnostics: (diagnostics) => {
+          for (const diagnostic of diagnostics) {
+            console.warn(`[siren] ${diagnostic.severity}: ${diagnostic.message}`);
+          }
+          failed = diagnostics.length > 0;
+        },
+      });
+
+      const svg = container.querySelector("svg");
+      if (svg === null || failed) {
+        statusEl.textContent = "Render failed — see console diagnostics.";
+      } else {
+        const count = (selector) => svg.querySelectorAll(selector).length;
+        statusEl.textContent = `${count("g.siren-node")} nodes and ${count("path.siren-edge")} edges, painted from page-level gradients.`;
+      }
+    </script>
+  </body>
+</html>
