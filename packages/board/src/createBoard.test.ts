@@ -166,7 +166,7 @@ note for B "n"
     expect(() => board.destroy()).not.toThrow();
   });
 
-  it("renders a default Prev/Play/Next/step counter/Reset/Play interval/Full diagram/Reset view control bar unless controls: false is passed", () => {
+  it("renders a default Prev/Play/Next/step counter/Reset/Play interval/Full diagram/Reset view/Fullscreen control bar unless controls: false is passed", () => {
     const container = document.createElement("div");
 
     createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
@@ -184,6 +184,7 @@ note for B "n"
       "div siren-board-controls__dropdown siren-board-controls__interval",
       "button Full diagram",
       "button Reset view",
+      "button Fullscreen",
     ]);
     // The interval dropdown's wrapper holds its trigger, which names it.
     const interval = bar.querySelector(".siren-board-controls__interval")!;
@@ -191,7 +192,7 @@ note for B "n"
     expect(interval.firstElementChild?.getAttribute("aria-label")).toBe("Play interval");
     // The icon-only buttons; the interval trigger shows its value as text.
     const buttons = Array.from(bar.querySelectorAll<HTMLButtonElement>(":scope > button"));
-    const labels = ["Prev", "Play", "Next", "Reset", "Full diagram", "Reset view"];
+    const labels = ["Prev", "Play", "Next", "Reset", "Full diagram", "Reset view", "Fullscreen"];
     expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(labels);
     expect(buttons.map((b) => b.title)).toEqual(labels);
     for (const button of buttons) {
@@ -2701,7 +2702,7 @@ highlight A outline
 
         expect(
           Array.from(bar.children).map((c) => c.getAttribute("aria-label") ?? c.firstElementChild?.getAttribute("aria-label") ?? null),
-        ).toEqual(["Prev", "Play", "Next", null, "Reset", "Timeline", "Play interval", "Full diagram", "Reset view"]);
+        ).toEqual(["Prev", "Play", "Next", null, "Reset", "Timeline", "Play interval", "Full diagram", "Reset view", "Fullscreen"]);
         const timeline = trigger(container)!;
         expect(timeline.getAttribute("aria-haspopup")).toBe("listbox");
         expect(timeline.textContent).toBe("card");
@@ -3752,6 +3753,150 @@ enter C fade
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    describe("the built-in bar's Fullscreen button", () => {
+      it("is the bar's last control: a plain icon button named Fullscreen, like the others", () => {
+        const container = document.createElement("div");
+        createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+        const bar = container.querySelector(".siren-board-controls")!;
+
+        const last = bar.lastElementChild as HTMLButtonElement;
+        expect(last.tagName).toBe("BUTTON");
+        expect(last.getAttribute("aria-label")).toBe("Fullscreen");
+        expect(last.title).toBe("Fullscreen");
+        expect(last.type).toBe("button");
+        expect(last.className).toBe(button(container, "Reset view").className);
+      });
+
+      it("one click turns fullscreen on (the fill, in jsdom), and a second turns it off", () => {
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+
+        button(container, "Fullscreen").click();
+        expect(board.fullscreen).toBe(true);
+
+        button(container, "Fullscreen").click();
+        expect(board.fullscreen).toBe(false);
+      });
+
+      it("is pressed exactly while fullscreen is on, whether a click, code or Esc in the fill turns it", () => {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+        const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+        const pressed = () => button(container, "Fullscreen").getAttribute("aria-pressed");
+        try {
+          expect(pressed()).toBe("false");
+
+          button(container, "Fullscreen").click();
+          expect(pressed()).toBe("true");
+
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+          expect(board.fullscreen).toBe(false); // sanity
+          expect(pressed()).toBe("false");
+
+          board.setFullscreen(true);
+          expect(pressed()).toBe("true");
+
+          board.setFullscreen(false);
+          expect(pressed()).toBe("false");
+        } finally {
+          board.destroy();
+          container.remove();
+        }
+      });
+
+      it("follows the screen too: pressed when fullscreenchange gives the container the screen, released when it leaves", async () => {
+        const container = document.createElement("div");
+        const api = stubFullscreenApi(container);
+        const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+        const pressed = () => button(container, "Fullscreen").getAttribute("aria-pressed");
+
+        button(container, "Fullscreen").click();
+        await flush();
+        expect(pressed()).toBe("false"); // asked, not yet granted
+
+        api.enter();
+        expect(pressed()).toBe("true");
+
+        api.leave(); // as the browser does on Esc
+        expect(board.fullscreen).toBe(false); // sanity
+        expect(pressed()).toBe("false");
+        board.destroy();
+      });
+
+      /** Lucide `maximize`'s paths: corners pushed out. */
+      const MAXIMIZE = [
+        "M8 3H5a2 2 0 0 0-2 2v3",
+        "M21 8V5a2 2 0 0 0-2-2h-3",
+        "M3 16v3a2 2 0 0 0 2 2h3",
+        "M16 21h3a2 2 0 0 0 2-2v-3",
+      ];
+      /** Lucide `minimize`'s paths: corners pulled in. */
+      const MINIMIZE = [
+        "M8 3v3a2 2 0 0 1-2 2H3",
+        "M21 8h-3a2 2 0 0 1-2-2V3",
+        "M3 16h3a2 2 0 0 1 2 2v3",
+        "M16 21v-3a2 2 0 0 1 2-2h3",
+      ];
+
+      it("shows the icon of what a click does — maximize while off, minimize while on — and swaps it on every turn, from the bar, code or the screen", async () => {
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+        const icon = () =>
+          Array.from(button(container, "Fullscreen").querySelectorAll("svg path")).map((p) => p.getAttribute("d"));
+        expect(icon()).toEqual(MAXIMIZE);
+
+        button(container, "Fullscreen").click();
+        expect(icon()).toEqual(MINIMIZE);
+
+        board.setFullscreen(false);
+        expect(icon()).toEqual(MAXIMIZE);
+        expect(button(container, "Fullscreen").querySelectorAll("svg")).toHaveLength(1);
+        board.destroy();
+
+        const screenContainer = document.createElement("div");
+        const api = stubFullscreenApi(screenContainer);
+        const screenBoard = createBoard(screenContainer, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+        const screenIcon = () =>
+          Array.from(button(screenContainer, "Fullscreen").querySelectorAll("svg path")).map((p) => p.getAttribute("d"));
+        screenBoard.setFullscreen(true);
+        await flush();
+        api.enter();
+        expect(screenIcon()).toEqual(MINIMIZE);
+        api.leave();
+        expect(screenIcon()).toEqual(MAXIMIZE);
+        screenBoard.destroy();
+      });
+
+      it("is never disabled: not in the full diagram, not with no steps, not while playing, and a click works in each", () => {
+        vi.useFakeTimers();
+        try {
+          const container = document.createElement("div");
+          const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+          const fullscreenButton = () => button(container, "Fullscreen");
+
+          board.play();
+          expect(fullscreenButton().disabled).toBe(false);
+          fullscreenButton().click();
+          expect(board.fullscreen).toBe(true);
+          board.pause();
+
+          board.setFullDiagram(true);
+          expect(fullscreenButton().disabled).toBe(false);
+          fullscreenButton().click();
+          expect(board.fullscreen).toBe(false);
+
+          board.setFullDiagram(false);
+          board.setSource(VALID_SOURCE); // no timeline: 0 / 0
+          expect(fullscreenButton().disabled).toBe(false);
+          fullscreenButton().click();
+          expect(board.fullscreen).toBe(true);
+          board.destroy();
+        } finally {
+          vi.useRealTimers();
+        }
+      });
     });
   });
 });

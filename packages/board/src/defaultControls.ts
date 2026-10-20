@@ -77,13 +77,30 @@ const ICONS = {
     "M21 17v2a2 2 0 0 1-2 2h-2",
     "M7 21H5a2 2 0 0 1-2-2v-2",
   ],
+  /**
+   * Lucide `maximize` — the Fullscreen button's icon while off: corners
+   * pushed out, which is what a click does.
+   */
+  maximize: [
+    "M8 3H5a2 2 0 0 0-2 2v3",
+    "M21 8V5a2 2 0 0 0-2-2h-3",
+    "M3 16v3a2 2 0 0 0 2 2h3",
+    "M16 21h3a2 2 0 0 0 2-2v-3",
+  ],
+  /** Lucide `minimize` — the same button's icon while on: corners pulled in, back to the page. */
+  minimize: [
+    "M8 3v3a2 2 0 0 1-2 2H3",
+    "M21 8h-3a2 2 0 0 1-2-2V3",
+    "M3 16h3a2 2 0 0 1 2 2v3",
+    "M16 21v-3a2 2 0 0 1 2-2h3",
+  ],
 } satisfies Record<string, string[]>;
 
 /**
  * Board's built-in Prev/Play/Next/step counter/Reset/Timeline/Play
- * interval/Full diagram/Reset view control bar — the default value of
- * `BoardOptions.controls`. Its buttons are icon-only; each carries its name as
- * `aria-label` and `title` instead of visible text. The two dropdowns'
+ * interval/Full diagram/Reset view/Fullscreen control bar — the default
+ * value of `BoardOptions.controls`. Its buttons are icon-only; each carries
+ * its name as `aria-label` and `title` instead of visible text. The two dropdowns'
  * triggers carry their names as `aria-label` too, but show the current value
  * as text, and open a listbox directly above themselves rather than leaving a
  * native select's list to the OS, which places it above or below at will. The
@@ -112,6 +129,9 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     board.setFullDiagram(!board.fullDiagram);
   });
   const resetView = makeButton("Reset view", ICONS.resetView, () => board.resetView());
+  const fullscreen = makeButton("Fullscreen", ICONS.maximize, () => {
+    board.setFullscreen(!board.fullscreen);
+  });
   const intervalDropdown = createDropdown<number>({
     label: INTERVAL_LABEL,
     className: INTERVAL_CLASS,
@@ -128,7 +148,7 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
   });
   const stepCounter = document.createElement("span");
   stepCounter.className = STEP_CLASS;
-  bar.append(prev, play, next, stepCounter, reset, intervalDropdown.element, fullDiagram, resetView);
+  bar.append(prev, play, next, stepCounter, reset, intervalDropdown.element, fullDiagram, resetView, fullscreen);
   /** The bar's dropdowns, whose open listbox counts as focus on their trigger. */
   const dropdowns = [intervalDropdown, timelineDropdown];
   /**
@@ -144,18 +164,21 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
 
   /**
    * Mirrors `board.playing`, `board.timelines` and `board.timeline`,
-   * `board.playInterval`, `board.fullDiagram` and the controller's
-   * `currentStep / totalSteps` onto the bar. A step button that would do
-   * nothing is disabled rather than left clickable: Prev and
-   * Reset on step 0, Next on the last step, and all three in the full diagram
+   * `board.playInterval`, `board.fullDiagram`, `board.fullscreen` and the
+   * controller's `currentStep / totalSteps` onto the bar. A step button that
+   * would do nothing is disabled rather than left clickable: Prev and Reset
+   * on step 0, Next on the last step, and all three in the full diagram
    * or with no steps. Play and the interval trigger are disabled whenever there
    * is nothing to play (the full diagram, or no steps), but Play stays on the
    * last step, where it replays from step 0. The timeline trigger is disabled
    * in the full diagram, leaving Full diagram the one way back to a timeline
    * (code may still call `board.setTimeline` there). Reset view stays, since
-   * pan/zoom works on any drawing. A control holding focus as it is disabled
-   * hands it on first (see `handoff`), so a change made from code never drops
-   * a keyboard reader's focus to the page, and a disabled dropdown closes.
+   * pan/zoom works on any drawing, and so does Fullscreen, which is
+   * independent of the drawing, its step and playback; its pressed state and
+   * icon follow `board.fullscreen` however it turns — the button, code, Esc
+   * in the fill, or the browser leaving the screen. A control holding focus
+   * as it is disabled hands it on first (see `handoff`), so a change made
+   * from code never drops a keyboard reader's focus to the page, and a disabled dropdown closes.
    */
   function update(): void {
     play.setAttribute("aria-pressed", String(board.playing));
@@ -168,6 +191,9 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     // Here too the icon names what a click switches to; the pressed state,
     // not the icon, says which drawing is showing now.
     fullDiagram.replaceChildren(makeIcon(board.fullDiagram ? ICONS.timeline : ICONS.fullDiagram));
+    fullscreen.setAttribute("aria-pressed", String(board.fullscreen));
+    // And again: maximize while off, minimize while on.
+    fullscreen.replaceChildren(makeIcon(board.fullscreen ? ICONS.minimize : ICONS.maximize));
     // The full diagram's controller has no steps, and before the first
     // render there is no controller: both read 0 / 0.
     const currentStep = board.controller?.currentStep ?? 0;
