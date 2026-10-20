@@ -184,4 +184,22 @@ describe("board chrome's control bar states", () => {
     expect(step).toMatch(/font-variant-numeric:\s*tabular-nums/);
     expect(step).toContain("var(--siren-board-text)");
   });
+
+  it("gives the board its own surface on the screen and in the window fill, and lifts the fill over the page", () => {
+    // Without a background a fullscreen element shows the browser's black
+    // backdrop through the diagram's gaps. Read as text: a computed style
+    // cannot put jsdom into the :fullscreen state.
+    const css = injectedChromeCss();
+
+    const screen = ruleBody(css, ".siren-board:fullscreen");
+    expect(screen).toBeDefined();
+    expect(screen).toMatch(/background:\s*var\(--siren-board-surface\)/);
+
+    const fill = ruleBody(css, ".siren-board--fill");
+    expect(fill).toBeDefined();
+    expect(fill).toMatch(/background:\s*var\(--siren-board-surface\)/);
+    expect(fill).toMatch(/position:\s*fixed/);
+    expect(fill).toMatch(/inset:\s*0/);
+    expect(fill).toMatch(/z-index:\s*2147483647/);
+  });
 });

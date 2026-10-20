@@ -3376,4 +3376,382 @@ enter C fade
       expect(drawnA(container)).toEqual(["stroke:#c00;stroke-width:4px", "fill:#fff"]);
     });
   });
+
+  describe("fullscreen", () => {
+    /** Two steps, so a step shown before a switch can be told from step 0. */
+    const TWO_STEP_SOURCE = `flowchart TD
+A[Start] --> B[Middle]
+B --> C[End]
+timeline:
+enter B fade
+enter C fade
+`;
+
+    /** The document properties a test's Fullscreen API stub defines, put back as they were after it. */
+    const STUBBED = ["fullscreenEnabled", "fullscreenElement", "exitFullscreen"] as const;
+    let saved: (PropertyDescriptor | undefined)[] = [];
+
+    beforeEach(() => {
+      saved = STUBBED.map((key) => Object.getOwnPropertyDescriptor(document, key));
+    });
+
+    afterEach(() => {
+      STUBBED.forEach((key, i) => {
+        const descriptor = saved[i];
+        if (descriptor === undefined) delete (document as unknown as Record<string, unknown>)[key];
+        else Object.defineProperty(document, key, descriptor);
+      });
+    });
+
+    /**
+     * Stands in for the browser's Fullscreen API, which jsdom lacks: the
+     * container's `requestFullscreen` answers with `request()`, and
+     * `enter()`/`leave()` play the browser's part — set
+     * `document.fullscreenElement`, then fire `fullscreenchange`.
+     */
+    function stubFullscreenApi(
+      container: HTMLElement,
+      { enabled = true, request = () => Promise.resolve() }: { enabled?: boolean; request?: () => Promise<void> } = {},
+    ) {
+      let element: Element | null = null;
+      const requests: number[] = [];
+      let exits = 0;
+      Object.defineProperty(document, "fullscreenEnabled", { configurable: true, get: () => enabled });
+      Object.defineProperty(document, "fullscreenElement", { configurable: true, get: () => element });
+      Object.defineProperty(document, "exitFullscreen", {
+        configurable: true,
+        writable: true,
+        value: () => {
+          exits++;
+          return Promise.resolve();
+        },
+      });
+      container.requestFullscreen = () => {
+        requests.push(requests.length);
+        return request();
+      };
+      function setElement(next: Element | null): void {
+        element = next;
+        document.dispatchEvent(new Event("fullscreenchange"));
+      }
+      return {
+        get requests() {
+          return requests.length;
+        },
+        get exits() {
+          return exits;
+        },
+        enter: () => setElement(container),
+        leave: () => setElement(null),
+        setElement,
+      };
+    }
+
+    /** Lets a settled `requestFullscreen` promise's handlers run. */
+    async function flush(): Promise<void> {
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+
+    it("starts with fullscreen false", () => {
+      const board = createBoard(document.createElement("div"), { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+
+      expect(board.fullscreen).toBe(false);
+    });
+
+    it("without the Fullscreen API (as in jsdom), setFullscreen(true) fills the window at once, setFullscreen(false) stops at once, and setting the current value fires nothing", () => {
+      const container = document.createElement("div");
+      const changes: boolean[] = [];
+      const board = createBoard(container, {
+        source: TWO_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullscreenChange: (on) => changes.push(on),
+      });
+
+      board.setFullscreen(true);
+      expect(board.fullscreen).toBe(true);
+      expect(container.classList.contains("siren-board--fill")).toBe(true);
+      expect(changes).toEqual([true]);
+
+      board.setFullscreen(true);
+      expect(changes).toEqual([true]);
+
+      board.setFullscreen(false);
+      expect(board.fullscreen).toBe(false);
+      expect(container.classList.contains("siren-board--fill")).toBe(false);
+      expect(changes).toEqual([true, false]);
+
+      board.setFullscreen(false);
+      expect(changes).toEqual([true, false]);
+    });
+
+    it("calls the control bar's update() once on every turn, with the new value already on the board, and not on a no-op", () => {
+      const seen: boolean[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: TWO_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        controls: (b) => ({ element: document.createElement("div"), update: () => seen.push(b.fullscreen) }),
+      });
+      seen.length = 0;
+
+      board.setFullscreen(true);
+      board.setFullscreen(true);
+      board.setFullscreen(false);
+
+      expect(seen).toEqual([true, false]);
+    });
+
+    it("with the Fullscreen API enabled, setFullscreen(true) asks for the screen once, and turns fullscreen on only when fullscreenchange says the container has it, without filling the window", async () => {
+      const container = document.createElement("div");
+      const api = stubFullscreenApi(container);
+      const changes: boolean[] = [];
+      const board = createBoard(container, {
+        source: TWO_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullscreenChange: (on) => changes.push(on),
+      });
+
+      board.setFullscreen(true);
+      await flush();
+
+      expect(api.requests).toBe(1);
+      expect(board.fullscreen).toBe(false);
+      expect(changes).toEqual([]);
+
+      api.enter();
+
+      expect(board.fullscreen).toBe(true);
+      expect(changes).toEqual([true]);
+      expect(container.classList.contains("siren-board--fill")).toBe(false);
+    });
+
+    it("fills the window when the browser refuses the request for the screen", async () => {
+      const container = document.createElement("div");
+      const api = stubFullscreenApi(container, { request: () => Promise.reject(new TypeError("Permissions check failed")) });
+      const changes: boolean[] = [];
+      const board = createBoard(container, {
+        source: TWO_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullscreenChange: (on) => changes.push(on),
+      });
+
+      board.setFullscreen(true);
+      await flush();
+
+      expect(api.requests).toBe(1);
+      expect(board.fullscreen).toBe(true);
+      expect(container.classList.contains("siren-board--fill")).toBe(true);
+      expect(changes).toEqual([true]);
+    });
+
+    it("fills the window at once, without asking, where the document disables fullscreen (an iframe without allowfullscreen)", () => {
+      const container = document.createElement("div");
+      const api = stubFullscreenApi(container, { enabled: false });
+      const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+
+      board.setFullscreen(true);
+
+      expect(api.requests).toBe(0);
+      expect(board.fullscreen).toBe(true);
+      expect(container.classList.contains("siren-board--fill")).toBe(true);
+    });
+
+    it("on the screen, setFullscreen(false) asks the browser to leave it, and turns fullscreen off only when fullscreenchange says so", async () => {
+      const container = document.createElement("div");
+      const api = stubFullscreenApi(container);
+      const changes: boolean[] = [];
+      const board = createBoard(container, {
+        source: TWO_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullscreenChange: (on) => changes.push(on),
+      });
+      board.setFullscreen(true);
+      await flush();
+      api.enter();
+
+      board.setFullscreen(false);
+
+      expect(api.exits).toBe(1);
+      expect(board.fullscreen).toBe(true);
+
+      api.leave();
+
+      expect(board.fullscreen).toBe(false);
+      expect(changes).toEqual([true, false]);
+    });
+
+    it("turns fullscreen off when the browser ends it from outside: Esc, or another element taking the screen", async () => {
+      const container = document.createElement("div");
+      const api = stubFullscreenApi(container);
+      const changes: boolean[] = [];
+      const board = createBoard(container, {
+        source: TWO_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullscreenChange: (on) => changes.push(on),
+      });
+      board.setFullscreen(true);
+      await flush();
+      api.enter();
+
+      api.setElement(document.createElement("video"));
+
+      expect(board.fullscreen).toBe(false);
+      expect(changes).toEqual([true, false]);
+
+      board.setFullscreen(true);
+      await flush();
+      api.enter();
+      api.leave();
+
+      expect(board.fullscreen).toBe(false);
+      expect(changes).toEqual([true, false, true, false]);
+    });
+
+    it("while the request is pending, setFullscreen(true) asks nothing more, and setFullscreen(false) leaves the screen as soon as it is entered", async () => {
+      const container = document.createElement("div");
+      let grant!: () => void;
+      const api = stubFullscreenApi(container, { request: () => new Promise<void>((resolve) => (grant = resolve)) });
+      const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+
+      board.setFullscreen(true);
+      board.setFullscreen(true);
+      expect(api.requests).toBe(1);
+
+      board.setFullscreen(false);
+      expect(api.exits).toBe(0); // nothing to leave yet
+
+      // The browser grants the screen: the element and event come first, then the promise.
+      api.enter();
+      grant();
+      await flush();
+
+      expect(api.exits).toBe(1);
+      api.leave();
+      expect(board.fullscreen).toBe(false);
+      expect(container.classList.contains("siren-board--fill")).toBe(false);
+    });
+
+    it("Esc anywhere on the document leaves the window fill, unless something already called preventDefault() on it", () => {
+      const container = document.createElement("div");
+      const changes: boolean[] = [];
+      const board = createBoard(container, {
+        source: TWO_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullscreenChange: (on) => changes.push(on),
+      });
+      board.setFullscreen(true);
+
+      const handled = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+      handled.preventDefault();
+      document.dispatchEvent(handled);
+      expect(board.fullscreen).toBe(true);
+
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      expect(board.fullscreen).toBe(true);
+
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      expect(board.fullscreen).toBe(false);
+      expect(container.classList.contains("siren-board--fill")).toBe(false);
+      expect(changes).toEqual([true, false]);
+
+      // Not filling, Esc is not the board's to act on.
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      expect(board.fullscreen).toBe(false);
+      expect(changes).toEqual([true, false]);
+    });
+
+    it("destroy() while filling the window takes the fill off silently, and afterwards neither Esc nor setFullscreen does anything", () => {
+      const container = document.createElement("div");
+      const changes: boolean[] = [];
+      const board = createBoard(container, {
+        source: TWO_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullscreenChange: (on) => changes.push(on),
+      });
+      board.setFullscreen(true);
+      changes.length = 0;
+
+      board.destroy();
+      expect(container.classList.contains("siren-board--fill")).toBe(false);
+
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      board.setFullscreen(true);
+      board.setFullscreen(false);
+
+      expect(container.classList.contains("siren-board--fill")).toBe(false);
+      expect(changes).toEqual([]);
+    });
+
+    it("destroy() on the screen asks the browser to leave it, and the fullscreenchange that follows fires nothing", async () => {
+      const container = document.createElement("div");
+      const api = stubFullscreenApi(container);
+      const changes: boolean[] = [];
+      const board = createBoard(container, {
+        source: TWO_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullscreenChange: (on) => changes.push(on),
+      });
+      board.setFullscreen(true);
+      await flush();
+      api.enter();
+      changes.length = 0;
+
+      board.destroy();
+      expect(api.exits).toBe(1);
+
+      api.leave();
+      board.setFullscreen(true);
+      await flush();
+
+      expect(api.requests).toBe(1);
+      expect(changes).toEqual([]);
+    });
+
+    it("switching, on the screen or in the fill, changes neither the view, the step, playback, the full diagram nor controller, and fires no other callback", async () => {
+      vi.useFakeTimers();
+      try {
+        const container = document.createElement("div");
+        const api = stubFullscreenApi(container, { enabled: false });
+        const other: string[] = [];
+        const board = createBoard(container, {
+          source: TWO_STEP_SOURCE,
+          measureText: FAKE_MEASURER,
+          onStepChange: () => other.push("step"),
+          onFullDiagramChange: () => other.push("fullDiagram"),
+          onPlaybackChange: () => other.push("playback"),
+          onDiagnostics: () => other.push("diagnostics"),
+          onStyles: () => other.push("styles"),
+        });
+        const canvas = container.querySelector<HTMLElement>(".siren-board-canvas")!;
+        stubRect(canvas, { width: 400, height: 300 });
+        canvas.dispatchEvent(new MouseEvent("mousedown", { clientX: 100, clientY: 100, button: 0, bubbles: true }));
+        window.dispatchEvent(new MouseEvent("mousemove", { clientX: 150, clientY: 130 }));
+        window.dispatchEvent(new MouseEvent("mouseup", { clientX: 150, clientY: 130 }));
+        board.play(); // steps at once to 1, and keeps playing
+        const controller = board.controller;
+        const svg = container.querySelector(".siren-board-viewport svg");
+        other.length = 0;
+
+        board.setFullscreen(true); // the fill: fullscreenEnabled is false
+        board.setFullscreen(false);
+        api.setElement(null);
+        Object.defineProperty(document, "fullscreenEnabled", { configurable: true, get: () => true });
+        board.setFullscreen(true); // the screen
+        await Promise.resolve();
+        api.enter();
+        board.setFullscreen(false);
+        api.leave();
+
+        expect(readViewportTransform(container)).toEqual({ offsetX: 50, offsetY: 30, scale: 1 });
+        expect(board.controller).toBe(controller);
+        expect(board.controller!.currentStep).toBe(1);
+        expect(board.playing).toBe(true);
+        expect(board.fullDiagram).toBe(false);
+        expect(container.querySelector(".siren-board-viewport svg")).toBe(svg);
+        expect(other).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });

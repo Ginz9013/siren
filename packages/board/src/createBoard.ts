@@ -15,13 +15,16 @@ import { createViewport } from "./viewport";
 
 const ERROR_BANNER_CLASS = "siren-board-error";
 const CANVAS_CLASS = "siren-board-canvas";
+/** On the container while the board fills the window in place of the screen; internal, not a public hook. */
+const FILL_CLASS = "siren-board--fill";
 const DEFAULT_PLAY_INTERVAL = 2000;
 
 /**
  * A caller-supplied replacement for board's default control bar. Board calls
  * `update` once after anything a bar shows may have changed — a `setSource`
  * that rendered, a step change from any source, a `fullDiagram`, `timeline`
- * or `omitAuthorStyles` switch, a `playing` or `playInterval` change — and
+ * or `omitAuthorStyles` switch, a `playing` or `playInterval` change, a turn
+ * of `fullscreen` — and
  * never after `destroy()`; read the new state off `board` there.
  */
 export type ControlsFactory = (board: Board) => { element: HTMLElement; update?(): void; destroy?(): void };
@@ -47,6 +50,12 @@ export interface BoardOptions {
   onTimelineChange?: (name: string | null) => void;
   /** Fired whenever `fullDiagram` changes, from the built-in bar or a direct `setFullDiagram` call. */
   onFullDiagramChange?: (fullDiagram: boolean) => void;
+  /**
+   * Fired whenever `fullscreen` actually changes: from `setFullscreen`, the
+   * browser's own way out (Esc, another element taking the screen), or Esc
+   * while the board fills the window. Never during or after `destroy()`.
+   */
+  onFullscreenChange?: (fullscreen: boolean) => void;
   /** Milliseconds between playback steps; must be finite and > 0 (see `Board.setPlayInterval`). */
   playInterval?: number;
   /** Fired whenever `playing` changes: `play()`, `pause()`, the last step, or anything else that stops playback. */
@@ -136,6 +145,24 @@ export interface Board {
    * than keeping the old one.
    */
   setFullDiagram(on: boolean): void;
+  /**
+   * Whether the board takes the whole screen (see CONTEXT.md's
+   * "Fullscreen"): its container is `document.fullscreenElement`, or, where
+   * the screen is refused, it fills the browser window. The two read the same.
+   */
+  readonly fullscreen: boolean;
+  /**
+   * Takes the board to or out of the whole screen. Where the Fullscreen API
+   * is enabled it asks the browser, and `fullscreen` turns only once the
+   * browser's `fullscreenchange` says so; where it is missing or disabled, or
+   * the request is refused, the board fills the window instead, at once —
+   * Esc then leaves it. Switching off while the request is pending leaves the
+   * screen as soon as it is entered. Never changes the view, the step,
+   * `playing`, `fullDiagram` or `controller`, and draws nothing. Setting the
+   * current value, or `true` while a request is pending, is a no-op; after
+   * `destroy()`, so is everything.
+   */
+  setFullscreen(on: boolean): void;
   /**
    * Changes `omitAuthorStyles` and re-renders the last rendered source with
    * it, at the step shown, on the current timeline or in the full diagram
@@ -560,6 +587,96 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     if (changed) updateControls();
   }
 
+  /** Whether the board fills the browser window: its fullscreen where the screen is not to be had. */
+  let fill = false;
+  /** The `fullscreen` last reported, so a callback fires only when it actually turns. */
+  let fullscreen = false;
+  /** True while a `requestFullscreen` has not yet been answered. */
+  let screenPending = false;
+  /** Set by `setFullscreen(false)` while the request is pending: leave the screen once it is entered. */
+  let leaveWhenEntered = false;
+
+  /** Recomputes `fullscreen`; if it turned, tells the bar and the caller. */
+  function syncFullscreen(): void {
+    const now = fill || document.fullscreenElement === container;
+    if (now === fullscreen) return;
+    fullscreen = now;
+    updateControls();
+    options.onFullscreenChange?.(fullscreen);
+  }
+
+  function setFill(on: boolean): void {
+    fill = on;
+    container.classList.toggle(FILL_CLASS, on);
+    // The browser's Esc leaves only its own fullscreen; the fill's is ours,
+    // heard only while it is on.
+    if (on) document.addEventListener("keydown", onFillKeydown);
+    else document.removeEventListener("keydown", onFillKeydown);
+    syncFullscreen();
+  }
+
+  /**
+   * Esc leaves the fill. One already handled — a dropdown closing on it
+   * stops it before it gets here, anything else calls `preventDefault()` —
+   * is left alone.
+   */
+  function onFillKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape" && !event.defaultPrevented) setFill(false);
+  }
+
+  /**
+   * Whether the browser will take the container to the screen. jsdom, iPhone
+   * Safari and an iframe without `allowfullscreen` will not: the first two
+   * lack `requestFullscreen`, the last says `fullscreenEnabled === false`.
+   */
+  function screenAvailable(): boolean {
+    return document.fullscreenEnabled === true && typeof container.requestFullscreen === "function";
+  }
+
+  function setFullscreen(on: boolean): void {
+    if (destroyed) return;
+    if (screenPending) {
+      // The answer is not in yet: the last word on leaving is kept for it,
+      // and asking again would only ask twice.
+      if (!on) leaveWhenEntered = true;
+      return;
+    }
+    if (on === fullscreen) return;
+    if (on && screenAvailable()) {
+      screenPending = true;
+      leaveWhenEntered = false;
+      // Turned by fullscreenchange, once the browser has given the screen;
+      // refused, the window is the next best thing — unless the reader has
+      // asked to leave in the meantime. Wrapped, as older browsers return
+      // nothing here rather than a promise.
+      Promise.resolve(container.requestFullscreen()).then(
+        () => {
+          screenPending = false;
+          if (leaveWhenEntered) leaveScreen();
+        },
+        () => {
+          screenPending = false;
+          if (!leaveWhenEntered) setFill(true);
+        },
+      );
+      return;
+    }
+    if (!on && !fill) {
+      // On the screen: turned by fullscreenchange, once the browser lets go.
+      leaveScreen();
+      return;
+    }
+    setFill(on);
+  }
+
+  /** Asks the browser to give the screen back, if the container holds it; a refusal leaves things as they are. */
+  function leaveScreen(): void {
+    if (document.fullscreenElement === container) Promise.resolve(document.exitFullscreen()).catch(() => {});
+  }
+
+  // Covers every way the screen turns: our request, Esc, another element taking it.
+  document.addEventListener("fullscreenchange", syncFullscreen);
+
   /** The mounted control bar, built-in or custom; unset with `controls: false`. */
   let controls: ReturnType<ControlsFactory> | undefined;
 
@@ -577,6 +694,9 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     },
     get fullDiagram() {
       return fullDiagram;
+    },
+    get fullscreen() {
+      return fullscreen;
     },
     get omitAuthorStyles() {
       return omitAuthorStyles;
@@ -601,6 +721,7 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     },
     setSource,
     setFullDiagram,
+    setFullscreen,
     setOmitAuthorStyles,
     setTimeline,
     play,
@@ -616,6 +737,15 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
       clearPlayTimer();
       playing = false;
       viewport.destroy();
+      // Out of the fill or the screen, silently: the listeners go first, so
+      // the fullscreenchange that follows reaches nothing.
+      document.removeEventListener("fullscreenchange", syncFullscreen);
+      document.removeEventListener("keydown", onFillKeydown);
+      container.classList.remove(FILL_CLASS);
+      fill = false;
+      // A request still pending leaves the screen as soon as it is entered.
+      leaveWhenEntered = true;
+      leaveScreen();
       controls?.destroy?.();
       container.replaceChildren();
       container.classList.remove("siren-board");
