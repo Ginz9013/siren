@@ -32,10 +32,10 @@ createBoard(document.getElementById("board"), { source });
 ## Features
 
 - **Step controls included**: a floating bar with Prev, Play, Next, a step counter
-  (`2 / 10`), Reset, a timeline dropdown, a play interval dropdown, Full diagram and Reset
-  view. Prev, Next and Reset are disabled when they have nowhere to go, and every step
-  control, the timeline dropdown included, while the full diagram shows. Replace it with your
-  own, or turn it off.
+  (`2 / 10`), Reset, a timeline dropdown, a play interval dropdown, Full diagram, Reset
+  view and Fullscreen. Prev, Next and Reset are disabled when they have nowhere to go, and
+  every step control, the timeline dropdown included, while the full diagram shows. Replace
+  it with your own, or turn it off.
 - **Playback**: press Play and the timeline steps itself forward at the interval you pick,
   stopping on the last step. Any manual step takes over from playback.
 - **Named timelines**: a document can tell several stories over one diagram, each in its
@@ -44,6 +44,8 @@ createBoard(document.getElementById("board"), { source });
   full diagram shows; `board.setTimeline()` from code still switches, leaving it.
 - **Full diagram**: one click shows the whole diagram as Mermaid would draw it, with every
   element visible and no step applied. Clicking again returns to the step you were on.
+- **Fullscreen**: one click fills the screen with the board, or the browser window where the
+  browser will not go fullscreen. Escape leaves it.
 - **Pan and zoom**: drag to move the diagram, and scroll to zoom toward the cursor.
 - **Accurate layout**: labels are measured with the browser's real text metrics, so boxes
   fit their text.
@@ -177,6 +179,33 @@ the bar or from code.
 A custom control bar learns about switches through its own `update()` instead (see
 [Custom controls](#custom-controls)).
 
+### Going fullscreen
+
+```js
+const board = createBoard(container, {
+  source,
+  onFullscreenChange: (on) => console.log(on ? "fullscreen" : "back in the page"),
+});
+board.setFullscreen(true);
+board.setFullscreen(false);
+```
+
+The built-in bar's Fullscreen button does the same, and is pressed (`aria-pressed="true"`)
+while fullscreen is on. Where the browser supports the Fullscreen API, the board's container
+goes fullscreen, and `board.fullscreen` turns `true` once the browser has switched. Where it
+does not, or refuses the request — iPhone Safari, or an iframe without `allowfullscreen` — the
+board fills the browser window instead, at once. Either way `board.fullscreen` is `true`; the
+board does not say which. Escape leaves both. In the window fill only, an Escape that
+something else already handled (called `preventDefault()`) does not, and an open dropdown
+takes Escape for itself. Fill does not stop the page behind it from scrolling, and its
+`position: fixed` is confined by an ancestor with a `transform`, `filter` or `contain`.
+
+Switching never changes pan and zoom, the step, the timeline, playback or the full diagram, and
+does not re-render. The board's background in both is `--siren-board-surface`, so the
+browser's black fullscreen backdrop never shows. `onFullscreenChange` fires whether the switch
+came from the bar, from code, or from the browser (Escape, or another element taking the
+screen).
+
 ### Playing the timeline
 
 ```js
@@ -283,7 +312,11 @@ createBoard(container, {
     full.textContent = "Full diagram";
     full.onclick = () => board.setFullDiagram(!board.fullDiagram);
 
-    bar.append(next, full);
+    const screen = document.createElement("button");
+    screen.textContent = "Fullscreen";
+    screen.onclick = () => board.setFullscreen(!board.fullscreen);
+
+    bar.append(next, full, screen);
     return {
       element: bar,
       // Called after every render, step change and full diagram switch, from your bar or
@@ -293,6 +326,7 @@ createBoard(container, {
         const controller = board.controller;
         next.disabled = !controller || controller.currentStep === controller.totalSteps;
         full.setAttribute("aria-pressed", String(board.fullDiagram));
+        screen.setAttribute("aria-pressed", String(board.fullscreen));
       },
       destroy: () => { /* remove listeners, if any */ },
     };
@@ -350,6 +384,7 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `onDiagnostics` | `(diagnostics: Diagnostic[]) => void`          |         | Called after every render, with every error and warning.                            |
 | `onFullDiagramChange` | `(fullDiagram: boolean) => void`         |         | Called whenever `fullDiagram` changes, from the built-in bar or `setFullDiagram()`. |
 | `onTimelineChange` | `(name: string \| null) => void`            |         | Called whenever `timeline` changes after the first render: from `setTimeline()`, or from a `setSource()` that changes it, to or from `null` included. |
+| `onFullscreenChange` | `(fullscreen: boolean) => void`           |         | Called whenever `fullscreen` changes: from the built-in bar, `setFullscreen()`, the browser leaving fullscreen, or Escape in the window fill. |
 | `playInterval`  | `number`                                       | `2000`  | Milliseconds between playback steps. Must be finite and greater than 0, or `createBoard` throws a `RangeError`. |
 | `onPlaybackChange` | `(playing: boolean) => void`                |         | Called whenever `playing` changes: playback starts, is paused, reaches the last step, or is stopped. |
 | `measureText`   | `TextMeasurer`                                 | canvas  | Replaces the canvas-based text measurer, for example to match a custom font.        |
@@ -369,6 +404,8 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `timeline`        | The timeline applied: the first by default, `null` when `timelines` is empty. `setSource()` keeps it when the new document declares it. |
 | `setTimeline(name)` | Applies another timeline from step 0 and stops playback. Keeps pan and zoom and `diagnostics`, and replaces `controller`. Leaves the full diagram if it shows, back to the step shown before when `name` is the current one; otherwise the current one does nothing. Throws a `RangeError`, changing nothing, for a name not in `timelines`. |
 | `setFullDiagram(on)` | Shows the full diagram, or returns to the current timeline at the step shown before. Keeps pan and zoom and `diagnostics`, and replaces `controller` once a document has rendered. Before that, it only records the choice for the first render. Setting the current value does nothing. |
+| `fullscreen`      | Whether the board fills the screen, or the browser window where it cannot go fullscreen. Starts `false`. |
+| `setFullscreen(on)` | Enters or leaves fullscreen, filling the browser window where the Fullscreen API is unavailable or refuses. With the API, `fullscreen` changes once the browser has switched; otherwise at once. While the request is pending nothing more is asked and the last call wins: after a final `false` the board leaves the screen as soon as it is entered (`onFullscreenChange` fires `true`, then `false`), or, if refused, does not fill the window. Keeps pan and zoom, the step, the timeline, playback and the full diagram, and does not re-render. Setting the current value does nothing, and so does the call after `destroy()`. |
 | `omitAuthorStyles` | The list every render is given as `omitAuthorStyles`. Starts as the option, or `[]`. Frozen: change it with `setOmitAuthorStyles()`. |
 | `setOmitAuthorStyles(list)` | Redraws the document with another `omitAuthorStyles`, keeping the step, the timeline, the full diagram, pan and zoom, `diagnostics` and playback, and replaces `controller` once a document has rendered. Before that, it only records the list for the first render. An equal list (the same names in the same order, compared case-insensitively as `render()` reads them, so `["FILL"]` equals `["fill"]`) does nothing. |
 | `styles`          | The `styles` of the last render that drew, as `render()` returned them. `[]` until one has; unchanged by a `setSource()` that fails. |
@@ -379,7 +416,7 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `pause()`         | Stops playback. Playback also stops on any step change it did not make (the built-in bar, `board.controller` in code), on every `setSource()`, and on `setFullDiagram(true)`. |
 | `setPlayInterval(ms)` | Changes `playInterval`. Throws a `RangeError` unless `ms` is finite and greater than 0. While playing, the next step comes `ms` after the call. |
 | `resetView()`     | Resets pan and zoom to fit the container.                                                |
-| `destroy()`       | Removes everything the board added to the container and detaches its listeners. Afterwards the board draws nothing and calls no callback. |
+| `destroy()`       | Removes everything the board added to the container and detaches its listeners, leaving fullscreen first. Afterwards the board draws nothing and calls no callback. |
 
 ### `ControlsFactory`
 
@@ -393,7 +430,7 @@ type ControlsFactory = (board: Board) => {
 
 `update` is called once after each change the bar may show: a `setSource()` that rendered,
 a step change from any source (including `board.controller.next()` in code), a
-`fullDiagram`, `timeline` or `omitAuthorStyles` switch, and a change to `playing` or `playInterval`. It is never called after
+`fullDiagram`, `fullscreen`, `timeline` or `omitAuthorStyles` switch, and a change to `playing` or `playInterval`. It is never called after
 `destroy()`. The built-in bar is an ordinary
 `ControlsFactory` kept in step through this same hook.
 

@@ -19,7 +19,11 @@ const STYLE_ELEMENT_ID = "siren-board-styles";
  * selected option in the accent color. The listbox is anchored by the root
  * class every dropdown carries, not by a dropdown's own class. The step
  * counter sets its digits in tabular figures, so the bar keeps its width as
- * the count changes.
+ * the count changes. In fullscreen the container wears the chrome surface —
+ * on the screen (`:fullscreen`), where the browser's backdrop is otherwise
+ * black, and in the window fill that stands in for it where the screen is
+ * refused (`.siren-board--fill`, fixed over the whole viewport above
+ * anything the page stacks).
  *
  * DOM shape this targets: `.siren-board` (the consumer's container) holds
  * `.siren-board-canvas` as one child, and `.siren-board-controls` as a
@@ -65,6 +69,22 @@ const CSS = `
   width: 100%;
   height: 100%;
   overflow: hidden;
+}
+
+.siren-board:fullscreen {
+  background: var(--siren-board-surface);
+}
+
+.siren-board--fill {
+  position: fixed !important;
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  z-index: 2147483647;
+  background: var(--siren-board-surface);
 }
 
 .siren-board-canvas {

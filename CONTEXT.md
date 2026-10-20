@@ -120,6 +120,17 @@ itself — a step stepped by hand, a new document, switching to the full diagram
 There is nothing to play in the full diagram or in a document without steps.
 _Avoid_: autoplay (reads as "starts playing on page load"), slideshow
 
+**Fullscreen**:
+A board filling the whole screen, while `board.fullscreen` is on. Where the Fullscreen API can
+be used, it is the screen's fullscreen: the board's container becomes `document.fullscreenElement`.
+Where it cannot — no `requestFullscreen`, `document.fullscreenEnabled` not `true`, or the request
+rejected, as on iPhone Safari or in an iframe without `allowfullscreen` — the board fills the
+browser window instead (**fill**). Fill is the fallback, not a second state: both are
+`board.fullscreen === true`, and nothing tells a caller which one is in use. Fullscreen is
+independent of the **View**, the **Step**, **Playback** and the **Full diagram**: switching it
+changes none of them and does not re-render (decision `01M5D3SBBG04M4YAZ08V1HH00B`).
+_Avoid_: maximize, expand, presentation mode, "滿版" (say "fill" for the fallback only)
+
 **Timeline block**:
 The `timeline:` section of a Siren document. Each non-blank line is one step, and lists the
 timeline actions that fire on it, naming timeline targets by id. Deliberately separate from the diagram's structural definition — see
