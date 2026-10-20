@@ -202,4 +202,22 @@ describe("board chrome's control bar states", () => {
     expect(fill).toMatch(/inset:\s*0/);
     expect(fill).toMatch(/z-index:\s*2147483647/);
   });
+
+  it("makes the window fill beat a consumer's inline size, id rule or max-size and margin", () => {
+    // The README's own embed sets `style="width: 100%; height: 480px"`; inline
+    // styles and id rules outrank a class, so only !important keeps the fill whole.
+    const fill = ruleBody(injectedChromeCss(), ".siren-board--fill")!;
+
+    for (const declaration of [
+      /position:\s*fixed\s*!important/,
+      /inset:\s*0\s*!important/,
+      /width:\s*auto\s*!important/,
+      /height:\s*auto\s*!important/,
+      /max-width:\s*none\s*!important/,
+      /max-height:\s*none\s*!important/,
+      /margin:\s*0\s*!important/,
+    ]) {
+      expect(fill).toMatch(declaration);
+    }
+  });
 });

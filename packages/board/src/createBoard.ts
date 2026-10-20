@@ -24,8 +24,8 @@ const DEFAULT_PLAY_INTERVAL = 2000;
  * `update` once after anything a bar shows may have changed — a `setSource`
  * that rendered, a step change from any source, a `fullDiagram`, `timeline`
  * or `omitAuthorStyles` switch, a `playing` or `playInterval` change, a turn
- * of `fullscreen` — and
- * never after `destroy()`; read the new state off `board` there.
+ * of `fullscreen` — and never after `destroy()`; read the new state off
+ * `board` there.
  */
 export type ControlsFactory = (board: Board) => { element: HTMLElement; update?(): void; destroy?(): void };
 
@@ -156,11 +156,13 @@ export interface Board {
    * is enabled it asks the browser, and `fullscreen` turns only once the
    * browser's `fullscreenchange` says so; where it is missing or disabled, or
    * the request is refused, the board fills the window instead, at once —
-   * Esc then leaves it. Switching off while the request is pending leaves the
-   * screen as soon as it is entered. Never changes the view, the step,
-   * `playing`, `fullDiagram` or `controller`, and draws nothing. Setting the
-   * current value, or `true` while a request is pending, is a no-op; after
-   * `destroy()`, so is everything.
+   * Esc then leaves it. While the request is pending nothing more is asked
+   * and the last call wins: after a final `false` the board leaves the screen
+   * as soon as it is entered (`onFullscreenChange` fires `true`, then
+   * `false`), or, if refused, does not fill the window. Never changes the
+   * view, the step, `playing`, `fullDiagram` or `controller`, and draws
+   * nothing. Setting the current value is a no-op; after `destroy()`, so is
+   * everything.
    */
   setFullscreen(on: boolean): void;
   /**
@@ -593,7 +595,7 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
   let fullscreen = false;
   /** True while a `requestFullscreen` has not yet been answered. */
   let screenPending = false;
-  /** Set by `setFullscreen(false)` while the request is pending: leave the screen once it is entered. */
+  /** Whether the last `setFullscreen` while the request is pending said false: leave the screen once it is entered. */
   let leaveWhenEntered = false;
 
   /** Recomputes `fullscreen`; if it turned, tells the bar and the caller. */
@@ -636,9 +638,9 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
   function setFullscreen(on: boolean): void {
     if (destroyed) return;
     if (screenPending) {
-      // The answer is not in yet: the last word on leaving is kept for it,
-      // and asking again would only ask twice.
-      if (!on) leaveWhenEntered = true;
+      // The answer is not in yet: the last word is kept for it, and asking
+      // again would only ask twice.
+      leaveWhenEntered = !on;
       return;
     }
     if (on === fullscreen) return;
@@ -647,8 +649,8 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
       leaveWhenEntered = false;
       // Turned by fullscreenchange, once the browser has given the screen;
       // refused, the window is the next best thing — unless the reader has
-      // asked to leave in the meantime. Wrapped, as older browsers return
-      // nothing here rather than a promise.
+      // asked to leave in the meantime. Wrapped in Promise.resolve, so the
+      // answer is handled the same whatever it returns.
       Promise.resolve(container.requestFullscreen()).then(
         () => {
           screenPending = false;
@@ -743,6 +745,7 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
       document.removeEventListener("keydown", onFillKeydown);
       container.classList.remove(FILL_CLASS);
       fill = false;
+      fullscreen = false;
       // A request still pending leaves the screen as soon as it is entered.
       leaveWhenEntered = true;
       leaveScreen();

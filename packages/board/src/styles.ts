@@ -76,10 +76,13 @@ const CSS = `
 }
 
 .siren-board--fill {
-  position: fixed;
-  inset: 0;
-  width: auto;
-  height: auto;
+  position: fixed !important;
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
   z-index: 2147483647;
   background: var(--siren-board-surface);
 }

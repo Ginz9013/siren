@@ -87,7 +87,10 @@ const ICONS = {
     "M3 16v3a2 2 0 0 0 2 2h3",
     "M16 21h3a2 2 0 0 0 2-2v-3",
   ],
-  /** Lucide `minimize` — the same button's icon while on: corners pulled in, back to the page. */
+  /**
+   * Lucide `minimize` — the same button's icon while on: corners pulled in,
+   * back to the page.
+   */
   minimize: [
     "M8 3v3a2 2 0 0 1-2 2H3",
     "M21 8h-3a2 2 0 0 1-2-2V3",
@@ -98,21 +101,21 @@ const ICONS = {
 
 /**
  * Board's built-in Prev/Play/Next/step counter/Reset/Timeline/Play
- * interval/Full diagram/Reset view/Fullscreen control bar — the default
- * value of `BoardOptions.controls`. Its buttons are icon-only; each carries
- * its name as `aria-label` and `title` instead of visible text. The two dropdowns'
- * triggers carry their names as `aria-label` too, but show the current value
- * as text, and open a listbox directly above themselves rather than leaving a
+ * interval/Full diagram/Reset view/Fullscreen control bar — the default value
+ * of `BoardOptions.controls`. Its buttons are icon-only; each carries its name
+ * as `aria-label` and `title` instead of visible text. The two dropdowns'
+ * triggers carry their names as `aria-label` too, but show the current value as
+ * text, and open a listbox directly above themselves rather than leaving a
  * native select's list to the OS, which places it above or below at will. The
  * timeline dropdown is there only while the document names two timelines or
- * more. The step counter is plain text, not a live region:
- * playback changes it on every step, and announcing each one would talk over
- * the reader. Reads `board.controller` at click time rather than capturing
- * it once, so it keeps working across `setSource` and `setFullDiagram` calls
- * that replace the underlying controller. Turn it off with `controls: false`, or replace it
- * with any other `ControlsFactory` (see ADR-0006) — this one is itself an
- * ordinary `ControlsFactory`, kept in step through the public `update()`
- * hook like any other, so it never shows a stale pressed or disabled state.
+ * more. The step counter is plain text, not a live region: playback changes it
+ * on every step, and announcing each one would talk over the reader. Reads
+ * `board.controller` at click time rather than capturing it once, so it keeps
+ * working across `setSource` and `setFullDiagram` calls that replace the
+ * underlying controller. Turn it off with `controls: false`, or replace it with
+ * any other `ControlsFactory` (see ADR-0006) — this one is itself an ordinary
+ * `ControlsFactory`, kept in step through the public `update()` hook like any
+ * other, so it never shows a stale pressed or disabled state.
  */
 export function createDefaultControls(board: Board): ReturnType<ControlsFactory> {
   const bar = document.createElement("div");
@@ -166,19 +169,19 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
    * Mirrors `board.playing`, `board.timelines` and `board.timeline`,
    * `board.playInterval`, `board.fullDiagram`, `board.fullscreen` and the
    * controller's `currentStep / totalSteps` onto the bar. A step button that
-   * would do nothing is disabled rather than left clickable: Prev and Reset
-   * on step 0, Next on the last step, and all three in the full diagram
-   * or with no steps. Play and the interval trigger are disabled whenever there
-   * is nothing to play (the full diagram, or no steps), but Play stays on the
-   * last step, where it replays from step 0. The timeline trigger is disabled
-   * in the full diagram, leaving Full diagram the one way back to a timeline
-   * (code may still call `board.setTimeline` there). Reset view stays, since
-   * pan/zoom works on any drawing, and so does Fullscreen, which is
-   * independent of the drawing, its step and playback; its pressed state and
-   * icon follow `board.fullscreen` however it turns — the button, code, Esc
-   * in the fill, or the browser leaving the screen. A control holding focus
-   * as it is disabled hands it on first (see `handoff`), so a change made
-   * from code never drops a keyboard reader's focus to the page, and a disabled dropdown closes.
+   * would do nothing is disabled rather than left clickable: Prev and Reset on
+   * step 0, Next on the last step, and all three in the full diagram or with no
+   * steps. Play and the interval trigger are disabled whenever there is nothing
+   * to play (the full diagram, or no steps), but Play stays on the last step,
+   * where it replays from step 0. The timeline trigger is disabled in the full
+   * diagram, leaving Full diagram the one way back to a timeline (code may
+   * still call `board.setTimeline` there). Reset view stays, since pan/zoom
+   * works on any drawing, and so does Fullscreen, which is independent of the
+   * drawing, its step and playback; its pressed state and icon follow
+   * `board.fullscreen` however it turns — the button, code, Esc in the fill, or
+   * the browser leaving the screen. A control holding focus as it is disabled
+   * hands it on first (see `handoff`), so a change made from code never drops a
+   * keyboard reader's focus to the page, and a disabled dropdown closes.
    */
   function update(): void {
     play.setAttribute("aria-pressed", String(board.playing));

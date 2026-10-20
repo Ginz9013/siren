@@ -3415,7 +3415,7 @@ enter C fade
       { enabled = true, request = () => Promise.resolve() }: { enabled?: boolean; request?: () => Promise<void> } = {},
     ) {
       let element: Element | null = null;
-      const requests: number[] = [];
+      let requests = 0;
       let exits = 0;
       Object.defineProperty(document, "fullscreenEnabled", { configurable: true, get: () => enabled });
       Object.defineProperty(document, "fullscreenElement", { configurable: true, get: () => element });
@@ -3428,7 +3428,7 @@ enter C fade
         },
       });
       container.requestFullscreen = () => {
-        requests.push(requests.length);
+        requests++;
         return request();
       };
       function setElement(next: Element | null): void {
@@ -3437,7 +3437,7 @@ enter C fade
       }
       return {
         get requests() {
-          return requests.length;
+          return requests;
         },
         get exits() {
           return exits;
@@ -3621,7 +3621,7 @@ enter C fade
       board.setFullscreen(false);
       expect(api.exits).toBe(0); // nothing to leave yet
 
-      // The browser grants the screen: the element and event come first, then the promise.
+      // The element is set before the promise resolves (in real browsers fullscreenchange fires later).
       api.enter();
       grant();
       await flush();
@@ -3630,6 +3630,46 @@ enter C fade
       api.leave();
       expect(board.fullscreen).toBe(false);
       expect(container.classList.contains("siren-board--fill")).toBe(false);
+    });
+
+    it("while the request is pending, the last call wins: true, false, true stays on the screen once it is entered, still asking only once", async () => {
+      const container = document.createElement("div");
+      let grant!: () => void;
+      const api = stubFullscreenApi(container, { request: () => new Promise<void>((resolve) => (grant = resolve)) });
+      const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+
+      board.setFullscreen(true);
+      board.setFullscreen(false);
+      board.setFullscreen(true);
+      api.enter();
+      grant();
+      await flush();
+
+      expect(api.requests).toBe(1);
+      expect(api.exits).toBe(0);
+      expect(board.fullscreen).toBe(true);
+      board.destroy();
+    });
+
+    it("a request refused after setFullscreen(false) while it was pending fills nothing and fires nothing", async () => {
+      const container = document.createElement("div");
+      let refuse!: () => void;
+      stubFullscreenApi(container, { request: () => new Promise<void>((_, reject) => (refuse = () => reject(new TypeError("denied")))) });
+      const changes: boolean[] = [];
+      const board = createBoard(container, {
+        source: TWO_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullscreenChange: (on) => changes.push(on),
+      });
+
+      board.setFullscreen(true);
+      board.setFullscreen(false);
+      refuse();
+      await flush();
+
+      expect(board.fullscreen).toBe(false);
+      expect(container.classList.contains("siren-board--fill")).toBe(false);
+      expect(changes).toEqual([]);
     });
 
     it("Esc anywhere on the document leaves the window fill, unless something already called preventDefault() on it", () => {
@@ -3708,6 +3748,77 @@ enter C fade
       expect(changes).toEqual([]);
     });
 
+    it("destroy() while the request is pending leaves the screen once the browser grants it, and fires nothing", async () => {
+      const container = document.createElement("div");
+      let grant!: () => void;
+      const api = stubFullscreenApi(container, { request: () => new Promise<void>((resolve) => (grant = resolve)) });
+      const changes: boolean[] = [];
+      const board = createBoard(container, {
+        source: TWO_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullscreenChange: (on) => changes.push(on),
+      });
+
+      board.setFullscreen(true);
+      board.destroy();
+      api.enter();
+      grant();
+      await flush();
+
+      expect(api.exits).toBe(1);
+      expect(changes).toEqual([]);
+    });
+
+    it("destroy() while the request is pending, then a refusal, fills nothing and fires nothing", async () => {
+      const container = document.createElement("div");
+      let refuse!: () => void;
+      stubFullscreenApi(container, { request: () => new Promise<void>((_, reject) => (refuse = () => reject(new TypeError("denied")))) });
+      const changes: boolean[] = [];
+      const board = createBoard(container, {
+        source: TWO_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullscreenChange: (on) => changes.push(on),
+      });
+
+      board.setFullscreen(true);
+      board.destroy();
+      refuse();
+      await flush();
+
+      expect(container.classList.contains("siren-board--fill")).toBe(false);
+      expect(board.fullscreen).toBe(false);
+      expect(changes).toEqual([]);
+    });
+
+    it("destroy() turns board.fullscreen false, silently, from the fill and from the screen", async () => {
+      const changes: boolean[] = [];
+      const filled = createBoard(document.createElement("div"), {
+        source: TWO_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullscreenChange: (on) => changes.push(on),
+      });
+      filled.setFullscreen(true);
+
+      const container = document.createElement("div");
+      const api = stubFullscreenApi(container);
+      const screened = createBoard(container, {
+        source: TWO_STEP_SOURCE,
+        measureText: FAKE_MEASURER,
+        onFullscreenChange: (on) => changes.push(on),
+      });
+      screened.setFullscreen(true);
+      await flush();
+      api.enter();
+      changes.length = 0;
+
+      filled.destroy();
+      screened.destroy();
+
+      expect(filled.fullscreen).toBe(false);
+      expect(screened.fullscreen).toBe(false);
+      expect(changes).toEqual([]);
+    });
+
     it("switching, on the screen or in the fill, changes neither the view, the step, playback, the full diagram nor controller, and fires no other callback", async () => {
       vi.useFakeTimers();
       try {
@@ -3738,7 +3849,7 @@ enter C fade
         api.setElement(null);
         Object.defineProperty(document, "fullscreenEnabled", { configurable: true, get: () => true });
         board.setFullscreen(true); // the screen
-        await Promise.resolve();
+        await flush();
         api.enter();
         board.setFullscreen(false);
         api.leave();
@@ -3772,12 +3883,15 @@ enter C fade
       it("one click turns fullscreen on (the fill, in jsdom), and a second turns it off", () => {
         const container = document.createElement("div");
         const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+        try {
+          button(container, "Fullscreen").click();
+          expect(board.fullscreen).toBe(true);
 
-        button(container, "Fullscreen").click();
-        expect(board.fullscreen).toBe(true);
-
-        button(container, "Fullscreen").click();
-        expect(board.fullscreen).toBe(false);
+          button(container, "Fullscreen").click();
+          expect(board.fullscreen).toBe(false);
+        } finally {
+          board.destroy();
+        }
       });
 
       it("is pressed exactly while fullscreen is on, whether a click, code or Esc in the fill turns it", () => {
@@ -3845,35 +3959,41 @@ enter C fade
         const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
         const icon = () =>
           Array.from(button(container, "Fullscreen").querySelectorAll("svg path")).map((p) => p.getAttribute("d"));
-        expect(icon()).toEqual(MAXIMIZE);
+        try {
+          expect(icon()).toEqual(MAXIMIZE);
 
-        button(container, "Fullscreen").click();
-        expect(icon()).toEqual(MINIMIZE);
+          button(container, "Fullscreen").click();
+          expect(icon()).toEqual(MINIMIZE);
 
-        board.setFullscreen(false);
-        expect(icon()).toEqual(MAXIMIZE);
-        expect(button(container, "Fullscreen").querySelectorAll("svg")).toHaveLength(1);
-        board.destroy();
+          board.setFullscreen(false);
+          expect(icon()).toEqual(MAXIMIZE);
+          expect(button(container, "Fullscreen").querySelectorAll("svg")).toHaveLength(1);
+        } finally {
+          board.destroy();
+        }
 
         const screenContainer = document.createElement("div");
         const api = stubFullscreenApi(screenContainer);
         const screenBoard = createBoard(screenContainer, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
         const screenIcon = () =>
           Array.from(button(screenContainer, "Fullscreen").querySelectorAll("svg path")).map((p) => p.getAttribute("d"));
-        screenBoard.setFullscreen(true);
-        await flush();
-        api.enter();
-        expect(screenIcon()).toEqual(MINIMIZE);
-        api.leave();
-        expect(screenIcon()).toEqual(MAXIMIZE);
-        screenBoard.destroy();
+        try {
+          screenBoard.setFullscreen(true);
+          await flush();
+          api.enter();
+          expect(screenIcon()).toEqual(MINIMIZE);
+          api.leave();
+          expect(screenIcon()).toEqual(MAXIMIZE);
+        } finally {
+          screenBoard.destroy();
+        }
       });
 
       it("is never disabled: not in the full diagram, not with no steps, not while playing, and a click works in each", () => {
         vi.useFakeTimers();
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
         try {
-          const container = document.createElement("div");
-          const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
           const fullscreenButton = () => button(container, "Fullscreen");
 
           board.play();
@@ -3892,8 +4012,8 @@ enter C fade
           expect(fullscreenButton().disabled).toBe(false);
           fullscreenButton().click();
           expect(board.fullscreen).toBe(true);
-          board.destroy();
         } finally {
+          board.destroy();
           vi.useRealTimers();
         }
       });
