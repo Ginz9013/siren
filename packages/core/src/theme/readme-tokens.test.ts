@@ -1,28 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { readBeside, readStylesheet } from "./testing/stylesheet";
 
 /**
  * The README's token table and `default.css`'s `:root` block must name the
  * same tokens: `:root` is the theme's whole styling interface (ADR-0014) and
  * holds only design tokens (decision 01M59N4KXRKK7R9Y55K64R4013), and the
  * table is where a theme author reads what that interface is.
- *
- * Both files are read off disk the way `default.test.ts` reads `default.css`
- * (see the note there on why neither `?raw` nor `import "node:fs"` works in
- * this package).
  */
-const readText = (relativePath: string): string =>
-  (
-    globalThis as unknown as {
-      process: {
-        getBuiltinModule(id: "node:fs"): { readFileSync(path: string, encoding: "utf8"): string };
-      };
-    }
-  ).process
-    .getBuiltinModule("node:fs")
-    .readFileSync(
-      `${(import.meta as unknown as { dirname: string }).dirname}/${relativePath}`,
-      "utf8",
-    );
+
+/** A binding of `import.meta.url`, not the literal, for `readBeside` (see its doc). */
+const TEST_FILE_URL = import.meta.url;
 
 const TOKEN = /--siren-[\w-]+/g;
 
@@ -41,12 +28,11 @@ function readmeTokens(readme: string): Set<string> {
   return tokens;
 }
 
-/** Every custom property the stylesheet's first `:root` block declares, comments removed. */
+/** Every custom property the stylesheet's `:root` block declares. */
 function rootTokens(css: string): Set<string> {
-  const rules = css.replace(/\/\*[\s\S]*?\*\//g, "");
-  const block = /(?:^|[}\s]):root\s*\{([^}]*)\}/.exec(rules);
-  if (!block) throw new Error("stylesheet has no `:root` block");
-  return new Set(Array.from(block[1].matchAll(/(--siren-[\w-]+)(?=\s*:)/g), (match) => match[1]));
+  const sheet = readStylesheet(css, { tokenPrefix: "--siren-", rootSelector: ":root" });
+  if (sheet.tokenBlocks().length === 0) throw new Error("stylesheet has no `:root` block");
+  return sheet.rootTokens();
 }
 
 /** What the README is missing from `:root`, and what it lists that `:root` does not declare. */
@@ -64,7 +50,7 @@ function tableDrift(
 
 describe("README token table", () => {
   it("lists exactly the tokens default.css declares on :root", () => {
-    const drift = tableDrift(readText("../../README.md"), readText("default.css"));
+    const drift = tableDrift(readBeside(TEST_FILE_URL, "../../README.md"), readBeside(TEST_FILE_URL, "./default.css"));
     expect(drift).toEqual({ missingFromReadme: [], extraInReadme: [] });
   });
 

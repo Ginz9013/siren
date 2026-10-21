@@ -3,30 +3,40 @@ import { render } from "../index";
 import { BASE_FONT_SIZE_PX } from "../label/label";
 import { FRAME_PAINT } from "../layout/shapes/shape";
 import { NODE_DATA_SHAPES } from "../parser/flowchartNodeData";
+import { readBeside, readStylesheet } from "./testing/stylesheet";
+
+/** A binding of `import.meta.url`, not the literal, for `readBeside` (see its doc). */
+const TEST_FILE_URL = import.meta.url;
 
 /**
- * `default.css`'s own text — the artifact these tests are about.
- *
- * Read off disk rather than through Vite's `?raw` import, which cannot work
- * here: vitest's `vitest:css-disable` plugin rewrites *any* module id matching
- * `\.css($|\?)` to an empty string while `test.css` is false (this package's
- * default), `?raw` included. `import css from "./default.css?raw"` therefore
- * yields `""`, and a stylesheet that is silently empty makes the checks below
- * vacuous rather than failing loudly. Node's builtin is reached via
- * `process.getBuiltinModule` instead of `import "node:fs"` because this
- * package deliberately carries no `@types/node`; both shapes are narrowed
- * inline. `import.meta.dirname` rather than `new URL("./default.css",
- * import.meta.url)`, which Vite rewrites into a served asset URL.
+ * `default.css` — the artifact these tests are about — read once through the
+ * test-support module. Off disk, not through `?raw`: vitest's `css-disable`
+ * plugin rewrites a `.css` import, `?raw` included, to an empty string.
  */
-const defaultThemeCss = (
-  globalThis as unknown as {
-    process: {
-      getBuiltinModule(id: "node:fs"): { readFileSync(path: string, encoding: "utf8"): string };
-    };
+const theme = readStylesheet(readBeside(TEST_FILE_URL, "./default.css"), {
+  tokenPrefix: "--siren-",
+  rootSelector: ":root",
+});
+
+/** Every rule's selector, as the CSSOM reports it. */
+const selectors = theme.rules.map((rule) => rule.selector);
+
+/** Every declaration in the theme, at-rules walked. */
+const declarations = theme.rules.flatMap((rule) => rule.declarations);
+
+/**
+ * The declarations (`prop: value;`) of the one top-level rule whose selector
+ * is exactly `selector`. Top-level, because the reduced-motion `@media`
+ * repeats the march's selector. Throws when there is no such rule, so a
+ * `not.toMatch` against it cannot pass on an empty body.
+ */
+function ruleBody(selector: string): string {
+  const matches = theme.rules.filter((rule) => rule.selector === selector && !rule.nested);
+  if (matches.length !== 1) {
+    throw new Error(`${matches.length} top-level rules select exactly "${selector}"; expected one`);
   }
-).process
-  .getBuiltinModule("node:fs")
-  .readFileSync(`${(import.meta as unknown as { dirname: string }).dirname}/default.css`, "utf8");
+  return matches[0].cssText;
+}
 
 /**
  * A Siren document exercising every sequence feature the renderer has a
@@ -181,7 +191,7 @@ function renderThemedSVG(source: string): SVGSVGElement {
   if (document.getElementById("siren-default-theme") === null) {
     const style = document.createElement("style");
     style.id = "siren-default-theme";
-    style.textContent = defaultThemeCss;
+    style.textContent = theme.text;
     document.head.appendChild(style);
   }
 
@@ -215,13 +225,6 @@ function describeElement(element: Element): string {
   }
   return `<${element.tagName}> inside .${ancestor?.getAttribute("class") ?? "(unknown)"}`;
 }
-
-/**
- * The stylesheet with its comments removed. Every check here asks what the
- * theme *declares*; a class name merely discussed in a comment (this file is
- * heavily commented by design) must never count as coverage.
- */
-const themeRules = defaultThemeCss.replace(/\/\*[\s\S]*?\*\//g, "");
 
 /**
  * Every drawn element in `svg` that neither the theme nor the renderer gives
@@ -277,9 +280,8 @@ describe("default theme coverage of the sequence renderer", () => {
     expect(emitted.length).toBeGreaterThan(0);
 
     const unthemed = emitted.filter(
-      // The class must appear as a whole selector token, so `.siren-box` is
-      // not considered covered by a `.siren-box-background` rule.
-      (name) => !new RegExp(`\\.${name}(?![\\w-])`).test(themeRules),
+      // A whole selector token: `.siren-box-background` does not cover `.siren-box`.
+      (name) => !theme.selectsClass(name),
     );
     expect(unthemed).toEqual([]);
   });
@@ -546,7 +548,7 @@ link B: Wiki @ https://w.com
     const menuClasses = emittedSirenClasses(svg).filter((name) => name.startsWith("siren-link"));
     expect(menuClasses).toContain("siren-link-menu-items");
 
-    const unthemed = menuClasses.filter((name) => !new RegExp(`\\.${name}(?![\\w-])`).test(themeRules));
+    const unthemed = menuClasses.filter((name) => !theme.selectsClass(name));
     expect(unthemed).toEqual([]);
     expect(paintlessElements(svg).filter((d) => d.includes("link"))).toEqual([]);
   });
@@ -572,7 +574,7 @@ link B: Wiki @ https://w.com
     focusable[0]!.blur();
 
     // Pointer: jsdom cannot hover, so the rule itself is what is checked.
-    expect(themeRules).toMatch(/\.siren-link-menu:hover\s+\.siren-link-menu-items/);
+    expect(selectors).toContainEqual(expect.stringMatching(/\.siren-link-menu:hover\s+\.siren-link-menu-items/));
   });
 });
 
@@ -588,7 +590,7 @@ describe("default theme's outline on sequence-diagram targets", () => {
   });
 
   it("styles no destroy mark: a destroyed participant ends with its closing box, a participant box like any other", () => {
-    expect(themeRules).not.toMatch(/siren-destroy-mark/);
+    expect(theme.selectsClass("siren-destroy-mark")).toBe(false);
   });
 
   it("outlines a message's line, solid or dotted, keeping its dash", () => {
@@ -668,9 +670,7 @@ describe("default theme coverage of the flowchart renderer", () => {
     const emitted = emittedSirenClasses(renderThemedSVG(EVERY_FLOWCHART_FEATURE));
     expect(emitted.length).toBeGreaterThan(0);
 
-    const unthemed = emitted.filter(
-      (name) => !new RegExp(`\\.${name}(?![\\w-])`).test(themeRules),
-    );
+    const unthemed = emitted.filter((name) => !theme.selectsClass(name));
     expect(unthemed).toEqual([]);
   });
 
@@ -688,12 +688,14 @@ describe("default theme coverage of the flowchart renderer", () => {
     // flowchart frame reachable only as `.siren-node rect` gives the same
     // question a different answer for no reason a reader could see.
     //
-    // Checked against the stylesheet's text as well as the cascade, because
+    // Checked against the stylesheet's selectors as well as the cascade, because
     // the cascade alone cannot tell the two selectors apart — today both match
     // the same single `<rect>`, and the whole point of the change is that they
     // stop being interchangeable once an author can name one of them.
-    expect(themeRules).toMatch(/\.siren-node-frame(?![\w-])/);
-    expect(themeRules).not.toMatch(/\.siren-node(?![\w-])[^,{}]*\brect\b/);
+    expect(theme.selectsClass("siren-node-frame")).toBe(true);
+    expect(selectors.flatMap((selector) => selector.split(","))).not.toContainEqual(
+      expect.stringMatching(/\.siren-node(?![\w-])[^,]*\brect\b/),
+    );
 
     const frames = Array.from(svg.querySelectorAll(".siren-node-frame"));
     expect(frames.length).toBeGreaterThan(0);
@@ -828,7 +830,7 @@ describe("default theme coverage of the flowchart renderer", () => {
 
     // The theme's half of the rule, read off the stylesheet: the token is
     // what rounds a frame, and it is declared once for all of them.
-    expect(themeRules).toMatch(/\.siren-node-frame(?![\w-])[^{]*\{[^}]*rx:\s*var\(--siren-node-border-radius\)/);
+    expect(ruleBody(".siren-node-frame")).toMatch(/rx:\s*var\(--siren-node-border-radius\);/);
 
     // A rectangle and a subroutine declare no radius of their own, so
     // nothing outranks that rule for them.
@@ -913,7 +915,7 @@ linkStyle 0 stroke:#f00
     // head's marker carries the author's color *as* that token, so the
     // fallback still draws the whole arrow red; the unstyled head carries
     // nothing and takes the diagram's token, as before.
-    expect(themeRules).toMatch(/\.siren-arrow-fill\s*\{\s*fill:\s*var\(--siren-edge-stroke\);\s*\}/);
+    expect(ruleBody(".siren-arrow-fill")).toBe("fill: var(--siren-edge-stroke);");
     expect(getComputedStyle(headFor("A-B")).getPropertyValue("--siren-edge-stroke")).toBe("#f00");
     expect(headFor("B-C").getAttribute("style")).toBeNull();
   });
@@ -963,7 +965,7 @@ linkStyle 0 stroke:#f00
     // A token at the point of use, so a theme redeclaring it on one
     // subgraph's `data-siren-id` group repaints that frame alone; `none`, so
     // the default picture is the outlined frame it has always been.
-    expect(themeRules).toMatch(/:root\s*\{[^}]*--siren-subgraph-fill:\s*none;/);
+    expect(ruleBody(":root")).toMatch(/--siren-subgraph-fill:\s*none;/);
     const svg = renderThemedSVG("flowchart TB\nsubgraph s1 [Box]\nA\nend\n");
     const frame = svg.querySelector("g.siren-subgraph rect.siren-subgraph-frame")!;
     expect(getComputedStyle(frame).fill).toBe("var(--siren-subgraph-fill)");
@@ -978,9 +980,7 @@ describe("default theme coverage of the class renderer", () => {
     const emitted = emittedSirenClasses(renderThemedSVG(EVERY_CLASS_FEATURE));
     expect(emitted.length).toBeGreaterThan(0);
 
-    const unthemed = emitted.filter(
-      (name) => !new RegExp(`\\.${name}(?![\\w-])`).test(themeRules),
-    );
+    const unthemed = emitted.filter((name) => !theme.selectsClass(name));
     expect(unthemed).toEqual([]);
   });
 
@@ -1066,13 +1066,15 @@ describe("default theme coverage of the class renderer", () => {
     // `!important` — one such declaration would make the author's own
     // emphasis silently unreachable.
     //
-    // Which is why the stylesheet's own text is checked as well as the
-    // cascade: jsdom does not model `!important` at all (verified — an inline
-    // style wins over an `!important` rule there), so the `getComputedStyle`
+    // Which is why the stylesheet's own declarations are checked as well as
+    // the cascade: jsdom's cascade does not model `!important` at all
+    // (verified — an inline style wins over an `!important` rule there), though
+    // its CSSOM records each declaration's priority, so the `getComputedStyle`
     // assertions below would go on passing after exactly the change they
-    // exist to catch. The text check is the one with teeth; the cascade
-    // assertions state what the text check is protecting.
-    expect(themeRules).not.toMatch(/!\s*important/);
+    // exist to catch. The declaration check is the one with teeth; the cascade
+    // assertions state what it is protecting.
+    expect(declarations.length).toBeGreaterThan(0);
+    expect(declarations.filter((declaration) => declaration.important)).toEqual([]);
 
     const frame = svg.querySelector(".siren-class-frame");
     const line = svg.querySelector(".siren-relationship-line");
@@ -1187,7 +1189,7 @@ function attachDefaultTheme(): void {
   if (document.getElementById("siren-default-theme") === null) {
     const style = document.createElement("style");
     style.id = "siren-default-theme";
-    style.textContent = defaultThemeCss;
+    style.textContent = theme.text;
     document.head.appendChild(style);
   }
 }
@@ -1234,8 +1236,8 @@ describe("default theme's color palette", () => {
     // on the consumer's behalf again, which is the mechanism that was removed.
     // Asserted against the whole file, comments included: the words naming a
     // switch that no longer exists belong nowhere in it.
-    expect(defaultThemeCss).not.toMatch(/data-theme/);
-    expect(defaultThemeCss).not.toMatch(/prefers-color-scheme/);
+    expect(theme.text).not.toMatch(/data-theme/);
+    expect(theme.text).not.toMatch(/prefers-color-scheme/);
   });
 });
 
@@ -1339,18 +1341,12 @@ A["x <mark>m</mark> <a href='https://e.x'>l</a>"]`);
   // a light color on a dark node (the link blue measured 1.6:1 on its node
   // fill before this test existed).
   it("has the demos' dark theme redeclare every color token core declares", () => {
-    const darkThemeCss = (
-      process as unknown as {
-        getBuiltinModule(id: "node:fs"): { readFileSync(path: string, encoding: "utf8"): string };
-      }
-    )
-      .getBuiltinModule("node:fs")
-      .readFileSync(
-        `${(import.meta as unknown as { dirname: string }).dirname}/../../../../demos/theme-dark.css`,
-        "utf8",
-      );
+    const darkTokens = readStylesheet(readBeside(TEST_FILE_URL, "../../../../demos/theme-dark.css"), {
+      tokenPrefix: "--siren-",
+      rootSelector: ":root",
+    }).declaredTokens();
     const colorTokens = [...Object.keys(PALETTE), "--siren-label-mark-fill", "--siren-label-mark-text", "--siren-label-link"];
-    const missing = colorTokens.filter((token) => !new RegExp(`${token}\\s*:`).test(darkThemeCss));
+    const missing = colorTokens.filter((token) => !darkTokens.has(token));
     expect(missing).toEqual([]);
   });
 
@@ -1358,7 +1354,7 @@ A["x <mark>m</mark> <a href='https://e.x'>l</a>"]`);
   // a base it cannot read off the stylesheet; that base is this token's
   // default, and the two may not drift apart.
   it("declares the font size label measurement takes as its base", () => {
-    const declared = /--siren-font-size:\s*(\d*\.?\d+)px;/.exec(defaultThemeCss);
+    const declared = /--siren-font-size:\s*(\d*\.?\d+)px;/.exec(ruleBody(":root"));
 
     expect(declared?.[1]).toBeDefined();
     expect(Number(declared![1])).toBe(BASE_FONT_SIZE_PX);
@@ -1366,34 +1362,14 @@ A["x <mark>m</mark> <a href='https://e.x'>l</a>"]`);
 });
 
 describe("default theme's design tokens", () => {
-  /**
-   * Every rule, as selector and body. A rule nested in `@media` is picked up
-   * with its own selector: the pattern matches innermost braces only.
-   */
-  const rules = [...themeRules.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([whole, selector, body]) => ({
-    whole,
-    selector: selector.trim(),
-    body,
-  }));
-
-  /**
-   * A token block — where ADR-0004 says every literal belongs — is a rule
-   * selecting `:root` and nothing else. ADR-0014 left exactly one selector
-   * able to be one, so this no longer has to know about theme pins.
-   */
-  const isTokenSelector = (part: string) => part === ":root";
-  const tokenBlocks = rules.filter((rule) =>
-    rule.selector.split(",").every((part) => isTokenSelector(part.trim())),
-  );
-
   it("declares every token in one block, so a consumer has one entry point", () => {
     // ADR-0014: colors used to be declared apart from the rest so a theme pin
     // could redeclare them alone. With the pin gone there is no reason for a
     // second block, and a consumer reading this file to find what they may
     // override should find all of it in one place.
-    expect(tokenBlocks.map((block) => block.selector)).toEqual([":root"]);
+    expect(theme.tokenBlocks().map((block) => block.selector)).toEqual([":root"]);
 
-    const declared = tokenBlocks[0].body.match(/--siren-[\w-]+(?=\s*:)/g) ?? [];
+    const declared = [...theme.rootTokens()];
     for (const token of Object.keys(PALETTE)) {
       expect(declared).toContain(token);
     }
@@ -1405,16 +1381,14 @@ describe("default theme's design tokens", () => {
 
   it("keeps every color literal inside the token declarations", () => {
     // Not vacuous: every color token is declared in some token block.
-    const declaredInBlocks = tokenBlocks.map((block) => block.body).join("\n");
+    const declaredInBlocks = [...theme.rootTokens()];
     for (const token of Object.keys(PALETTE)) {
-      expect(declaredInBlocks).toContain(`${token}:`);
+      expect(declaredInBlocks).toContain(token);
     }
-    const outside = tokenBlocks.reduce((css, block) => css.replace(block.whole, ""), themeRules);
 
     // Per ADR-0004 the tokens are the single source of truth for the diagram's
     // colors; a literal in a rule is a value no consumer can override.
-    const literals = outside.match(/#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(/g) ?? [];
-    expect(literals).toEqual([]);
+    expect(theme.literalsOutsideTokenBlocks()).toEqual([]);
   });
 
   it("declares every token it references", () => {
@@ -1422,12 +1396,8 @@ describe("default theme's design tokens", () => {
     // hook such as `--siren-edge-march`, which is no token block's (decision
     // 01M59N4KXRKK7R9Y55K64R4013), in the core rule that sets it. A name
     // nothing sets is still caught, fallback or not.
-    const declared = new Set(themeRules.match(/--siren-[\w-]+(?=\s*:)/g) ?? []);
-    const referenced = new Set(
-      (themeRules.match(/var\(\s*(--siren-[\w-]+)/g) ?? []).map((use) =>
-        use.replace(/^var\(\s*/, ""),
-      ),
-    );
+    const declared = theme.declaredTokens();
+    const referenced = theme.referencedTokens();
 
     // A `var()` naming a token that was never declared silently resolves to
     // nothing — for `stroke` or `fill` that means an invisible element, which
@@ -1491,9 +1461,7 @@ describe("default theme coverage of the state renderer", () => {
     const emitted = emittedSirenClasses(renderThemedSVG(EVERY_STATE_FEATURE));
     expect(emitted.length).toBeGreaterThan(0);
 
-    const unthemed = emitted.filter(
-      (name) => !new RegExp(`\\.${name}(?![\\w-])`).test(themeRules),
-    );
+    const unthemed = emitted.filter((name) => !theme.selectsClass(name));
     expect(unthemed).toEqual([]);
   });
 
@@ -1629,9 +1597,7 @@ describe("default theme coverage of the ER renderer", () => {
     const emitted = emittedSirenClasses(renderThemedSVG(EVERY_ER_FEATURE));
     expect(emitted.length).toBeGreaterThan(0);
 
-    const unthemed = emitted.filter(
-      (name) => !new RegExp(`\\.${name}(?![\\w-])`).test(themeRules),
-    );
+    const unthemed = emitted.filter((name) => !theme.selectsClass(name));
     expect(unthemed).toEqual([]);
   });
 
@@ -1840,8 +1806,8 @@ describe("default theme's paint for a node's shape-table frames", () => {
     expect(getComputedStyle(frame).fill).toBe("none");
     expect(getComputedStyle(frame).stroke).toBe("var(--siren-node-stroke)");
     // A subgraph's frame is unfilled through its token, which defaults to `none`.
-    expect(themeRules).toMatch(/\.siren-subgraph-frame\s*\{[^}]*fill:\s*var\(--siren-subgraph-fill\)/);
-    expect(themeRules).toMatch(/--siren-subgraph-fill:\s*none;/);
+    expect(ruleBody(".siren-subgraph-frame")).toMatch(/(?:^|; )fill:\s*var\(--siren-subgraph-fill\);/);
+    expect(declarations).toContainEqual({ property: "--siren-subgraph-fill", value: "none", important: false });
   });
 
   it("paints a note node as the class and state diagrams paint a note", () => {
@@ -1853,7 +1819,7 @@ describe("default theme's paint for a node's shape-table frames", () => {
     const { frame } = frameOf('flowchart TB\n  A@{ shape: note, label: "Remember" }', "A");
     expect(getComputedStyle(frame).fill).toBe("var(--siren-node-fill)");
     expect(getComputedStyle(frame).stroke).toBe("var(--siren-node-stroke)");
-    expect(themeRules).toMatch(/\.siren-node-frame\.siren-node-note\s*\{/);
+    expect(theme.rule(".siren-node-frame.siren-node-note")).toBeDefined();
   });
 
   it("gives each paint a frame can name a rule: none unfilled, line filled with the line colour", () => {
@@ -1899,19 +1865,11 @@ describe("default theme's invisible edge", () => {
     // alone cannot show that a browser agrees: `.siren-edge.siren-highlight-outline`
     // outranks a one-class `.siren-edge-invisible` there. The rule that keeps
     // the edge invisible has to outrank it by itself.
-    expect(themeRules).toMatch(
-      /\.siren-edge\.siren-edge-invisible\.siren-highlight-outline\s*\{[^}]*stroke-width:\s*0;/,
-    );
+    expect(ruleBody(".siren-edge.siren-edge-invisible.siren-highlight-outline")).toMatch(/(?:^|; )stroke-width:\s*0;/);
   });
 });
 
 describe("default theme's animated edge", () => {
-  /** The declarations of the one rule whose selector is exactly `selector`. */
-  const ruleBody = (selector: string): string => {
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return themeRules.match(new RegExp(`(?:^|[}\\s])${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
-  };
-
   it.each([
     ["fast", "20s"],
     ["slow", "50s"],
@@ -1932,10 +1890,14 @@ describe("default theme's animated edge", () => {
     expect(ruleBody(`.siren-edge-animation-${speed}`)).toMatch(
       new RegExp(`--siren-edge-march:\\s*siren-edge-march\\s+var\\(--siren-edge-march-${speed}-duration\\)\\s+linear\\s+infinite;`),
     );
-    expect(themeRules).toMatch(new RegExp(`--siren-edge-march-${speed}-duration:\\s*${duration};`));
-    expect(themeRules).toMatch(/--siren-edge-march-dash:\s*9 5;/);
-    expect(themeRules).toMatch(/--siren-edge-march-offset:\s*900;/);
-    expect(defaultThemeCss).toMatch(/@keyframes siren-edge-march\s*\{\s*to\s*\{\s*stroke-dashoffset:\s*0;\s*\}\s*\}/);
+    expect(declarations).toContainEqual({
+      property: `--siren-edge-march-${speed}-duration`,
+      value: duration,
+      important: false,
+    });
+    expect(declarations).toContainEqual({ property: "--siren-edge-march-dash", value: "9 5", important: false });
+    expect(declarations).toContainEqual({ property: "--siren-edge-march-offset", value: "900", important: false });
+    expect(theme.text).toMatch(/@keyframes siren-edge-march\s*\{\s*to\s*\{\s*stroke-dashoffset:\s*0;\s*\}\s*\}/);
   });
 
   it("leaves the march hook out of :root, which holds only design tokens", () => {
@@ -1944,7 +1906,7 @@ describe("default theme's animated edge", () => {
     // is no token a theme could redeclare (ADR-0014: `:root` is the whole
     // styling interface; decision 01M59N4KXRKK7R9Y55K64R4013: `:root` holds
     // only design tokens). Its four numbers are.
-    const root = themeRules.match(/:root\s*\{([^}]*)\}/)?.[1] ?? "";
+    const root = ruleBody(":root");
 
     expect(root).not.toMatch(/--siren-edge-march:/);
     expect(root).toMatch(/--siren-edge-march-dash:\s*9 5;/);
@@ -1956,14 +1918,14 @@ describe("default theme's animated edge", () => {
   it("reads the march hook with its own none fallback wherever it runs the march", () => {
     // With no `:root` value the hook has a default only where it is read:
     // the march's own rule and the nine that run a timeline effect beside it.
-    const reads = themeRules.match(/var\(--siren-edge-march(?![\w-])[^)]*\)/g) ?? [];
+    const reads = theme.readsOf("--siren-edge-march");
 
     expect(reads).toHaveLength(10);
     for (const read of reads) expect(read).toMatch(/^var\(--siren-edge-march,\s*none\)$/);
   });
 
   it("stops the march for a reader who asked for reduced motion", () => {
-    expect(defaultThemeCss).toMatch(
+    expect(theme.text).toMatch(
       /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.siren-edge:is\(\.siren-edge-animation-fast, \.siren-edge-animation-slow\)\s*\{\s*--siren-edge-march:\s*none;\s*\}\s*\}/,
     );
   });
@@ -2218,25 +2180,6 @@ describe("default theme's token reach", () => {
     return "";
   }
 
-  /** The selector of every rule in the default theme that declares `property`. */
-  function cssRulesDeclaring(property: string): string[] {
-    const style = document.createElement("style");
-    style.textContent = defaultThemeCss;
-    document.head.appendChild(style);
-    const selectors: string[] = [];
-    const walk = (rules: CSSRuleList) => {
-      for (const rule of Array.from(rules)) {
-        if ("selectorText" in rule && (rule as CSSStyleRule).style.getPropertyValue(property) !== "") {
-          selectors.push((rule as CSSStyleRule).selectorText);
-        }
-        if ("cssRules" in rule) walk((rule as CSSGroupingRule).cssRules);
-      }
-    };
-    walk(style.sheet!.cssRules);
-    style.remove();
-    return selectors;
-  }
-
   it.each([
     ["a state", "stateDiagram-v2\nA --> B\nnote right of A : about A\nstyle A fill:#f00,color:#0f0\n", "A"],
     ["a composite state", "stateDiagram-v2\nstate Outer {\nI\n}\nnote right of Outer : about Outer\n", "Outer"],
@@ -2299,7 +2242,7 @@ describe("default theme's token reach", () => {
     // that, so it sits wholly inside `:where()`. jsdom cannot show this through
     // the cascade: it lets an earlier sheet's custom property beat a later,
     // more specific one, so the selector is held instead.
-    const redeclarations = cssRulesDeclaring("--siren-node-fill").filter((selector) =>
+    const redeclarations = theme.rulesDeclaring("--siren-node-fill").filter((selector) =>
       selector.includes("siren-note-"),
     );
     expect(redeclarations.length).toBeGreaterThan(0);
@@ -2310,7 +2253,7 @@ describe("default theme's token reach", () => {
     // jsdom supports `:has()`, so the previous test cannot take it away; this
     // one holds the rule that captures the diagram's colours to a selector
     // every browser in the support range matches.
-    const captures = cssRulesDeclaring("--_siren-state-note-fill");
+    const captures = theme.rulesDeclaring("--_siren-state-note-fill");
     expect(captures.length).toBeGreaterThan(0);
     for (const selector of captures) expect(selector).not.toContain(":has(");
   });
