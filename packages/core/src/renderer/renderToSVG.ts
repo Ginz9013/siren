@@ -13,6 +13,7 @@ import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
 import { SHAPES } from "../layout/shapes/shapeTable";
 import type { FigureElement, ShapeFrame } from "../layout/shapes/shape";
 import { drawConnectorRoute } from "./connectorCurve";
+import { applyInlineStyle } from "./inlineStyle";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 import { wrapInteraction } from "./wrapInteraction";
@@ -564,55 +565,6 @@ function drawFigureElement(figure: FigureElement): SVGElement {
   }
   figure.children.forEach((child) => element.appendChild(drawFigureElement(child)));
   return element;
-}
-
-/**
- * Writes `style` onto `element` as an inline `style` attribute, in
- * declaration order, or leaves the element without one when the list is
- * empty.
- *
- * One function for a node's frame, a node's label and an edge's path,
- * because the rule is the same for all three: land on the element the theme
- * paints. Which half of the author's declarations each one is handed is not
- * decided here either — `resolveStyles` split them, and this function is
- * told, in the vocabulary the element it writes to actually reads.
- *
- * Almost always the author's declarations and nothing else. A frame whose
- * shape names its own corners hands over that radius first and the author's
- * list after (a corner radius, from the shape table), which is why this takes a list rather
- * than a `ResolvedStyle`: the last writer of a property wins, and the
- * author has to be able to be that writer.
- *
- * Where the author wrote the declarations — `style A`, `classDef`,
- * `linkStyle 0` — is not visible here, and must not be.
- *
- * Inline rather than a generated class rule, and on the drawn shape rather
- * than its enclosing `<g>` — both for the same cascade reason, recorded in
- * ADR-0008. The theme styles `.siren-node-frame` directly, so an inline
- * declaration on the frame outranks it without needing `!important`, while
- * the same declaration on the `<g>` would only ever be *inherited* by the
- * frame and so would lose to the theme's own rule — and would leak down onto
- * the node's `<text>`, which the author did not ask to recolor.
- *
- * The `<g>` is left alone for a second reason too: it is where the animation
- * controller stamps `siren-pending` and `siren-enter-*`, and an attribute
- * this function wrote there would be one more thing those classes have to
- * share a element with.
- *
- * The values are written verbatim. The author's arrive here having already
- * passed `resolveStyles`' gate (no `url(`, no `expression(`, no `;`, no
- * backslash), and re-checking here would fork that single source of truth;
- * a shape's own are numbers this file computed. This attribute is a CSS
- * sink, never an HTML one: nothing is parsed as markup.
- */
-function applyInlineStyle(element: SVGElement, style: readonly StyleProperty[]): void {
-  if (style.length === 0) {
-    return;
-  }
-  element.setAttribute(
-    "style",
-    style.map(({ property, value }) => `${property}:${value}`).join(";"),
-  );
 }
 
 /**

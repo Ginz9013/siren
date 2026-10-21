@@ -11,6 +11,7 @@ import { appendLabel, drawLabel } from "../label/drawLabel";
 import { buildConnectorLabels, buildConnectorLine } from "./connector";
 import { drawConnectorRoute } from "./connectorCurve";
 import { appendAccessibleText } from "./appendAccessibleText";
+import { applyInlineStyle } from "./inlineStyle";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 
@@ -163,7 +164,8 @@ function buildState(state: PositionedState): SVGGElement {
   frame.setAttribute("y", String(state.y));
   frame.setAttribute("width", String(state.width));
   frame.setAttribute("height", String(state.height));
-  applyAuthorStyle(frame, state.style.frame);
+  // A pseudo-state is never styled: `[*]` is not an id, so no `class` statement can name one.
+  applyInlineStyle(frame, state.style.frame);
   g.appendChild(frame);
 
   // No `rx` here: a state's corner radius is a decoration of the box rather
@@ -305,7 +307,7 @@ function buildComposite(state: PositionedState): SVGGElement {
   // 11.17.2): `class Outer urgent` puts the class on the cluster's own `<g>`
   // and its generated rule paints the rects inside it. So a composite is
   // styled exactly as a state is, on the one rect it is drawn as.
-  applyAuthorStyle(frame, state.style.frame);
+  applyInlineStyle(frame, state.style.frame);
   g.appendChild(frame);
 
   // No `rx` here either — a frame's corner radius is the theme's, for the
@@ -388,41 +390,8 @@ function appendStateLabel(
   // A composite's title carries its own `x` where the layout moved it along
   // the strip; every other label is centred on its box.
   const drawn = drawLabel(planned.label, planned.labelBox, { x: planned.x ?? centerX, y: planned.y }, className);
-  applyAuthorStyle(drawn.text, style);
+  applyInlineStyle(drawn.text, style);
   appendLabel(g, drawn);
-}
-
-/**
- * Writes the author's resolved `classDef`/`class` declarations onto
- * `element` as an inline `style` attribute, in declaration order, or leaves
- * the element without one when the author styled nothing.
- *
- * The same function `renderClassDiagramToSVG` has, for the same reasons,
- * spelled the same way: inline rather than a generated class rule, and on
- * the drawn shape rather than its enclosing `<g>`, both for the cascade
- * reason ADR-0008 records. The theme styles `.siren-state-frame` and
- * `.siren-state-label` directly, so an inline declaration on those elements
- * outranks it without `!important`, while the same declaration on the `<g>`
- * would only ever be *inherited* by them and so would lose.
- *
- * The values are written verbatim. They are author input, but they arrive
- * here having already passed `resolveStyles`' gate in `buildStateModel` (no
- * `url(`, no `expression(`, no `;`, no backslash), and re-checking here
- * would fork that single source of truth. This attribute is a CSS sink,
- * never an HTML one: nothing is parsed as markup, so the hard
- * `textContent`-never-`innerHTML` invariant is untouched.
- *
- * A pseudo-state is deliberately not reached by this: `[*]` is not an id, so
- * no `class` statement can name one.
- */
-function applyAuthorStyle(element: SVGElement, style: StyleProperty[]): void {
-  if (style.length === 0) {
-    return;
-  }
-  element.setAttribute(
-    "style",
-    style.map(({ property, value }) => `${property}:${value}`).join(";"),
-  );
 }
 
 /**
@@ -473,7 +442,7 @@ function buildStereotypedState(state: PositionedState): SVGGElement {
         `${state.x},${midY}`,
       ].join(" "),
     );
-    applyAuthorStyle(diamond, state.style.frame);
+    applyInlineStyle(diamond, state.style.frame);
     g.appendChild(diamond);
     return g;
   }
@@ -489,7 +458,7 @@ function buildStereotypedState(state: PositionedState): SVGGElement {
   bar.setAttribute("y", String(state.y));
   bar.setAttribute("width", String(state.width));
   bar.setAttribute("height", String(state.height));
-  applyAuthorStyle(bar, state.style.frame);
+  applyInlineStyle(bar, state.style.frame);
   g.appendChild(bar);
   return g;
 }
