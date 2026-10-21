@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type {
+  AuthorStyle,
   ErAttribute,
   ErDocument,
+  ErModel,
   ErRelationshipDecl,
   ErSubgraph,
   StyleDecl,
 } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
 import { buildErModel } from "./buildErModel";
+import { omittedStyleNames } from "./omitAuthorStyles";
 
 /** An `ErDocument` naming `names`, in the order given, and nothing else. */
 const documentOf = (...names: string[]): ErDocument => ({
@@ -547,6 +550,17 @@ describe("buildErModel resolves the timeline", () => {
   });
 });
 
+/**
+ * Each entity and then each cluster that carries an author style, in the
+ * model's order, as `{ targetId, style }` — so a test about what styling
+ * resolved to reads it off the targets, where `buildErModel` writes it.
+ */
+function styledTargets(model: ErModel): { targetId: string; style: AuthorStyle }[] {
+  return [...model.entities, ...model.subgraphs].flatMap((target) =>
+    target.style === undefined ? [] : [{ targetId: target.id, style: target.style }],
+  );
+}
+
 /** An `ErDocument` naming `names` and carrying `styles`. */
 const documentStyling = (names: string[], styles: StyleDecl[]): ErDocument => ({
   ...documentOf(...names),
@@ -588,7 +602,7 @@ describe("buildErModel resolves the author's styling", () => {
     // One entry, and it is `ORDER`'s: a mutation that styled the first
     // entity instead of the named one leaves every diagnostic empty and
     // still draws a picture.
-    expect(model.styles).toEqual([
+    expect(styledTargets(model)).toEqual([
       {
         targetId: "ORDER",
         style: {
@@ -633,7 +647,7 @@ describe("buildErModel resolves the author's styling", () => {
     // Dropped in silence, which is `resolveStyles`' settled answer for a
     // target that does not exist — Mermaid says nothing either.
     expect(diagnostics).toEqual([]);
-    expect(model.styles).toEqual([]);
+    expect(styledTargets(model)).toEqual([]);
   });
 });
 
@@ -781,7 +795,7 @@ describe("buildErModel resolves subgraph clusters", () => {
 
     expect(diagnostics).toEqual([]);
     expect(model.subgraphs.map((subgraph) => subgraph.id)).toEqual(["subgraph:1", "subgraph:2"]);
-    expect(model.styles).toEqual([
+    expect(styledTargets(model)).toEqual([
       {
         targetId: "A",
         style: { frame: [{ property: "stroke", value: "#00f" }], text: [] },
@@ -821,7 +835,7 @@ describe("buildErModel resolves subgraph clusters", () => {
     });
 
     expect(diagnostics).toEqual([]);
-    expect(model.styles).toEqual([]);
+    expect(styledTargets(model)).toEqual([]);
   });
 
   it("lets the block that closes first keep a name two blocks claimed", () => {
@@ -851,5 +865,91 @@ describe("buildErModel resolves subgraph clusters", () => {
       { id: "subgraph:2", label: plainLabel("inner"), parentId: "subgraph:1", direction: null },
     ]);
     expect(model.entities.map((entity) => entity.parentId)).toEqual(["subgraph:2"]);
+  });
+});
+
+describe("buildErModel's author style on the entity and the cluster", () => {
+  /**
+   * `A` and `C` in `subgraph s1`, `B` in `subgraph s2`, with
+   * `style A fill:#f96,color:#fff` and `style s1 stroke:#00f,fill:#eee`.
+   */
+  const styledDocument = (): ErDocument => {
+    const first: ErSubgraph = { name: "s1", label: plainLabel("s1"), direction: null, entityNames: ["A", "C"], subgraphs: [] };
+    const second: ErSubgraph = { name: "s2", label: plainLabel("s2"), direction: null, entityNames: ["B"], subgraphs: [] };
+    return {
+      ...documentOf("A", "B", "C"),
+      subgraphs: [first, second],
+      styles: [
+        {
+          styleKind: "style",
+          authoredAs: "style",
+          targetIds: ["A"],
+          name: null,
+          properties: [
+            { property: "fill", value: "#f96" },
+            { property: "color", value: "#fff" },
+          ],
+        },
+        {
+          styleKind: "style",
+          authoredAs: "style",
+          targetIds: ["s1"],
+          name: null,
+          properties: [
+            { property: "stroke", value: "#00f" },
+            { property: "fill", value: "#eee" },
+          ],
+          clusterTargets: new Map([["s1", first]]),
+        },
+      ],
+    };
+  };
+
+  it("writes each styled entity's and cluster's declarations onto it, and leaves the rest without a style", () => {
+    const { model, diagnostics } = buildErModel(styledDocument());
+
+    expect(diagnostics).toEqual([]);
+    expect(model.entities.find((entity) => entity.id === "A")?.style).toEqual({
+      frame: [{ property: "fill", value: "#f96" }],
+      text: [{ property: "fill", value: "#fff" }],
+    });
+    expect(model.entities.find((entity) => entity.id === "B")).not.toHaveProperty("style");
+    expect(model.subgraphs.find((subgraph) => subgraph.id === "subgraph:1")?.style).toEqual({
+      frame: [
+        { property: "stroke", value: "#00f" },
+        { property: "fill", value: "#eee" },
+      ],
+      text: [],
+    });
+    expect(model.subgraphs.find((subgraph) => subgraph.id === "subgraph:2")).not.toHaveProperty("style");
+  });
+
+  it("leaves an omitted property off the entity and the cluster and keeps it in their style facts", () => {
+    const { model } = buildErModel(styledDocument(), omittedStyleNames(["fill"]));
+
+    expect(model.entities.find((entity) => entity.id === "A")?.style).toEqual({
+      frame: [],
+      text: [{ property: "fill", value: "#fff" }],
+    });
+    expect(model.subgraphs.find((subgraph) => subgraph.id === "subgraph:1")?.style).toEqual({
+      frame: [{ property: "stroke", value: "#00f" }],
+      text: [],
+    });
+    expect(model.styleFacts?.map(({ id, effective }) => ({ id, effective }))).toEqual([
+      {
+        id: "A",
+        effective: { frame: [{ property: "fill", value: "#f96" }], text: [{ property: "fill", value: "#fff" }] },
+      },
+      {
+        id: "subgraph:1",
+        effective: {
+          frame: [
+            { property: "stroke", value: "#00f" },
+            { property: "fill", value: "#eee" },
+          ],
+          text: [],
+        },
+      },
+    ]);
   });
 });

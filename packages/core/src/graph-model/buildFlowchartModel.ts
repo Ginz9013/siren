@@ -15,6 +15,7 @@ import type {
 } from "../contracts";
 import { CURVES, FLOWCHART_DEFAULT_CURVE, isCurve, isMermaidOnlyCurve, type Curve } from "../curve/curve";
 import { generatedId } from "./generatedId";
+import { NOTHING_OMITTED, withoutOmitted } from "./omitAuthorStyles";
 import { resolveInteractions } from "./resolveInteractions";
 import { asStyleFact, resolveStyleFacts, resolveStyles } from "./resolveStyles";
 import { resolveTimelineBlocks } from "./resolveTimeline";
@@ -39,6 +40,7 @@ import { resolveTimelineBlocks } from "./resolveTimeline";
  */
 export function buildFlowchartModel(
   document: FlowchartDocument,
+  omitted: ReadonlySet<string> = NOTHING_OMITTED,
 ): { graph: GraphModel; diagnostics: Diagnostic[] } {
   const diagnostics: Diagnostic[] = [];
 
@@ -118,9 +120,12 @@ export function buildFlowchartModel(
     // elements a declaration is about was settled by `resolveStyles`, and
     // re-deciding it here would be the second opinion that split is meant
     // to prevent.
+    //
+    // The fact is taken from `resolved` and the target given what is left
+    // once the caller's omitted properties are struck (see `withoutOmitted`).
     const { targetId, style } = resolved;
     const target = nodeById.get(targetId) ?? subgraphById.get(targetId)!;
-    target.style = style;
+    target.style = withoutOmitted(style, omitted);
     styleFacts.push(asStyleFact(resolved, subgraphById.has(targetId) ? "subgraph" : "node"));
   }
 
@@ -256,6 +261,11 @@ export function buildFlowchartModel(
       const classes = edgeClassNames.get(edge.id) ?? [];
       styleFacts.push({ id: edge.id, kind: "edge", classes, effective: edge.style, sources });
     }
+  }
+  // Struck only once every edge's fact holds what was painted above, so an
+  // omitted declaration is still in the fact (see `withoutOmitted`).
+  for (const edge of edges) {
+    edge.style = withoutOmitted(edge.style, omitted);
   }
 
   // A subgraph is a timeline target on the same terms as a node and an edge:

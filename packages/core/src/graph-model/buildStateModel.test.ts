@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { Direction, StateDocument } from "../contracts";
+import type { AuthorStyle, Direction, StateDocument, StateModel } from "../contracts";
 import { plainLabel } from "../label/label";
 import { parseStateDiagram } from "../parser/parseStateDiagram";
 import { buildStateModel } from "./buildStateModel";
+import { omittedStyleNames } from "./omitAuthorStyles";
 
 /**
  * A parsed state document, with the source positions every fixture ignores
@@ -49,6 +50,15 @@ function document(
       sourceColumn: 3,
     })),
   };
+}
+
+/**
+ * Each state that carries an author style, in the model's state order, as
+ * `{ targetId, style }` — so a test about what styling resolved to reads it
+ * off the states, where `buildStateModel` writes it.
+ */
+function styledStates(model: StateModel): { targetId: string; style: AuthorStyle }[] {
+  return model.states.flatMap((state) => (state.style === undefined ? [] : [{ targetId: state.id, style: state.style }]));
 }
 
 describe("buildStateModel", () => {
@@ -846,7 +856,7 @@ describe("buildStateModel", () => {
     });
 
     expect(diagnostics).toEqual([]);
-    expect(model.styles).toEqual([
+    expect(styledStates(model)).toEqual([
       { targetId: "Busy", style: { frame: [{ property: "fill", value: "#f96" }], text: [] } },
     ]);
   });
@@ -904,7 +914,7 @@ describe("buildStateModel", () => {
       styles: [...classDefs, apply("alpha", 5), apply("beta", 6)],
     });
     expect(alphaThenBeta.diagnostics).toEqual([]);
-    expect(alphaThenBeta.model.styles).toEqual([
+    expect(styledStates(alphaThenBeta.model)).toEqual([
       {
         targetId: "Busy",
         style: {
@@ -922,7 +932,7 @@ describe("buildStateModel", () => {
       styles: [...classDefs, apply("beta", 5), apply("alpha", 6)],
     });
     expect(betaThenAlpha.diagnostics).toEqual([]);
-    expect(betaThenAlpha.model.styles).toEqual([
+    expect(styledStates(betaThenAlpha.model)).toEqual([
       {
         targetId: "Busy",
         style: {
@@ -1049,5 +1059,62 @@ describe("buildStateModel, on the ids it mints for concurrent regions", () => {
         expect(state.id).toMatch(/^region:\d+$/);
       }
     }
+  });
+});
+
+describe("buildStateModel's author style on the state", () => {
+  /** `Idle --> Busy`, with `style Busy fill:#f96,stroke:#333,color:#fff`. */
+  const styledDocument = (): StateDocument => ({
+    ...document([{ from: "Idle", to: "Busy" }]),
+    styles: [
+      {
+        styleKind: "style",
+        authoredAs: "style",
+        targetIds: ["Busy"],
+        name: null,
+        properties: [
+          { property: "fill", value: "#f96" },
+          { property: "stroke", value: "#333" },
+          { property: "color", value: "#fff" },
+        ],
+        line: 3,
+        column: 3,
+      },
+    ],
+  });
+
+  it("writes a styled state's declarations onto it, and leaves a state nothing styled without a style", () => {
+    const { model, diagnostics } = buildStateModel(styledDocument());
+
+    expect(diagnostics).toEqual([]);
+    expect(model.states.find((state) => state.id === "Busy")?.style).toEqual({
+      frame: [
+        { property: "fill", value: "#f96" },
+        { property: "stroke", value: "#333" },
+      ],
+      text: [{ property: "fill", value: "#fff" }],
+    });
+    expect(model.states.find((state) => state.id === "Idle")).not.toHaveProperty("style");
+  });
+
+  it("leaves an omitted property off the state and keeps it in the state's style fact", () => {
+    const { model } = buildStateModel(styledDocument(), omittedStyleNames(["stroke", "color"]));
+
+    expect(model.states.find((state) => state.id === "Busy")?.style).toEqual({
+      frame: [{ property: "fill", value: "#f96" }],
+      text: [],
+    });
+    expect(model.styleFacts?.map(({ id, effective }) => ({ id, effective }))).toEqual([
+      {
+        id: "Busy",
+        effective: {
+          frame: [
+            { property: "fill", value: "#f96" },
+            { property: "stroke", value: "#333" },
+          ],
+          text: [{ property: "fill", value: "#fff" }],
+        },
+      },
+    ]);
   });
 });

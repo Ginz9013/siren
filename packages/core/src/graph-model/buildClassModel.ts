@@ -14,6 +14,7 @@ import type {
 } from "../contracts";
 import { plainLabel } from "../label/label";
 import { generatedId } from "./generatedId";
+import { NOTHING_OMITTED, withoutOmitted } from "./omitAuthorStyles";
 import { resolveInteractions } from "./resolveInteractions";
 import { asStyleFact, resolveStyleFacts } from "./resolveStyles";
 import { resolveTimelineBlocks } from "./resolveTimeline";
@@ -51,7 +52,10 @@ import { resolveTimelineBlocks } from "./resolveTimeline";
  * box, and everything else still resolves — the same partial-failure
  * tolerance `buildFlowchartModel` and `buildSequenceModel` apply.
  */
-export function buildClassModel(document: ClassDocument): ClassModelResult {
+export function buildClassModel(
+  document: ClassDocument,
+  omitted: ReadonlySet<string> = NOTHING_OMITTED,
+): ClassModelResult {
   const diagnostics: Diagnostic[] = [];
 
   const classesById = resolveClasses(document, diagnostics);
@@ -71,7 +75,16 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
   );
 
   const resolvedStyles = resolveStyleFacts(document.styles, new Set(classesById.keys()), diagnostics);
-  const styles = resolvedStyles.map(({ targetId, style }) => ({ targetId, style }));
+  // Every id the resolver returns is a class it was handed, and a class it
+  // returns nothing for keeps no `style` at all. The facts below are taken
+  // from `resolvedStyles`, so they keep what the caller omits here (see
+  // `withoutOmitted`).
+  for (const { targetId, style } of resolvedStyles) {
+    const target = classesById.get(targetId);
+    if (target !== undefined) {
+      target.resolved.style = withoutOmitted(style, omitted);
+    }
+  }
 
   // Classes, relationships, namespaces and notes share one id space, the way
   // flowchart node and edge ids do, so an author animates any element of the
@@ -98,7 +111,6 @@ export function buildClassModel(document: ClassDocument): ClassModelResult {
     namespaces,
     notes,
     interactions,
-    styles,
     styleFacts: resolvedStyles.map((resolved) => asStyleFact(resolved, "class")),
     ...timelines,
   };

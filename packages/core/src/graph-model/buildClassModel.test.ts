@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { ClassDecl, ClassDocument, ClassMember, ClassRelationship, Label } from "../contracts";
+import type { AuthorStyle, ClassDecl, ClassDocument, ClassMember, ClassModel, ClassRelationship, Label } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
 import { parseClassDiagram } from "../parser/parseClassDiagram";
 import { buildClassModel } from "./buildClassModel";
+import { omittedStyleNames } from "./omitAuthorStyles";
 
 /** A label of these rows, each one plain run — what `a<br/>b` reads as. */
 const rowsLabel = (...rows: string[]): Label => ({
@@ -31,6 +32,15 @@ function classDocument(overrides: Partial<ClassDocument> = {}): ClassDocument {
     timeline: null,
     ...overrides,
   };
+}
+
+/**
+ * Each class that carries an author style, in the model's class order, as
+ * `{ targetId, style }` — so a test about what styling resolved to reads it
+ * off the classes, where `buildClassModel` writes it.
+ */
+function styledClasses(model: ClassModel): { targetId: string; style: AuthorStyle }[] {
+  return model.classes.flatMap((cls) => (cls.style === undefined ? [] : [{ targetId: cls.id, style: cls.style }]));
 }
 
 /** A `ClassDecl` with the fields a test does not care about defaulted. */
@@ -1307,7 +1317,7 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model.styles).toEqual([
+    expect(styledClasses(model)).toEqual([
       {
         targetId: "Shape",
         style: {
@@ -1362,7 +1372,7 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model.styles).toEqual([
+    expect(styledClasses(model)).toEqual([
       {
         targetId: "Shape",
         style: {
@@ -1427,7 +1437,7 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model.styles).toEqual([
+    expect(styledClasses(model)).toEqual([
       {
         targetId: "Shape",
         style: {
@@ -1470,7 +1480,7 @@ describe("buildClassModel", () => {
     // exist and reports nothing (measured, 11.17.2: `cssClass "Ghost" urgent`
     // adds no class and no error), so `resolveStyles` says nothing either.
     expect(diagnostics).toEqual([]);
-    expect(model.styles).toEqual([
+    expect(styledClasses(model)).toEqual([
       { targetId: "Shape", style: { frame: [{ property: "fill", value: "#00f" }], text: [] } },
     ]);
     expect(model.classes.map((c) => c.id)).toEqual(["Shape"]);
@@ -1502,7 +1512,7 @@ describe("buildClassModel", () => {
     );
 
     expect(diagnostics).toEqual([]);
-    expect(model.styles).toEqual([
+    expect(styledClasses(model)).toEqual([
       { targetId: "Shape", style: { frame: [{ property: "fill", value: "#fdd" }], text: [] } },
     ]);
   });
@@ -1541,7 +1551,7 @@ describe("buildClassModel", () => {
         column: 1,
       },
     ]);
-    expect(model.styles).toEqual([]);
+    expect(styledClasses(model)).toEqual([]);
     expect(model.classes.map((c) => c.id)).toEqual(["Shape"]);
   });
 
@@ -1589,7 +1599,7 @@ describe("buildClassModel", () => {
           column: 1,
         },
       ]);
-      expect(model.styles).toEqual([
+      expect(styledClasses(model)).toEqual([
         {
           targetId: "Shape",
           style: {
@@ -1612,7 +1622,7 @@ describe("buildClassModel", () => {
         'Style value for "width" uses "expression(", which can execute script; ' +
           "dropping the declaration.",
       ]);
-      expect(model.styles).toEqual([]);
+      expect(styledClasses(model)).toEqual([]);
     });
 
     it.each([
@@ -1626,7 +1636,7 @@ describe("buildClassModel", () => {
       );
 
       expect(diagnostics.map((d) => d.severity)).toEqual(["error"]);
-      expect(model.styles).toEqual([]);
+      expect(styledClasses(model)).toEqual([]);
     });
 
     it.each([
@@ -1647,7 +1657,7 @@ describe("buildClassModel", () => {
       expect(diagnostics.map((d) => d.message)).toEqual([
         `Style property "${property}" is not a plain CSS identifier; dropping the declaration.`,
       ]);
-      expect(model.styles).toEqual([
+      expect(styledClasses(model)).toEqual([
         { targetId: "Shape", style: { frame: [{ property: "fill", value: "#fdd" }], text: [] } },
       ]);
     });
@@ -1660,7 +1670,7 @@ describe("buildClassModel", () => {
         );
 
         expect(diagnostics).toEqual([]);
-        expect(model.styles[0].style.frame).toEqual([{ property, value: "#fdd" }]);
+        expect(styledClasses(model)[0]?.style.frame).toEqual([{ property, value: "#fdd" }]);
       },
     );
 
@@ -1677,7 +1687,7 @@ describe("buildClassModel", () => {
         'Style value for "fill" contains ";", which would smuggle in a second declaration; ' +
           "dropping the declaration.",
       ]);
-      expect(model.styles).toEqual([]);
+      expect(styledClasses(model)).toEqual([]);
     });
 
     it.each([
@@ -1695,7 +1705,7 @@ describe("buildClassModel", () => {
 
       expect(diagnostics.map((d) => d.severity)).toEqual(["error"]);
       // The declaration beside it is untouched, as for any other rejection.
-      expect(model.styles).toEqual([
+      expect(styledClasses(model)).toEqual([
         { targetId: "Shape", style: { frame: [{ property: "fill", value: "#fdd" }], text: [] } },
       ]);
     });
@@ -1708,7 +1718,7 @@ describe("buildClassModel", () => {
       const { model, diagnostics } = buildClassModel(styleDocument([{ property, value }]));
 
       expect(diagnostics).toEqual([]);
-      expect(model.styles).toEqual([{ targetId: "Shape", style: { frame: [{ property, value }], text: [] } }]);
+      expect(styledClasses(model)).toEqual([{ targetId: "Shape", style: { frame: [{ property, value }], text: [] } }]);
     });
 
     it("reports a rejected classDef declaration once, at the classDef, however many classes apply it", () => {
@@ -1754,7 +1764,7 @@ describe("buildClassModel", () => {
           4,
         ],
       ]);
-      expect(model.styles).toEqual([
+      expect(styledClasses(model)).toEqual([
         { targetId: "Shape", style: { frame: [{ property: "stroke", value: "#c00" }], text: [] } },
         { targetId: "Duck", style: { frame: [{ property: "stroke", value: "#c00" }], text: [] } },
       ]);
@@ -2067,5 +2077,63 @@ describe("buildClassModel — notes inside namespaces", () => {
       ["namespace:2", [], ["note:1"]],
     ]);
     expect(model.classes.map((c) => c.id)).toEqual(["A"]);
+  });
+});
+
+describe("buildClassModel's author style on the class", () => {
+  /** `Shape` and `Duck`, with `style Shape fill:#fdd,stroke:#c00,color:#00f`. */
+  const styledDocument = () =>
+    classDocument({
+      classes: [classDecl({ id: "Shape" }), classDecl({ id: "Duck" })],
+      styles: [
+        {
+          styleKind: "style",
+          authoredAs: "style",
+          targetIds: ["Shape"],
+          name: null,
+          properties: [
+            { property: "fill", value: "#fdd" },
+            { property: "stroke", value: "#c00" },
+            { property: "color", value: "#00f" },
+          ],
+          line: 4,
+          column: 1,
+        },
+      ],
+    });
+
+  it("writes a styled class's declarations onto it, and leaves a class nothing styled without a style", () => {
+    const { model, diagnostics } = buildClassModel(styledDocument());
+
+    expect(diagnostics).toEqual([]);
+    expect(model.classes.find((cls) => cls.id === "Shape")?.style).toEqual({
+      frame: [
+        { property: "fill", value: "#fdd" },
+        { property: "stroke", value: "#c00" },
+      ],
+      text: [{ property: "fill", value: "#00f" }],
+    });
+    expect(model.classes.find((cls) => cls.id === "Duck")).not.toHaveProperty("style");
+  });
+
+  it("leaves an omitted property off the class and keeps it in the class's style fact", () => {
+    const { model } = buildClassModel(styledDocument(), omittedStyleNames(["fill"]));
+
+    expect(model.classes.find((cls) => cls.id === "Shape")?.style).toEqual({
+      frame: [{ property: "stroke", value: "#c00" }],
+      text: [{ property: "fill", value: "#00f" }],
+    });
+    expect(model.styleFacts?.map(({ id, effective }) => ({ id, effective }))).toEqual([
+      {
+        id: "Shape",
+        effective: {
+          frame: [
+            { property: "fill", value: "#fdd" },
+            { property: "stroke", value: "#c00" },
+          ],
+          text: [{ property: "fill", value: "#00f" }],
+        },
+      },
+    ]);
   });
 });

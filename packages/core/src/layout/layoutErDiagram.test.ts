@@ -33,7 +33,6 @@ const model = (...names: string[]): ErModel => ({
   })),
   relationships: [],
   subgraphs: [],
-  styles: [],
   timeline: { totalSteps: 0, entries: [] },
   accTitle: null,
   accDescr: null,
@@ -45,7 +44,6 @@ const modelWithAttributes = (name: string, attributes: ErAttribute[]): ErModel =
   entities: [{ id: name, label: plainLabel(name), attributes, parentId: null }],
   relationships: [],
   subgraphs: [],
-  styles: [],
   timeline: { totalSteps: 0, entries: [] },
   accTitle: null,
   accDescr: null,
@@ -93,7 +91,6 @@ const relating = (relationship: ErModel["relationships"][number]): ErModel => ({
   })),
   relationships: [relationship],
   subgraphs: [],
-  styles: [],
   timeline: { totalSteps: 0, entries: [] },
   accTitle: null,
   accDescr: null,
@@ -660,21 +657,24 @@ describe("layoutErDiagram carries the author's styling to the box that wears it"
     // The model has already merged everything one entity was styled by and
     // dropped what its gate refused, so there is nothing to reconcile here —
     // this stage only has to put the right declarations on the right box.
-    // An entity absent from the resolved list gets the empty pair, which is
-    // what says "no `style` attribute" to the renderer without it having to
-    // test for a missing field.
+    // An entity with no `style` gets the empty pair, which is what says "no
+    // `style` attribute" to the renderer without it having to test for a
+    // missing field.
+    const base = model("CUSTOMER", "ORDER");
     const laidOut = layoutErDiagram(
       {
-        ...model("CUSTOMER", "ORDER"),
-        styles: [
-          {
-            targetId: "ORDER",
-            style: {
-              frame: [{ property: "fill", value: "#f96" }],
-              text: [{ property: "fill", value: "#fff" }],
-            },
-          },
-        ],
+        ...base,
+        entities: base.entities.map((entity) =>
+          entity.id === "ORDER"
+            ? {
+                ...entity,
+                style: {
+                  frame: [{ property: "fill", value: "#f96" }],
+                  text: [{ property: "fill", value: "#fff" }],
+                },
+              }
+            : entity,
+        ),
       },
       options,
     );
@@ -682,9 +682,9 @@ describe("layoutErDiagram carries the author's styling to the box that wears it"
     const styleOf = (id: string) =>
       laidOut.entities.find((entity) => entity.id === id)?.style;
 
-    // ⚠️ Named rather than positional: a stage that handed the list out in
-    // draw order instead of by id would style `CUSTOMER` here, draw a
-    // perfectly good picture, and report nothing.
+    // ⚠️ Named rather than positional: a stage that put the style on the
+    // box drawn first instead of the entity's own would style `CUSTOMER`
+    // here, draw a perfectly good picture, and report nothing.
     expect(styleOf("ORDER")).toEqual({
       frame: [{ property: "fill", value: "#f96" }],
       text: [{ property: "fill", value: "#fff" }],
@@ -753,7 +753,6 @@ describe("layoutErDiagram places subgraph clusters", () => {
     subgraphs: [
       { id: "subgraph:1", label: plainLabel("sales"), parentId: null, direction: "LR" },
     ],
-    styles: [],
     timeline: { totalSteps: 0, entries: [] },
     accTitle: null,
     accDescr: null,
@@ -786,9 +785,9 @@ describe("layoutErDiagram places subgraph clusters", () => {
   });
 
   it("carries a cluster's author style to its frame, by id, and the empty pair to the rest", () => {
-    // `style s1 fill:#f96,color:#0a0` below the block: `buildErModel` keys
-    // it on the generated id, and the frame wearing that id is the one that
-    // must carry it — a nested frame does not inherit it (measured, mermaid
+    // `style s1 fill:#f96,color:#0a0` below the block: `buildErModel` writes
+    // it onto the cluster under its generated id, and the frame wearing that
+    // id is the one that must carry it — a nested frame does not inherit it (measured, mermaid
     // 12.2.0: `class outer urgent` paints `outer` and leaves `inner` plain).
     const style = {
       frame: [{ property: "fill", value: "#f96" }],
@@ -803,10 +802,9 @@ describe("layoutErDiagram places subgraph clusters", () => {
           { id: "C", label: plainLabel("C"), attributes: [], parentId: "subgraph:1" },
         ],
         subgraphs: [
-          { id: "subgraph:1", label: plainLabel("outer"), parentId: null, direction: null },
+          { id: "subgraph:1", label: plainLabel("outer"), parentId: null, direction: null, style },
           { id: "subgraph:2", label: plainLabel("inner"), parentId: "subgraph:1", direction: null },
         ],
-        styles: [{ targetId: "subgraph:1", style }],
       },
       options,
     );

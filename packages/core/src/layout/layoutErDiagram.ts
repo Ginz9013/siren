@@ -377,20 +377,6 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
     ),
   });
 
-  /**
-   * Each styled entity's and cluster's declarations, keyed for lookup below.
-   *
-   * `buildErModel` has already merged everything one entity was styled by
-   * and dropped the values its gate refused, and omits an entity that ended
-   * up with none — so there is nothing to reconcile here. An entity absent
-   * from this map gets the empty pair, which is what says "no `style`
-   * attribute" to the renderer without it having to test for a missing
-   * field. `layoutStateDiagram` keys a state's the same way.
-   */
-  const styleById = new Map(
-    model.styles.map(({ targetId, style }) => [targetId, style]),
-  );
-
   const boxById = new Map(laidOut.nodes.map((box) => [box.id, box]));
   const routeById = new Map(laidOut.edges.map((route) => [route.id, route]));
 
@@ -405,10 +391,14 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
       y: box.y,
       width: box.width,
       height: box.height,
-      // By id and never by position: a stage that handed the resolved list
-      // out in draw order would style the wrong box, draw a perfectly good
-      // picture, and report nothing.
-      style: styleById.get(entity.id) ?? { frame: [], text: [] },
+      // Read off the entity itself, so no list handed out in another order
+      // can style the wrong box. `buildErModel` has already merged everything
+      // one entity was styled by and dropped the values its gate refused, so
+      // there is nothing to reconcile here; an entity it left without a
+      // `style` gets the empty pair, which is what says "no `style`
+      // attribute" to the renderer without it having to test for a missing
+      // field. `layoutStateDiagram` reads a state's the same way.
+      style: entity.style ?? { frame: [], text: [] },
       // The plan was measured against the box's own top-left corner, so
       // placing it is one translation — the step `layoutClassDiagram` takes
       // for a class's compartments, and the reason nothing downstream has to
@@ -452,10 +442,11 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
     (subgraph): PositionedErSubgraph => ({
       id: subgraph.id,
       ...placedFrame(boxById.get(subgraph.id)!, subgraph.label, titleBoxById.get(subgraph.id)!),
-      // Keyed on the generated id `buildErModel` rewrote the author's block
-      // name to, and never inherited by a nested frame — measured, mermaid
-      // 12.2.0 paints only the cluster the statement named.
-      style: styleById.get(subgraph.id) ?? { frame: [], text: [] },
+      // Written onto the cluster under the generated id `buildErModel`
+      // rewrote the author's block name to, and never inherited by a nested
+      // frame — measured, mermaid 12.2.0 paints only the cluster the
+      // statement named.
+      style: subgraph.style ?? { frame: [], text: [] },
     }),
   );
 

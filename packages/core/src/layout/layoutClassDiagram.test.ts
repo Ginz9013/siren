@@ -126,7 +126,6 @@ function classModel(partial: Partial<ClassModel> = {}): ClassModel {
     namespaces: [],
     notes: [],
     interactions: [],
-    styles: [],
     timeline: { totalSteps: 0, entries: [] },
     ...partial,
   };
@@ -1720,10 +1719,8 @@ describe("layoutClassDiagram", () => {
     it("carries each class's resolved style declarations through, in declaration order, and leaves an unstyled class with none", () => {
       const diagram = layoutClassDiagram(
         classModel({
-          classes: [cls("Duck"), cls("Animal")],
-          styles: [
-            {
-              targetId: "Duck",
+          classes: [
+            cls("Duck", [], {
               style: {
                 frame: [
                   { property: "fill", value: "#fdd" },
@@ -1731,7 +1728,8 @@ describe("layoutClassDiagram", () => {
                 ],
                 text: [{ property: "fill", value: "#fff" }],
               },
-            },
+            }),
+            cls("Animal"),
           ],
         }),
         { measureText: fakeMeasurer },

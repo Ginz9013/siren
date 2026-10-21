@@ -10,6 +10,7 @@ import type {
 } from "../contracts";
 import { plainLabel } from "../label/label";
 import { generatedId } from "./generatedId";
+import { NOTHING_OMITTED, withoutOmitted } from "./omitAuthorStyles";
 import { asStyleFact, resolveStyleFacts } from "./resolveStyles";
 import { resolveTimelineBlocks } from "./resolveTimeline";
 
@@ -32,7 +33,10 @@ import { resolveTimelineBlocks } from "./resolveTimeline";
  * a bad timeline entry costs itself and not the picture, so there is no
  * failure path and a nullable payload would be a state no caller can reach.
  */
-export function buildErModel(document: ErDocument): ErModelResult {
+export function buildErModel(
+  document: ErDocument,
+  omitted: ReadonlySet<string> = NOTHING_OMITTED,
+): ErModelResult {
   const diagnostics: Diagnostic[] = [];
   const byId = new Map<string, ResolvedErEntity>();
   /**
@@ -180,7 +184,21 @@ export function buildErModel(document: ErDocument): ErModelResult {
     new Set([...entityIds, ...subgraphs.map((subgraph) => subgraph.id)]),
     diagnostics,
   );
-  const styles = resolvedStyles.map(({ targetId, style }) => ({ targetId, style }));
+  // Written onto the entity or cluster each resolved id names — the resolver
+  // returns only ids it was handed — and onto nothing else, so a target
+  // nothing styled has no `style`. The facts below are taken from
+  // `resolvedStyles`, so they keep what the caller omits here (see
+  // `withoutOmitted`).
+  const styleTargetById = new Map<string, ResolvedErEntity | ResolvedErSubgraph>([
+    ...entities.map((entity) => [entity.id, entity] as const),
+    ...subgraphs.map((subgraph) => [subgraph.id, subgraph] as const),
+  ]);
+  for (const { targetId, style } of resolvedStyles) {
+    const target = styleTargetById.get(targetId);
+    if (target !== undefined) {
+      target.style = withoutOmitted(style, omitted);
+    }
+  }
 
   // A relationship is a connector — two ids joined by a drawn line — so the
   // rule that already covers a flowchart edge, a class relationship, a
@@ -203,7 +221,6 @@ export function buildErModel(document: ErDocument): ErModelResult {
       entities,
       relationships,
       subgraphs,
-      styles,
       styleFacts: resolvedStyles.map((resolved) =>
         asStyleFact(resolved, entityIds.has(resolved.targetId) ? "entity" : "subgraph"),
       ),

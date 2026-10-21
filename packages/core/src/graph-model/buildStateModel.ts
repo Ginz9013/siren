@@ -7,6 +7,7 @@ import type {
   StateModelResult,
 } from "../contracts";
 import { generatedId } from "./generatedId";
+import { NOTHING_OMITTED, withoutOmitted } from "./omitAuthorStyles";
 import { asStyleFact, resolveStyleFacts } from "./resolveStyles";
 import { resolveTimelineBlocks } from "./resolveTimeline";
 
@@ -28,7 +29,10 @@ import { resolveTimelineBlocks } from "./resolveTimeline";
  * Problems come back as diagnostics rather than exceptions, the same
  * partial-failure tolerance every other `build*Model` applies.
  */
-export function buildStateModel(document: StateDocument): StateModelResult {
+export function buildStateModel(
+  document: StateDocument,
+  omitted: ReadonlySet<string> = NOTHING_OMITTED,
+): StateModelResult {
   const diagnostics: Diagnostic[] = [];
 
   const regionIdByLevel = regionIds(document);
@@ -122,7 +126,17 @@ export function buildStateModel(document: StateDocument): StateModelResult {
     new Set(states.map((state) => state.id)),
     diagnostics,
   );
-  const styles = resolvedStyles.map(({ targetId, style }) => ({ targetId, style }));
+  // Written onto each state the resolver returned — every one is a state it
+  // was handed — and onto no other, so a state nothing styled has no
+  // `style`. The facts below are taken from `resolvedStyles`, so they keep
+  // what the caller omits here (see `withoutOmitted`).
+  const stateById = new Map(states.map((state) => [state.id, state]));
+  for (const { targetId, style } of resolvedStyles) {
+    const target = stateById.get(targetId);
+    if (target !== undefined) {
+      target.style = withoutOmitted(style, omitted);
+    }
+  }
 
   // States and transitions share one id space, exactly as a flowchart's
   // nodes and edges do, so an author animates any element of the diagram the
@@ -153,7 +167,6 @@ export function buildStateModel(document: StateDocument): StateModelResult {
     direction: document.direction,
     states,
     transitions,
-    styles,
     styleFacts: resolvedStyles.map((resolved) => asStyleFact(resolved, "state")),
     ...timelines,
   };
