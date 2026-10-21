@@ -235,9 +235,9 @@ function buildSubgraph(subgraph: PositionedErSubgraph): SVGGElement {
   frame.setAttribute("y", String(subgraph.y));
   frame.setAttribute("width", String(subgraph.width));
   frame.setAttribute("height", String(subgraph.height));
-  // The author's `style s1 …` / `class s1 …`, on the rect the theme styles
-  // and not on the group — the placement ADR-0008 argues for an entity's
-  // box, and the element Mermaid 12.2.0 itself puts it on.
+  // The author's `style s1 …` / `class s1 …` lands on the rect — measured,
+  // the element Mermaid 12.2.0 itself puts it on (placement: see
+  // `applyInlineStyle`).
   applyInlineStyle(frame, subgraph.style?.frame ?? []);
   g.appendChild(frame);
 
@@ -260,6 +260,9 @@ function buildSubgraph(subgraph: PositionedErSubgraph): SVGGElement {
  * dashed when it is non-identifying, and nothing else. Its label is a group
  * of its own — `buildRelationshipLabels` — drawn after every line
  * (ADR-0016; see `connector.ts`).
+ *
+ * Measured: no styling statement in this kind can name an **ER
+ * relationship** (see `buildErModel`), so nothing here applies one.
  */
 function buildRelationship(
   relationship: PositionedErRelationship,
@@ -435,7 +438,6 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
   frame.setAttribute("y", String(entity.y));
   frame.setAttribute("width", String(entity.width));
   frame.setAttribute("height", String(entity.height));
-  // A relationship is never styled: no styling statement in this kind can name one (see `buildErModel`).
   applyInlineStyle(frame, entity.style.frame);
   g.appendChild(frame);
 

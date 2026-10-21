@@ -6,20 +6,22 @@ import type { StyleProperty } from "../contracts";
  * empty.
  *
  * One function for every renderer that draws author styling — flowchart,
- * class, state and ER — and, within each, for a node's frame, a node's
- * label and an edge's path, because the rule is the same for all of them:
- * land on the element the theme paints. Which half of the author's
- * declarations each one is handed is not decided here either —
+ * class, state and ER — and, within each, for the frame or figure a target
+ * is drawn as, each text the target draws and, in a flowchart only, an
+ * edge's path (no other kind styles a connector), because the rule is the
+ * same for all of them: land on the element the theme paints. Which half of
+ * the author's declarations each one is handed is not decided here either —
  * `resolveStyles` split them, and this function is told, in the vocabulary
  * the element it writes to actually reads.
  *
- * Almost always the author's declarations and nothing else. A flowchart
- * frame whose shape names its own corners hands over that radius first and
- * the author's list after (a corner radius, from the shape table), and a
- * class member's text hands over its classifier's declaration after the
- * author's, which is why this takes a list rather than a `ResolvedStyle`:
- * the last writer of a property wins, and the right one has to be able to
- * be that writer.
+ * Almost always the author's declarations and nothing else, but it takes a
+ * list rather than a `ResolvedStyle` because the attribute's last
+ * declaration of a property wins, so a caller orders the list on purpose. A
+ * flowchart frame whose shape names its own corners puts that radius first
+ * and the author's declarations after, so the author wins; a class member's
+ * text puts its classifier's declaration (`classifierStyle`) after the
+ * author's, which is safe only because the two never name the same property
+ * — the author's text half carries nothing but `fill`.
  *
  * Where the author wrote the declarations — `style A`, `classDef`, `class`,
  * `:::`, `cssClass`, `linkStyle 0` — is not visible here, and must not be.

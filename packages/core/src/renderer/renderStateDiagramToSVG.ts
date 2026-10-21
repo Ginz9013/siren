@@ -164,7 +164,6 @@ function buildState(state: PositionedState): SVGGElement {
   frame.setAttribute("y", String(state.y));
   frame.setAttribute("width", String(state.width));
   frame.setAttribute("height", String(state.height));
-  // A pseudo-state is never styled: `[*]` is not an id, so no `class` statement can name one.
   applyInlineStyle(frame, state.style.frame);
   g.appendChild(frame);
 
@@ -471,6 +470,9 @@ function buildStereotypedState(state: PositionedState): SVGGElement {
  * No label, and deliberately: a pseudo-state's id is *generated*
  * (`start:1`), so the only text there could be to draw is a string the
  * author never wrote and no reader should be shown.
+ *
+ * Never styled either: `[*]` is not an id, so no `class` statement can name
+ * one.
  */
 function buildPseudoState(state: PositionedState): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
