@@ -8,7 +8,7 @@ import type {
 } from "../contracts";
 import { CONNECTOR_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
-import { drawConnectorLabel } from "../label/drawPlaced";
+import { buildConnectorLabels, buildConnectorLine } from "./connector";
 import { drawConnectorRoute } from "./connectorCurve";
 import { appendAccessibleText } from "./appendAccessibleText";
 import { mintIdScope } from "./mintIdScope";
@@ -562,65 +562,28 @@ function buildCircle(
 /**
  * Builds the `<g class="siren-transition">` for one transition: the routed
  * line with its arrowhead, and nothing else. Its label is a group of its own
- * — `buildTransitionLabels` — drawn after every line (ADR-0016).
+ * — `buildTransitionLabels` — drawn after every line (ADR-0016; see
+ * `connector.ts`).
  */
 function buildTransition(
   transition: PositionedStateTransition,
   scope: string,
 ): SVGGElement {
-  const g = document.createElementNS(SVG_NS, "g");
-  g.setAttribute("class", "siren-transition");
-  g.setAttribute("data-siren-id", transition.id);
-
-  const line = document.createElementNS(SVG_NS, "path");
-  line.setAttribute("class", "siren-transition-line");
-  // Rounded, with the line hops the layout found (`CONNECTOR_CURVE`:
-  // the curve layout kept the hops clear of).
-  drawConnectorRoute(line, transition.points, CONNECTOR_CURVE, transition.hops);
-  // Explicit, not left to CSS: a transition's points make an open,
-  // multi-segment path, which a default fill would paint as a filled polygon
-  // spanning the states it connects.
-  line.setAttribute("fill", "none");
-  line.setAttribute("marker-end", `url(#${ARROW_MARKER_NAME}${scope})`);
-  g.appendChild(line);
-
-  return g;
+  return buildConnectorLine(transition, {
+    className: "siren-transition",
+    scope,
+    markerEnd: ARROW_MARKER_NAME,
+  });
 }
 
 /**
  * Builds the `<g class="siren-transition-labels">` for one transition — its
  * label — or `null` when the author wrote none: an unlabelled transition
- * draws no empty group.
- *
- * It wears the transition's `data-siren-id`, the same id as its line group.
- * ADR-0009 makes a timeline target an id rather than an element, so
- * `exit Idle-Running fade` reaches both groups with no help from the
- * controller (ADR-0016). Its class name is in the theme's shared font rule,
- * so the text inherits the face and size it had inside the line group.
+ * draws no empty group. It wears the transition's id, the same as its line
+ * group (`connector.ts`).
  */
 function buildTransitionLabels(transition: PositionedStateTransition): SVGGElement | null {
-  if (transition.label === null) {
-    return null;
-  }
-  const g = document.createElementNS(SVG_NS, "g");
-  g.setAttribute("class", "siren-transition-labels");
-  g.setAttribute("data-siren-id", transition.id);
-
-  // Drawn by `drawLabel`, centred on the anchor — the centre of the box the
-  // shared core kept clear — like every other label here. That makes this
-  // the one `<text>` in the file to gain `dominant-baseline: middle`: it was
-  // drawn with its *baseline* on the anchor, which sat the text above the
-  // middle of the space reserved for it. Its `x` and `y` attributes are
-  // unchanged for a label of one row; what moves is where the glyphs sit
-  // around them — down by the distance from the alphabetic baseline to the
-  // middle one, half the font's x-height (about 0.26em, some 4px at the
-  // 14px default), so the text is now centred where layout made room.
-  //
-  // With the background every connector label is painted on, under the
-  // text; it takes the group's id, and with it the timeline's classes.
-  appendLabel(g, drawConnectorLabel(transition.label, "siren-transition-label"));
-
-  return g;
+  return transition.label === null ? null : buildConnectorLabels(transition, "siren-transition");
 }
 
 /**

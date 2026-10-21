@@ -1795,34 +1795,64 @@ export interface PositionedNode extends GraphNode {
   labelOffset?: { x: number; y: number };
 }
 
-/** An edge with a layout-assigned point path. */
-export interface PositionedEdge extends Omit<GraphEdge, "label"> {
+/**
+ * A **connector** after layout: its route, its line hops and its placed
+ * label — the record every graph-shaped kind's connector extends
+ * (`PositionedEdge`, `PositionedClassRelationship`,
+ * `PositionedStateTransition`, `PositionedErRelationship`), because it is
+ * exactly what the shared layout core hands back for every kind's route
+ * (nook decision `01M5D99KNB4R5FVDRWCG902ZAC`). What a kind adds on top — a
+ * flowchart edge's curve and ends, a class relationship's multiplicities,
+ * an ER relationship's cardinalities — stays on its own type. Built by
+ * `placeConnectors` (`layout/connectors.ts`).
+ */
+export interface PlacedConnector {
+  id: string;
+  from: string;
+  to: string;
+  /** The route, from `from` to `to`, as the shared core (and, for a flowchart or state diagram, clipping) left it. */
   points: Point[];
   /**
-   * Where this edge's line jumps another that crosses it — the **line
+   * Where this connector's line jumps another that crosses it — the **line
    * hops**, computed by the layout from every route (see `LineHop`). Not
    * route points: `points` is the route either way. Whether they are drawn
-   * is the renderer's call, by the edge's curve. Absent reads as none.
+   * is the renderer's call, by the connector's curve. Always an array — the
+   * shared core gives `[]` for a line that jumps nothing.
    */
-  hops?: LineHop[];
+  hops: LineHop[];
   /**
-   * `GraphEdge.label`, wrapped and placed: the label as drawn — its rows
-   * after wrapping at 150px of its 12px text (`wrapConnectorLabel`, the
-   * label-wrap ADR, nook `01M4R4WDZ`), so it may hold more rows than the
-   * author wrote — the box measured for those rows, which is the box the
-   * layout was asked to keep clear, and the centre of the space layout kept clear
-   * for it. `null` when the edge carries no label and asked for none.
+   * The connector's label, wrapped and placed: the label as drawn — its rows
+   * after wrapping its 12px text at the width its kind wraps at (the wrap
+   * function `placeConnectors` is handed: `wrapConnectorLabel`, the default,
+   * at 150px for a flowchart edge, a class relationship and a state
+   * transition; `wrapErRelationshipLabel` at 200 × 12/14 ≈ 171.43px for an
+   * ER relationship — Mermaid wraps its 14px ER label at 200px; the
+   * label-wrap ADR, nook `01M4R4WDZ`, as amended), so it may hold more rows
+   * than the author wrote — the box measured for those rows, which is the
+   * box the layout was asked to keep clear, and the centre of the space
+   * layout kept clear for it, which is the anchor the renderer hands
+   * `drawLabel`.
+   *
+   * `null` when the model's connector carries no label, or when the shared
+   * core reserved no space for it (its route has no `labelAnchor`): a
+   * connector with no room has nowhere to draw text, and one state is easier
+   * to read than a missing field. An ER relationship's label is never absent
+   * in the model, but its placed label is nullable on the same terms.
    *
    * The anchor is reported by the layout rather than computed by the
-   * renderer from `points`, because it is where the *reserved box* ended up
-   * — the mid-point of a route is not the same place, and drawing there
-   * would put the text across the line the space was made beside. Every
-   * other label on a line (`PositionedClassRelationship.label`,
-   * `PositionedStateTransition.label`, …) is a `PlacedLabel` for the same
-   * reason.
+   * renderer from `points`, because it is where the *reserved box* ended up —
+   * the mid-point of a route is not the same place, and drawing there would
+   * put the text across the line the space was made beside.
    */
   label: PlacedLabel | null;
 }
+
+/**
+ * An edge with a layout-assigned point path: a `PlacedConnector` (its route,
+ * hops and placed label, `GraphEdge.label` wrapped at 150px) carrying the
+ * rest of its `GraphEdge` — curve, line, ends, author style — unchanged.
+ */
+export interface PositionedEdge extends Omit<GraphEdge, "label">, PlacedConnector {}
 
 /**
  * A subgraph with a layout-assigned frame enclosing everything inside it —
@@ -1830,10 +1860,13 @@ export interface PositionedEdge extends Omit<GraphEdge, "label"> {
  * title strip included.
  *
  * The shape `PositionedClassNamespace` already has, because it is the same
- * figure: a labelled box drawn *behind* what it groups. It is a separate
- * type rather than a shared one because the two diagram kinds do not share
- * types across the boundary — a flowchart's layout output has never referred
- * to a class diagram's — and collapsing them would be the first time.
+ * figure: a labelled box drawn *behind* what it groups. A kind may share a
+ * record the shared layout core's output directly yields, but never another
+ * kind's type (nook decision `01M5D99KNB4R5FVDRWCG902ZAC`, which replaced the
+ * old rule that two kinds never share a type); a connector already does
+ * (`PlacedConnector`). A frame is such a record too — the core's cluster plus
+ * a placed title — but each kind still declares its own today: collapsing
+ * them is backlog `01M5D99KVZ658P97H03CYJRC7N`.
  */
 export interface PositionedSubgraph {
   id: string;
@@ -2637,30 +2670,16 @@ export interface PositionedClass {
   interaction: ResolvedInteraction | null;
 }
 
-/** A relationship with a layout-assigned path and text anchors. */
-export interface PositionedClassRelationship {
-  id: string;
-  from: string;
-  to: string;
+/**
+ * A relationship with a layout-assigned path and text anchors: a
+ * `PlacedConnector` (label wrapped at 150px) plus what a class relationship
+ * adds — its line, its two ends, and its multiplicities and interface labels
+ * with where each is drawn.
+ */
+export interface PositionedClassRelationship extends PlacedConnector {
   line: ClassRelationshipLine;
   fromEnd: ClassRelationshipEnd;
   toEnd: ClassRelationshipEnd;
-  points: Point[];
-  /**
-   * Where this relationship's line jumps another that crosses it — the
-   * **line hops**, as on `PositionedEdge.hops`. Absent reads as none.
-   */
-  hops?: LineHop[];
-  /**
-   * The relationship's label, wrapped and placed: the label as drawn — its
-   * rows after wrapping at 150px of its 12px text (`wrapConnectorLabel`, the
-   * label-wrap ADR, nook `01M4R4WDZ`) — the box measured for those rows,
-   * which is the box the core was asked to keep clear, and the centre of
-   * the space the shared core kept clear for it. `null` when there is no
-   * label. `PositionedStateTransition.label` carries a transition's the
-   * same way.
-   */
-  label: PlacedLabel | null;
   fromMultiplicity: string | null;
   /** Where the from-end multiplicity is drawn; `null` when there is none. */
   fromMultiplicityAnchor: Point | null;
@@ -3523,28 +3542,8 @@ export interface PositionedState {
   note: PositionedStateNote | null;
 }
 
-/** A transition with a layout-assigned path and, when it carries one, a placed label. */
-export interface PositionedStateTransition {
-  id: string;
-  from: string;
-  to: string;
-  points: Point[];
-  /**
-   * Where this transition's line jumps another that crosses it — the **line
-   * hops**, as on `PositionedEdge.hops`. Absent reads as none.
-   */
-  hops?: LineHop[];
-  /**
-   * The transition's label, wrapped and placed: the label as drawn — its
-   * rows after wrapping at 150px of its 12px text (`wrapConnectorLabel`, the
-   * label-wrap ADR, nook `01M4R4WDZ`) — the box measured for those rows,
-   * which is the box the shared core was asked to keep clear, and the
-   * centre of the space layout kept clear for it. `null` when the
-   * transition carries no label and asked for none — the shape
-   * `PositionedEdge.label` has, for the reason given there.
-   */
-  label: PlacedLabel | null;
-}
+/** A transition with a layout-assigned path and, when it carries one, a placed label (wrapped at 150px): a `PlacedConnector`, adding nothing. */
+export interface PositionedStateTransition extends PlacedConnector {}
 
 /**
  * The state diagram after layout: positioned states and transitions, ready
@@ -4496,32 +4495,15 @@ export interface PositionedErAttributeCommentCell {
  * with nothing to reverse. Reversing the route somewhere in here and the
  * markers somewhere else would cancel out on the three symmetric
  * cardinality pairs and draw every other relationship backwards.
+ *
+ * A `PlacedConnector` — its label wrapped at ≈171.43px rather than 150px, by
+ * the `wrapErRelationshipLabel` its layout hands `placeConnectors` — plus
+ * what an ER relationship adds: its cardinalities and its line.
  */
-export interface PositionedErRelationship {
-  id: string;
-  from: string;
-  to: string;
+export interface PositionedErRelationship extends PlacedConnector {
   fromCardinality: ErCardinality;
   toCardinality: ErCardinality;
   line: ErRelationshipLine;
-  points: Point[];
-  /**
-   * Where this relationship's line jumps another that crosses it — the
-   * **line hops**, as on `PositionedEdge.hops`. Absent reads as none.
-   */
-  hops?: LineHop[];
-  /**
-   * `ResolvedErRelationship.label`, wrapped and placed: the label as drawn
-   * — its rows after wrapping at 200 × 12/14 ≈ 171.43px of its 12px text
-   * (`wrapErRelationshipLabel`; Mermaid wraps its 14px ER label at 200px,
-   * the label-wrap ADR, nook `01M4R4WDZ`, as amended) — the box measured
-   * for those rows, which is the size the layout kept clear, and the
-   * centre of that space, which is what the renderer hands `drawLabel`. `null` when
-   * the shared layout core reserved none. Nullable on the same terms as
-   * `PositionedClassRelationship.label`, rather than because an ER
-   * relationship can be unlabelled — measured, it cannot be.
-   */
-  label: PlacedLabel | null;
 }
 
 /**
@@ -4538,10 +4520,11 @@ export interface PositionedErRelationship {
  * have, because it is the same figure: a labelled box drawn *behind* what it
  * groups, which is exactly what `--markup` reports Mermaid drawing for an ER
  * cluster too — a `g.cluster` holding a `<rect>` and a `g.cluster-label`.
- * A type of its own rather than a shared one, for the reason
- * `PositionedSubgraph` gives about the class diagram's: these kinds do not
- * share types across the boundary, and collapsing them would be the first
- * time.
+ * A type of its own rather than a shared one, though nook decision
+ * `01M5D99KNB4R5FVDRWCG902ZAC` would allow a frame record the shared core's
+ * output yields (as `PlacedConnector` is for a connector): frames still
+ * declare their own type today, as `PositionedSubgraph` says — collapsing
+ * them is backlog `01M5D99KVZ658P97H03CYJRC7N`.
  */
 export interface PositionedErSubgraph {
   id: string;

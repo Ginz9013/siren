@@ -7,10 +7,9 @@ import type {
   PositionedErSubgraph,
   StyleProperty,
 } from "../contracts";
-import { CONNECTOR_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
-import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
-import { drawConnectorRoute } from "./connectorCurve";
+import { drawPlaced } from "../label/drawPlaced";
+import { buildConnectorLabels, buildConnectorLine } from "./connector";
 import { appendAccessibleText } from "./appendAccessibleText";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
@@ -257,69 +256,36 @@ function buildSubgraph(subgraph: PositionedErSubgraph): SVGGElement {
 
 /**
  * Builds the `<g class="siren-er-relationship">` for one relationship: the
- * line along the layout's route with a cardinality marker at each end, and
- * nothing else. Its label is a group of its own —
- * `buildRelationshipLabels` — drawn after every line (ADR-0016).
+ * line along the layout's route with a cardinality marker at each end,
+ * dashed when it is non-identifying, and nothing else. Its label is a group
+ * of its own — `buildRelationshipLabels` — drawn after every line
+ * (ADR-0016; see `connector.ts`).
  */
 function buildRelationship(
   relationship: PositionedErRelationship,
   scope: string,
 ): SVGGElement {
-  const g = document.createElementNS(SVG_NS, "g");
-  g.setAttribute("class", "siren-er-relationship");
-  g.setAttribute("data-siren-id", relationship.id);
-
-  const line = document.createElementNS(SVG_NS, "path");
-  line.setAttribute("class", "siren-er-relationship-line");
-  // Rounded, with the line hops the layout found (`CONNECTOR_CURVE`: the
-  // curve layout kept the hops clear of).
-  drawConnectorRoute(line, relationship.points, CONNECTOR_CURVE, relationship.hops);
-  // Explicit, not left to CSS: the route is an open, multi-segment path,
-  // which a default fill would paint as a filled polygon spanning the
-  // entities it joins.
-  line.setAttribute("fill", "none");
-  // The route runs `from` → `to`, so `marker-start` is the `from` end. No
-  // conditional and no reversal — see this module's header.
-  line.setAttribute(
-    "marker-start",
-    `url(#${MARKER_NAME[relationship.fromCardinality]}${scope})`,
-  );
-  line.setAttribute("marker-end", `url(#${MARKER_NAME[relationship.toCardinality]}${scope})`);
-  if (relationship.line === "nonIdentifying") {
-    line.setAttribute("stroke-dasharray", DASH_PATTERN);
-  }
-  g.appendChild(line);
-
-  return g;
+  return buildConnectorLine(relationship, {
+    className: "siren-er-relationship",
+    scope,
+    // The route runs `from` → `to`, so `marker-start` is the `from` end. No
+    // conditional and no reversal — see this module's header.
+    markerStart: MARKER_NAME[relationship.fromCardinality],
+    markerEnd: MARKER_NAME[relationship.toCardinality],
+    dashArray: relationship.line === "nonIdentifying" ? DASH_PATTERN : null,
+  });
 }
 
 /**
  * Builds the `<g class="siren-er-relationship-labels">` for one
- * relationship — its label — or `null` when the author wrote none: an
- * unlabelled relationship draws no empty group.
- *
- * It wears the relationship's `data-siren-id`, the same id as its line
- * group. ADR-0009 makes a timeline target an id rather than an element, so
- * `exit CUSTOMER:ORDER fade` reaches both groups with no help from the
- * controller (ADR-0016). Its class name is in the theme's shared font rule,
- * so the text inherits the face and size it had inside the line group.
+ * relationship — its label — or `null` when it has none: an unlabelled
+ * relationship draws no empty group. It wears the relationship's id, the
+ * same as its line group (`connector.ts`).
  */
 function buildRelationshipLabels(relationship: PositionedErRelationship): SVGGElement | null {
-  if (relationship.label === null) {
-    return null;
-  }
-  const g = document.createElementNS(SVG_NS, "g");
-  g.setAttribute("class", "siren-er-relationship-labels");
-  g.setAttribute("data-siren-id", relationship.id);
-
-  // Drawn by `drawLabel` at the anchor the layout reserved room for: one
-  // plain row is the `<text>`'s own `textContent`, anything else a row
-  // tspan per row (ADR-0015). With the background every connector label is
-  // painted on, under the text; it takes the group's id, and with it the
-  // timeline's classes.
-  appendLabel(g, drawConnectorLabel(relationship.label, "siren-er-relationship-label"));
-
-  return g;
+  return relationship.label === null
+    ? null
+    : buildConnectorLabels(relationship, "siren-er-relationship");
 }
 
 /**

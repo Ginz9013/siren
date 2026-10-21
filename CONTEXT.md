@@ -645,6 +645,26 @@ title, a composite state's title, a class name, a class member, a class diagram'
 entity name, an ER attribute's comment, anything in a sequence diagram, including its notes (Mermaid wraps none of them).
 _Avoid_: word wrap, line wrap, auto-wrap (say "wrap"); line (for a wrapped row — it is a row)
 
+**Connector**:
+The line joining two nodes in a **graph-shaped diagram**, whatever its kind calls it — the general
+word for a flowchart's **edge**, a class diagram's **relationship**, a state diagram's
+**transition** and an ER diagram's **ER relationship**. The code already uses it in that sense:
+`wrapConnectorLabel` wraps a flowchart, class or state connector's **label** (an ER relationship's
+has its own, `wrapErRelationshipLabel`, at a wider width — see **Wrap**), `drawConnectorRoute`
+draws any of their routes, `CONNECTOR_CURVE` is the **curve** a class, state or ER connector is
+always drawn with (and a flowchart edge unless its author chose another), and `drawConnectorLabel`
+draws any of their placed labels. After layout a connector is a `PlacedConnector` (`contracts.ts`):
+its id, its two endpoints, its routed points, its **line hops** and its placed label — the one
+record every kind's positioned connector extends, because it is exactly what the shared layout core
+hands back for every kind (nook decision `01M5D99KNB4R5FVDRWCG902ZAC`, which replaces the old rule
+that two kinds never share a type). What a kind adds on top — a flowchart edge's curve and ends, a
+class relationship's multiplicities, an ER relationship's cardinalities — stays on its own type. A
+**note**'s line to the class or state it is attached to is drawn by the same `drawConnectorRoute`
+on the same curve, but it is not a connector: it has no id and no label, and lives on the note's
+own record (`linkPoints` / `linkHops` on a class note, `connector` / `connectorHops` on a state
+note).
+_Avoid_: link; line (the line is the drawn `<path>`, not the thing it draws)
+
 **Edge**:
 A directed connector between two flowchart nodes, written `A --> B`. Its id is `${from}-${to}`,
 then `#2` for a repeat pair — the convention a class diagram's **relationship** copies verbatim.
@@ -721,7 +741,9 @@ outranked the theme, an author's `linkStyle` and a `timeline:` block's `highligh
 alike — on the one element all three already land on.
 _Avoid_: link, arrow (say "arrow" for the drawn line and its ends, or "arrow token" for the
 spelling that wrote them — never for the edge itself, the same split **message** makes),
-connector, relationship (class-diagram vocabulary), message (sequence vocabulary)
+relationship (class-diagram vocabulary), message (sequence vocabulary); "connector" is not avoided
+but wider (the general word for any kind's line, see **Connector** — "edge" is the flowchart's
+alone)
 
 **Curve**:
 How a connector's routed points are joined into the line that is drawn: `basis` (a smooth spline),
@@ -758,7 +780,7 @@ relationship's line draws
 where another line crosses it, so a
 crossing reads differently from two lines meeting at a bend — Mermaid 12's line jumps, drawn by
 default under its ELK layout and here by the same rule (nook decision `01M4VANRC6B2C14NHVC2KRZ9Y8`,
-rule 7). The hop sits on the horizontal one of the two segments (on the later edge, in edge order,
+rule 7). The hop sits on the horizontal one of the two segments (on the later connector, in connector order,
 where neither is horizontal), radius 6, centred on the crossing. Its sweep follows the way the
 line runs (`A6,6 0 0 1` travelling right or down, `0 0 0` travelling left or up), so on a
 horizontal line it bulges up whichever way the line runs, and on a vertical one to the right. Lines
@@ -1021,7 +1043,7 @@ _Avoid_: field, property (that is a CSS declaration's property in an author styl
 member" when the kind matters)
 
 **Relationship**:
-A directed edge between two classes, carrying one of Mermaid's nine types, an optional `: label`
+A directed connector between two classes, carrying one of Mermaid's nine types, an optional `: label`
 — a **Label** in the `html` dialect — and optional multiplicity strings at each end. Its id follows the flowchart edge convention
 exactly: `${fromId}-${toId}`, then `#2` for a repeat pair. The type is modeled as two axes — a
 `line` (`solid` | `dashed`) and an endpoint marker at each end (`none` | `triangle` |

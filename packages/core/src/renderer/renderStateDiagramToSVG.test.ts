@@ -82,6 +82,7 @@ const DIAGRAM: PositionedStateDiagram = {
         { x: 50, y: 60 },
         { x: 60, y: 120 },
       ],
+      hops: [],
       label: { label: plainLabel("start"), labelBox: boxOf("start"), anchor: { x: 70, y: 90 } },
     },
     {
@@ -93,6 +94,7 @@ const DIAGRAM: PositionedStateDiagram = {
         { x: 140, y: 140 },
         { x: 110, y: 150 },
       ],
+      hops: [],
       label: null,
     },
   ],
@@ -218,9 +220,6 @@ describe("renderStateDiagramToSVG", () => {
 
     const line = groups[0].querySelector("path.siren-transition-line")!;
     expect(line.getAttribute("d")).toBe("M50,60 L60,120");
-    // Explicit, not left to CSS: an open multi-segment path would otherwise
-    // be painted as a filled polygon spanning the states it connects.
-    expect(line.getAttribute("fill")).toBe("none");
   });
 
   it("points every transition at an arrowhead this SVG actually defines", () => {
@@ -405,6 +404,7 @@ const PSEUDO_DIAGRAM: PositionedStateDiagram = {
         { x: 47, y: 24 },
         { x: 47, y: 60 },
       ],
+      hops: [],
       label: null,
     },
   ],
@@ -893,6 +893,7 @@ describe("renderStateDiagramToSVG, on a composite state", () => {
             { x: 50, y: 60 },
             { x: 60, y: 120 },
           ],
+          hops: [],
           label: null,
         },
       ],
