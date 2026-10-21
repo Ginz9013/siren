@@ -34,8 +34,9 @@ createBoard(document.getElementById("board"), { source });
 - **Step controls included**: a floating bar with Prev, Play, Next, a step counter
   (`2 / 10`), Reset, a timeline dropdown, a play interval dropdown, Full diagram, Reset
   view and Fullscreen. Prev, Next and Reset are disabled when they have nowhere to go, and
-  every step control, the timeline dropdown included, while the full diagram shows. Replace
-  it with your own, or turn it off.
+  every step control, the timeline dropdown included, while the full diagram shows. A small
+  panel in the bottom-right corner holds a Dot grid button. Replace them with your own, or
+  turn them off.
 - **Playback**: press Play and the timeline steps itself forward at the interval you pick,
   stopping on the last step. Any manual step takes over from playback.
 - **Named timelines**: a document can tell several stories over one diagram, each in its
@@ -47,6 +48,8 @@ createBoard(document.getElementById("board"), { source });
 - **Fullscreen**: one click fills the screen with the board, or the browser window where the
   browser will not go fullscreen. Escape leaves it.
 - **Pan and zoom**: drag to move the diagram, and scroll to zoom toward the cursor.
+- **Dot grid**: a dotted background behind the diagram that pans and zooms with it, like an
+  infinite canvas. On by default; one click turns it off.
 - **Accurate layout**: labels are measured with the browser's real text metrics, so boxes
   fit their text.
 - **Live updates**: call `setSource()` to re-render, for example as someone types in an
@@ -206,6 +209,26 @@ browser's black fullscreen backdrop never shows. `onFullscreenChange` fires whet
 came from the bar, from code, or from the browser (Escape, or another element taking the
 screen).
 
+### Showing the dot grid
+
+```js
+const board = createBoard(container, {
+  source,
+  dotGrid: false, // start without it; it is on when omitted
+  onDotGridChange: (on) => console.log(on ? "dots on" : "dots off"),
+});
+board.setDotGrid(true);
+```
+
+The dot grid is drawn on the board's canvas, behind the diagram: dots 22px apart that move with
+the pan and spread or close up with the zoom, so Reset view puts them back along with the
+diagram. The built-in Dot grid button, in its own panel in the board's bottom-right corner, does
+the same as `setDotGrid()`, and is pressed (`aria-pressed="true"`) while the grid shows.
+Switching changes nothing else — pan and zoom, the step, the timeline, playback and the full
+diagram stay — and does not re-render. The grid is the board's chrome, not part of the diagram,
+so the SVG never carries it. `controls: false` removes the button but keeps the grid; nothing
+remembers the choice across page loads, so keep it from `onDotGridChange` if you want that.
+
 ### Playing the timeline
 
 ```js
@@ -316,7 +339,11 @@ createBoard(container, {
     screen.textContent = "Fullscreen";
     screen.onclick = () => board.setFullscreen(!board.fullscreen);
 
-    bar.append(next, full, screen);
+    const dots = document.createElement("button");
+    dots.textContent = "Dot grid";
+    dots.onclick = () => board.setDotGrid(!board.dotGrid);
+
+    bar.append(next, full, screen, dots);
     return {
       element: bar,
       // Called after every render, step change and full diagram switch, from your bar or
@@ -327,6 +354,7 @@ createBoard(container, {
         next.disabled = !controller || controller.currentStep === controller.totalSteps;
         full.setAttribute("aria-pressed", String(board.fullDiagram));
         screen.setAttribute("aria-pressed", String(board.fullscreen));
+        dots.setAttribute("aria-pressed", String(board.dotGrid));
       },
       destroy: () => { /* remove listeners, if any */ },
     };
@@ -335,7 +363,8 @@ createBoard(container, {
 ```
 
 Pass `controls: false` to show no controls. You can drive the board entirely from your
-own UI through `board.controller`.
+own UI through `board.controller`. A custom `controls` replaces the corner panel too, so a bar
+that wants the dot grid toggle calls `board.setDotGrid()` itself, as above.
 
 ### React
 
@@ -387,6 +416,8 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `onFullscreenChange` | `(fullscreen: boolean) => void`           |         | Called whenever `fullscreen` changes: from the built-in bar, `setFullscreen()`, the browser leaving fullscreen, or Escape in the window fill. |
 | `playInterval`  | `number`                                       | `2000`  | Milliseconds between playback steps. Must be finite and greater than 0, or `createBoard` throws a `RangeError`. |
 | `onPlaybackChange` | `(playing: boolean) => void`                |         | Called whenever `playing` changes: playback starts, is paused, reaches the last step, or is stopped. |
+| `dotGrid`       | `boolean`                                      | `true`  | Whether the canvas starts with the dot grid behind the diagram. Change it with `setDotGrid()`. Not remembered across page loads. |
+| `onDotGridChange` | `(dotGrid: boolean) => void`                 |         | Called whenever `dotGrid` changes, from the built-in Dot grid button or `setDotGrid()`. Not called for the initial value. |
 | `measureText`   | `TextMeasurer`                                 | canvas  | Replaces the canvas-based text measurer, for example to match a custom font.        |
 | `iconPacks`     | `readonly IconifyJSON[]`                       |         | Icon packs, as Iconify JSON handed over as data, that a flowchart node's `@{ icon: "prefix:name" }` is drawn from. Nothing is fetched: an icon no pack holds, or a pack not of Iconify JSON's shape, is an error diagnostic. Only shapes and local references in an icon's body are drawn. |
 | `omitAuthorStyles` | `readonly string[]`                         | `[]`    | The author's style properties not to draw, passed to `render()` unchanged. Change it with `setOmitAuthorStyles()`. |
@@ -415,7 +446,9 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `play()`          | Starts playback: steps at once, then once per `playInterval`, and stops by itself on the last step. On the last step, it goes back to step 0 and takes step 1 one interval later. Does nothing while playing, while the full diagram shows, or when the document has no steps. |
 | `pause()`         | Stops playback. Playback also stops on any step change it did not make (the built-in bar, `board.controller` in code), on every `setSource()`, and on `setFullDiagram(true)`. |
 | `setPlayInterval(ms)` | Changes `playInterval`. Throws a `RangeError` unless `ms` is finite and greater than 0. While playing, the next step comes `ms` after the call. |
-| `resetView()`     | Resets pan and zoom to fit the container.                                                |
+| `dotGrid`         | Whether the canvas shows the dot grid behind the diagram. Starts as the option, or `true`. |
+| `setDotGrid(on)`  | Shows or hides the dot grid. Keeps pan and zoom, the step, the timeline, playback and the full diagram, and does not re-render. Setting the current value does nothing, and so does the call after `destroy()`. |
+| `resetView()`     | Resets pan and zoom to fit the container. The dot grid moves back with it.               |
 | `destroy()`       | Removes everything the board added to the container and detaches its listeners, leaving fullscreen first. Afterwards the board draws nothing and calls no callback. |
 
 ### `ControlsFactory`
@@ -430,7 +463,7 @@ type ControlsFactory = (board: Board) => {
 
 `update` is called once after each change the bar may show: a `setSource()` that rendered,
 a step change from any source (including `board.controller.next()` in code), a
-`fullDiagram`, `fullscreen`, `timeline` or `omitAuthorStyles` switch, and a change to `playing` or `playInterval`. It is never called after
+`fullDiagram`, `fullscreen`, `dotGrid`, `timeline` or `omitAuthorStyles` switch, and a change to `playing` or `playInterval`. It is never called after
 `destroy()`. The built-in bar is an ordinary
 `ControlsFactory` kept in step through this same hook.
 
@@ -445,8 +478,8 @@ The diagram is styled by `siren-core/theme.css`. See
 [Theming](https://www.npmjs.com/package/siren-core#theming) for its tokens, and for making a
 second theme out of them.
 
-The board's own chrome (control bar and error banner) is injected automatically, so it
-needs no extra stylesheet. Restyle it with these custom properties:
+The board's own chrome (control bar, corner panel, dot grid and error banner) is injected
+automatically, so it needs no extra stylesheet. Restyle it with these custom properties:
 
 | Token                         | Used for                              |
 | ----------------------------- | ------------------------------------- |
@@ -485,11 +518,21 @@ Those are the chrome's own dark values. The repo's
 declares them alongside `siren-core`'s color tokens, so the diagram and the chrome switch
 together — copy it and you have a dark theme for both.
 
+The dot grid has no token of its own: its color is `--siren-board-text` mixed toward
+transparent, so redeclaring the chrome tokens for dark chrome darkens the dots with it.
+
 For deeper changes, target the classes `.siren-board-controls`,
 `.siren-board-controls__button`, `.siren-board-controls__step` (the step counter) and
 `.siren-board-controls__dropdown`, `__trigger`, `__listbox` and `__option` (the timeline and
-play interval dropdowns, told apart by `__timeline` and `__interval`), or pass your own
-`controls`.
+play interval dropdowns, told apart by `__timeline` and `__interval`), `.siren-board-corner`
+(the bottom-right panel holding the Dot grid button) and `.siren-board-canvas--dots` (on the
+canvas while the dot grid shows), or pass your own `controls`.
+
+The built-in controls mount as one `.siren-board-chrome` element holding the bar and the
+corner panel. It is `display: contents`, so it draws no box of its own and both lay themselves
+out against the board. A descendant selector such as `.siren-board .siren-board-controls` reaches
+the bar; a child selector such as `.siren-board > .siren-board-controls`, or
+`container.lastElementChild`, does not — go through `.siren-board-chrome`.
 
 The built-in buttons are icon-only. Each has an `aria-label` and a `title`, so screen
 readers announce it and a tooltip names it.

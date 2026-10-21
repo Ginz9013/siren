@@ -18,11 +18,29 @@ While the version is 0.x, a minor release may contain breaking changes.
   step, playback and the full diagram, and does not re-render. Both draw the board on
   `--siren-board-surface` (nook decision `01M5D3SBB`).
 - The built-in bar has a Fullscreen button after Reset view, pressed while fullscreen is on.
+- A dot grid behind the diagram: `BoardOptions.dotGrid` (on when omitted), `board.dotGrid`,
+  `board.setDotGrid(on)` and `BoardOptions.onDotGridChange(on)`, shaped like `fullDiagram`. The
+  dots are drawn on the board's canvas (`.siren-board-canvas--dots`), 22px apart, and move and
+  scale with pan and zoom like an infinite canvas; Reset view puts them back with the diagram.
+  They are chrome, never part of the SVG `render()` mounts, so an export never carries them.
+  Their color is `--siren-board-text` mixed toward transparent, with no token of its own, so dark
+  chrome tokens give dark dots. `controls: false` keeps the grid; nothing remembers it across page
+  loads.
+- The default controls have a small panel in the board's bottom-right corner
+  (`.siren-board-corner`) holding a Dot grid button, pressed while the grid shows. It goes with
+  the bar under `controls: false`; a custom `controls` factory that wants the toggle calls
+  `board.setDotGrid` itself.
 
 ### Changed
 
 - The built-in bar's Reset view button draws Lucide `locate` in place of `scan`, whose four
   corners looked like the new Fullscreen button beside it.
+- The default controls now mount as a `.siren-board-chrome` wrapper holding the
+  `.siren-board-controls` bar and the new corner panel, where the bar used to be the mounted
+  element itself. The wrapper is `display: contents`, so the bar is laid out as before, and a
+  descendant selector such as `.siren-board .siren-board-controls` still matches it. A child
+  selector such as `.siren-board > .siren-board-controls`, or code that takes the bar as
+  `container.lastElementChild`, now has to go through `.siren-board-chrome`.
 
 ## [0.7.0] - 2026-10-20
 
