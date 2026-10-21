@@ -16,6 +16,14 @@ While the version is 0.x, a minor release may contain breaking changes.
   limits, and `demos/gradient-tokens.html` shows it. `--siren-highlight-color` is the exception and
   must stay a colour, because the glow uses it inside `drop-shadow()`.
 
+### Fixed
+
+- The error for a connector between a frame and something inside it, drawn within a frame that
+  keeps its own direction ("cannot be drawn within … which lays out its members with direction"),
+  now names an ER subgraph by its title and a state diagram's concurrent region as `region N of X`
+  (the Nth region of composite `X`). It used to print the ids they are laid out by, `subgraph:1` and
+  `region:1`, which appear nowhere in the source.
+
 ## [0.7.0] - 2026-10-20
 
 Breaking for a flowchart `style`, `classDef` or `linkStyle` whose value uses a CSS function —
