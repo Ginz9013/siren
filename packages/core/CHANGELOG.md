@@ -8,6 +8,11 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-21
+
+Nothing a document draws changes, and no public type changes: every bundled example renders the
+same SVG at every step as in 0.7.0.
+
 ### Added
 
 - A colour token can hold `url(#id)`, pointing at a `<linearGradient>`, `<radialGradient>` or
