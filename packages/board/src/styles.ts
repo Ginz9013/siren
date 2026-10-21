@@ -25,11 +25,29 @@ const STYLE_ELEMENT_ID = "siren-board-styles";
  * refused (`.siren-board--fill`, fixed over the whole viewport above
  * anything the page stacks).
  *
+ * The dot grid (`.siren-board-canvas--dots`, on the canvas while
+ * `board.dotGrid` is on) is the canvas's own background, behind the diagram:
+ * 1px dots 22px apart and 11px in, after siren-website's hero canvas. It is
+ * chrome, never part of the SVG `render()` mounts, so an export never carries
+ * it. It moves like an infinite canvas: spacing and offset are scaled by the
+ * zoom and shifted by the pan the viewport publishes on the canvas as the
+ * private `--_siren-board-view-x`/`-y`/`-scale` (see viewport.ts), with
+ * fallbacks for an unmoved view; the dots themselves stay 1px at any zoom.
+ * Its color is `--siren-board-text` mixed toward transparent rather than a
+ * token of its own, so dark chrome tokens give dark-chrome dots unasked.
+ *
  * DOM shape this targets: `.siren-board` (the consumer's container) holds
- * `.siren-board-canvas` as one child, and `.siren-board-controls` as a
- * sibling — kept out of the canvas layer specifically so a re-render never
- * wipes out the control bar. `.siren-board-canvas` in turn holds two of its
- * own children: `.siren-board-viewport` (everything `render()`
+ * `.siren-board-canvas` as one child, and the default controls'
+ * `.siren-board-chrome` wrapper as a sibling — kept out of the canvas layer
+ * specifically so a re-render never wipes out the controls. The wrapper is
+ * `display: contents`, there only so the default controls mount as one
+ * element: it generates no box, so its two children — the centered
+ * `.siren-board-controls` bar and the `.siren-board-corner` panel pinned to
+ * the bottom-right corner, which holds the Dot grid button — still position
+ * themselves against `.siren-board`. The corner panel wears the bar's
+ * surface, border, radius and shadow, so the two read as one set of chrome.
+ * `.siren-board-canvas` in turn holds two of its own children:
+ * `.siren-board-viewport` (everything `render()`
  * mounts/replaces on each `setSource`, receiving the pan/zoom transform —
  * see viewport.ts) and, conditionally, the error banner — a sibling of the
  * viewport so it is never panned or zoomed along with the diagram.
@@ -93,6 +111,12 @@ const CSS = `
   overflow: hidden;
 }
 
+.siren-board-canvas--dots {
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--siren-board-text) 12%, transparent) 1px, transparent 1.4px);
+  background-size: calc(22px * var(--_siren-board-view-scale, 1)) calc(22px * var(--_siren-board-view-scale, 1));
+  background-position: calc(var(--_siren-board-view-x, 0px) + 11px * var(--_siren-board-view-scale, 1)) calc(var(--_siren-board-view-y, 0px) + 11px * var(--_siren-board-view-scale, 1));
+}
+
 .siren-board-viewport {
   position: absolute;
   inset: 0;
@@ -125,11 +149,29 @@ const CSS = `
   background: color-mix(in srgb, var(--siren-board-surface) 85%, transparent);
 }
 
+.siren-board-chrome {
+  display: contents;
+}
+
 .siren-board-controls {
   position: absolute;
   left: 50%;
   bottom: 1rem;
   transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: color-mix(in srgb, var(--siren-board-surface) 90%, transparent);
+  border: 1px solid var(--siren-board-border);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--siren-board-text) 12%, transparent);
+}
+
+.siren-board-corner {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
   z-index: 10;
   display: flex;
   gap: 0.5rem;

@@ -1,5 +1,14 @@
 const VIEWPORT_CLASS = "siren-board-viewport";
 
+/**
+ * The view, published on `surface` as private custom properties for board's
+ * own chrome CSS to read — see `Viewport`'s doc comment for why they exist
+ * and why they carry the `--_` prefix.
+ */
+const VIEW_X_PROPERTY = "--_siren-board-view-x";
+const VIEW_Y_PROPERTY = "--_siren-board-view-y";
+const VIEW_SCALE_PROPERTY = "--_siren-board-view-scale";
+
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 4;
 const ZOOM_SENSITIVITY = 0.0025;
@@ -17,6 +26,20 @@ const PAN_MARGIN_RATIO = 0.5;
  * Doesn't call `render()` or touch the mounted SVG's internals, doesn't know
  * about `AnimationController`/diagnostics/steps, and isn't responsible for
  * the error banner (a sibling layer owned by `createBoard`).
+ *
+ * Every time the transform is applied (creation, drag, wheel zoom,
+ * `resetView()`), the same view is also published on `surface` as three
+ * custom properties — `--_siren-board-view-x` / `--_siren-board-view-y` (px)
+ * and `--_siren-board-view-scale` (unitless) — matching `content`'s
+ * `translate(...) scale(...)` exactly. They exist for board's own chrome CSS
+ * to read: anything painted on the surface itself (the dot grid background)
+ * sits outside `content`, so it can't inherit the transform and has to
+ * recompute its own size/position from the view instead. The viewport
+ * deliberately doesn't know what reads them — it only announces where the
+ * view is. The `--_` prefix marks them private to board, not consumer
+ * tokens: they're overwritten on every pan/zoom, so a consumer setting them
+ * would have no lasting effect, and their names may change without notice.
+ * `destroy()` removes all three, leaving the surface as it was found.
  */
 export interface Viewport {
   /** Mount target: `render()`'s container goes here, not the outer surface. */
@@ -53,6 +76,9 @@ export function createViewport(surface: HTMLElement): Viewport {
 
   function applyTransform(): void {
     content.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+    surface.style.setProperty(VIEW_X_PROPERTY, `${offsetX}px`);
+    surface.style.setProperty(VIEW_Y_PROPERTY, `${offsetY}px`);
+    surface.style.setProperty(VIEW_SCALE_PROPERTY, `${scale}`);
   }
 
   /**
@@ -152,6 +178,9 @@ export function createViewport(surface: HTMLElement): Viewport {
       surface.removeEventListener("wheel", onWheel);
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
+      surface.style.removeProperty(VIEW_X_PROPERTY);
+      surface.style.removeProperty(VIEW_Y_PROPERTY);
+      surface.style.removeProperty(VIEW_SCALE_PROPERTY);
       content.remove();
     },
   };

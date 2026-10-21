@@ -1,7 +1,9 @@
 import type { Board, ControlsFactory } from "./createBoard";
 import { createDropdown } from "./dropdown";
 
+const CHROME_CLASS = "siren-board-chrome";
 const CONTROLS_CLASS = "siren-board-controls";
+const CORNER_CLASS = "siren-board-corner";
 const BUTTON_CLASS = "siren-board-controls__button";
 const INTERVAL_CLASS = "siren-board-controls__interval";
 const TIMELINE_CLASS = "siren-board-controls__timeline";
@@ -102,12 +104,38 @@ const ICONS = {
     "M3 16h3a2 2 0 0 1 2 2v3",
     "M16 21v-3a2 2 0 0 1 2-2h3",
   ],
+  /**
+   * Lucide `grip` — its nine `<circle r="1">`s, centered on every pairing of
+   * 5, 12 and 19, redrawn as paths, like `image` above. The Dot grid button's
+   * icon in either state: the grid itself, which the pressed state turns on.
+   */
+  dotGrid: [
+    "M4 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+    "M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+    "M18 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+    "M4 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+    "M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+    "M18 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+    "M4 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+    "M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+    "M18 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+  ],
 } satisfies Record<string, string[]>;
 
 /**
  * Board's built-in Prev/Play/Next/step counter/Reset/Timeline/Play
- * interval/Full diagram/Reset view/Fullscreen control bar — the default value
- * of `BoardOptions.controls`. Its buttons are icon-only; each carries its name
+ * interval/Full diagram/Reset view/Fullscreen control bar, plus a small corner
+ * panel holding the Dot grid button — the default value of
+ * `BoardOptions.controls`. The two are returned as one `.siren-board-chrome`
+ * wrapper, since a factory mounts a single element; the wrapper is
+ * `display: contents`, so the bar still centers itself on the board and the
+ * panel pins itself to its bottom-right corner. The panel stands apart from
+ * the bar because the grid is not playback: it has nothing to do with steps,
+ * timelines or the full diagram, and is never disabled. Its button is the
+ * bar's button class, pressed while `board.dotGrid` is on. With
+ * `controls: false` both go; a custom factory that wants the toggle calls
+ * `board.setDotGrid` itself. Every button, in the bar or the panel, is
+ * icon-only; each carries its name
  * as `aria-label` and `title` instead of visible text. The two dropdowns'
  * triggers carry their names as `aria-label` too, but show the current value as
  * text, and open a listbox directly above themselves rather than leaving a
@@ -157,6 +185,13 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
   const stepCounter = document.createElement("span");
   stepCounter.className = STEP_CLASS;
   bar.append(prev, play, next, stepCounter, reset, intervalDropdown.element, fullDiagram, resetView, fullscreen);
+  const dotGridButton = makeButton("Dot grid", ICONS.dotGrid, () => board.setDotGrid(!board.dotGrid));
+  const corner = document.createElement("div");
+  corner.className = CORNER_CLASS;
+  corner.append(dotGridButton);
+  const chrome = document.createElement("div");
+  chrome.className = CHROME_CLASS;
+  chrome.append(bar, corner);
   /** The bar's dropdowns, whose open listbox counts as focus on their trigger. */
   const dropdowns = [intervalDropdown, timelineDropdown];
   /**
@@ -173,7 +208,9 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
   /**
    * Mirrors `board.playing`, `board.timelines` and `board.timeline`,
    * `board.playInterval`, `board.fullDiagram`, `board.fullscreen` and the
-   * controller's `currentStep / totalSteps` onto the bar. A step button that
+   * controller's `currentStep / totalSteps` onto the bar, and `board.dotGrid`
+   * onto the corner panel's pressed Dot grid button, which is left out of
+   * `disabled` and `handoff`: nothing ever disables it. A step button that
    * would do nothing is disabled rather than left clickable: Prev and Reset on
    * step 0, Next on the last step, and all three in the full diagram or with no
    * steps. Play and the interval trigger are disabled whenever there is nothing
@@ -202,6 +239,9 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     fullscreen.setAttribute("aria-pressed", String(board.fullscreen));
     // And again: maximize while off, minimize while on.
     fullscreen.replaceChildren(makeIcon(board.fullscreen ? ICONS.minimize : ICONS.maximize));
+    // One icon either way: the grid is what the button toggles, and the
+    // pressed state says whether it shows.
+    dotGridButton.setAttribute("aria-pressed", String(board.dotGrid));
     // The full diagram's controller has no steps, and before the first
     // render there is no controller: both read 0 / 0.
     const currentStep = board.controller?.currentStep ?? 0;
@@ -281,7 +321,7 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     intervalDropdown.destroy();
   }
 
-  return { element: bar, update, destroy };
+  return { element: chrome, update, destroy };
 }
 
 function makeButton(label: string, iconPaths: string[], onClick: () => void): HTMLButtonElement {

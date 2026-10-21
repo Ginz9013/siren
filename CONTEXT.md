@@ -131,6 +131,17 @@ independent of the **View**, the **Step**, **Playback** and the **Full diagram**
 changes none of them and does not re-render (decision `01M5D3SBBG04M4YAZ08V1HH00B`).
 _Avoid_: maximize, expand, presentation mode, "滿版" (say "fill" for the fallback only)
 
+**Dot grid**:
+The dots a board draws on its canvas behind the diagram, while `board.dotGrid` is on (the
+default). They follow the **View** like an infinite canvas: their spacing scales with the zoom and
+their position moves with the pan, so resetting the view puts them back with the diagram; the
+dots themselves stay the same size at any zoom. The dot grid is board chrome, not part of the
+diagram: it is the canvas's background, never in the SVG `render()` mounts, so an export never
+carries it, and core has no say in it. Switching it changes nothing else — not the **View**, the
+**Step**, **Playback** or the **Full diagram** — and does not re-render
+(decision `01M5EHC9KJ2WJ4AM7Q4X0ZGDJS`).
+_Avoid_: grid (alone — reads as a layout grid), background pattern, graph paper
+
 **Timeline block**:
 The `timeline:` section of a Siren document. Each non-blank line is one step, and lists the
 timeline actions that fire on it, naming timeline targets by id. Deliberately separate from the diagram's structural definition — see

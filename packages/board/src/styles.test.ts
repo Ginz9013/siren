@@ -232,3 +232,74 @@ describe("board chrome's control bar states", () => {
     }
   });
 });
+
+describe("board chrome's dot grid", () => {
+  it("draws the dot grid on the canvas from the chrome text color, with no color of its own and no new token", () => {
+    // The dots derive from --siren-board-text, so a consumer who redeclares
+    // the chrome tokens for dark chrome gets dark-chrome dots for free; a
+    // literal here would be a color no page theme can reach.
+    const sheet = chromeStylesheet();
+
+    const dots = sheet.rule(".siren-board-canvas--dots")?.cssText;
+    expect(dots).toBeDefined();
+    expect(dots).toMatch(/background-image:\s*radial-gradient\(/);
+    expect(dots).toContain("var(--siren-board-text)");
+    expect(sheet.literalsOutsideTokenBlocks()).toEqual([]);
+
+    // Still the six tokens: the grid opened none of its own.
+    expect([...sheet.declaredTokens()].sort()).toEqual(Object.keys(CHROME).sort());
+  });
+
+  it("spaces and offsets the dots by the view the viewport publishes, falling back to an unmoved view", () => {
+    // 22px apart and 11px in, as siren-website's hero canvas, both scaled
+    // by the zoom and shifted by the pan, so the grid moves with the
+    // diagram like an infinite canvas. The fallbacks keep the grid right
+    // where nothing has published a view yet.
+    const dots = chromeStylesheet().rule(".siren-board-canvas--dots")?.cssText ?? "";
+
+    expect(dots).toMatch(/background-size:\s*calc\(22px \* var\(--_siren-board-view-scale, 1\)\)/);
+    expect(dots).toContain("var(--_siren-board-view-x, 0px)");
+    expect(dots).toContain("var(--_siren-board-view-y, 0px)");
+    expect(dots).toMatch(/background-position:\s*calc\(var\(--_siren-board-view-x, 0px\) \+ 11px \* var\(--_siren-board-view-scale, 1\)\)/);
+  });
+});
+
+describe("board chrome's corner panel", () => {
+  /** The value `cssText` gives `property` (the first such declaration), or `undefined`. */
+  function declared(cssText: string, property: string): string | undefined {
+    return cssText.match(new RegExp(`(?:^|;)\\s*${property}:\\s*([^;]+)`))?.[1].trim();
+  }
+
+  it("wraps the bar and the corner panel in a box that generates none, so both still place themselves on the board", () => {
+    // The wrapper is only a single element for createBoard to mount; with
+    // `display: contents` the bar and the corner panel stay absolutely
+    // positioned against .siren-board, as the bar was before the wrapper.
+    const chrome = chromeStylesheet().rule(".siren-board-chrome")?.cssText ?? "";
+
+    expect(declared(chrome, "display")).toBe("contents");
+  });
+
+  it("pins the corner panel to the board's bottom-right corner, dressed like the bar through the chrome tokens alone", () => {
+    const sheet = chromeStylesheet();
+    const corner = sheet.rule(".siren-board-corner")?.cssText ?? "";
+    const bar = sheet.rule(".siren-board-controls")?.cssText ?? "";
+
+    expect(declared(corner, "position")).toBe("absolute");
+    expect(declared(corner, "right")).toBe("1rem");
+    expect(declared(corner, "bottom")).toBe("1rem");
+    expect(declared(corner, "z-index")).toBe("10");
+    // Not centered as the bar is: a `left` or a transform would pull it away from the corner.
+    expect(declared(corner, "left")).toBeUndefined();
+    expect(declared(corner, "transform")).toBeUndefined();
+
+    // One panel style for both: what the bar wears, the corner wears too.
+    for (const property of ["background", "border", "border-radius", "box-shadow", "padding", "gap"]) {
+      expect(declared(corner, property)).toBeDefined();
+      expect(declared(corner, property)).toBe(declared(bar, property));
+    }
+    expect(corner).toContain("var(--siren-board-surface)");
+    expect(corner).toContain("var(--siren-board-border)");
+    // A literal in a chrome rule is a color no page theme can reach.
+    expect(sheet.literalsOutsideTokenBlocks()).toEqual([]);
+  });
+});

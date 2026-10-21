@@ -4019,4 +4019,178 @@ enter C fade
       });
     });
   });
+
+  describe("dot grid", () => {
+    /** The board's canvas, which carries the dot grid's class. */
+    function canvas(container: HTMLElement): HTMLElement {
+      return container.querySelector<HTMLElement>(".siren-board-canvas")!;
+    }
+
+    /** Whether the board's canvas wears the dot grid's class. */
+    function hasDots(container: HTMLElement): boolean {
+      return canvas(container).classList.contains("siren-board-canvas--dots");
+    }
+
+    it("is on by default: board.dotGrid is true and the canvas wears siren-board-canvas--dots", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
+
+      expect(board.dotGrid).toBe(true);
+      expect(hasDots(container)).toBe(true);
+    });
+
+    it("starts off with { dotGrid: false }: board.dotGrid is false and the canvas has no siren-board-canvas--dots", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER, dotGrid: false });
+
+      expect(board.dotGrid).toBe(false);
+      expect(hasDots(container)).toBe(false);
+    });
+
+    it("sets the canvas class from the initial value with controls: false too — the grid is not the bar's", () => {
+      const on = document.createElement("div");
+      const off = document.createElement("div");
+      createBoard(on, { source: VALID_SOURCE, measureText: FAKE_MEASURER, controls: false });
+      createBoard(off, { source: VALID_SOURCE, measureText: FAKE_MEASURER, controls: false, dotGrid: false });
+
+      expect(hasDots(on)).toBe(true);
+      expect(hasDots(off)).toBe(false);
+    });
+
+    it("setDotGrid turns it off and on, firing onDotGridChange once per actual change and never for the initial value or a repeat", () => {
+      const container = document.createElement("div");
+      const seen: boolean[] = [];
+      const board = createBoard(container, {
+        source: VALID_SOURCE,
+        measureText: FAKE_MEASURER,
+        onDotGridChange: (on) => seen.push(on),
+      });
+      expect(seen).toEqual([]);
+
+      board.setDotGrid(false);
+      expect(board.dotGrid).toBe(false);
+      expect(hasDots(container)).toBe(false);
+      expect(seen).toEqual([false]);
+
+      board.setDotGrid(false);
+      expect(seen).toEqual([false]);
+
+      board.setDotGrid(true);
+      expect(board.dotGrid).toBe(true);
+      expect(hasDots(container)).toBe(true);
+      expect(seen).toEqual([false, true]);
+    });
+
+    it("setDotGrid after destroy() does nothing: no throw, no onDotGridChange, no change", () => {
+      const seen: boolean[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: VALID_SOURCE,
+        measureText: FAKE_MEASURER,
+        onDotGridChange: (on) => seen.push(on),
+      });
+      board.destroy();
+
+      expect(() => board.setDotGrid(false)).not.toThrow();
+      expect(seen).toEqual([]);
+      expect(board.dotGrid).toBe(true);
+    });
+
+    it("calls a ControlsFactory's update() once on every change, with the new value already on the board, and not on a no-op", () => {
+      const seen: boolean[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: VALID_SOURCE,
+        measureText: FAKE_MEASURER,
+        controls: (b) => ({ element: document.createElement("div"), update: () => seen.push(b.dotGrid) }),
+      });
+      seen.length = 0; // the first render's update() is not this test's
+
+      board.setDotGrid(false);
+      board.setDotGrid(false);
+      board.setDotGrid(true);
+
+      expect(seen).toEqual([false, true]);
+    });
+
+    describe("the built-in corner panel's Dot grid button", () => {
+      /**
+       * The Dot grid button, looked up in the corner panel and not anywhere in
+       * the board, so a stray copy in the bar could not stand in for it.
+       */
+      function dotGridButton(container: HTMLElement): HTMLButtonElement | null {
+        return container.querySelector<HTMLButtonElement>('.siren-board-corner button[aria-label="Dot grid"]');
+      }
+
+      it("sits in its own corner panel beside the bar, both inside one .siren-board-chrome wrapper, pressed by default", () => {
+        const container = document.createElement("div");
+        createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
+
+        const chrome = container.querySelector(".siren-board-chrome")!;
+        expect(chrome).not.toBeNull();
+        expect(Array.from(chrome.children).map((child) => child.className)).toEqual([
+          "siren-board-controls",
+          "siren-board-corner",
+        ]);
+        const dotGrid = dotGridButton(container)!;
+        expect(dotGrid).not.toBeNull();
+        expect(dotGrid.title).toBe("Dot grid");
+        expect(dotGrid.className).toBe("siren-board-controls__button");
+        expect(dotGrid.getAttribute("aria-pressed")).toBe("true");
+        // The bar itself keeps its contents: the button is the corner's alone.
+        expect(container.querySelector('.siren-board-controls button[aria-label="Dot grid"]')).toBeNull();
+      });
+
+      it("mirrors board.dotGrid in aria-pressed, from the dotGrid option and from setDotGrid in code", () => {
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
+        board.setDotGrid(false);
+        expect(dotGridButton(container)!.getAttribute("aria-pressed")).toBe("false");
+        board.setDotGrid(true);
+        expect(dotGridButton(container)!.getAttribute("aria-pressed")).toBe("true");
+
+        const off = document.createElement("div");
+        createBoard(off, { source: VALID_SOURCE, measureText: FAKE_MEASURER, dotGrid: false });
+        expect(dotGridButton(off)!.getAttribute("aria-pressed")).toBe("false");
+      });
+
+      it("turns the grid off with a click and back on with another, firing onDotGridChange each time", () => {
+        const container = document.createElement("div");
+        const seen: boolean[] = [];
+        const board = createBoard(container, {
+          source: VALID_SOURCE,
+          measureText: FAKE_MEASURER,
+          onDotGridChange: (on) => seen.push(on),
+        });
+        const dotGrid = dotGridButton(container)!;
+
+        dotGrid.click();
+        expect(board.dotGrid).toBe(false);
+        expect(dotGrid.getAttribute("aria-pressed")).toBe("false");
+        expect(hasDots(container)).toBe(false);
+
+        dotGrid.click();
+        expect(board.dotGrid).toBe(true);
+        expect(dotGrid.getAttribute("aria-pressed")).toBe("true");
+        expect(hasDots(container)).toBe(true);
+        expect(seen).toEqual([false, true]);
+      });
+
+      it("stays enabled in the full diagram, where the step buttons are not — the grid has nothing to do with steps", () => {
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
+
+        board.setFullDiagram(true);
+
+        expect(button(container, "Next").disabled).toBe(true);
+        expect(dotGridButton(container)!.disabled).toBe(false);
+      });
+
+      it("goes with the bar under controls: false, leaving neither the wrapper nor the corner panel", () => {
+        const container = document.createElement("div");
+        createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER, controls: false });
+
+        expect(container.querySelector(".siren-board-chrome")).toBeNull();
+        expect(container.querySelector(".siren-board-corner")).toBeNull();
+      });
+    });
+  });
 });
