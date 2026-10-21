@@ -625,7 +625,7 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
   }
 
   /**
-   * Turns the dot grid by toggling the canvas's class; the chrome stylesheet
+   * Turns the dot grid on or off by toggling the canvas's class; the chrome stylesheet
    * does the drawing, and the viewport's published view moves it with
    * pan/zoom (viewport.ts). No render: the diagram is untouched.
    */

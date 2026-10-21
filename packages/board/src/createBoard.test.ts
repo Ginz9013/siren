@@ -4026,12 +4026,17 @@ enter C fade
       return container.querySelector<HTMLElement>(".siren-board-canvas")!;
     }
 
+    /** Whether the board's canvas wears the dot grid's class. */
+    function hasDots(container: HTMLElement): boolean {
+      return canvas(container).classList.contains("siren-board-canvas--dots");
+    }
+
     it("is on by default: board.dotGrid is true and the canvas wears siren-board-canvas--dots", () => {
       const container = document.createElement("div");
       const board = createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
 
       expect(board.dotGrid).toBe(true);
-      expect(canvas(container).classList.contains("siren-board-canvas--dots")).toBe(true);
+      expect(hasDots(container)).toBe(true);
     });
 
     it("starts off with { dotGrid: false }: board.dotGrid is false and the canvas has no siren-board-canvas--dots", () => {
@@ -4039,7 +4044,7 @@ enter C fade
       const board = createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER, dotGrid: false });
 
       expect(board.dotGrid).toBe(false);
-      expect(canvas(container).classList.contains("siren-board-canvas--dots")).toBe(false);
+      expect(hasDots(container)).toBe(false);
     });
 
     it("sets the canvas class from the initial value with controls: false too — the grid is not the bar's", () => {
@@ -4048,8 +4053,8 @@ enter C fade
       createBoard(on, { source: VALID_SOURCE, measureText: FAKE_MEASURER, controls: false });
       createBoard(off, { source: VALID_SOURCE, measureText: FAKE_MEASURER, controls: false, dotGrid: false });
 
-      expect(canvas(on).classList.contains("siren-board-canvas--dots")).toBe(true);
-      expect(canvas(off).classList.contains("siren-board-canvas--dots")).toBe(false);
+      expect(hasDots(on)).toBe(true);
+      expect(hasDots(off)).toBe(false);
     });
 
     it("setDotGrid turns it off and on, firing onDotGridChange once per actual change and never for the initial value or a repeat", () => {
@@ -4064,7 +4069,7 @@ enter C fade
 
       board.setDotGrid(false);
       expect(board.dotGrid).toBe(false);
-      expect(canvas(container).classList.contains("siren-board-canvas--dots")).toBe(false);
+      expect(hasDots(container)).toBe(false);
       expect(seen).toEqual([false]);
 
       board.setDotGrid(false);
@@ -4072,7 +4077,7 @@ enter C fade
 
       board.setDotGrid(true);
       expect(board.dotGrid).toBe(true);
-      expect(canvas(container).classList.contains("siren-board-canvas--dots")).toBe(true);
+      expect(hasDots(container)).toBe(true);
       expect(seen).toEqual([false, true]);
     });
 

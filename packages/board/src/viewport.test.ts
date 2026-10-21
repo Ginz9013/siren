@@ -43,6 +43,13 @@ function makeSurface(): HTMLElement {
   return surface;
 }
 
+/** One wheel notch toward the reader, over a point inside the surface: zooms in, cursor-anchored. */
+function zoomIn(surface: HTMLElement): void {
+  surface.dispatchEvent(
+    new WheelEvent("wheel", { clientX: 100, clientY: 100, deltaY: -500, bubbles: true, cancelable: true }),
+  );
+}
+
 afterEach(() => {
   document.body.replaceChildren();
   vi.restoreAllMocks();
@@ -60,9 +67,7 @@ describe("createViewport publishes its view on the surface", () => {
     const surface = makeSurface();
     const viewport = createViewport(surface);
 
-    surface.dispatchEvent(
-      new WheelEvent("wheel", { clientX: 100, clientY: 100, deltaY: -500, bubbles: true, cancelable: true }),
-    );
+    zoomIn(surface);
 
     const transform = readContentTransform(viewport.content);
     expect(transform.scale).not.toBe("1"); // sanity: the wheel event actually zoomed
@@ -86,9 +91,7 @@ describe("createViewport publishes its view on the surface", () => {
   it("resetView() publishes the identity view again", () => {
     const surface = makeSurface();
     const viewport = createViewport(surface);
-    surface.dispatchEvent(
-      new WheelEvent("wheel", { clientX: 100, clientY: 100, deltaY: -500, bubbles: true, cancelable: true }),
-    );
+    zoomIn(surface);
     expect(readViewVars(surface).scale).not.toBe("1"); // sanity: the view moved first
 
     viewport.resetView();
@@ -99,9 +102,7 @@ describe("createViewport publishes its view on the surface", () => {
   it("destroy() removes all three properties, leaving the surface as it found it", () => {
     const surface = makeSurface();
     const viewport = createViewport(surface);
-    surface.dispatchEvent(
-      new WheelEvent("wheel", { clientX: 100, clientY: 100, deltaY: -500, bubbles: true, cancelable: true }),
-    );
+    zoomIn(surface);
 
     viewport.destroy();
 
