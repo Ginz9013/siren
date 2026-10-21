@@ -263,3 +263,43 @@ describe("board chrome's dot grid", () => {
     expect(dots).toMatch(/background-position:\s*calc\(var\(--_siren-board-view-x, 0px\) \+ 11px \* var\(--_siren-board-view-scale, 1\)\)/);
   });
 });
+
+describe("board chrome's corner panel", () => {
+  /** The value `cssText` gives `property` (the first such declaration), or `undefined`. */
+  function declared(cssText: string, property: string): string | undefined {
+    return cssText.match(new RegExp(`(?:^|;)\\s*${property}:\\s*([^;]+)`))?.[1].trim();
+  }
+
+  it("wraps the bar and the corner panel in a box that generates none, so both still place themselves on the board", () => {
+    // The wrapper is only a single element for createBoard to mount; with
+    // `display: contents` the bar and the corner panel stay absolutely
+    // positioned against .siren-board, as the bar was before the wrapper.
+    const chrome = chromeStylesheet().rule(".siren-board-chrome")?.cssText ?? "";
+
+    expect(declared(chrome, "display")).toBe("contents");
+  });
+
+  it("pins the corner panel to the board's bottom-right corner, dressed like the bar through the chrome tokens alone", () => {
+    const sheet = chromeStylesheet();
+    const corner = sheet.rule(".siren-board-corner")?.cssText ?? "";
+    const bar = sheet.rule(".siren-board-controls")?.cssText ?? "";
+
+    expect(declared(corner, "position")).toBe("absolute");
+    expect(declared(corner, "right")).toBe("1rem");
+    expect(declared(corner, "bottom")).toBe("1rem");
+    expect(declared(corner, "z-index")).toBe("10");
+    // Not centered as the bar is: a `left` or a transform would pull it away from the corner.
+    expect(declared(corner, "left")).toBeUndefined();
+    expect(declared(corner, "transform")).toBeUndefined();
+
+    // One panel style for both: what the bar wears, the corner wears too.
+    for (const property of ["background", "border", "border-radius", "box-shadow", "padding", "gap"]) {
+      expect(declared(corner, property)).toBeDefined();
+      expect(declared(corner, property)).toBe(declared(bar, property));
+    }
+    expect(corner).toContain("var(--siren-board-surface)");
+    expect(corner).toContain("var(--siren-board-border)");
+    // A literal in a chrome rule is a color no page theme can reach.
+    expect(sheet.literalsOutsideTokenBlocks()).toEqual([]);
+  });
+});

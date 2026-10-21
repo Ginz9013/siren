@@ -37,10 +37,17 @@ const STYLE_ELEMENT_ID = "siren-board-styles";
  * token of its own, so dark chrome tokens give dark-chrome dots unasked.
  *
  * DOM shape this targets: `.siren-board` (the consumer's container) holds
- * `.siren-board-canvas` as one child, and `.siren-board-controls` as a
- * sibling — kept out of the canvas layer specifically so a re-render never
- * wipes out the control bar. `.siren-board-canvas` in turn holds two of its
- * own children: `.siren-board-viewport` (everything `render()`
+ * `.siren-board-canvas` as one child, and the default controls'
+ * `.siren-board-chrome` wrapper as a sibling — kept out of the canvas layer
+ * specifically so a re-render never wipes out the controls. The wrapper is
+ * `display: contents`, there only so the default controls mount as one
+ * element: it generates no box, so its two children — the centered
+ * `.siren-board-controls` bar and the `.siren-board-corner` panel pinned to
+ * the bottom-right corner, which holds the Dot grid button — still position
+ * themselves against `.siren-board`. The corner panel wears the bar's
+ * surface, border, radius and shadow, so the two read as one set of chrome.
+ * `.siren-board-canvas` in turn holds two of its own children:
+ * `.siren-board-viewport` (everything `render()`
  * mounts/replaces on each `setSource`, receiving the pan/zoom transform —
  * see viewport.ts) and, conditionally, the error banner — a sibling of the
  * viewport so it is never panned or zoomed along with the diagram.
@@ -142,11 +149,29 @@ const CSS = `
   background: color-mix(in srgb, var(--siren-board-surface) 85%, transparent);
 }
 
+.siren-board-chrome {
+  display: contents;
+}
+
 .siren-board-controls {
   position: absolute;
   left: 50%;
   bottom: 1rem;
   transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: color-mix(in srgb, var(--siren-board-surface) 90%, transparent);
+  border: 1px solid var(--siren-board-border);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--siren-board-text) 12%, transparent);
+}
+
+.siren-board-corner {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
   z-index: 10;
   display: flex;
   gap: 0.5rem;
