@@ -8931,6 +8931,68 @@ describe("render() of a flowchart edge from a subgraph to its own member inside 
   });
 });
 
+describe("render() of an ER relationship from a subgraph to its own member inside a subgraph that keeps its direction", () => {
+  it("refuses it naming each subgraph by its title, not the id it is laid out by", () => {
+    // The same graph the flowchart cases above refuse: a relationship may
+    // name a subgraph (`clusterEndpointIds`), and the subgraph is laid out by
+    // a generated id (`subgraph:1`) the author never wrote.
+    for (const [source, edge, cluster, member, holder] of [
+      ['erDiagram\nsubgraph A["Outer"]\ndirection LR\nsubgraph B[Bee]\nF\nend\nend\nB ||--|| F : r', "B:F", "Bee", "F", "Outer"],
+      ["erDiagram\nsubgraph A\ndirection LR\nsubgraph B\nF\nend\nend\nF ||--|| B : r", "F:B", "B", "F", "A"],
+    ] as const) {
+      const result = render(source, document.createElement("div"));
+      expect([source, result.svg, result.diagnostics]).toEqual([
+        source,
+        null,
+        [
+          {
+            severity: "error",
+            message:
+              `The edge "${edge}" between "${cluster}" and "${member}", which is inside it, cannot be drawn within ` +
+              `"${holder}", which lays out its members with direction LR. Remove the direction from "${holder}", ` +
+              `or connect "${cluster}" to something outside it.`,
+          },
+        ],
+      ]);
+    }
+  });
+});
+
+describe("render() of a state transition from a composite to its own member inside a frame that keeps its direction", () => {
+  /** The diagnostic the flowchart and ER cases above give, in these names. */
+  const refusal = (edge: string, cluster: string, member: string, holder: string, direction: string) => ({
+    severity: "error",
+    message:
+      `The edge "${edge}" between "${cluster}" and "${member}", which is inside it, cannot be drawn within ` +
+      `"${holder}", which lays out its members with direction ${direction}. Remove the direction from "${holder}", ` +
+      `or connect "${cluster}" to something outside it.`,
+  });
+
+  it("names a composite by the id the author gave it", () => {
+    for (const [source, edge] of [
+      ["stateDiagram-v2\nstate A {\ndirection LR\nstate B {\nF\n}\nB --> F\n}", "B-F"],
+      ["stateDiagram-v2\nstate A {\ndirection LR\nstate B {\nF\n}\nF --> B\n}", "F-B"],
+    ] as const) {
+      const result = render(source, document.createElement("div"));
+      expect([source, result.svg, result.diagnostics]).toEqual([source, null, [refusal(edge, "B", "F", "A", "LR")]]);
+    }
+  });
+
+  it("names a concurrent region by its place in its composite, not the id it is laid out by", () => {
+    // A region is laid out by a generated id (`region:1`), counted across the
+    // whole document; the author wrote only the `--` that divides the block.
+    // A `direction` above the `--` is the first region's, below it the
+    // second's.
+    for (const [source, holder] of [
+      ["stateDiagram-v2\nstate A {\ndirection LR\nstate B {\nF\n}\nB --> F\n--\nG\n}", "region 1 of A"],
+      ["stateDiagram-v2\nstate Z {\nX\n--\nY\n}\nstate A {\nG\n--\ndirection LR\nstate B {\nF\n}\nB --> F\n}", "region 2 of A"],
+    ] as const) {
+      const result = render(source, document.createElement("div"));
+      expect([source, result.svg, result.diagnostics]).toEqual([source, null, [refusal("B-F", "B", "F", holder, "LR")]]);
+    }
+  });
+});
+
 /**
  * An image node through `render()`: drawn from the `data:` URL its `img:`
  * holds, and nothing else — Siren never fetches while drawing, so any other

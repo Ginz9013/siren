@@ -488,6 +488,18 @@ interface Pipeline<M, P> {
   nameOf?: (model: M) => (layoutId: string) => string;
 }
 
+/**
+ * A `nameOf` that puts each subgraph's title for its generated id and leaves
+ * every other id as it is; a flowchart's and an ER diagram's subgraphs share
+ * this shape.
+ */
+function bySubgraphTitle(
+  subgraphs: readonly { id: string; label: { text: string } }[],
+): (layoutId: string) => string {
+  const titleById = new Map(subgraphs.map((subgraph) => [subgraph.id, subgraph.label.text]));
+  return (layoutId) => titleById.get(layoutId) ?? layoutId;
+}
+
 /** The model `buildGraphModel` hands back for a document of kind `K`. */
 type ModelOf<K extends DiagramKind> = Extract<GraphModelResult, { kind: K }>["model"];
 
@@ -532,10 +544,7 @@ const RENDER_KIND: { [K in DiagramKind]: Pipeline<ModelOf<K>, unknown> } = {
     render: renderToSVG,
     // A subgraph is laid out by its generated id (`subgraph:2`); the author
     // knows it by its title. A node's and an edge's ids are the author's own.
-    nameOf: (graph) => {
-      const subgraphTitles = new Map(graph.subgraphs.map((subgraph) => [subgraph.id, subgraph.label.text]));
-      return (layoutId) => subgraphTitles.get(layoutId) ?? layoutId;
-    },
+    nameOf: (graph) => bySubgraphTitle(graph.subgraphs),
   }),
   // The one layout stage that is unlike the rest, and the reason
   // `attemptLayout`'s terms are held to for every kind. It reaches no shared
@@ -570,6 +579,24 @@ const RENDER_KIND: { [K in DiagramKind]: Pipeline<ModelOf<K>, unknown> } = {
   state: pipeline<StateModel, PositionedStateDiagram>({
     layout: layoutStateDiagram,
     render: renderStateDiagramToSVG,
+    // A concurrent region is a frame the author never named: it is laid out by
+    // a generated id (`region:1`, ADR-0010) counted across the whole document,
+    // and the author wrote only the `--` that divides its composite. So it is
+    // named by its place there, `region 2 of A`, counted in `states` order
+    // within that composite from 1. A composite's and a plain state's ids are
+    // the author's own and pass through. A region always has a composite; the
+    // `null` check is for `ResolvedState`'s type, which allows a top level.
+    nameOf: (model) => {
+      const regionNames = new Map<string, string>();
+      const regionCounts = new Map<string, number>();
+      for (const state of model.states) {
+        if (state.kind !== "region" || state.parentId === null) continue;
+        const n = (regionCounts.get(state.parentId) ?? 0) + 1;
+        regionCounts.set(state.parentId, n);
+        regionNames.set(state.id, `region ${n} of ${state.parentId}`);
+      }
+      return (layoutId) => regionNames.get(layoutId) ?? layoutId;
+    },
   }),
   // Reaches the shared core, so `LayoutEngineError` is possible in principle,
   // and a consumer's measurer can refuse an entity's name here exactly as it
@@ -578,6 +605,11 @@ const RENDER_KIND: { [K in DiagramKind]: Pipeline<ModelOf<K>, unknown> } = {
   er: pipeline<ErModel, PositionedErDiagram>({
     layout: layoutErDiagram,
     render: renderErDiagramToSVG,
+    // A relationship may name a subgraph (`clusterEndpointIds`), so a subgraph
+    // can be either cluster in the diagnostic; it is laid out by its generated
+    // id (`subgraph:1`), and the author knows it by its title. An entity's and
+    // a relationship's ids are the author's own.
+    nameOf: (model) => bySubgraphTitle(model.subgraphs),
   }),
 };
 
