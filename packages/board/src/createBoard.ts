@@ -739,10 +739,13 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
   // Covers every way the screen turns: our request, Esc, another element taking it.
   document.addEventListener("fullscreenchange", syncFullscreen);
 
+  /** Where the button last went down on the canvas, so a click can tell a pan from itself; `null` once a click has read it. */
+  let pressedAt: { x: number; y: number } | null = null;
+
   /**
    * A click on the canvas while the board takes the whole screen steps
    * forward, as the bar's Next would (CONTEXT.md's "Fullscreen"): a presenter
-   * clicks the slide rather than reaching for the bar.
+   * clicks the diagram rather than reaching for the bar.
    */
   function onCanvasClick(event: MouseEvent): void {
     const down = pressedAt;
@@ -759,9 +762,6 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     if (down !== null && Math.hypot(event.clientX - down.x, event.clientY - down.y) > CLICK_SLOP) return;
     wrappedController?.next();
   }
-
-  /** Where the button last went down on the canvas, so a click can tell a pan from itself; `null` once a click has read it. */
-  let pressedAt: { x: number; y: number } | null = null;
 
   /** Only listens: the viewport's own mousedown starts the pan, and must go on doing so. */
   function onCanvasMousedown(event: MouseEvent): void {
