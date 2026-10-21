@@ -46,7 +46,8 @@ createBoard(document.getElementById("board"), { source });
 - **Full diagram**: one click shows the whole diagram as Mermaid would draw it, with every
   element visible and no step applied. Clicking again returns to the step you were on.
 - **Fullscreen**: one click fills the screen with the board, or the browser window where the
-  browser will not go fullscreen. Escape leaves it.
+  browser will not go fullscreen. Escape leaves it. While fullscreen, a click on the diagram
+  steps forward, like Next.
 - **Pan and zoom**: drag to move the diagram, and scroll to zoom toward the cursor.
 - **Dot grid**: a dotted background behind the diagram that pans and zooms with it, like an
   infinite canvas. On by default; one click turns it off.
@@ -208,6 +209,14 @@ does not re-render. The board's background in both is `--siren-board-surface`, s
 browser's black fullscreen backdrop never shows. `onFullscreenChange` fires whether the switch
 came from the bar, from code, or from the browser (Escape, or another element taking the
 screen).
+
+While fullscreen is on, in either form, a plain left click on the board's canvas steps forward
+one step, as Next does, so a presenter need not reach for the bar. It is a manual step, so it
+stops playback. A drag that pans the diagram is not a click, and neither is a click with a
+modifier key held or with another button. Clicks on the diagram's own interactive elements —
+a `click` callback or link, or a sequence diagram's link menu — keep doing what they did and
+do not step. On the last step, and while the full diagram shows, a click does nothing. Outside
+fullscreen a click on the canvas never steps, and the bar works the same either way.
 
 ### Showing the dot grid
 

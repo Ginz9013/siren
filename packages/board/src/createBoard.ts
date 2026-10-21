@@ -25,6 +25,17 @@ const DOTS_CLASS = "siren-board-canvas--dots";
 /** On the container while the board fills the window in place of the screen; internal, not a public hook. */
 const FILL_CLASS = "siren-board--fill";
 const DEFAULT_PLAY_INTERVAL = 2000;
+/**
+ * How far, in CSS pixels, the pointer may move between mousedown and click
+ * for the click still to step in fullscreen; further, and it was a pan.
+ */
+const CLICK_SLOP = 4;
+/**
+ * What the author made interactive in a drawing: `click X call fn()`'s
+ * elements, `click X href`'s links (SVG `<a>`), and a sequence participant's
+ * link menu as a whole. A click inside one is the author's, never a step.
+ */
+const AUTHOR_INTERACTIVE = "[data-siren-click], a, .siren-link-menu";
 
 /**
  * A caller-supplied replacement for board's default control bar. Board calls
@@ -164,6 +175,7 @@ export interface Board {
    * Whether the board takes the whole screen (see CONTEXT.md's
    * "Fullscreen"): its container is `document.fullscreenElement`, or, where
    * the screen is refused, it fills the browser window. The two read the same.
+   * While it holds, a plain click on the canvas steps forward, as Next does.
    */
   readonly fullscreen: boolean;
   /**
@@ -727,6 +739,38 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
   // Covers every way the screen turns: our request, Esc, another element taking it.
   document.addEventListener("fullscreenchange", syncFullscreen);
 
+  /** Where the button last went down on the canvas, so a click can tell a pan from itself; `null` once a click has read it. */
+  let pressedAt: { x: number; y: number } | null = null;
+
+  /**
+   * A click on the canvas while the board takes the whole screen steps
+   * forward, as the bar's Next would (CONTEXT.md's "Fullscreen"): a presenter
+   * clicks the diagram rather than reaching for the bar.
+   */
+  function onCanvasClick(event: MouseEvent): void {
+    const down = pressedAt;
+    pressedAt = null;
+    // Screen or fill alike: out of fullscreen a click is only a click.
+    if (!fullscreen) return;
+    // A modified click means something else to the browser or the page
+    // (a new tab, a selection); only a plain primary click is a step.
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    if (event.target instanceof Element && event.target.closest(AUTHOR_INTERACTIVE) !== null) return;
+    // A pan ends in a click too, where the button comes up; it moved the
+    // view, so it is not a step. A click with no mousedown of its own (one
+    // dispatched by code) did not move.
+    if (down !== null && Math.hypot(event.clientX - down.x, event.clientY - down.y) > CLICK_SLOP) return;
+    wrappedController?.next();
+  }
+
+  /** Only listens: the viewport's own mousedown starts the pan, and must go on doing so. */
+  function onCanvasMousedown(event: MouseEvent): void {
+    pressedAt = { x: event.clientX, y: event.clientY };
+  }
+
+  canvas.addEventListener("mousedown", onCanvasMousedown);
+  canvas.addEventListener("click", onCanvasClick);
+
   /** The mounted control bar, built-in or custom; unset with `controls: false`. */
   let controls: ReturnType<ControlsFactory> | undefined;
 
@@ -795,6 +839,8 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
       // the fullscreenchange that follows reaches nothing.
       document.removeEventListener("fullscreenchange", syncFullscreen);
       document.removeEventListener("keydown", onFillKeydown);
+      canvas.removeEventListener("mousedown", onCanvasMousedown);
+      canvas.removeEventListener("click", onCanvasClick);
       container.classList.remove(FILL_CLASS);
       fill = false;
       fullscreen = false;

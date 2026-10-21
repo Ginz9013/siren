@@ -128,7 +128,11 @@ rejected, as on iPhone Safari or in an iframe without `allowfullscreen` — the 
 browser window instead (**fill**). Fill is the fallback, not a second state: both are
 `board.fullscreen === true`, and nothing tells a caller which one is in use. Fullscreen is
 independent of the **View**, the **Step**, **Playback** and the **Full diagram**: switching it
-changes none of them and does not re-render (decision `01M5D3SBBG04M4YAZ08V1HH00B`).
+changes none of them and does not re-render (decision `01M5D3SBBG04M4YAZ08V1HH00B`). While
+fullscreen, a click on the board's canvas is a step stepped by hand, forward one **Step**, so it
+stops **Playback**; a drag that pans the **View** and a click on the author's own clickable
+elements and links are not, and outside fullscreen a click never steps
+(decision `01M5EKKNMK871Q5VQV9VN3M9Y0`).
 _Avoid_: maximize, expand, presentation mode, "滿版" (say "fill" for the fallback only)
 
 **Dot grid**:

@@ -4018,6 +4018,248 @@ enter C fade
         }
       });
     });
+
+    describe("clicking the canvas", () => {
+      /** The board's canvas: the surface a click must land on to step. */
+      function canvasOf(container: HTMLElement): HTMLElement {
+        return container.querySelector<HTMLElement>(".siren-board-canvas")!;
+      }
+
+      /**
+       * A reader's click on `target`: a mousedown at `down`, then the click
+       * at `up` (where the button came back up), as a browser fires them.
+       */
+      function clickAt(
+        target: Element,
+        { down = { x: 10, y: 10 }, up = down, init = {} }: {
+          down?: { x: number; y: number };
+          up?: { x: number; y: number };
+          init?: MouseEventInit;
+        } = {},
+      ): void {
+        target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: down.x, clientY: down.y, ...init }));
+        target.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: up.x, clientY: up.y, ...init }));
+      }
+
+      it("in the fill (jsdom has no Fullscreen API), a click on the canvas steps forward once", () => {
+        const container = document.createElement("div");
+        const calls: [number, number][] = [];
+        const board = createBoard(container, {
+          source: TWO_STEP_SOURCE,
+          measureText: FAKE_MEASURER,
+          onStepChange: (current, total) => calls.push([current, total]),
+        });
+        board.setFullscreen(true);
+
+        clickAt(container.querySelector(".siren-board-viewport svg")!);
+
+        expect(board.controller!.currentStep).toBe(1);
+        expect(calls).toEqual([[1, 2]]);
+      });
+
+      it("out of fullscreen, a click on the canvas steps nothing", () => {
+        const container = document.createElement("div");
+        const onStepChange = vi.fn();
+        const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER, onStepChange });
+
+        clickAt(container.querySelector(".siren-board-viewport svg")!);
+        board.setFullscreen(true);
+        board.setFullscreen(false);
+        clickAt(canvasOf(container));
+
+        expect(board.controller!.currentStep).toBe(0);
+        expect(onStepChange).not.toHaveBeenCalled();
+      });
+
+      it("on the screen (the container is document.fullscreenElement), a click on the canvas steps forward once", () => {
+        const container = document.createElement("div");
+        const api = stubFullscreenApi(container);
+        const onStepChange = vi.fn();
+        const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER, onStepChange });
+        api.enter();
+        expect(board.fullscreen).toBe(true);
+
+        clickAt(canvasOf(container));
+
+        expect(board.controller!.currentStep).toBe(1);
+        expect(onStepChange).toHaveBeenCalledTimes(1);
+      });
+
+      it("a drag is not a click: the button coming up more than 4px from where it went down steps nothing, 4px or less steps", () => {
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+        board.setFullscreen(true);
+
+        clickAt(canvasOf(container), { down: { x: 10, y: 10 }, up: { x: 13, y: 13 } }); // 4.24px
+        clickAt(canvasOf(container), { down: { x: 10, y: 10 }, up: { x: 40, y: 50 } });
+        expect(board.controller!.currentStep).toBe(0);
+
+        clickAt(canvasOf(container), { down: { x: 10, y: 10 }, up: { x: 14, y: 10 } }); // exactly 4px
+        expect(board.controller!.currentStep).toBe(1);
+      });
+
+      it("a click with no mousedown before it (a synthetic one) counts as not moved, and steps", () => {
+        const container = document.createElement("div");
+        const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
+        board.setFullscreen(true);
+
+        canvasOf(container).dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 300, clientY: 200 }));
+
+        expect(board.controller!.currentStep).toBe(1);
+      });
+
+      it("only a plain left click steps: the middle or right button, or Ctrl, Meta, Shift or Alt held, steps nothing", () => {
+        const container = document.createElement("div");
+        const onStepChange = vi.fn();
+        const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER, onStepChange });
+        board.setFullscreen(true);
+
+        for (const init of [
+          { button: 1 },
+          { button: 2 },
+          { ctrlKey: true },
+          { metaKey: true },
+          { shiftKey: true },
+          { altKey: true },
+        ]) {
+          clickAt(canvasOf(container), { init });
+        }
+
+        expect(board.controller!.currentStep).toBe(0);
+        expect(onStepChange).not.toHaveBeenCalled();
+      });
+
+      it("a click on the author's own interactive elements is theirs: `click … call` still reaches onClick, and neither it, a `click … href` link nor a sequence link menu steps", () => {
+        const sources = {
+          call: `flowchart TD
+A --> B
+click A call showDetails("42")
+timeline:
+  enter B fade
+`,
+          href: `flowchart TD
+A --> B
+click A href "https://example.com"
+timeline:
+  enter B fade
+`,
+          menu: `sequenceDiagram
+participant A
+participant B
+A->>B: Hello
+link A: Home @ https://example.com
+link A: Docs @ https://example.org
+timeline:
+  enter B fade
+`,
+        };
+        const targets: Record<keyof typeof sources, (svg: SVGSVGElement) => Element | null> = {
+          // Inside the clickable element, as a real click lands on its shape.
+          call: (svg) => svg.querySelector('[data-siren-click][data-siren-id="A"] *'),
+          href: (svg) => svg.querySelector("a *"),
+          // The menu's own box, not one of its links: the menu is the author's as a whole.
+          menu: (svg) => svg.querySelector(".siren-link-menu-trigger"),
+        };
+
+        for (const kind of ["call", "href", "menu"] as const) {
+          const container = document.createElement("div");
+          const onClick = vi.fn();
+          const onStepChange = vi.fn();
+          const board = createBoard(container, {
+            source: sources[kind],
+            measureText: FAKE_MEASURER,
+            onClick,
+            onStepChange,
+          });
+          board.setFullscreen(true);
+          expect(board.controller!.totalSteps, kind).toBe(1);
+          const target = targets[kind](container.querySelector<SVGSVGElement>(".siren-board-viewport svg")!);
+          expect(target, kind).not.toBeNull();
+
+          clickAt(target!);
+
+          expect(board.controller!.currentStep, kind).toBe(0);
+          expect(onStepChange, kind).not.toHaveBeenCalled();
+          expect(onClick, kind).toHaveBeenCalledTimes(kind === "call" ? 1 : 0);
+          board.destroy();
+        }
+      });
+
+      it("with nowhere to step — the last step, the full diagram, no source yet — a click steps nothing and throws nothing", () => {
+        const container = document.createElement("div");
+        const onStepChange = vi.fn();
+        const board = createBoard(container, { measureText: FAKE_MEASURER, onStepChange });
+        board.setFullscreen(true);
+
+        expect(() => clickAt(canvasOf(container))).not.toThrow();
+        expect(board.controller).toBeNull();
+
+        board.setSource(TWO_STEP_SOURCE);
+        board.controller!.next();
+        board.controller!.next();
+        onStepChange.mockClear();
+        clickAt(canvasOf(container));
+        expect(board.controller!.currentStep).toBe(2);
+
+        board.setFullDiagram(true);
+        expect(() => clickAt(canvasOf(container))).not.toThrow();
+        expect(board.controller!.currentStep).toBe(0);
+        expect(board.fullDiagram).toBe(true);
+        expect(onStepChange).not.toHaveBeenCalled();
+      });
+
+      it("during playback, a click steps forward once and stops playback, as the bar's Next does", () => {
+        vi.useFakeTimers();
+        const container = document.createElement("div");
+        const playback: boolean[] = [];
+        const board = createBoard(container, {
+          source: TWO_STEP_SOURCE,
+          measureText: FAKE_MEASURER,
+          onPlaybackChange: (on) => playback.push(on),
+        });
+        try {
+          board.setFullscreen(true);
+          board.play(); // steps at once: 1 / 2
+          expect(board.controller!.currentStep).toBe(1);
+
+          clickAt(canvasOf(container));
+
+          expect(board.controller!.currentStep).toBe(2);
+          expect(board.playing).toBe(false);
+          expect(playback).toEqual([true, false]);
+        } finally {
+          board.destroy();
+          vi.useRealTimers();
+        }
+      });
+
+      it("the built-in bar's Next, outside the canvas, still steps exactly once in fullscreen", () => {
+        const container = document.createElement("div");
+        const onStepChange = vi.fn();
+        const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER, onStepChange });
+        board.setFullscreen(true);
+
+        clickAt(button(container, "Next"));
+
+        expect(board.controller!.currentStep).toBe(1);
+        expect(onStepChange).toHaveBeenCalledTimes(1);
+      });
+
+      it("after destroy(), a click on the canvas does nothing", () => {
+        const container = document.createElement("div");
+        const onStepChange = vi.fn();
+        const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER, onStepChange });
+        board.setFullscreen(true);
+        const canvas = canvasOf(container);
+        const controller = board.controller!;
+
+        board.destroy();
+        expect(() => clickAt(canvas)).not.toThrow();
+
+        expect(controller.currentStep).toBe(0);
+        expect(onStepChange).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe("dot grid", () => {
