@@ -17,9 +17,7 @@ import { readFileSync } from "node:fs";
  * URL.
  *
  * `import "node:fs"` type-checks because `@types/node` has been in this
- * package's devDependencies since 2026-09-05 (commit 3589544), so the reason
- * `default.test.ts` gives for `process.getBuiltinModule` ("deliberately
- * carries no `@types/node`") is stale; `src/index.test.ts` already imports it.
+ * package's devDependencies since 2026-09-05 (commit 3589544).
  *
  * Off disk rather than through Vite's `?raw` import, which cannot read CSS
  * here: vitest's `vitest:css-disable` plugin rewrites any module id matching
@@ -64,13 +62,15 @@ export interface Stylesheet {
   /** Every style rule, in sheet order, at-rules walked; `@keyframes` blocks are not style rules. */
   rules: readonly StyleRule[];
   /**
-   * The one rule whose selector is exactly `selector`; `undefined` when none.
+   * The one top-level (not `nested`) rule whose selector is exactly
+   * `selector`; `undefined` when none. Throws when more than one top-level
+   * rule matches.
    *
-   * Throws when more than one rule matches — including a selector written
-   * both at top level and inside `@media`, where the old `ruleBody` regex
-   * silently took the first match. Its other limitation, seeing only the
-   * innermost braces, is gone: at-rules are walked, so a rule inside `@media`
-   * is found like any other.
+   * Top-level only, because that is what the old regex readers meant by "the
+   * rule for a selector": they took the first match, which was the top-level
+   * one — default.css's reduced-motion `@media` repeats
+   * `.siren-edge:is(…)`. A nested rule is reached through
+   * `rules.filter((rule) => rule.nested)`.
    */
   rule(selector: string): StyleRule | undefined;
   /** Selectors of every rule declaring `property` (the old `cssRulesDeclaring`). */
@@ -78,19 +78,18 @@ export interface Stylesheet {
   /**
    * Whether some selector names `.name` as a whole class token (`.siren-box` is not covered by `.siren-box-background`).
    *
-   * The whole-token rule is `default.test.ts`'s ("The class must appear as a
-   * whole selector token, so `.siren-box` is not considered covered by a
-   * `.siren-box-background` rule"), applied there to the comment-stripped
-   * text and here to selectors alone, so a class named only in a comment
-   * never counts.
+   * The whole-token rule is the one `default.test.ts` states ("A whole
+   * selector token: `.siren-box-background` does not cover `.siren-box`"). It
+   * is applied to selectors alone, so a class named only in a comment never
+   * counts.
    */
   selectsClass(name: string): boolean;
   /**
    * Rules whose every comma-separated selector part is `rootSelector` — where
    * the sheet's custom properties may be declared.
    *
-   * Defined by selector (ADR-0014 / 01M3VYFBX). Board's first test defined a
-   * token block by body instead ("declares `--siren-board-*`"); a caller that
+   * Defined by selector (ADR-0014 / 01M3VYFBX). Board's first test used to
+   * define a token block by body instead ("declares `--siren-board-*`"); a caller that
    * wants that definition uses `rulesDeclaring` or `declaredTokens`.
    */
   tokenBlocks(): readonly StyleRule[];
@@ -124,9 +123,10 @@ export interface Stylesheet {
 }
 
 /**
- * `text` parsed once through jsdom's CSSOM — the walk `default.test.ts`'s
- * `cssRulesDeclaring` already proved — so comments and `@media` nesting are
- * the parser's business, not a regex's.
+ * `text` parsed once through jsdom's CSSOM — the walk the old
+ * `cssRulesDeclaring` in `default.test.ts` proved (deleted in favour of this
+ * module) — so comments and `@media` nesting are the parser's business, not a
+ * regex's.
  */
 export function readStylesheet(text: string, options: StylesheetOptions): Stylesheet {
   const rules = parseRules(text);
@@ -150,9 +150,11 @@ export function readStylesheet(text: string, options: StylesheetOptions): Styles
     text,
     rules,
     rule(selector) {
-      const exact = rules.filter((rule) => rule.selector === selector);
+      const exact = rules.filter((rule) => rule.selector === selector && !rule.nested);
       if (exact.length > 1) {
-        throw new Error(`readStylesheet: ${exact.length} rules select exactly "${selector}"; rule() answers for one`);
+        throw new Error(
+          `readStylesheet: ${exact.length} top-level rules select exactly "${selector}"; rule() answers for one`,
+        );
       }
       return exact[0];
     },

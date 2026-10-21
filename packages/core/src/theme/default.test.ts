@@ -25,17 +25,14 @@ const selectors = theme.rules.map((rule) => rule.selector);
 const declarations = theme.rules.flatMap((rule) => rule.declarations);
 
 /**
- * The declarations (`prop: value;`) of the one top-level rule whose selector
- * is exactly `selector`. Top-level, because the reduced-motion `@media`
- * repeats the march's selector. Throws when there is no such rule, so a
- * `not.toMatch` against it cannot pass on an empty body.
+ * The declarations (`prop: value;`) of `theme.rule(selector)`. Throws when
+ * there is no such rule, so a `not.toMatch` against it cannot pass on an
+ * empty body.
  */
 function ruleBody(selector: string): string {
-  const matches = theme.rules.filter((rule) => rule.selector === selector && !rule.nested);
-  if (matches.length !== 1) {
-    throw new Error(`${matches.length} top-level rules select exactly "${selector}"; expected one`);
-  }
-  return matches[0].cssText;
+  const rule = theme.rule(selector);
+  if (rule === undefined) throw new Error(`no top-level rule selects exactly "${selector}"`);
+  return rule.cssText;
 }
 
 /**
@@ -590,7 +587,10 @@ describe("default theme's outline on sequence-diagram targets", () => {
   });
 
   it("styles no destroy mark: a destroyed participant ends with its closing box, a participant box like any other", () => {
-    expect(theme.selectsClass("siren-destroy-mark")).toBe(false);
+    // The old whole-stylesheet sweep, minus comments: no selector, property or value names it.
+    const named = (text: string) => text.includes("siren-destroy-mark");
+    expect(selectors.filter(named)).toEqual([]);
+    expect(declarations.filter((d) => named(d.property) || named(d.value))).toEqual([]);
   });
 
   it("outlines a message's line, solid or dotted, keeping its dash", () => {
@@ -830,7 +830,7 @@ describe("default theme coverage of the flowchart renderer", () => {
 
     // The theme's half of the rule, read off the stylesheet: the token is
     // what rounds a frame, and it is declared once for all of them.
-    expect(ruleBody(".siren-node-frame")).toMatch(/rx:\s*var\(--siren-node-border-radius\);/);
+    expect(ruleBody(".siren-node-frame")).toMatch(/(?:^|; )rx:\s*var\(--siren-node-border-radius\);/);
 
     // A rectangle and a subroutine declare no radius of their own, so
     // nothing outranks that rule for them.
@@ -1897,6 +1897,7 @@ describe("default theme's animated edge", () => {
     });
     expect(declarations).toContainEqual({ property: "--siren-edge-march-dash", value: "9 5", important: false });
     expect(declarations).toContainEqual({ property: "--siren-edge-march-offset", value: "900", important: false });
+    // Raw text: `@keyframes` is not a style rule, so the parsed rules hold none.
     expect(theme.text).toMatch(/@keyframes siren-edge-march\s*\{\s*to\s*\{\s*stroke-dashoffset:\s*0;\s*\}\s*\}/);
   });
 
@@ -1925,6 +1926,7 @@ describe("default theme's animated edge", () => {
   });
 
   it("stops the march for a reader who asked for reduced motion", () => {
+    // Raw text: the at-rule's own wrapping is what is asserted, which `nested` cannot show.
     expect(theme.text).toMatch(
       /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.siren-edge:is\(\.siren-edge-animation-fast, \.siren-edge-animation-slow\)\s*\{\s*--siren-edge-march:\s*none;\s*\}\s*\}/,
     );

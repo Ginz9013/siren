@@ -11,6 +11,11 @@ const FAKE_MEASURER = { measure: () => ({ width: 80, height: 32 }) };
  * Both read their stylesheet through siren-core's
  * src/theme/testing/stylesheet.ts, so how a token block is read lives in that
  * one place; only the token prefix and the root selector differ.
+ *
+ * Reaching into core's src/theme/testing by relative path is test support
+ * only: that directory is excluded from core's declaration build
+ * (tsconfig.build.json) and never shipped. ADR-0006 keeps board's *chrome*
+ * out of core's theme; a shared test reader is not chrome.
  */
 
 /** Creates a board, which injects board's chrome stylesheet, and returns that stylesheet's text. */
@@ -66,9 +71,8 @@ describe("board chrome's color tokens", () => {
 
     expect(sheet.tokenBlocks().map((block) => block.selector)).toEqual([":where(:root)"]);
     // Every token is declared in that block and nowhere else.
-    expect(sheet.declaredTokens()).toEqual(sheet.rootTokens());
     for (const token of Object.keys(CHROME)) {
-      expect(sheet.rootTokens()).toContain(token);
+      expect(sheet.rulesDeclaring(token)).toEqual([":where(:root)"]);
     }
   });
 
@@ -92,6 +96,8 @@ describe("board chrome's color tokens", () => {
     const sheet = chromeStylesheet();
 
     // Not vacuous: the chrome rules themselves are among the rules checked.
+    expect(sheet.selectsClass("siren-board-controls__button")).toBe(true);
+    // The exact selector, because the `:hover` state is what this rule is about.
     expect(sheet.rules.map((rule) => rule.selector)).toContain(".siren-board-controls__button:hover");
     expect(sheet.selectsClass("siren-board-controls__trigger")).toBe(true);
     expect(sheet.selectsClass("siren-board-controls__listbox")).toBe(true);
@@ -100,9 +106,12 @@ describe("board chrome's color tokens", () => {
     // A literal in a chrome rule is a color no page theme can reach.
     expect(sheet.literalsOutsideTokenBlocks()).toEqual([]);
 
-    // Tokens are declared only in the token block, so declared and root agree.
+    // Tokens are declared only in the token block: checked token by token in
+    // "declares one chrome palette in one :root block…" above.
     const declared = sheet.declaredTokens();
-    expect(declared).toEqual(sheet.rootTokens());
+    // `referencedTokens()` counts `var(` reads inside the token block too; the
+    // block holds none today, so "used by a chrome rule" below still means a
+    // rule outside it.
     const referenced = [...sheet.referencedTokens()];
     expect(referenced.filter((token) => !declared.has(token))).toEqual([]);
     // Every declared token is used by some chrome rule.
@@ -112,10 +121,11 @@ describe("board chrome's color tokens", () => {
 
 describe("board chrome's control bar states", () => {
   /**
-   * The declarations of the one rule whose selector is exactly `selector`, as
-   * the CSSOM's `prop: value; prop: value !important;` text.
+   * The declarations of `sheet.rule(selector)`, as the CSSOM's
+   * `prop: value; prop: value !important;` text; `undefined` when there is no
+   * such rule.
    */
-  function ruleBody(sheet: Stylesheet, selector: string): string | undefined {
+  function cssTextOf(sheet: Stylesheet, selector: string): string | undefined {
     return sheet.rule(selector)?.cssText;
   }
 
@@ -124,11 +134,11 @@ describe("board chrome's control bar states", () => {
     // Prev/Next/Reset are disabled then: both states must read at a glance.
     const sheet = chromeStylesheet();
 
-    const disabled = ruleBody(sheet, ".siren-board-controls__button:disabled");
+    const disabled = cssTextOf(sheet, ".siren-board-controls__button:disabled");
     expect(disabled).toBeDefined();
     expect(disabled).toMatch(/cursor:\s*not-allowed/);
 
-    const pressed = ruleBody(sheet, '.siren-board-controls__button[aria-pressed="true"]');
+    const pressed = cssTextOf(sheet, '.siren-board-controls__button[aria-pressed="true"]');
     expect(pressed).toBeDefined();
     expect(pressed).toContain("var(--siren-board-accent)");
   });
@@ -138,13 +148,13 @@ describe("board chrome's control bar states", () => {
     // play: the trigger must fade and refuse the pointer just as Play does.
     const sheet = chromeStylesheet();
 
-    const trigger = ruleBody(sheet, ".siren-board-controls__trigger");
+    const trigger = cssTextOf(sheet, ".siren-board-controls__trigger");
     expect(trigger).toBeDefined();
     expect(trigger).toContain("var(--siren-board-border)");
     expect(trigger).toContain("var(--siren-board-surface)");
     expect(trigger).toContain("var(--siren-board-text)");
 
-    const disabled = ruleBody(sheet, ".siren-board-controls__trigger:disabled");
+    const disabled = cssTextOf(sheet, ".siren-board-controls__trigger:disabled");
     expect(disabled).toBeDefined();
     expect(disabled).toMatch(/cursor:\s*not-allowed/);
   });
@@ -156,11 +166,11 @@ describe("board chrome's control bar states", () => {
     // className, so the timeline listbox opens where the interval one does.
     const sheet = chromeStylesheet();
 
-    const root = ruleBody(sheet, ".siren-board-controls__dropdown");
+    const root = cssTextOf(sheet, ".siren-board-controls__dropdown");
     expect(root).toMatch(/position:\s*relative/);
-    expect(ruleBody(sheet, ".siren-board-controls__interval")).toBeUndefined();
+    expect(cssTextOf(sheet, ".siren-board-controls__interval")).toBeUndefined();
 
-    const listbox = ruleBody(sheet, ".siren-board-controls__listbox");
+    const listbox = cssTextOf(sheet, ".siren-board-controls__listbox");
     expect(listbox).toBeDefined();
     expect(listbox).toMatch(/position:\s*absolute/);
     expect(listbox).toMatch(/bottom:\s*calc\(100% \+ [^)]+\)/);
@@ -171,7 +181,7 @@ describe("board chrome's control bar states", () => {
     expect(listbox).toContain("var(--siren-board-border)");
 
     // The selected option reads in the accent color, as a pressed button does.
-    const selected = ruleBody(sheet, '.siren-board-controls__option[aria-selected="true"]');
+    const selected = cssTextOf(sheet, '.siren-board-controls__option[aria-selected="true"]');
     expect(selected).toContain("var(--siren-board-accent)");
   });
 
@@ -180,7 +190,7 @@ describe("board chrome's control bar states", () => {
     // "10 / 10" the same width, so the buttons beside it never shift.
     const sheet = chromeStylesheet();
 
-    const step = ruleBody(sheet, ".siren-board-controls__step");
+    const step = cssTextOf(sheet, ".siren-board-controls__step");
     expect(step).toBeDefined();
     expect(step).toMatch(/font-variant-numeric:\s*tabular-nums/);
     expect(step).toContain("var(--siren-board-text)");
@@ -192,11 +202,11 @@ describe("board chrome's control bar states", () => {
     // cannot put jsdom into the :fullscreen state.
     const sheet = chromeStylesheet();
 
-    const screen = ruleBody(sheet, ".siren-board:fullscreen");
+    const screen = cssTextOf(sheet, ".siren-board:fullscreen");
     expect(screen).toBeDefined();
     expect(screen).toMatch(/background:\s*var\(--siren-board-surface\)/);
 
-    const fill = ruleBody(sheet, ".siren-board--fill");
+    const fill = cssTextOf(sheet, ".siren-board--fill");
     expect(fill).toBeDefined();
     expect(fill).toMatch(/background:\s*var\(--siren-board-surface\)/);
     expect(fill).toMatch(/position:\s*fixed/);
@@ -207,7 +217,7 @@ describe("board chrome's control bar states", () => {
   it("makes the window fill beat a consumer's inline size, id rule or max-size and margin", () => {
     // The README's own embed sets `style="width: 100%; height: 480px"`; inline
     // styles and id rules outrank a class, so only !important keeps the fill whole.
-    const fill = ruleBody(chromeStylesheet(), ".siren-board--fill")!;
+    const fill = cssTextOf(chromeStylesheet(), ".siren-board--fill")!;
 
     for (const declaration of [
       /position:\s*fixed\s*!important/,

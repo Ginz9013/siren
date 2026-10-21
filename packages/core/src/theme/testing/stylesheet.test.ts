@@ -84,9 +84,11 @@ describe("readStylesheet", () => {
 
     expect(sheet.rule(".siren-edge-fast")?.cssText).toMatch(/animation: var\(--t-march-fast\);/);
     // Exactly: `.siren-edge, :root` is a rule of its own, not a `:root` or a
-    // `.siren-edge`, so each of those names its single exact rule.
+    // `.siren-edge`, so `:root` names its single exact rule.
     expect(sheet.rule(":root")?.declarations.map((d) => d.property)).toEqual(["--t-gap"]);
-    expect(sheet.rule(".siren-edge")?.nested).toBe(true);
+    // Top-level only: the fixture's bare `.siren-edge` sits inside `@media`.
+    expect(sheet.rule(".siren-edge")).toBeUndefined();
+    expect(sheet.rules.filter((rule) => rule.nested).map((rule) => rule.selector)).toEqual([".siren-edge"]);
     expect(sheet.rule(".siren-box")).toBeUndefined();
   });
 
@@ -102,9 +104,16 @@ describe("readStylesheet", () => {
   });
 
   it("throws, naming the selector, when more than one rule is exactly it", () => {
+    const sheet = readFixture(".siren-a { color: red; }\n.siren-a { color: blue; }");
+
+    expect(() => sheet.rule(".siren-a")).toThrow(/2 top-level rules select exactly "\.siren-a"/);
+  });
+
+  it("answers with the top-level rule when @media repeats its selector", () => {
+    // default.css's reduced-motion `@media` repeats `.siren-edge:is(…)`.
     const sheet = readFixture(".siren-a { color: red; }\n@media print { .siren-a { color: blue; } }");
 
-    expect(() => sheet.rule(".siren-a")).toThrow(/2 rules select exactly "\.siren-a"/);
+    expect(sheet.rule(".siren-a")?.cssText).toBe("color: red;");
   });
 
   it("names every rule declaring a property, @media ones included", () => {

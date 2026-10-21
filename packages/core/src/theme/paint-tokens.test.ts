@@ -89,6 +89,9 @@ function isDropShadowColour(text: string, start: number, length: number): boolea
  * Where a paint token is used as anything but the whole value of `fill`, `stroke`, or a
  * `--siren-*` / `--_siren-*` custom property that carries it on. A glow token is held to the same,
  * except that it may also be the colour of a `drop-shadow()`.
+ *
+ * Scans the raw text rather than `readStylesheet`: it reports a violation's line, which the CSSOM
+ * does not keep, and judges a `var()` by where it sits in the value as written, not as serialised.
  */
 function paintTokenViolations(
   css: string,

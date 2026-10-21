@@ -28,8 +28,11 @@ function readmeTokens(readme: string): Set<string> {
   return tokens;
 }
 
-/** Every custom property the stylesheet's `:root` block declares. */
-function rootTokens(css: string): Set<string> {
+/**
+ * Every `--siren-*` custom property declared in the stylesheet's token blocks:
+ * every rule whose selector is `:root` alone, joined.
+ */
+function declaredOnRoot(css: string): Set<string> {
   const sheet = readStylesheet(css, { tokenPrefix: "--siren-", rootSelector: ":root" });
   if (sheet.tokenBlocks().length === 0) throw new Error("stylesheet has no `:root` block");
   return sheet.rootTokens();
@@ -41,7 +44,7 @@ function tableDrift(
   css: string,
 ): { missingFromReadme: string[]; extraInReadme: string[] } {
   const listed = readmeTokens(readme);
-  const declared = rootTokens(css);
+  const declared = declaredOnRoot(css);
   return {
     missingFromReadme: [...declared].filter((token) => !listed.has(token)).sort(),
     extraInReadme: [...listed].filter((token) => !declared.has(token)).sort(),
