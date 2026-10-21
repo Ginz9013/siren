@@ -109,7 +109,17 @@ const ICONS = {
    * 5, 12 and 19, redrawn as paths, like `image` above. The Dot grid button's
    * icon in either state: the grid itself, which the pressed state turns on.
    */
-  dotGrid: [5, 12, 19].flatMap((y) => [5, 12, 19].map((x) => `M${x - 1} ${y}a1 1 0 1 0 2 0a1 1 0 1 0 -2 0`)),
+  dotGrid: [
+    "M4 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+    "M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+    "M18 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+    "M4 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+    "M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+    "M18 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+    "M4 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+    "M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+    "M18 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+  ],
 } satisfies Record<string, string[]>;
 
 /**
@@ -124,7 +134,8 @@ const ICONS = {
  * timelines or the full diagram, and is never disabled. Its button is the
  * bar's button class, pressed while `board.dotGrid` is on. With
  * `controls: false` both go; a custom factory that wants the toggle calls
- * `board.setDotGrid` itself. Its buttons are icon-only; each carries its name
+ * `board.setDotGrid` itself. Every button, in the bar or the panel, is
+ * icon-only; each carries its name
  * as `aria-label` and `title` instead of visible text. The two dropdowns'
  * triggers carry their names as `aria-label` too, but show the current value as
  * text, and open a listbox directly above themselves rather than leaving a
@@ -174,10 +185,10 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
   const stepCounter = document.createElement("span");
   stepCounter.className = STEP_CLASS;
   bar.append(prev, play, next, stepCounter, reset, intervalDropdown.element, fullDiagram, resetView, fullscreen);
-  const dotGrid = makeButton("Dot grid", ICONS.dotGrid, () => board.setDotGrid(!board.dotGrid));
+  const dotGridButton = makeButton("Dot grid", ICONS.dotGrid, () => board.setDotGrid(!board.dotGrid));
   const corner = document.createElement("div");
   corner.className = CORNER_CLASS;
-  corner.append(dotGrid);
+  corner.append(dotGridButton);
   const chrome = document.createElement("div");
   chrome.className = CHROME_CLASS;
   chrome.append(bar, corner);
@@ -230,7 +241,7 @@ export function createDefaultControls(board: Board): ReturnType<ControlsFactory>
     fullscreen.replaceChildren(makeIcon(board.fullscreen ? ICONS.minimize : ICONS.maximize));
     // One icon either way: the grid is what the button toggles, and the
     // pressed state says whether it shows.
-    dotGrid.setAttribute("aria-pressed", String(board.dotGrid));
+    dotGridButton.setAttribute("aria-pressed", String(board.dotGrid));
     // The full diagram's controller has no steps, and before the first
     // render there is no controller: both read 0 / 0.
     const currentStep = board.controller?.currentStep ?? 0;
