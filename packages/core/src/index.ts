@@ -26,6 +26,7 @@ import type {
   Diagnostic,
   ErModel,
   GraphModel,
+  GraphModelResult,
   PositionedClassDiagram,
   PositionedErDiagram,
   PositionedGraph,
@@ -183,9 +184,10 @@ const defaultMeasurer: TextMeasurer = {
  * through every box, bound and route computed from it and takes the whole
  * picture with it, so the layout module it is raised inside has no partial
  * answer left to hand back. `render()` converts it to the error-severity
- * diagnostic an author sees at its one layout call site (`attemptLayout`),
- * which is what keeps `Diagnostic`'s contract — returned from `render()`, never thrown
- * — true of a measurer that misbehaves as well as of an engine that does.
+ * diagnostic an author sees at its one layout call site, in `render()`
+ * through `attemptLayout`, which is what keeps `Diagnostic`'s contract —
+ * returned from `render()`, never thrown — true of a measurer that misbehaves
+ * as well as of an engine that does.
  */
 class UnmeasurableTextError extends Error {
   /** The string whose measurement failed. */
@@ -460,32 +462,47 @@ function failedRender(diagnostics: Diagnostic[], siren: unknown): SirenRenderRes
   return { svg: null, controller: null, diagnostics, timelines: [], styles: [], siren };
 }
 
-/** What `render()` does to one kind after `buildGraphModel`, as one row of `RENDER_KIND`. */
+/**
+ * What `render()` does to one kind after `buildGraphModel`, as one row of
+ * `RENDER_KIND`.
+ *
+ * `render` is written as a method, not a function-typed property, and that is
+ * load-bearing: TypeScript checks a method's parameter bivariantly, so a row
+ * whose `render` takes a `P` is assignable to one whose `render` takes
+ * `unknown`. That is what lets `pipeline` erase `P` without a cast. `M` stays
+ * on function-typed properties, checked strictly, so it cannot be erased the
+ * same way by accident. The price is that a row's own `layout`-to-`render`
+ * pair is checked bivariantly too: a `render` taking a subtype of what
+ * `layout` returns would pass. The five kinds' positioned types are unrelated
+ * to one another, so a `render` from another kind's row is still an error.
+ */
 interface Pipeline<M, P> {
   /** Flowchart only today: resolves icons from the caller's packs; a diagnostic here stops the render. */
   prepare?: (model: M, options: RenderOptions) => { model: M; diagnostics: Diagnostic[] };
   layout: (model: M, options: { measureText: TextMeasurer }) => P;
-  render: (positioned: P) => SVGSVGElement;
-  /** The author's word for a layout id in an unroutable-edge diagnostic; identity when absent. */
+  render(positioned: P): SVGSVGElement;
+  /**
+   * The author's word for a layout id in the unroutable-connector diagnostic
+   * (`UnroutableMemberEdgeError`); identity when absent.
+   */
   nameOf?: (model: M) => (layoutId: string) => string;
 }
+
+/** The model `buildGraphModel` hands back for a document of kind `K`. */
+type ModelOf<K extends DiagramKind> = Extract<GraphModelResult, { kind: K }>["model"];
 
 /**
  * Builds one row of `RENDER_KIND` with its stages checked against each other
  * — `prepare` hands `layout` an `M`, `layout` hands `render` a `P` — and then
- * forgets `M` and `P`, so five rows of five shapes fit one record.
+ * forgets `P`, so five rows with five positioned shapes fit one record. `M` is
+ * kept: `RENDER_KIND`'s type holds it to the row's key.
  *
- * The cast is the file's only one, and it is safe because `render()` hands a
- * row nothing but the `model` of the `GraphModelResult` arm whose `kind` it
- * was looked up by. That union pairs each kind with its model type, and
- * `buildGraphModel` carries the document's kind out unchanged, so the tag is
- * the proof that `model` is this row's `M` — the same proof a `switch` on
- * `kind` would narrow on, written once here instead of once per branch. `P`
- * never leaves the row: only this row's `layout` makes one, and only this
- * row's `render` takes it.
+ * Forgetting `P` needs no cast (see `Pipeline.render`) and loses nothing: only
+ * this row's `layout` makes a `P`, and `render()` hands it to nothing but this
+ * row's `render`.
  */
-function pipeline<M, P>(row: Pipeline<M, P>): Pipeline<unknown, unknown> {
-  return row as Pipeline<unknown, unknown>;
+function pipeline<M, P>(row: Pipeline<M, P>): Pipeline<M, unknown> {
+  return row;
 }
 
 /**
@@ -495,11 +512,15 @@ function pipeline<M, P>(row: Pipeline<M, P>): Pipeline<unknown, unknown> {
  * lives in `render()`, written once; a row holds only what differs. A kind
  * without a row is a type error.
  *
+ * The table's type pins each row's `M` to its key's model, so a row written
+ * for one kind's model under another kind's key is a type error. It does not
+ * pin `P`, which `pipeline` checks within the row and then forgets.
+ *
  * Every kind animates on the same terms: each renderer stamps `data-siren-id`
  * on what an author can name, and the one controller drives every element
  * wearing a named id (ADR-0009).
  */
-const RENDER_KIND: Record<DiagramKind, Pipeline<unknown, unknown>> = {
+const RENDER_KIND: { [K in DiagramKind]: Pipeline<ModelOf<K>, unknown> } = {
   flowchart: pipeline<GraphModel, PositionedGraph>({
     // Icon packs are the caller's data, so this is the first point an icon can
     // be found; an icon no pack holds stops the render (see `withIcons`).
@@ -524,9 +545,10 @@ const RENDER_KIND: Record<DiagramKind, Pipeline<unknown, unknown>> = {
   // markup and come back as a finished `<svg>` whose width, height and viewBox
   // were all `NaN`, with nothing said. That is the failure `01M2WQV0` named,
   // and the reason a bare call is not a smaller version of a wrapped one.
-  // A participant's two boxes (its top and bottom ones, or its top one and its
-  // closing box) and its lifeline share its id, so they move together under
-  // one timeline entry.
+  // Participants, lifelines, messages, control-flow blocks and box groupings
+  // carry `data-siren-id`. A participant's two boxes (its top and bottom ones,
+  // or its top one and its closing box) and its lifeline share its id, so they
+  // move together under one timeline entry.
   sequence: pipeline<SequenceModel, PositionedSequenceDiagram>({
     layout: layoutSequence,
     render: renderSequenceToSVG,
@@ -539,7 +561,7 @@ const RENDER_KIND: Record<DiagramKind, Pipeline<unknown, unknown>> = {
   // one construct: leaving it bare would mean a future source of a missing
   // coordinate escapes `render()` as a thrown error for this kind while the
   // others report it, and `Diagnostic`'s contract is that it is returned and
-  // never thrown.
+  // never thrown. Classes and relationships carry `data-siren-id`.
   class: pipeline<ClassModel, PositionedClassDiagram>({
     layout: layoutClassDiagram,
     render: renderClassDiagramToSVG,
@@ -551,7 +573,8 @@ const RENDER_KIND: Record<DiagramKind, Pipeline<unknown, unknown>> = {
   }),
   // Reaches the shared core, so `LayoutEngineError` is possible in principle,
   // and a consumer's measurer can refuse an entity's name here exactly as it
-  // can refuse a label anywhere else.
+  // can refuse a label anywhere else. Entities and relationships carry
+  // `data-siren-id`.
   er: pipeline<ErModel, PositionedErDiagram>({
     layout: layoutErDiagram,
     render: renderErDiagramToSVG,
@@ -609,12 +632,17 @@ export function render(
   // `RenderOptions.omitAuthorStyles`).
   const styles = graphResult.model.styleFacts ?? [];
 
-  // Looked up by the *result's* tag, the one `pipeline` relies on.
-  const kind = RENDER_KIND[graphResult.kind];
+  // The file's one cast. The lookup yields a union of rows whose `layout`s take
+  // different models, so the cast erases the pairing `RENDER_KIND`'s type
+  // holds, for this single path. It is safe because `graphResult.kind` chose
+  // the row and `graphResult.model` is that same arm's model: `buildGraphModel`
+  // carries the document's kind out unchanged, so the row is only ever handed
+  // its own `M` — what a `switch` on `kind` would narrow to, once per branch.
+  const row = RENDER_KIND[graphResult.kind] as Pipeline<unknown, unknown>;
   let model: unknown = graphResult.model;
 
-  if (kind.prepare !== undefined) {
-    const prepared = kind.prepare(model, options);
+  if (row.prepare !== undefined) {
+    const prepared = row.prepare(model, options);
     diagnostics.push(...prepared.diagnostics);
     if (prepared.diagnostics.length > 0) {
       return failedRender(diagnostics, siren);
@@ -622,13 +650,13 @@ export function render(
     model = prepared.model;
   }
 
-  const laidOut = attemptLayout(() => kind.layout(model, { measureText }), kind.nameOf?.(model));
+  const laidOut = attemptLayout(() => row.layout(model, { measureText }), row.nameOf?.(model));
   if (!laidOut.placed) {
     diagnostics.push(laidOut.diagnostic);
     return failedRender(diagnostics, siren);
   }
 
-  const svg = kind.render(laidOut.value);
+  const svg = row.render(laidOut.value);
 
   if (options.onClick !== undefined) {
     attachClickHooks(svg, options.onClick);
