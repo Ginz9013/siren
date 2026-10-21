@@ -71,7 +71,7 @@ createBoard(document.getElementById("board"), { source });
 ## Writing Siren with AI
 
 [`skills/siren`](./skills/siren) is an agent skill that teaches AI coding agents to
-write, edit and validate `.srn` documents. It works with any agent that supports the
+write and edit `.srn` documents, with one timeline or several named ones. It works with any agent that supports the
 Agent Skills format. See [`skills/`](./skills) for installation.
 
 ## Examples and demos

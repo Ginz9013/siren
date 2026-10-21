@@ -7,7 +7,7 @@ depend on any particular agent or model.
 
 | Skill              | What it does                                                                                     |
 | ------------------ | ------------------------------------------------------------------------------------------------ |
-| [`siren`](./siren) | Writes, edits and validates `.srn` documents: Mermaid-syntax diagrams with a step-by-step `timeline:`. |
+| [`siren`](./siren) | Writes and edits `.srn` documents: Mermaid-syntax diagrams with a step-by-step `timeline:`, or several named timelines. |
 
 ## Installing
 
@@ -27,26 +27,10 @@ your agent's documentation for the location.
 If your agent doesn't support skills, give it `siren/SKILL.md` and
 `siren/references/syntax.md` as context, for example as project instructions.
 
-## Validation
-
-The `siren` skill includes `scripts/validate.mjs`, which renders a document with
-`siren-core` and reports every error and warning with its line and column. The agent
-runs it after writing a document. It needs Node.js 18 or later, and two packages in
-the directory it runs from:
-
-```sh
-npm install --no-save siren-core jsdom
-node <skill-dir>/scripts/validate.mjs diagram.srn --ids
-```
-
-A document with flowchart icon nodes also needs its Iconify JSON packs:
-`--icons <pack.json>`, once per pack.
-
 ## Contents of `siren`
 
 ```
 siren/
-  SKILL.md              workflow, document shape, timeline rules, target ids, color, common errors
-  references/syntax.md  supported syntax for each diagram type, style value rules, and what isn't supported
-  scripts/validate.mjs  validator
+  SKILL.md              workflow, document shape, timeline rules (one or several blocks), target ids, color, common errors
+  references/syntax.md  supported syntax for each diagram type, timeline blocks, style value rules, and what isn't supported
 ```

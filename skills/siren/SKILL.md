@@ -1,6 +1,6 @@
 ---
 name: siren
-description: Write, edit and validate Siren (.srn) documents, which are Mermaid-syntax diagrams (flowchart, sequence, class, state, ER) with a `timeline:` block that animates them step by step. Use when the user asks for a Siren diagram or a .srn file, wants an animated or step-by-step Mermaid diagram, wants to add a reveal or highlight timeline to an existing Mermaid diagram, or asks to fix a .srn document that fails to render.
+description: Write and edit Siren (.srn) documents, which are Mermaid-syntax diagrams (flowchart, sequence, class, state, ER) with a `timeline:` block, or several named `timeline <name>:` blocks, that animate them step by step. Use when the user asks for a Siren diagram or a .srn file, wants an animated or step-by-step Mermaid diagram, wants to add a reveal or highlight timeline to an existing Mermaid diagram, wants one diagram walked through several ways, or asks to fix a .srn document that fails to render.
 license: MIT
 ---
 
@@ -45,9 +45,12 @@ Step 0 shows `Client` only, because every other target has an `enter` action. Th
 3. **Write the diagram** in Mermaid syntax, using only what Siren supports. See
    [references/syntax.md](references/syntax.md) for each diagram type. Leave colors to
    the theme unless they carry meaning. See [Color and styling](#color-and-styling).
-4. **Write the timeline.** Follow the rules and ids below.
-5. **Validate** with the bundled script, and fix every error and warning. See
-   [Validating](#validating).
+4. **Write the timeline.** Follow the rules and ids below. When the diagram tells more
+   than one story, write one named block per story. See
+   [Several timelines](#several-timelines).
+5. **Check it by hand.** Every id an action names is in the diagram, nothing acts on a
+   target before its `enter`, every edge exits with its ends, and step 0 makes sense on
+   its own, in every timeline block.
 6. **Deliver** the `.srn` document and a short summary of what each step shows.
 
 When the user gives you an existing Mermaid diagram, keep its content and only add
@@ -75,22 +78,32 @@ timeline <name>:          or several named blocks instead (never both)
 - **Settings are not applied yet.** Front matter `config`, `title` and the like, and
   `%%{init: …}%%` / `%%{wrap}%%` directives, are read and each reported as a warning; the
   diagram is drawn without them. So don't use them to set a theme, curve or font: a
-  warning-free document has none. Two exceptions pass silently: `look: classic`, and a
-  top-level `siren:` key, whose value `render()` hands to the host page untouched.
+  warning-free document has none. These pass silently: `look: classic` (under `config:`
+  or in `%%{init}%%`); a top-level `siren:` key, whose value `render()` hands to the host
+  page untouched; and any other top-level key Mermaid doesn't know, which is dropped.
 - `timeline:` starts the block, and every remaining line belongs to it. Nothing closes
   it, so it must come last. With named blocks, each one runs from its header to the next
   `timeline <name>:` header, or to the end of the document.
 - Only a whole line is a comment: a line whose first non-blank characters are `%%`. A
   `%%` in the middle of a line is text, or an error, depending on where it is, so put
-  each comment on a line of its own. (Inside a `timeline:` block, `%%` starts a comment
-  anywhere on a line.) A line of only `%%` is refused in flowcharts and ER diagrams, so
-  write `%% text` or leave the line blank.
+  each comment on a line of its own. A line of only `%%` is refused in flowcharts and ER
+  diagrams, so write `%% text` or leave the line blank. Timeline blocks have their own
+  rule: see [Timeline](#timeline).
 
 ## Timeline
 
 Each non-blank line is one step, numbered by position from 1. Don't write step numbers:
 `step 1: enter A fade` is an error. A step holds one or more actions separated by
 commas, and they all play together.
+
+A comment in a timeline is `%%` **followed by a space**, on a line of its own or after
+the last action: `enter Cache fade %% why`. Without the space, `%%` is read as part of
+an id: `enter %%todo` names a target `%%todo`, and in a flowchart `enter A%%B fade` names
+the node `A%%B`.
+
+An action is split on spaces, so a target whose id holds a space (a quoted ER entity
+name such as `"Customer Account"`) can't be named in a timeline. Give it a one-word id
+and put the words in an alias or label instead.
 
 | Action                    | Effects                                                          |
 | ------------------------- | ---------------------------------------------------------------- |
@@ -107,8 +120,9 @@ the left, and `exit X slide-left` leaves toward the left. The same holds for `-r
 
 `outline` recolors and thickens a shape's border or a line. `glow` adds a colored halo
 and recolors the border at its normal width. Both win over any color or width the author
-gave the target, for as long as it stays highlighted. A connection's arrowhead keeps its
-color.
+gave the target, for as long as it stays highlighted. A flowchart edge's arrowhead
+takes the highlight color too in Chrome, Edge and Firefox, but keeps its color in
+Safari.
 
 ### Rules the renderer enforces
 
@@ -118,7 +132,8 @@ color.
 - **One enter and one exit per target.** A second `enter` or `exit` for the same id is
   ignored with a warning, so an element can't come back after it exits.
 - **Nothing before it's visible.** An `exit`, `highlight` or `unhighlight` on a target
-  before its `enter` step is an error.
+  before its `enter` step is an error. In the same step as the `enter` is fine:
+  `enter Cache fade, highlight Cache glow`.
 - **Connections leave with their ends.** When a node exits, also exit every edge
   attached to it at the same step or earlier. Otherwise the renderer warns that the
   edge stays visible.
@@ -153,7 +168,8 @@ timeline wallet:
   enter Wallet fade, highlight Wallet glow
 ```
 
-- A header is exactly `timeline <name>:`, with nothing between the name and the colon.
+- A header is exactly `timeline <name>:`: one space after `timeline`, and nothing
+  between the name and the colon.
   A name is letters, digits, `_` and `-`, and is case-sensitive. Any other line starting
   with `timeline` isn't a header.
 - Use either one unnamed `timeline:` or named blocks, never both. Two unnamed blocks, a
@@ -191,7 +207,7 @@ numbered in source order.
 |           | Note                         | `note:1`, ...                                       |
 | State     | State or composite state     | `Idle`, and the id, not the description             |
 |           | Transition                   | `Idle-Running`                                      |
-|           | `[*]`                        | `start:1`, `end:1`, ... one start and one end per nesting level |
+|           | `[*]`                        | `start:1`, `end:1`, ... numbered per nesting level; see below |
 |           | Concurrent region            | `region:1`, `region:2`, ...                         |
 | ER        | Entity                       | `CUSTOMER`                                          |
 |           | Relationship                 | `CUSTOMER:ORDER` (a colon, because entity names may contain `-`) |
@@ -202,12 +218,17 @@ numbered in source order.
   `A e1@--> B` then `A --> B` gives `e1` and `A-B#2`.
 - A connection's id follows the direction written, so a reply `Bob-->>Alice` is
   `Bob-Alice`.
+- State `[*]` ids are numbered by nesting level, in the order levels open, the
+  document's own level first. A composite split into regions by `--` takes a number
+  itself and each region takes the next ones, so in
+  `[*] --> X` / `state X { [*] --> A -- [*] --> B }` the starts are `start:1`, `start:3`
+  and `start:4`: there is no `start:2`.
 - `A --> B & C` creates `A-B` and `A-C`. A chain `A --> B --> C` creates `A-B` and `B-C`.
 - Name an edge (`A e1@--> B`) when its generated id would be awkward, for example the
   third of several parallel edges.
 
-Generated numbering is easy to get wrong in a large diagram. Run the validator with
-`--ids` to list every id exactly as the renderer produced it.
+Generated numbering is easy to get wrong in a large diagram. Count in source order, and
+prefer naming an edge (`A e1@--> B`) over counting `#2`, `#3`, ... by eye.
 
 ## Designing a good timeline
 
@@ -279,43 +300,6 @@ flowchart LR
   Auth --> LDAP[(LDAP)]:::external
 ```
 
-## Validating
-
-The bundled script renders documents with `siren-core` and reports every diagnostic
-with its line and column. It needs Node.js 18+ and two packages, installed in the
-directory you run it from:
-
-```sh
-npm install --no-save siren-core jsdom
-node <skill-dir>/scripts/validate.mjs diagram.srn --ids
-```
-
-`<skill-dir>` is the directory that contains this `SKILL.md`.
-
-```
-diagram.srn: ERRORS (1 error(s), 0 warning(s), 5 step(s))
-  diagram.srn:12:3 error: timeline: references unknown id "API-Db"
-  ids: Client, API, DB, Cache, Client-API, API-DB, API-Cache
-```
-
-- Status `OK` means the document is valid. Fix every `error`, and treat every
-  `warning` as a bug unless the user wants that behavior.
-- `OK` means well-formed, not well-staged. The validator doesn't judge the story:
-  review step 0 and the order of steps yourself.
-- The step count is the first block's. With named blocks, a `timelines:` line lists each
-  block with its own step count. The errors and warnings cover every block.
-- A document with icon nodes needs their packs: pass each Iconify JSON file with
-  `--icons <pack.json>` (repeatable). Without it, every icon is an error.
-- Pass `-` to read from stdin. The exit code is 1 when any document has an error.
-- If the timeline rejects an id that `--ids` lists, that kind of element can't be
-  animated yet. Leave it out of the timeline.
-- Every document you produce must, with its timeline blocks removed, also be accepted by
-  Mermaid 12.2.0, which `OK` alone does not prove. From a Siren checkout, check it with
-  `pnpm --filter siren-core check-examples -- diagram.srn`.
-
-If you can't run Node.js, check the document by hand against the rules above, and tell
-the user it hasn't been validated.
-
 ## Common errors
 
 Most refusals name the cause and the fix in their own text, so read the message first.
@@ -328,7 +312,7 @@ These are the ones that come up most:
 | `A style declaration cannot hold "(": fill:rgb(...)` | Write a hex color or a name. The message gives the hex for `rgb()`. |
 | `Character "." cannot appear in a `style` declaration list in erDiagram` | ER values take only letters, digits, `#-_*:,`. Write whole numbers and drop `!important`. |
 | `... Frontmatter title is read but not drawn yet` (warning), or another setting warning | Remove the setting. Siren doesn't apply front matter or init settings yet. |
-| `No icon pack "x" is registered` | The host page must pass the pack as `iconPacks`. Validate with `--icons`, or use a shape instead of an icon. |
+| `No icon pack "x" is registered` | The host page must pass the pack as `iconPacks`. Otherwise use a shape instead of an icon. |
 | `Siren never fetches an image while drawing` | Embed the image as a `data:` URL, or drop the image. |
 | `An edge label without quotes cannot begin with a word holding "@"` | Quote the whole label: `A -->|"a@b"| B`. |
 | `The edge id "e1" is already the id of the node "e1"` | Give the edge another id. |
@@ -337,13 +321,17 @@ These are the ones that come up most:
 | `The destroyed participant "X" has no destroying message` | Make the next message after `destroy X` one sent by or to X, with nothing in between. |
 | `... has no creating message, so the create draws nothing` (warning) | Add a message sent to X right after `create participant X`, or make it a plain `participant X`. |
 | `... has no destroying message, so the destroy draws nothing` (warning) | Add a message sent by or to X right after `destroy X`, or remove the `destroy`. |
-| `timeline: references unknown id "X"` | Check the id against `--ids`. Use the node id, not its label. |
+| `timeline: references unknown id "X"` | Check the id against [Target ids](#target-ids). Use the node id, not its label. |
 | `timeline: "X" is the id of more than one thing in the diagram` | Rename the node, or name the edge with `id@`. |
 | `"highlight" on "X" at step N comes before it becomes visible` | Move the action to or after X's `enter` step. |
 | `edge "A-B" remains visible after its endpoint "B" exits` | Add `exit A-B <effect>` at or before B's exit step. |
 | `"X" already has a "enter" action` | Remove the second `enter`. An element enters once. |
 | `Unknown highlight effect ""` | Add an effect: `highlight X outline`. |
 | `Unrecognized timeline action: "step 1: ..."` | Remove the step prefix. The line's position is its number. |
+| `The "%%" after "enter" starts a comment, so "enter" has no target`, or a missing effect on `enter %%x` | Put a space after `%%` (`%% note`), and the comment after the whole action. |
+| `Invalid "rect" color, expected rgb(...) or rgba(...)` | A sequence `rect` takes only `rgb()` or `rgba()`: `rect rgba(59,130,246,0.15)`. |
+| `` `direction TD` is not a class-diagram direction `` | Write `direction TB`. Only flowcharts accept `TD`. |
+| `Unrecognized <kind> line: "..."` for a valid Mermaid line | It's not implemented yet. Check "Not supported" in references/syntax.md and rewrite it. |
 | `An unnamed "timeline:" block cannot share a document with named ones` | Name every block, or keep only the unnamed one. |
 | `A document declares at most one unnamed "timeline:" block` | Name each block: `timeline <name>:`. |
 | `Timeline "X" is already declared on line N` | Give each block a different name. |
@@ -366,6 +354,16 @@ Tell the user how to view the document when they ask, or when it isn't obvious:
   has `next()`, `prev()` and `reset()`. Options: `timeline` (a block name, or `false`
   for the plain diagram), `iconPacks`, `omitAuthorStyles`, `onClick` (for `click … call`)
   and `measureText`.
+- The controller also has `totalSteps` and `currentStep`. `prev()` jumps back without
+  animating. An unknown `timeline` name makes `render()` throw a `RangeError`.
+- **A standalone HTML page** can load both from jsDelivr with no build step:
+  `https://cdn.jsdelivr.net/npm/siren-core@0.8/dist/theme.css`, then
+  `import { createBoard } from "https://cdn.jsdelivr.net/npm/siren-board@0.8/dist/siren-board.js"`
+  (or `siren-core@0.8/dist/siren-core.js` for `render`) in a `<script type="module">`.
 - **Theming** is done with CSS custom properties (`--siren-*`) from `theme.css`. A color
   token may also hold `url(#id)` to a gradient or pattern on the page, except
-  `--siren-highlight-color`.
+  `--siren-highlight-color`. Effect timings are tokens too: `--siren-fade-duration`,
+  `--siren-slide-duration`, `--siren-slide-distance` and `--siren-highlight-duration`.
+- The board has more options, methods and callbacks than listed here (`setSource`,
+  `setTimeline`, `setFullDiagram`, `controls`, `playInterval`, `onTimelineChange`, …).
+  For embedding details, point the user to the `siren-core` and `siren-board` READMEs.
