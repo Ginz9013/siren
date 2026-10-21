@@ -18,14 +18,25 @@ import { renderErDiagramToSVG } from "./renderer/renderErDiagramToSVG";
 import { createAnimationController } from "./animation/createAnimationController";
 import { type IconifyJSON, resolveIcon } from "./icon/iconPacks";
 import { mintIdScope } from "./renderer/mintIdScope";
+import type { DiagramKind } from "./parser/parseDirection";
 import type {
   AnimationController,
   AuthorStyle,
+  ClassModel,
   Diagnostic,
+  ErModel,
   GraphModel,
-  ResolvedStyle,
+  GraphModelResult,
+  PositionedClassDiagram,
+  PositionedErDiagram,
+  PositionedGraph,
+  PositionedSequenceDiagram,
+  PositionedStateDiagram,
+  ResolvedState,
   ResolvedTimeline,
+  SequenceModel,
   SirenRenderResult,
+  StateModel,
   TextMeasurer,
 } from "./contracts";
 
@@ -174,9 +185,10 @@ const defaultMeasurer: TextMeasurer = {
  * through every box, bound and route computed from it and takes the whole
  * picture with it, so the layout module it is raised inside has no partial
  * answer left to hand back. `render()` converts it to the error-severity
- * diagnostic an author sees at each of its five layout call sites, which is
- * what keeps `Diagnostic`'s contract — returned from `render()`, never thrown
- * — true of a measurer that misbehaves as well as of an engine that does.
+ * diagnostic an author sees at its one layout call site, in `render()`
+ * through `attemptLayout`, which is what keeps `Diagnostic`'s contract —
+ * returned from `render()`, never thrown — true of a measurer that misbehaves
+ * as well as of an engine that does.
  */
 class UnmeasurableTextError extends Error {
   /** The string whose measurement failed. */
@@ -225,8 +237,20 @@ function refusingBadMeasurements(measureText: TextMeasurer): TextMeasurer {
 }
 
 /**
- * Attaches `onClick` to every element the class renderer marked with a click
- * hook, reading the target's identity back off the attributes it put there.
+ * Attaches `onClick` to every element a renderer marked with a click hook,
+ * reading the target's identity back off the attributes it put there.
+ *
+ * `render()` calls this for every kind whenever `onClick` is given, though
+ * only two kinds ever stamp `data-siren-click`: the class renderer
+ * (`renderClassDiagramToSVG`) and the flowchart's (`wrapInteraction`), each
+ * onto whichever classes or nodes the author made callbacks, with
+ * `data-siren-click-arg` when there is an argument. For any other kind the
+ * query finds nothing and this is a no-op — the markup is byte-for-byte the
+ * same with and without `onClick`. A sequence diagram's only interaction
+ * directive is `link`, which resolves to an `href` (never a `call`), so its
+ * participants come back already wrapped in a live `<a>` from
+ * `renderSequenceToSVG` itself — the same reason a class's own `href`
+ * interactions are never hooked here either.
  *
  * One listener per hooked element rather than one delegated listener on the
  * `<svg>`: a click anywhere else in the diagram then reaches no handler of
@@ -252,27 +276,6 @@ function attachClickHooks(
   }
 }
 
-/**
- * Puts a freshly rendered diagram into step 0 — the initial `siren-pending`
- * state — for whichever kind just rendered.
- *
- * `reset()` is by definition "the initial pending state", computed from
- * `computeClassStateAtStep(timeline, 0)`, and it is a no-op for a diagram
- * with no timeline. That is why no renderer stamps `siren-pending` itself:
- * two of them used to, each with a private copy of the "elements with an
- * `enter` action start hidden" rule, and a third copy for sequence would
- * have been three answers to a question `computeClassStateAtStep` already
- * answers. One call site, one rule, no drift.
- *
- * Every caller must invoke this in the *same synchronous task* as its
- * `container.replaceChildren(...)`, which is why this takes a controller
- * rather than doing the mounting itself: nothing is painted between the two,
- * so the reader never sees a frame of a to-be-hidden element.
- */
-function establishStepZero(controller: AnimationController): void {
-  controller.reset();
-}
-
 /** The timeline a document with no `timeline:` block resolves to. */
 const NO_TIMELINE: ResolvedTimeline = { totalSteps: 0, entries: [] };
 
@@ -284,7 +287,7 @@ const NO_TIMELINE: ResolvedTimeline = { totalSteps: 0, entries: [] };
  *
  * Chosen from the *model*, once: layout and the renderers never see a
  * timeline, since no renderer needs one (step 0 is the controller's, see
- * `establishStepZero`).
+ * `mountAtStepZero`).
  * Substituting at the controller rather than dropping blocks before parsing is
  * what keeps every block read and validated whichever one applies.
  */
@@ -313,8 +316,8 @@ type TimelineChoices = Pick<GraphModel, "timeline" | "namedTimelines">;
  * Mounts a freshly rendered diagram of any kind into `container` and returns
  * its controller, already showing step 0 of the timeline the caller chose.
  *
- * One function rather than the same steps in each of the five branches, for
- * two orderings that must hold in every one of them:
+ * One function, called once by `render()` for every kind, for two orderings
+ * that must hold whichever kind rendered:
  *
  * - **The timeline is chosen before the container is touched.** A name the
  *   document does not declare throws, and it must throw with the caller's
@@ -322,14 +325,25 @@ type TimelineChoices = Pick<GraphModel, "timeline" | "namedTimelines">;
  *   what lets a document that fails to render report its diagnostics instead
  *   of throwing, whatever name was asked for: the author's problem is
  *   reported first, since the caller cannot see it any other way.
- * - **Mounting and step 0 happen in the same synchronous task.** It ends in
- *   `establishStepZero`, whose whole point is that nothing is painted between
- *   mounting the SVG and hiding the elements step 0 says are pending.
+ * - **Mounting and step 0 happen in the same synchronous task.** The
+ *   `controller.reset()` comes straight after `container.replaceChildren(...)`
+ *   so nothing is painted between mounting the SVG and hiding the elements
+ *   step 0 says are pending: the reader never sees a frame of a to-be-hidden
+ *   element.
+ *
+ * Step 0 — the initial `siren-pending` state — is the controller's, not any
+ * renderer's. `reset()` is by definition "the initial pending state",
+ * computed from `computeClassStateAtStep(timeline, 0)`, and it is a no-op for
+ * a diagram with no timeline. That is why no renderer stamps `siren-pending`
+ * itself: two of them used to, each with a private copy of the "elements with
+ * an `enter` action start hidden" rule, and a third copy for sequence would
+ * have been three answers to a question `computeClassStateAtStep` already
+ * answers. One call site, one rule, no drift.
  *
  * Every kind gets a controller, even a document declaring no `timeline:`
  * block (it gets `totalSteps: 0`), because `SirenRenderResult.controller` is
  * null *only* when rendering failed: a caller that has checked `svg` has
- * already checked this. A branch attaches any click hooks before calling
+ * already checked this. `render()` attaches any click hooks before calling
  * this, so a diagram is complete when it is mounted.
  */
 function mountAtStepZero(
@@ -341,7 +355,7 @@ function mountAtStepZero(
   const timeline = timelineToApply(model, options);
   container.replaceChildren(svg);
   const controller = createAnimationController(svg, timeline);
-  establishStepZero(controller);
+  controller.reset();
   return controller;
 }
 
@@ -367,10 +381,11 @@ type LayoutAttempt<T> =
  * conversion to the cases that have a meaning for them, and adding a
  * type to match is not the same as ceasing to match.
  *
- * It wraps a thunk rather than living at each call site because there are
- * five of them — flowchart, class, state and ER reach the same shared layout
- * core, and sequence has its own — and five copies of a `catch` that must not
- * be bare is five chances for one of them to become bare.
+ * It wraps a thunk, called from one call site with each kind's row of
+ * `RENDER_KIND`, so the `catch` that must not be bare is written once for all
+ * five kinds — flowchart, class, state and ER reach the same shared layout
+ * core, and sequence has its own — rather than once per kind, where every
+ * copy is another chance for one of them to become bare.
  */
 function attemptLayout<T>(
   run: () => T,
@@ -438,36 +453,6 @@ function withIcons(
 }
 
 /**
- * `style` with each declaration a caller named in
- * `RenderOptions.omitAuthorStyles` struck out.
- *
- * Only `render()` applies it, to each kind's model once its style facts
- * were taken and before layout, so no layout module or renderer knows a
- * property can be omitted: a renderer simply never sees the declaration,
- * and an edge with no `stroke` left takes the theme's arrowhead as an edge
- * never given one does. A new object rather than an edit, since a fact may
- * share this one and must keep what was written.
- *
- * The list is in the author's spelling and the text half in SVG's: the
- * model holds an author's `color` as the `fill` a `<text>` is painted with
- * (see `AuthorStyle.text`), so that `fill` is matched as `color`.
- */
-function withoutOmitted(style: AuthorStyle, omitted: ReadonlySet<string>): AuthorStyle {
-  return {
-    frame: style.frame.filter(({ property }) => !omitted.has(property.toLowerCase())),
-    text: style.text.filter(({ property }) => {
-      const name = property.toLowerCase();
-      return !omitted.has(name === "fill" ? "color" : name);
-    }),
-  };
-}
-
-/** A class, state or ER model's `styles`, each struck out as `withoutOmitted` does. */
-function withoutOmittedStyles(styles: ResolvedStyle[], omitted: ReadonlySet<string>): ResolvedStyle[] {
-  return styles.map((resolved) => ({ ...resolved, style: withoutOmitted(resolved.style, omitted) }));
-}
-
-/**
  * What `render()` returns when there is no diagram to mount: no SVG, no
  * controller (the two are null together), and no timelines or style facts
  * to offer — but the frontmatter's `siren`, which the diagram's failure does
@@ -479,24 +464,175 @@ function failedRender(diagnostics: Diagnostic[], siren: unknown): SirenRenderRes
 }
 
 /**
- * Runs parse -> buildGraphModel end to end, then dispatches on the parsed
- * document's `kind`: a flowchart runs layoutGraph -> renderToSVG ->
- * createAnimationController; a class diagram runs layoutClassDiagram ->
- * renderClassDiagramToSVG -> createAnimationController; a sequence diagram
- * runs layoutSequence -> renderSequenceToSVG -> createAnimationController;
- * a state diagram runs layoutStateDiagram -> renderStateDiagramToSVG ->
- * createAnimationController; an ER diagram runs layoutErDiagram ->
- * renderErDiagramToSVG -> createAnimationController. All five return a working controller — one with
- * `totalSteps: 0` when the document declares no `timeline:` block. Mounts the resulting SVG into
- * `container` on success, and always returns the aggregated diagnostics
- * from every stage. A class diagram and a flowchart both have
- * `options.onClick`, if one was given, attached to whichever of their
- * classes or nodes the author made clickable with a `call` interaction. A
- * sequence diagram's only interaction directive is `link`, which resolves
- * to an `href` (never a `call`), so its participants come back already
- * wrapped in a live `<a>` from `renderSequenceToSVG` itself — nothing here
- * needs to call `attachClickHooks` for it, the same reason a class's own
- * `href` interactions never do either.
+ * What `render()` does to one kind after `buildGraphModel`, as one row of
+ * `RENDER_KIND`.
+ *
+ * `render` is written as a method, not a function-typed property, and that is
+ * load-bearing: TypeScript checks a method's parameter bivariantly, so a row
+ * whose `render` takes a `P` is assignable to one whose `render` takes
+ * `unknown`. That is what lets `pipeline` erase `P` without a cast. `M` stays
+ * on function-typed properties, checked strictly, so it cannot be erased the
+ * same way by accident. The price is that a row's own `layout`-to-`render`
+ * pair is checked bivariantly too: a `render` taking a subtype of what
+ * `layout` returns would pass. The five kinds' positioned types are unrelated
+ * to one another, so a `render` from another kind's row is still an error.
+ */
+interface Pipeline<M, P> {
+  /** Flowchart only today: resolves icons from the caller's packs; a diagnostic here stops the render. */
+  prepare?: (model: M, options: RenderOptions) => { model: M; diagnostics: Diagnostic[] };
+  layout: (model: M, options: { measureText: TextMeasurer }) => P;
+  render(positioned: P): SVGSVGElement;
+  /**
+   * The author's word for a layout id in the unroutable-connector diagnostic
+   * (`UnroutableMemberEdgeError`); identity when absent.
+   */
+  nameOf?: (model: M) => (layoutId: string) => string;
+}
+
+/**
+ * A `nameOf` that puts each subgraph's title for its generated id and leaves
+ * every other id as it is; a flowchart's and an ER diagram's subgraphs share
+ * this shape.
+ */
+function bySubgraphTitle(
+  subgraphs: readonly { id: string; label: { text: string } }[],
+): (layoutId: string) => string {
+  const titleById = new Map(subgraphs.map((subgraph) => [subgraph.id, subgraph.label.text]));
+  return (layoutId) => titleById.get(layoutId) ?? layoutId;
+}
+
+/**
+ * A `nameOf` that puts each concurrent region's place in its composite for its
+ * generated id. A region is a frame the author never named: it is laid out by
+ * a generated id (`region:1`, ADR-0010) counted across the whole document, and
+ * the author wrote only the `--` that divides its composite. So it is named by
+ * its place there, `region 2 of A`, counted within that composite from 1 in
+ * `states` order. A composite's and a plain state's ids are the author's own
+ * and pass through. A region always has a composite; the `parentId === null`
+ * check is for `ResolvedState`'s type only, which allows a top level.
+ */
+function byRegionPlace(states: readonly ResolvedState[]): (layoutId: string) => string {
+  const regionNames = new Map<string, string>();
+  const regionCounts = new Map<string, number>();
+  for (const state of states) {
+    if (state.kind !== "region" || state.parentId === null) continue;
+    const regionNumber = (regionCounts.get(state.parentId) ?? 0) + 1;
+    regionCounts.set(state.parentId, regionNumber);
+    regionNames.set(state.id, `region ${regionNumber} of ${state.parentId}`);
+  }
+  return (layoutId) => regionNames.get(layoutId) ?? layoutId;
+}
+
+/** The model `buildGraphModel` hands back for a document of kind `K`. */
+type ModelOf<K extends DiagramKind> = Extract<GraphModelResult, { kind: K }>["model"];
+
+/**
+ * Builds one row of `RENDER_KIND` with its stages checked against each other
+ * — `prepare` hands `layout` an `M`, `layout` hands `render` a `P` — and then
+ * forgets `P`, so five rows with five positioned shapes fit one record. `M` is
+ * kept: `RENDER_KIND`'s type holds it to the row's key.
+ *
+ * Forgetting `P` needs no cast (see `Pipeline.render`) and loses nothing: only
+ * this row's `layout` makes a `P`, and `render()` hands it to nothing but this
+ * row's `render`.
+ */
+function pipeline<M, P>(row: Pipeline<M, P>): Pipeline<M, unknown> {
+  return row;
+}
+
+/**
+ * How `render()` lays out and draws each kind, one row per kind as
+ * `PARSE_KIND` (`parser/parseSiren.ts`) says who parses it. Everything the
+ * kinds share — `attemptLayout`, `attachClickHooks`, `mountAtStepZero` —
+ * lives in `render()`, written once; a row holds only what differs. A kind
+ * without a row is a type error.
+ *
+ * The table's type pins each row's `M` to its key's model, so a row written
+ * for one kind's model under another kind's key is a type error. It does not
+ * pin `P`, which `pipeline` checks within the row and then forgets.
+ *
+ * Every kind animates on the same terms: each renderer stamps `data-siren-id`
+ * on what an author can name, and the one controller drives every element
+ * wearing a named id (ADR-0009).
+ */
+const RENDER_KIND: { [K in DiagramKind]: Pipeline<ModelOf<K>, unknown> } = {
+  flowchart: pipeline<GraphModel, PositionedGraph>({
+    // Icon packs are the caller's data, so this is the first point an icon can
+    // be found; an icon no pack holds stops the render (see `withIcons`).
+    prepare: (graph, options) => {
+      const iconed = withIcons(graph, options.iconPacks ?? []);
+      return { model: iconed.graph, diagnostics: iconed.diagnostics };
+    },
+    layout: layoutGraph,
+    render: renderToSVG,
+    // A subgraph is laid out by its generated id (`subgraph:2`); the author
+    // knows it by its title. A node's and an edge's ids are the author's own.
+    nameOf: (graph) => bySubgraphTitle(graph.subgraphs),
+  }),
+  // The one layout stage that is unlike the rest, and the reason
+  // `attemptLayout`'s terms are held to for every kind. It reaches no shared
+  // layout core — a sequence diagram is placed by columns and rows, not by the
+  // graph engine — so nothing upstream of it ever refused a size on its
+  // behalf: an unusable measurement used to travel the whole way into the
+  // markup and come back as a finished `<svg>` whose width, height and viewBox
+  // were all `NaN`, with nothing said. That is the failure `01M2WQV0` named,
+  // and the reason a bare call is not a smaller version of a wrapped one.
+  // Participants, lifelines, messages, control-flow blocks and box groupings
+  // carry `data-siren-id`. A participant's two boxes (its top and bottom ones,
+  // or its top one and its closing box) and its lifeline share its id, so they
+  // move together under one timeline entry.
+  sequence: pipeline<SequenceModel, PositionedSequenceDiagram>({
+    layout: layoutSequence,
+    render: renderSequenceToSVG,
+  }),
+  // **No class document reaches the layout failure path today** — the
+  // construct that defeats the engine is a cluster carrying its own direction,
+  // and a class diagram's only cluster is a namespace, which Mermaid never
+  // gives a direction to. It goes through `attemptLayout` anyway because the
+  // guard there is a check on the *shape of the engine's answer*, not on that
+  // one construct: leaving it bare would mean a future source of a missing
+  // coordinate escapes `render()` as a thrown error for this kind while the
+  // others report it, and `Diagnostic`'s contract is that it is returned and
+  // never thrown. Classes and relationships carry `data-siren-id`.
+  class: pipeline<ClassModel, PositionedClassDiagram>({
+    layout: layoutClassDiagram,
+    render: renderClassDiagramToSVG,
+  }),
+  // States, composite frames and transitions all carry `data-siren-id`.
+  state: pipeline<StateModel, PositionedStateDiagram>({
+    layout: layoutStateDiagram,
+    render: renderStateDiagramToSVG,
+    // A concurrent region is laid out by a generated id (`region:1`); the
+    // author knows it by its place in its composite (`region 2 of A`).
+    nameOf: (model) => byRegionPlace(model.states),
+  }),
+  // Reaches the shared core, so `LayoutEngineError` is possible in principle,
+  // and a consumer's measurer can refuse an entity's name here exactly as it
+  // can refuse a label anywhere else. Entities and relationships carry
+  // `data-siren-id`.
+  er: pipeline<ErModel, PositionedErDiagram>({
+    layout: layoutErDiagram,
+    render: renderErDiagramToSVG,
+    // A relationship may name an ER subgraph (`clusterEndpointIds`), so an ER
+    // subgraph can be either cluster in the diagnostic; it is laid out by its
+    // generated id (`subgraph:1`), and the author knows it by its title. An
+    // entity's and a relationship's ids are the author's own.
+    nameOf: (model) => bySubgraphTitle(model.subgraphs),
+  }),
+};
+
+/**
+ * Runs parse -> buildGraphModel end to end, then the parsed document's kind's
+ * row of `RENDER_KIND` along one path for every kind: `prepare` when the row
+ * has one (a flowchart's icons), layout through `attemptLayout`, the kind's
+ * renderer, `attachClickHooks`, and `mountAtStepZero`. Every kind returns a
+ * working controller — one with `totalSteps: 0` when the document declares no
+ * `timeline:` block. Mounts the resulting SVG into `container` on success, and
+ * always returns the aggregated diagnostics from every stage.
+ *
+ * `options.onClick`, if one was given, is attached to whichever classes or
+ * nodes the author made clickable with a `call` interaction — today only
+ * class diagrams and flowcharts have any (see `attachClickHooks`).
  *
  * `options.timeline` chooses what every kind's controller is handed — the
  * current timeline: the first block when nothing names one, the named block a
@@ -526,164 +662,42 @@ export function render(
     return failedRender(diagnostics, siren);
   }
 
-  const graphResult = buildGraphModel(parseResult.document);
+  const graphResult = buildGraphModel(parseResult.document, { omitAuthorStyles: options.omitAuthorStyles });
   diagnostics.push(...graphResult.diagnostics);
 
   const timelines = (graphResult.model.namedTimelines ?? []).map((block) => block.name);
-  // A sequence model has no styling to report, so it has no field to read.
-  const styles = graphResult.kind === "sequence" ? [] : (graphResult.model.styleFacts ?? []);
-  // Read only after the facts above were taken, which is why they state what
-  // the author wrote whatever is omitted (see `withoutOmitted`).
-  const omitted = new Set((options.omitAuthorStyles ?? []).map((name) => name.toLowerCase()));
+  // Every kind's model has the field — a sequence model's is never written —
+  // and each builder took its facts before striking what the caller omits,
+  // so they state what the author wrote either way (see
+  // `RenderOptions.omitAuthorStyles`).
+  const styles = graphResult.model.styleFacts ?? [];
 
-  // Dispatch on the *result's* tag rather than on the document's. They are
-  // the same word — `buildGraphModel` carries the document's kind out
-  // unchanged — but only the result's tag is what narrows `model` to the type
-  // this branch is about to lay out.
-  if (graphResult.kind === "er") {
-    // The fifth layout call site, held to the same terms as the four below
-    // it: it reaches the shared core, so `LayoutEngineError` is possible in
-    // principle, and a consumer's measurer can refuse a name here exactly as
-    // it can refuse a label anywhere else.
-    const erModel = { ...graphResult.model, styles: withoutOmittedStyles(graphResult.model.styles, omitted) };
-    const erLayout = attemptLayout(() => layoutErDiagram(erModel, { measureText }));
-    if (!erLayout.placed) {
-      diagnostics.push(erLayout.diagnostic);
+  // The file's one cast. The lookup yields a union of rows whose `layout`s take
+  // different models, so the cast erases the pairing `RENDER_KIND`'s type
+  // holds, for this single path. It is safe because `graphResult.kind` chose
+  // the row and `graphResult.model` is that same arm's model: `buildGraphModel`
+  // carries the document's kind out unchanged, so the row is only ever handed
+  // its own `M` — what a `switch` on `kind` would narrow to, once per branch.
+  const row = RENDER_KIND[graphResult.kind] as Pipeline<unknown, unknown>;
+  let model: unknown = graphResult.model;
+
+  if (row.prepare !== undefined) {
+    const prepared = row.prepare(model, options);
+    diagnostics.push(...prepared.diagnostics);
+    if (prepared.diagnostics.length > 0) {
       return failedRender(diagnostics, siren);
     }
-
-    const positionedErDiagram = erLayout.value;
-    const erSvg = renderErDiagramToSVG(positionedErDiagram);
-
-    // An ER diagram animates on the same terms as every other kind: its
-    // entities and relationships carry `data-siren-id`.
-    const erController = mountAtStepZero(container, erSvg, graphResult.model, options);
-
-    return { svg: erSvg, controller: erController, diagnostics, timelines, styles, siren };
+    model = prepared.model;
   }
 
-  if (graphResult.kind === "state") {
-    const stateModel = { ...graphResult.model, styles: withoutOmittedStyles(graphResult.model.styles, omitted) };
-    const stateLayout = attemptLayout(() => layoutStateDiagram(stateModel, { measureText }));
-    if (!stateLayout.placed) {
-      diagnostics.push(stateLayout.diagnostic);
-      return failedRender(diagnostics, siren);
-    }
-
-    const positionedStateDiagram = stateLayout.value;
-    const stateSvg = renderStateDiagramToSVG(positionedStateDiagram);
-
-    // A state diagram animates on the same terms as every other kind: its
-    // states, its composite frames and its transitions all carry
-    // `data-siren-id`, so the one controller drives them unchanged.
-    const stateController = mountAtStepZero(container, stateSvg, graphResult.model, options);
-
-    return { svg: stateSvg, controller: stateController, diagnostics, timelines, styles, siren };
-  }
-
-  if (graphResult.kind === "class") {
-    // The third of the three layout stages that reach the shared core, held
-    // to the same terms as the other two. **No document reaches this branch's
-    // failure path today** — the construct that defeats the engine is a
-    // cluster carrying its own direction, and a class diagram's only cluster
-    // is a namespace, which Mermaid never gives a direction to.
-    // It is written anyway because the guard it is catching is a check on the
-    // *shape of the engine's answer*, not on that one construct: leaving this
-    // site bare would mean a future source of a missing coordinate escapes
-    // `render()` as a thrown error here while the other two kinds report it,
-    // and `Diagnostic`'s contract is that it is returned and never thrown.
-    const classModel = { ...graphResult.model, styles: withoutOmittedStyles(graphResult.model.styles, omitted) };
-    const classLayout = attemptLayout(() => layoutClassDiagram(classModel, { measureText }));
-    if (!classLayout.placed) {
-      diagnostics.push(classLayout.diagnostic);
-      return failedRender(diagnostics, siren);
-    }
-
-    const positionedClassDiagram = classLayout.value;
-    const classSvg = renderClassDiagramToSVG(positionedClassDiagram);
-
-    if (options.onClick !== undefined) {
-      attachClickHooks(classSvg, options.onClick);
-    }
-
-    // A class diagram animates: its classes and relationships carry
-    // `data-siren-id`, so the same controller that drives flowchart nodes and
-    // edges — and sequence participants — drives them unchanged.
-    const classController = mountAtStepZero(container, classSvg, graphResult.model, options);
-
-    return { svg: classSvg, controller: classController, diagnostics, timelines, styles, siren };
-  }
-
-  if (graphResult.kind === "sequence") {
-    // The one layout call site that is unlike the rest, and the reason these
-    // terms are held to at every one of them. It reaches no shared layout core — a sequence diagram is placed
-    // by columns and rows, not by the graph engine — so nothing upstream of
-    // here ever refused a size on its behalf: an unusable measurement used to
-    // travel the whole way into the markup and come back as a finished `<svg>`
-    // whose width, height and viewBox were all `NaN`, with nothing said. That
-    // is the failure `01M2WQV0` named, and the reason a bare call site is not
-    // a smaller version of a wrapped one.
-    const model = graphResult.model;
-    const sequenceLayout = attemptLayout(() => layoutSequence(model, { measureText }));
-    if (!sequenceLayout.placed) {
-      diagnostics.push(sequenceLayout.diagnostic);
-      return failedRender(diagnostics, siren);
-    }
-
-    const positionedSequence = sequenceLayout.value;
-    const sequenceSvg = renderSequenceToSVG(positionedSequence);
-
-    // A sequence diagram animates on the same terms as the other two kinds:
-    // its participants, lifelines, messages, control-flow blocks and box
-    // groupings all carry `data-siren-id`, and the controller drives every
-    // element wearing a named id (ADR-0009) — so a participant's two boxes
-    // (its top and bottom ones, or its top one and its closing box) and its
-    // lifeline move together under one timeline entry.
-    const sequenceController = mountAtStepZero(container, sequenceSvg, graphResult.model, options);
-
-    return { svg: sequenceSvg, controller: sequenceController, diagnostics, timelines, styles, siren };
-  }
-
-  // Bound to a local here, and in the three branches above, to give the model
-  // the name its own layout stage knows it by. The binding used to be
-  // load-bearing and no longer is: a *property* narrowing (`graphResult.graph
-  // !== null`) is discarded inside the function expression below, which is
-  // what forced a local rather than a `!`, but narrowing a `const` on its own
-  // discriminant survives into one — so `graphResult.model` would read
-  // correctly there too. One more hand-written step the tag took over.
-  const iconed = withIcons(graphResult.model, options.iconPacks ?? []);
-  diagnostics.push(...iconed.diagnostics);
-  if (iconed.diagnostics.length > 0) {
-    return failedRender(diagnostics, siren);
-  }
-  const graph = {
-    ...iconed.graph,
-    nodes: iconed.graph.nodes.map((node) => ({ ...node, style: withoutOmitted(node.style, omitted) })),
-    edges: iconed.graph.edges.map((edge) => ({ ...edge, style: withoutOmitted(edge.style, omitted) })),
-    subgraphs: iconed.graph.subgraphs.map((subgraph) =>
-      subgraph.style === undefined ? subgraph : { ...subgraph, style: withoutOmitted(subgraph.style, omitted) },
-    ),
-  };
-  // A subgraph is laid out by its generated id (`subgraph:2`); the author
-  // knows it by its title. A node's and an edge's ids are the author's own.
-  const subgraphTitles = new Map(graph.subgraphs.map((subgraph) => [subgraph.id, subgraph.label.text]));
-  const flowchartLayout = attemptLayout(
-    () => layoutGraph(graph, { measureText }),
-    (layoutId) => subgraphTitles.get(layoutId) ?? layoutId,
-  );
-  if (!flowchartLayout.placed) {
-    diagnostics.push(flowchartLayout.diagnostic);
+  const laidOut = attemptLayout(() => row.layout(model, { measureText }), row.nameOf?.(model));
+  if (!laidOut.placed) {
+    diagnostics.push(laidOut.diagnostic);
     return failedRender(diagnostics, siren);
   }
 
-  const positioned = flowchartLayout.value;
-  const svg = renderToSVG(positioned);
+  const svg = row.render(laidOut.value);
 
-  // A flowchart's `call` interactions are hooked on the same terms as a
-  // class diagram's: `wrapInteraction` stamped `data-siren-click` (and, when
-  // there is one, `data-siren-click-arg`) onto whichever nodes the author
-  // made callbacks, and this reads it back exactly as `attachClickHooks`
-  // already does for the other kind.
   if (options.onClick !== undefined) {
     attachClickHooks(svg, options.onClick);
   }

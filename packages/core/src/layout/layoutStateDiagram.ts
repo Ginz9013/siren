@@ -22,13 +22,13 @@ import {
 } from "./layoutDirectedGraph";
 import { clusterNode, SUBGRAPH_PADDING } from "./clusters";
 import { clipRoutesAndHop } from "./clipToOutline";
+import { placeConnectors } from "./connectors";
 import { circleOutline, edgesOf } from "./shapes/shape";
 import { noteBoxSize, noteLinkEdgeId, noteNodeId } from "./notes";
 import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
 import { plainLabel } from "../label/label";
 import {
   NO_WRAP,
-  wrapConnectorLabel,
   wrapLabel,
   wrapNodeLabel,
   type WrappedLabel,
@@ -184,21 +184,8 @@ export function layoutStateDiagram(
     notedStates.map(({ state, label, labelBox }) => [state.id, { label, labelBox }]),
   );
 
-  /**
-   * Each labelled transition's label wrapped and measured at the 12px it is
-   * drawn at (`wrapConnectorLabel`: 150px of text, Mermaid's 200 scaled to
-   * that size, by the label-wrap ADR, nook `01M4R4WDZ`), by the
-   * transition's id — once, so the box the core keeps clear and the box the
-   * renderer draws in are the same box, and the rows drawn are the wrapped
-   * label's.
-   */
-  const wrappedTransitionLabelById = new Map(
-    model.transitions.flatMap((transition) =>
-      transition.label === null
-        ? []
-        : [[transition.id, wrapConnectorLabel(transition.label, options.measureText)] as const],
-    ),
-  );
+  /** Each transition's label wrapped once, before the core (`placeConnectors`). */
+  const connectors = placeConnectors(model.transitions, options.measureText);
 
   /**
    * A state as the core is handed it. A composite or a concurrent region
@@ -252,9 +239,7 @@ export function layoutStateDiagram(
     to: transition.to,
     // A labelled transition asks the core to keep room for the text on the
     // line, and reports back where that room ended up.
-    ...(transition.label === null
-      ? {}
-      : { label: wrappedTransitionLabelById.get(transition.id)!.labelBox }),
+    ...(transition.label === null ? {} : { label: connectors.labelBoxOf(transition.id) }),
     // The radius the line hops keep clear of: a transition is drawn rounded
     // (`CONNECTOR_CURVE`).
     cornerRadius: CONNECTOR_CORNER_RADIUS,
@@ -352,19 +337,6 @@ export function layoutStateDiagram(
   );
   const routeById = new Map(laidOut.edges.map((route, index) => [route.id, { ...route, ...clipped[index]! }]));
 
-  /**
-   * Each styled state's declarations, keyed for lookup below.
-   *
-   * `buildStateModel` has already merged everything one state was styled by
-   * and dropped the values its gate refused, and omits a state that ended up
-   * with none — so there is nothing to reconcile here. A state absent from
-   * this map gets the empty pair, which is what says "no `style` attribute"
-   * to the renderer without it having to test for a missing field.
-   */
-  const styleByStateId = new Map(
-    model.styles.map(({ targetId, style }) => [targetId, style]),
-  );
-
   const states = model.states.map<PositionedState>((state) => {
     // A composite's box is its frame, as the core placed it.
     const box = boxById.get(state.id)!;
@@ -386,29 +358,18 @@ export function layoutStateDiagram(
         y: box.y + planned.y,
         ...(box.title === undefined ? {} : { x: box.title.x }),
       })),
-      style: styleByStateId.get(state.id) ?? { frame: [], text: [] },
+      // `buildStateModel` has already merged everything one state was styled
+      // by and dropped the values its gate refused, so there is nothing to
+      // reconcile here. A state it left without a `style` gets the empty
+      // pair, which is what says "no `style` attribute" to the renderer
+      // without it having to test for a missing field.
+      style: state.style ?? { frame: [], text: [] },
       dividerY: plan.dividerY === null ? null : box.y + plan.dividerY,
       note: placeNote(state, wrappedNoteById, boxById, routeById),
     };
   });
 
-  const transitions = model.transitions.map<PositionedStateTransition>((transition) => {
-    const route = routeById.get(transition.id)!;
-    return {
-      id: transition.id,
-      from: transition.from,
-      to: transition.to,
-      points: route.points,
-      hops: route.hops,
-      label:
-        transition.label === null || route.labelAnchor === undefined
-          ? null
-          : {
-              ...wrappedTransitionLabelById.get(transition.id)!,
-              anchor: route.labelAnchor,
-            },
-    };
-  });
+  const transitions: PositionedStateTransition[] = connectors.place(routeById);
 
   return {
     accTitle: model.accTitle,

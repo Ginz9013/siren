@@ -264,6 +264,10 @@ const ER_RELATIONSHIP_LABEL_WRAP_WIDTH = wrapWidthAt(
  * 12/14 px of text, which holds as much as Mermaid's row does (the
  * label-wrap ADR, nook `01M4R4WDZ`, as amended). Width, measurer and
  * spacing are paired here for the reason `wrapConnectorLabel` gives.
+ *
+ * The one way an ER relationship's `PlacedConnector` differs from every
+ * other kind's connector: the ER layout hands this to `placeConnectors` as
+ * its wrap, where the others take the default, `wrapConnectorLabel`.
  */
 export function wrapErRelationshipLabel(label: Label, measureText: TextMeasurer): WrappedLabel {
   return wrapLabel(label, atConnectorLabelSize(measureText), ER_RELATIONSHIP_LABEL_WRAP_WIDTH, {

@@ -2,8 +2,20 @@ import type { GraphModelResult, SirenDocument } from "../contracts";
 import { buildClassModel } from "./buildClassModel";
 import { buildErModel } from "./buildErModel";
 import { buildFlowchartModel } from "./buildFlowchartModel";
+import { omittedStyleNames } from "./omitAuthorStyles";
 import { buildSequenceModel } from "./buildSequenceModel";
 import { buildStateModel } from "./buildStateModel";
+
+/** What `buildGraphModel` takes besides the document. */
+export interface BuildGraphModelOptions {
+  /**
+   * The author style properties to leave off every target's `style`, on the
+   * terms of `RenderOptions.omitAuthorStyles` — each model builder strikes
+   * them after taking its style facts, so the facts still state what the
+   * author wrote.
+   */
+  omitAuthorStyles?: readonly string[];
+}
 
 /**
  * Resolves a parsed `SirenDocument` into a validated model, dispatching on
@@ -23,19 +35,21 @@ import { buildStateModel } from "./buildStateModel";
  * it dropped something — and still hands back the model it built from the
  * rest.
  */
-export function buildGraphModel(document: SirenDocument): GraphModelResult {
+export function buildGraphModel(document: SirenDocument, options: BuildGraphModelOptions = {}): GraphModelResult {
+  const omitted = omittedStyleNames(options.omitAuthorStyles);
+
   if (document.kind === "er") {
-    const { model, diagnostics } = buildErModel(document);
+    const { model, diagnostics } = buildErModel(document, omitted);
     return { kind: "er", model, diagnostics };
   }
 
   if (document.kind === "state") {
-    const { model, diagnostics } = buildStateModel(document);
+    const { model, diagnostics } = buildStateModel(document, omitted);
     return { kind: "state", model, diagnostics };
   }
 
   if (document.kind === "class") {
-    const { model, diagnostics } = buildClassModel(document);
+    const { model, diagnostics } = buildClassModel(document, omitted);
     return { kind: "class", model, diagnostics };
   }
 
@@ -44,6 +58,6 @@ export function buildGraphModel(document: SirenDocument): GraphModelResult {
     return { kind: "sequence", model, diagnostics };
   }
 
-  const { graph, diagnostics } = buildFlowchartModel(document);
+  const { graph, diagnostics } = buildFlowchartModel(document, omitted);
   return { kind: "flowchart", model: graph, diagnostics };
 }

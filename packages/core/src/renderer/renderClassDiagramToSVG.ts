@@ -12,9 +12,11 @@ import type {
 } from "../contracts";
 import { CONNECTOR_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
-import { drawConnectorLabel, drawPlaced } from "../label/drawPlaced";
+import { drawPlaced } from "../label/drawPlaced";
+import { buildConnectorLabels, buildConnectorLine } from "./connector";
 import { drawConnectorRoute } from "./connectorCurve";
 import { appendAccessibleText } from "./appendAccessibleText";
+import { applyInlineStyle } from "./inlineStyle";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 import { wrapInteraction } from "./wrapInteraction";
@@ -179,73 +181,35 @@ export function renderClassDiagramToSVG(diagram: PositionedClassDiagram): SVGSVG
 }
 
 /**
- * Builds the `<g class="siren-relationship">` for one relationship: a
- * `<path class="siren-relationship-line">` following the layout's points, and
- * nothing else. Its text is a group of its own — `buildRelationshipLabels` —
- * drawn after every line (ADR-0016).
+ * Builds the `<g class="siren-relationship">` for one relationship — its
+ * line, with the end markers its kind names, dashed when it is dashed — and
+ * stamps it with `data-siren-relationship`. Its text is a group of its own,
+ * `buildRelationshipLabels`, drawn after every line (ADR-0016; see
+ * `connector.ts`).
  */
 function buildRelationship(
   relationship: PositionedClassRelationship,
   scope: string,
 ): SVGGElement {
-  const g = document.createElementNS(SVG_NS, "g");
-  g.setAttribute("class", "siren-relationship");
-  g.setAttribute("data-siren-id", relationship.id);
+  const g = buildConnectorLine(relationship, {
+    className: "siren-relationship",
+    scope,
+    markerStart: END_MARKER_NAME[relationship.fromEnd],
+    markerEnd: END_MARKER_NAME[relationship.toEnd],
+    dashArray: relationship.line === "dashed" ? DASH_PATTERN : null,
+  });
   g.setAttribute("data-siren-relationship", relationshipTypeName(relationship));
-
-  const line = document.createElementNS(SVG_NS, "path");
-  line.setAttribute("class", "siren-relationship-line");
-  // Rounded, with the line hops the layout found (`CONNECTOR_CURVE`:
-  // the curve layout kept the hops clear of).
-  drawConnectorRoute(line, relationship.points, CONNECTOR_CURVE, relationship.hops);
-  // Explicit, not left to CSS: a relationship's points make an open,
-  // multi-segment path, which a default fill would paint as a filled polygon
-  // spanning the classes it connects.
-  line.setAttribute("fill", "none");
-
-  const startMarker = END_MARKER_NAME[relationship.fromEnd];
-  if (startMarker !== null) {
-    line.setAttribute("marker-start", `url(#${startMarker}${scope})`);
-  }
-  const endMarker = END_MARKER_NAME[relationship.toEnd];
-  if (endMarker !== null) {
-    line.setAttribute("marker-end", `url(#${endMarker}${scope})`);
-  }
-  if (relationship.line === "dashed") {
-    line.setAttribute("stroke-dasharray", DASH_PATTERN);
-  }
-  g.appendChild(line);
-
   return g;
 }
 
 /**
  * Builds the `<g class="siren-relationship-labels">` for one relationship —
  * its label, multiplicities and interface labels — or `null` when it carries
- * none of them: a bare relationship draws no empty group.
- *
- * It wears the relationship's `data-siren-id`, the same id as its line group.
- * ADR-0009 makes a timeline target an id rather than an element, so
- * `exit Animal-Duck fade` reaches both groups with no help from the
- * controller (ADR-0016). Its class name is in the theme's shared font rule,
- * so the text inherits the face and size it had inside the line group.
+ * none of them: a bare relationship draws no empty group. It wears the
+ * relationship's id, the same as its line group (`connector.ts`).
  */
 function buildRelationshipLabels(relationship: PositionedClassRelationship): SVGGElement | null {
-  const g = document.createElementNS(SVG_NS, "g");
-  g.setAttribute("class", "siren-relationship-labels");
-  g.setAttribute("data-siren-id", relationship.id);
-
-  // Drawn by `drawLabel`, centred on the anchor — the centre of the box the
-  // shared core kept clear — like every other label here. That gives it
-  // `dominant-baseline: middle`, which it lacked: it was drawn with its
-  // *baseline* on the anchor, which sat the text above the middle of the
-  // space reserved for it, the same correction a state diagram's transition
-  // label took. Its `x` and `y` are unchanged for a label of one row.
-  if (relationship.label !== null) {
-    // With the background every connector label is painted on, under the
-    // text; it takes the group's id, and with it the timeline's classes.
-    appendLabel(g, drawConnectorLabel(relationship.label, "siren-relationship-label"));
-  }
+  const g = buildConnectorLabels(relationship, "siren-relationship");
 
   for (const [text, anchor] of [
     [relationship.fromMultiplicity, relationship.fromMultiplicityAnchor],
@@ -483,7 +447,7 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
   frame.setAttribute("y", String(positionedClass.y));
   frame.setAttribute("width", String(positionedClass.width));
   frame.setAttribute("height", String(positionedClass.height));
-  applyAuthorStyle(frame, positionedClass.style.frame);
+  applyInlineStyle(frame, positionedClass.style.frame);
   g.appendChild(frame);
 
   /**
@@ -511,7 +475,7 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
    * never name the same property (see `classifierStyle`).
    */
   const appendClassText = (label: SVGTextElement, classifierDeclarations: StyleProperty[] = []): void => {
-    applyAuthorStyle(label, [...positionedClass.style.text, ...classifierDeclarations]);
+    applyInlineStyle(label, [...positionedClass.style.text, ...classifierDeclarations]);
     g.appendChild(label);
   };
 
@@ -522,7 +486,7 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
    */
   const appendName = (y: number): void => {
     const drawn = drawLabel(positionedClass.label, positionedClass.labelBox, { x: centerX, y }, "siren-class-name");
-    applyAuthorStyle(drawn.text, positionedClass.style.text);
+    applyInlineStyle(drawn.text, positionedClass.style.text);
     appendLabel(g, drawn);
   };
 
@@ -693,34 +657,6 @@ function nameBand(positionedClass: PositionedClass): { top: number; bottom: numb
         ? positionedClass.y + positionedClass.height
         : firstCompartment.dividerY,
   };
-}
-
-/**
- * Writes the author's resolved `style`/`classDef`/`cssClass` declarations onto
- * `element` as an inline `style` attribute, in declaration order, or leaves the
- * element without one when the author styled nothing.
- *
- * Inline rather than a generated class rule, and on the drawn shape rather than
- * its enclosing `<g>` — both for the same cascade reason, recorded in ADR-0008.
- * The theme styles `.siren-class-frame` directly, so an inline declaration on
- * the frame outranks it without needing `!important`, while the same
- * declaration on the `<g>` would only ever be *inherited* by the frame and so
- * would lose to the theme's own rule.
- *
- * The values are written verbatim. They are author input, but they arrive here
- * having already passed `buildClassModel`'s gate (no `url(`, no `expression(`,
- * no `;`, no backslash), and re-checking here would fork that single source of
- * truth. This attribute is a CSS sink, never an HTML one: nothing is parsed as
- * markup, so the hard `textContent`-never-`innerHTML` invariant is untouched.
- */
-function applyAuthorStyle(element: SVGElement, style: StyleProperty[]): void {
-  if (style.length === 0) {
-    return;
-  }
-  element.setAttribute(
-    "style",
-    style.map(({ property, value }) => `${property}:${value}`).join(";"),
-  );
 }
 
 /**

@@ -1175,6 +1175,13 @@ export interface SequenceModel {
   timeline: ResolvedTimeline;
   /** The named blocks, resolved, on the terms of `GraphModel.namedTimelines`. */
   namedTimelines?: NamedTimeline<ResolvedTimeline>[];
+  /**
+   * Never written: a sequence diagram takes no author styling (see the
+   * glossary's **Author style**), so it has no style facts to report. It is
+   * declared only so `render()` reads the one field off all five kinds'
+   * models alike, and finds nothing here.
+   */
+  styleFacts?: StyleFact[];
 }
 
 /** Result of `buildSequenceModel`. */
@@ -1795,34 +1802,64 @@ export interface PositionedNode extends GraphNode {
   labelOffset?: { x: number; y: number };
 }
 
-/** An edge with a layout-assigned point path. */
-export interface PositionedEdge extends Omit<GraphEdge, "label"> {
+/**
+ * A **connector** after layout: its route, its line hops and its placed
+ * label — the record every graph-shaped kind's connector extends
+ * (`PositionedEdge`, `PositionedClassRelationship`,
+ * `PositionedStateTransition`, `PositionedErRelationship`), because it is
+ * exactly what the shared layout core hands back for every kind's route
+ * (nook decision `01M5D99KNB4R5FVDRWCG902ZAC`). What a kind adds on top — a
+ * flowchart edge's curve and ends, a class relationship's multiplicities,
+ * an ER relationship's cardinalities — stays on its own type. Built by
+ * `placeConnectors` (`layout/connectors.ts`).
+ */
+export interface PlacedConnector {
+  id: string;
+  from: string;
+  to: string;
+  /** The route, from `from` to `to`, as the shared core (and, for a flowchart or state diagram, clipping) left it. */
   points: Point[];
   /**
-   * Where this edge's line jumps another that crosses it — the **line
+   * Where this connector's line jumps another that crosses it — the **line
    * hops**, computed by the layout from every route (see `LineHop`). Not
    * route points: `points` is the route either way. Whether they are drawn
-   * is the renderer's call, by the edge's curve. Absent reads as none.
+   * is the renderer's call, by the connector's curve. Always an array — the
+   * shared core gives `[]` for a line that jumps nothing.
    */
-  hops?: LineHop[];
+  hops: LineHop[];
   /**
-   * `GraphEdge.label`, wrapped and placed: the label as drawn — its rows
-   * after wrapping at 150px of its 12px text (`wrapConnectorLabel`, the
-   * label-wrap ADR, nook `01M4R4WDZ`), so it may hold more rows than the
-   * author wrote — the box measured for those rows, which is the box the
-   * layout was asked to keep clear, and the centre of the space layout kept clear
-   * for it. `null` when the edge carries no label and asked for none.
+   * The connector's label, wrapped and placed: the label as drawn — its rows
+   * after wrapping its 12px text at the width its kind wraps at (the wrap
+   * function `placeConnectors` is handed: `wrapConnectorLabel`, the default,
+   * at 150px for a flowchart edge, a class relationship and a state
+   * transition; `wrapErRelationshipLabel` at 200 × 12/14 ≈ 171.43px for an
+   * ER relationship — Mermaid wraps its 14px ER label at 200px; the
+   * label-wrap ADR, nook `01M4R4WDZ`, as amended), so it may hold more rows
+   * than the author wrote — the box measured for those rows, which is the
+   * box the layout was asked to keep clear, and the centre of the space
+   * layout kept clear for it, which is the anchor the renderer hands
+   * `drawLabel`.
+   *
+   * `null` when the model's connector carries no label, or when the shared
+   * core reserved no space for it (its route has no `labelAnchor`): a
+   * connector with no room has nowhere to draw text, and one state is easier
+   * to read than a missing field. An ER relationship's label is never absent
+   * in the model, but its placed label is nullable on the same terms.
    *
    * The anchor is reported by the layout rather than computed by the
-   * renderer from `points`, because it is where the *reserved box* ended up
-   * — the mid-point of a route is not the same place, and drawing there
-   * would put the text across the line the space was made beside. Every
-   * other label on a line (`PositionedClassRelationship.label`,
-   * `PositionedStateTransition.label`, …) is a `PlacedLabel` for the same
-   * reason.
+   * renderer from `points`, because it is where the *reserved box* ended up —
+   * the mid-point of a route is not the same place, and drawing there would
+   * put the text across the line the space was made beside.
    */
   label: PlacedLabel | null;
 }
+
+/**
+ * An edge with a layout-assigned point path: a `PlacedConnector` (its route,
+ * hops and placed label, `GraphEdge.label` wrapped at 150px) carrying the
+ * rest of its `GraphEdge` — curve, line, ends, author style — unchanged.
+ */
+export interface PositionedEdge extends Omit<GraphEdge, "label">, PlacedConnector {}
 
 /**
  * A subgraph with a layout-assigned frame enclosing everything inside it —
@@ -1830,10 +1867,13 @@ export interface PositionedEdge extends Omit<GraphEdge, "label"> {
  * title strip included.
  *
  * The shape `PositionedClassNamespace` already has, because it is the same
- * figure: a labelled box drawn *behind* what it groups. It is a separate
- * type rather than a shared one because the two diagram kinds do not share
- * types across the boundary — a flowchart's layout output has never referred
- * to a class diagram's — and collapsing them would be the first time.
+ * figure: a labelled box drawn *behind* what it groups. A kind may share a
+ * record the shared layout core's output directly yields, but never another
+ * kind's type (nook decision `01M5D99KNB4R5FVDRWCG902ZAC`, which replaced the
+ * old rule that two kinds never share a type); a connector already does
+ * (`PlacedConnector`). A frame is such a record too — the core's cluster plus
+ * a placed title — but each kind still declares its own today: collapsing
+ * them is backlog `01M5D99KVZ658P97H03CYJRC7N`.
  */
 export interface PositionedSubgraph {
   id: string;
@@ -2426,6 +2466,22 @@ export interface ResolvedClass {
   members: ClassMember[];
   /** The namespace this class belongs to, or `null` when it belongs to none. */
   namespaceId: string | null;
+  /**
+   * Everything this class was styled by — its `style` statements and every
+   * `classDef` a `cssClass` applied to it — merged by `resolveStyles` into
+   * one pair with no repeated property and the values its gate refused
+   * dropped, and written here by `buildClassModel` with the declarations a
+   * caller omitted struck (`withoutOmitted`).
+   *
+   * Absent when nothing styled it, and absent too when the author styled it
+   * but the gate refused every declaration: the resolver reports only a
+   * target left with at least one. Optional for the reason
+   * `ResolvedSubgraph.style` gives — a model built without one still
+   * type-checks. Layout reads an absent `style` as the empty pair
+   * (`?? { frame: [], text: [] }`), which says "no `style` attribute" to the
+   * renderer.
+   */
+  style?: AuthorStyle;
 }
 
 /**
@@ -2524,6 +2580,10 @@ export interface ResolvedInteraction {
  * `targetId` is a target's id in the sense the glossary gives that word —
  * the authored thing a style is attached to — so it is a class in a class
  * diagram and a node in a flowchart, and this type never has to know which.
+ *
+ * It is the resolver's answer, which each model builder writes onto its
+ * target (`GraphNode.style`, `ResolvedClass.style`, …); no model carries a
+ * list of these.
  */
 export interface ResolvedStyle {
   targetId: string;
@@ -2534,9 +2594,9 @@ export interface ResolvedStyle {
  * A `ResolvedStyle` with its provenance kept: what `resolveStyleFacts`
  * returns, and what a model's `styleFacts` are made from.
  *
- * Kept beside `ResolvedStyle` rather than folded into it, because a model's
- * `styles` is what its renderer paints and has no use for where a
- * declaration came from; the provenance travels only as far as
+ * Kept beside `ResolvedStyle` rather than folded into it, because the style
+ * a builder writes onto a target is what its renderer paints and has no use
+ * for where a declaration came from; the provenance travels only as far as
  * `SirenRenderResult.styles`.
  */
 export interface ResolvedStyleFact extends ResolvedStyle {
@@ -2562,7 +2622,6 @@ export interface ClassModel {
   namespaces: ResolvedClassNamespace[];
   notes: ResolvedClassNote[];
   interactions: ResolvedInteraction[];
-  styles: ResolvedStyle[];
   timeline: ResolvedTimeline;
   /** The named blocks, resolved, on the terms of `GraphModel.namedTimelines`. */
   namedTimelines?: NamedTimeline<ResolvedTimeline>[];
@@ -2637,30 +2696,16 @@ export interface PositionedClass {
   interaction: ResolvedInteraction | null;
 }
 
-/** A relationship with a layout-assigned path and text anchors. */
-export interface PositionedClassRelationship {
-  id: string;
-  from: string;
-  to: string;
+/**
+ * A relationship with a layout-assigned path and text anchors: a
+ * `PlacedConnector` (label wrapped at 150px) plus what a class relationship
+ * adds — its line, its two ends, and its multiplicities and interface labels
+ * with where each is drawn.
+ */
+export interface PositionedClassRelationship extends PlacedConnector {
   line: ClassRelationshipLine;
   fromEnd: ClassRelationshipEnd;
   toEnd: ClassRelationshipEnd;
-  points: Point[];
-  /**
-   * Where this relationship's line jumps another that crosses it — the
-   * **line hops**, as on `PositionedEdge.hops`. Absent reads as none.
-   */
-  hops?: LineHop[];
-  /**
-   * The relationship's label, wrapped and placed: the label as drawn — its
-   * rows after wrapping at 150px of its 12px text (`wrapConnectorLabel`, the
-   * label-wrap ADR, nook `01M4R4WDZ`) — the box measured for those rows,
-   * which is the box the core was asked to keep clear, and the centre of
-   * the space the shared core kept clear for it. `null` when there is no
-   * label. `PositionedStateTransition.label` carries a transition's the
-   * same way.
-   */
-  label: PlacedLabel | null;
   fromMultiplicity: string | null;
   /** Where the from-end multiplicity is drawn; `null` when there is none. */
   fromMultiplicityAnchor: Point | null;
@@ -3301,6 +3346,26 @@ export interface ResolvedState {
    * makes it unaddressable from a `timeline:` block.
    */
   note: StateNote | null;
+  /**
+   * Everything this state was styled by, merged by `resolveStyles` into one
+   * pair with no repeated property and the values its gate refused dropped,
+   * and written here by `buildStateModel` with the declarations a caller
+   * omitted struck (`withoutOmitted`).
+   *
+   * Absent when nothing styled it, and absent too when the author styled it
+   * but the gate refused every declaration: the resolver reports only a
+   * target left with at least one. Optional for the reason
+   * `ResolvedSubgraph.style` gives — a model built without one still
+   * type-checks. Layout reads an absent `style` as the empty pair
+   * (`?? { frame: [], text: [] }`), which says "no `style` attribute" to the
+   * renderer.
+   *
+   * Only a **state** can be a target: measured, mermaid 11.17.2 records a
+   * `classes` array on a state and nowhere else, so no `class` statement
+   * can name a transition. Always absent on a pseudo-state, whose generated
+   * id no statement can spell.
+   */
+  style?: AuthorStyle;
 }
 
 /**
@@ -3340,16 +3405,6 @@ export interface StateModel {
   direction: Direction;
   states: ResolvedState[];
   transitions: ResolvedStateTransition[];
-  /**
-   * Each styled state's accepted declarations, already flattened by the
-   * shared `resolveStyles` — one entry per state that ended up with at
-   * least one, and none for a state the author styled with nothing.
-   *
-   * Only a **state** can be a target: measured, mermaid 11.17.2 records a
-   * `classes` array on a state and nowhere else, so no `class` statement
-   * can name a transition.
-   */
-  styles: ResolvedStyle[];
   timeline: ResolvedTimeline;
   /** The named blocks, resolved, on the terms of `GraphModel.namedTimelines`. */
   namedTimelines?: NamedTimeline<ResolvedTimeline>[];
@@ -3523,28 +3578,8 @@ export interface PositionedState {
   note: PositionedStateNote | null;
 }
 
-/** A transition with a layout-assigned path and, when it carries one, a placed label. */
-export interface PositionedStateTransition {
-  id: string;
-  from: string;
-  to: string;
-  points: Point[];
-  /**
-   * Where this transition's line jumps another that crosses it — the **line
-   * hops**, as on `PositionedEdge.hops`. Absent reads as none.
-   */
-  hops?: LineHop[];
-  /**
-   * The transition's label, wrapped and placed: the label as drawn — its
-   * rows after wrapping at 150px of its 12px text (`wrapConnectorLabel`, the
-   * label-wrap ADR, nook `01M4R4WDZ`) — the box measured for those rows,
-   * which is the box the shared core was asked to keep clear, and the
-   * centre of the space layout kept clear for it. `null` when the
-   * transition carries no label and asked for none — the shape
-   * `PositionedEdge.label` has, for the reason given there.
-   */
-  label: PlacedLabel | null;
-}
+/** A transition with a layout-assigned path and, when it carries one, a placed label (wrapped at 150px): a `PlacedConnector`, adding nothing. */
+export interface PositionedStateTransition extends PlacedConnector {}
 
 /**
  * The state diagram after layout: positioned states and transitions, ready
@@ -4102,6 +4137,28 @@ export interface ResolvedErEntity {
    * which.
    */
   parentId: string | null;
+  /**
+   * Everything this entity was styled by, merged by `resolveStyles` into one
+   * pair with no repeated property and the values its gate refused dropped,
+   * and written here by `buildErModel` with the declarations a caller
+   * omitted struck (`withoutOmitted`).
+   *
+   * Absent when nothing styled it, and absent too when the author styled it
+   * but the gate refused every declaration: the resolver reports only a
+   * target left with at least one. Optional for the reason
+   * `ResolvedSubgraph.style` gives — a model built without one still
+   * type-checks. Layout reads an absent `style` as the empty pair
+   * (`?? { frame: [], text: [] }`), which says "no `style` attribute" to the
+   * renderer.
+   *
+   * ⚠️ **An entity or a cluster can be styled, and a relationship
+   * deliberately cannot**, which is why `ResolvedErRelationship` has no
+   * such field. Measured from Mermaid's own database: `addCssStyles` and
+   * `setClass` reach `entities` and `subGraphs` and nothing else, so
+   * `style CUSTOMER:ORDER fill:#f96` paints nothing there — and
+   * `CUSTOMER:ORDER` is exactly the id this model gives that relationship.
+   */
+  style?: AuthorStyle;
 }
 
 /**
@@ -4151,6 +4208,16 @@ export interface ResolvedErSubgraph {
    * distinction.
    */
   direction: Direction | null;
+  /**
+   * This cluster's author declarations, on the terms of
+   * `ResolvedErEntity.style` — absent when nothing styled it or the gate
+   * refused every declaration, and read by layout as the empty pair. The
+   * statement named the block the author typed; `buildErModel` rewrote that
+   * name to this generated id (see `ErStyleDecl.clusterTargets`) before
+   * resolving, and a nested frame never inherits it — measured, mermaid
+   * 12.2.0 paints only the cluster the statement named.
+   */
+  style?: AuthorStyle;
 }
 
 /**
@@ -4259,22 +4326,6 @@ export interface ErModel {
    * a frame being painted behind what it groups.
    */
   subgraphs: ResolvedErSubgraph[];
-  /**
-   * Each styled entity's and cluster's accepted declarations, already
-   * flattened by the shared `resolveStyles` — one entry per target that
-   * ended up with at least one, and none for a target the author styled
-   * with nothing. A cluster's entry is keyed on its **generated** id
-   * (`subgraph:1`), which `buildErModel` wrote in for the block name the
-   * author typed (see `ErStyleDecl.clusterTargets`).
-   *
-   * ⚠️ **An entity or a cluster can be a target, and a relationship
-   * deliberately cannot.** Measured from Mermaid's own database: `addCssStyles` and
-   * `setClass` reach `entities` and `subGraphs` and nothing else, so
-   * `style CUSTOMER:ORDER fill:#f96` paints nothing there — and
-   * `CUSTOMER:ORDER` is exactly the id this model gives that relationship,
-   * so the two lists are not interchangeable however alike they look.
-   */
-  styles: ResolvedStyle[];
   /**
    * The `timeline:` block resolved against this kind's three target kinds —
    * an **entity**, by the id its author wrote whatever an alias renamed it
@@ -4496,32 +4547,15 @@ export interface PositionedErAttributeCommentCell {
  * with nothing to reverse. Reversing the route somewhere in here and the
  * markers somewhere else would cancel out on the three symmetric
  * cardinality pairs and draw every other relationship backwards.
+ *
+ * A `PlacedConnector` — its label wrapped at ≈171.43px rather than 150px, by
+ * the `wrapErRelationshipLabel` its layout hands `placeConnectors` — plus
+ * what an ER relationship adds: its cardinalities and its line.
  */
-export interface PositionedErRelationship {
-  id: string;
-  from: string;
-  to: string;
+export interface PositionedErRelationship extends PlacedConnector {
   fromCardinality: ErCardinality;
   toCardinality: ErCardinality;
   line: ErRelationshipLine;
-  points: Point[];
-  /**
-   * Where this relationship's line jumps another that crosses it — the
-   * **line hops**, as on `PositionedEdge.hops`. Absent reads as none.
-   */
-  hops?: LineHop[];
-  /**
-   * `ResolvedErRelationship.label`, wrapped and placed: the label as drawn
-   * — its rows after wrapping at 200 × 12/14 ≈ 171.43px of its 12px text
-   * (`wrapErRelationshipLabel`; Mermaid wraps its 14px ER label at 200px,
-   * the label-wrap ADR, nook `01M4R4WDZ`, as amended) — the box measured
-   * for those rows, which is the size the layout kept clear, and the
-   * centre of that space, which is what the renderer hands `drawLabel`. `null` when
-   * the shared layout core reserved none. Nullable on the same terms as
-   * `PositionedClassRelationship.label`, rather than because an ER
-   * relationship can be unlabelled — measured, it cannot be.
-   */
-  label: PlacedLabel | null;
 }
 
 /**
@@ -4538,10 +4572,11 @@ export interface PositionedErRelationship {
  * have, because it is the same figure: a labelled box drawn *behind* what it
  * groups, which is exactly what `--markup` reports Mermaid drawing for an ER
  * cluster too — a `g.cluster` holding a `<rect>` and a `g.cluster-label`.
- * A type of its own rather than a shared one, for the reason
- * `PositionedSubgraph` gives about the class diagram's: these kinds do not
- * share types across the boundary, and collapsing them would be the first
- * time.
+ * A type of its own rather than a shared one, though nook decision
+ * `01M5D99KNB4R5FVDRWCG902ZAC` would allow a frame record the shared core's
+ * output yields (as `PlacedConnector` is for a connector): frames still
+ * declare their own type today, as `PositionedSubgraph` says — collapsing
+ * them is backlog `01M5D99KVZ658P97H03CYJRC7N`.
  */
 export interface PositionedErSubgraph {
   id: string;

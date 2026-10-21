@@ -24,6 +24,7 @@ import {
   type DirectedGraphNode,
 } from "./layoutDirectedGraph";
 import { clusterNode, measureTitles, mermaidClosingOrder, placedFrame } from "./clusters";
+import { placeConnectors } from "./connectors";
 
 /**
  * Horizontal padding between an entity box's edge and its name, and vertical
@@ -305,19 +306,12 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
     model.entities.map((entity) => [entity.id, planErBox(entity, options)] as const),
   );
   /**
-   * Each relationship's label wrapped and measured at the 12px it is drawn
-   * at (`wrapErRelationshipLabel`: 200 × 12/14 ≈ 171.43px of text, as
-   * Mermaid wraps its 14px ER label at 200px — the label-wrap ADR, nook
-   * `01M4R4WDZ`, as amended), by the relationship's
-   * id — once, so the box the core keeps clear and the box the renderer
-   * draws in are the same box, and the rows drawn are the wrapped label's.
+   * Each relationship's label wrapped once, before the core
+   * (`placeConnectors`) — at ER's own width, `wrapErRelationshipLabel`'s
+   * 200 × 12/14 ≈ 171.43px of text rather than every other connector's
+   * 150px, as Mermaid wraps its 14px ER label at 200px.
    */
-  const wrappedRelationshipLabelById = new Map(
-    model.relationships.map(
-      (relationship) =>
-        [relationship.id, wrapErRelationshipLabel(relationship.label, options.measureText)] as const,
-    ),
-  );
+  const connectors = placeConnectors(model.relationships, options.measureText, wrapErRelationshipLabel);
   /** Each block's title, measured once (`measureTitles`). */
   const titleBoxById = measureTitles(model.subgraphs, options.measureText);
 
@@ -369,7 +363,7 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
         // required — so the core is always asked to keep room for one on the
         // line, and it reports back where that room ended up. Sized from
         // every row of the label (ADR-0015).
-        label: wrappedRelationshipLabelById.get(relationship.id)!.labelBox,
+        label: connectors.labelBoxOf(relationship.id),
         // The radius the line hops keep clear of: a relationship is drawn
         // rounded (`CONNECTOR_CURVE`).
         cornerRadius: CONNECTOR_CORNER_RADIUS,
@@ -382,20 +376,6 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
       }),
     ),
   });
-
-  /**
-   * Each styled entity's and cluster's declarations, keyed for lookup below.
-   *
-   * `buildErModel` has already merged everything one entity was styled by
-   * and dropped the values its gate refused, and omits an entity that ended
-   * up with none — so there is nothing to reconcile here. An entity absent
-   * from this map gets the empty pair, which is what says "no `style`
-   * attribute" to the renderer without it having to test for a missing
-   * field. `layoutStateDiagram` keys a state's the same way.
-   */
-  const styleById = new Map(
-    model.styles.map(({ targetId, style }) => [targetId, style]),
-  );
 
   const boxById = new Map(laidOut.nodes.map((box) => [box.id, box]));
   const routeById = new Map(laidOut.edges.map((route) => [route.id, route]));
@@ -411,10 +391,16 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
       y: box.y,
       width: box.width,
       height: box.height,
-      // By id and never by position: a stage that handed the resolved list
-      // out in draw order would style the wrong box, draw a perfectly good
-      // picture, and report nothing.
-      style: styleById.get(entity.id) ?? { frame: [], text: [] },
+      // `buildErModel` has already merged everything one entity was styled
+      // by and dropped the values its gate refused, so there is nothing to
+      // reconcile here. An entity it left without a `style` gets the empty
+      // pair, which is what says "no `style` attribute" to the renderer
+      // without it having to test for a missing field — the renderer asks
+      // one question of every box. A style lost on the way would draw a
+      // perfectly good picture and report nothing, so the builder is where
+      // that is refused: `writeAuthorStyles` throws by name on a style with
+      // no target. `layoutStateDiagram` reads a state's the same way.
+      style: entity.style ?? { frame: [], text: [] },
       // The plan was measured against the box's own top-left corner, so
       // placing it is one translation — the step `layoutClassDiagram` takes
       // for a class's compartments, and the reason nothing downstream has to
@@ -438,25 +424,14 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
     };
   });
 
-  const relationships: PositionedErRelationship[] = model.relationships.map(
-    (relationship) => {
-      const route = routeById.get(relationship.id)!;
+  const relationships: PositionedErRelationship[] = connectors.place(routeById).map(
+    (placed, index) => {
+      const relationship = model.relationships[index]!;
       return {
-        id: relationship.id,
-        from: relationship.from,
-        to: relationship.to,
+        ...placed,
         fromCardinality: relationship.fromCardinality,
         toCardinality: relationship.toCardinality,
         line: relationship.line,
-        points: route.points,
-        hops: route.hops,
-        label:
-          route.labelAnchor === undefined
-            ? null
-            : {
-                ...wrappedRelationshipLabelById.get(relationship.id)!,
-                anchor: route.labelAnchor,
-              },
       };
     },
   );
@@ -469,10 +444,11 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
     (subgraph): PositionedErSubgraph => ({
       id: subgraph.id,
       ...placedFrame(boxById.get(subgraph.id)!, subgraph.label, titleBoxById.get(subgraph.id)!),
-      // Keyed on the generated id `buildErModel` rewrote the author's block
-      // name to, and never inherited by a nested frame — measured, mermaid
-      // 12.2.0 paints only the cluster the statement named.
-      style: styleById.get(subgraph.id) ?? { frame: [], text: [] },
+      // Written onto the cluster under the generated id `buildErModel`
+      // rewrote the author's block name to, and never inherited by a nested
+      // frame — measured, mermaid 12.2.0 paints only the cluster the
+      // statement named.
+      style: subgraph.style ?? { frame: [], text: [] },
     }),
   );
 

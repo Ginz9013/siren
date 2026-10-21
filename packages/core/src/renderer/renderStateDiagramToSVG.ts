@@ -8,9 +8,10 @@ import type {
 } from "../contracts";
 import { CONNECTOR_CURVE } from "../curve/curve";
 import { appendLabel, drawLabel } from "../label/drawLabel";
-import { drawConnectorLabel } from "../label/drawPlaced";
+import { buildConnectorLabels, buildConnectorLine } from "./connector";
 import { drawConnectorRoute } from "./connectorCurve";
 import { appendAccessibleText } from "./appendAccessibleText";
+import { applyInlineStyle } from "./inlineStyle";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 
@@ -163,7 +164,7 @@ function buildState(state: PositionedState): SVGGElement {
   frame.setAttribute("y", String(state.y));
   frame.setAttribute("width", String(state.width));
   frame.setAttribute("height", String(state.height));
-  applyAuthorStyle(frame, state.style.frame);
+  applyInlineStyle(frame, state.style.frame);
   g.appendChild(frame);
 
   // No `rx` here: a state's corner radius is a decoration of the box rather
@@ -305,7 +306,7 @@ function buildComposite(state: PositionedState): SVGGElement {
   // 11.17.2): `class Outer urgent` puts the class on the cluster's own `<g>`
   // and its generated rule paints the rects inside it. So a composite is
   // styled exactly as a state is, on the one rect it is drawn as.
-  applyAuthorStyle(frame, state.style.frame);
+  applyInlineStyle(frame, state.style.frame);
   g.appendChild(frame);
 
   // No `rx` here either — a frame's corner radius is the theme's, for the
@@ -388,41 +389,8 @@ function appendStateLabel(
   // A composite's title carries its own `x` where the layout moved it along
   // the strip; every other label is centred on its box.
   const drawn = drawLabel(planned.label, planned.labelBox, { x: planned.x ?? centerX, y: planned.y }, className);
-  applyAuthorStyle(drawn.text, style);
+  applyInlineStyle(drawn.text, style);
   appendLabel(g, drawn);
-}
-
-/**
- * Writes the author's resolved `classDef`/`class` declarations onto
- * `element` as an inline `style` attribute, in declaration order, or leaves
- * the element without one when the author styled nothing.
- *
- * The same function `renderClassDiagramToSVG` has, for the same reasons,
- * spelled the same way: inline rather than a generated class rule, and on
- * the drawn shape rather than its enclosing `<g>`, both for the cascade
- * reason ADR-0008 records. The theme styles `.siren-state-frame` and
- * `.siren-state-label` directly, so an inline declaration on those elements
- * outranks it without `!important`, while the same declaration on the `<g>`
- * would only ever be *inherited* by them and so would lose.
- *
- * The values are written verbatim. They are author input, but they arrive
- * here having already passed `resolveStyles`' gate in `buildStateModel` (no
- * `url(`, no `expression(`, no `;`, no backslash), and re-checking here
- * would fork that single source of truth. This attribute is a CSS sink,
- * never an HTML one: nothing is parsed as markup, so the hard
- * `textContent`-never-`innerHTML` invariant is untouched.
- *
- * A pseudo-state is deliberately not reached by this: `[*]` is not an id, so
- * no `class` statement can name one.
- */
-function applyAuthorStyle(element: SVGElement, style: StyleProperty[]): void {
-  if (style.length === 0) {
-    return;
-  }
-  element.setAttribute(
-    "style",
-    style.map(({ property, value }) => `${property}:${value}`).join(";"),
-  );
 }
 
 /**
@@ -473,7 +441,7 @@ function buildStereotypedState(state: PositionedState): SVGGElement {
         `${state.x},${midY}`,
       ].join(" "),
     );
-    applyAuthorStyle(diamond, state.style.frame);
+    applyInlineStyle(diamond, state.style.frame);
     g.appendChild(diamond);
     return g;
   }
@@ -489,7 +457,7 @@ function buildStereotypedState(state: PositionedState): SVGGElement {
   bar.setAttribute("y", String(state.y));
   bar.setAttribute("width", String(state.width));
   bar.setAttribute("height", String(state.height));
-  applyAuthorStyle(bar, state.style.frame);
+  applyInlineStyle(bar, state.style.frame);
   g.appendChild(bar);
   return g;
 }
@@ -502,6 +470,9 @@ function buildStereotypedState(state: PositionedState): SVGGElement {
  * No label, and deliberately: a pseudo-state's id is *generated*
  * (`start:1`), so the only text there could be to draw is a string the
  * author never wrote and no reader should be shown.
+ *
+ * Never styled either: `[*]` is not an id, so no `class` statement can name
+ * one.
  */
 function buildPseudoState(state: PositionedState): SVGGElement {
   const g = document.createElementNS(SVG_NS, "g");
@@ -562,65 +533,28 @@ function buildCircle(
 /**
  * Builds the `<g class="siren-transition">` for one transition: the routed
  * line with its arrowhead, and nothing else. Its label is a group of its own
- * — `buildTransitionLabels` — drawn after every line (ADR-0016).
+ * — `buildTransitionLabels` — drawn after every line (ADR-0016; see
+ * `connector.ts`).
  */
 function buildTransition(
   transition: PositionedStateTransition,
   scope: string,
 ): SVGGElement {
-  const g = document.createElementNS(SVG_NS, "g");
-  g.setAttribute("class", "siren-transition");
-  g.setAttribute("data-siren-id", transition.id);
-
-  const line = document.createElementNS(SVG_NS, "path");
-  line.setAttribute("class", "siren-transition-line");
-  // Rounded, with the line hops the layout found (`CONNECTOR_CURVE`:
-  // the curve layout kept the hops clear of).
-  drawConnectorRoute(line, transition.points, CONNECTOR_CURVE, transition.hops);
-  // Explicit, not left to CSS: a transition's points make an open,
-  // multi-segment path, which a default fill would paint as a filled polygon
-  // spanning the states it connects.
-  line.setAttribute("fill", "none");
-  line.setAttribute("marker-end", `url(#${ARROW_MARKER_NAME}${scope})`);
-  g.appendChild(line);
-
-  return g;
+  return buildConnectorLine(transition, {
+    className: "siren-transition",
+    scope,
+    markerEnd: ARROW_MARKER_NAME,
+  });
 }
 
 /**
  * Builds the `<g class="siren-transition-labels">` for one transition — its
  * label — or `null` when the author wrote none: an unlabelled transition
- * draws no empty group.
- *
- * It wears the transition's `data-siren-id`, the same id as its line group.
- * ADR-0009 makes a timeline target an id rather than an element, so
- * `exit Idle-Running fade` reaches both groups with no help from the
- * controller (ADR-0016). Its class name is in the theme's shared font rule,
- * so the text inherits the face and size it had inside the line group.
+ * draws no empty group. It wears the transition's id, the same as its line
+ * group (`connector.ts`).
  */
 function buildTransitionLabels(transition: PositionedStateTransition): SVGGElement | null {
-  if (transition.label === null) {
-    return null;
-  }
-  const g = document.createElementNS(SVG_NS, "g");
-  g.setAttribute("class", "siren-transition-labels");
-  g.setAttribute("data-siren-id", transition.id);
-
-  // Drawn by `drawLabel`, centred on the anchor — the centre of the box the
-  // shared core kept clear — like every other label here. That makes this
-  // the one `<text>` in the file to gain `dominant-baseline: middle`: it was
-  // drawn with its *baseline* on the anchor, which sat the text above the
-  // middle of the space reserved for it. Its `x` and `y` attributes are
-  // unchanged for a label of one row; what moves is where the glyphs sit
-  // around them — down by the distance from the alphabetic baseline to the
-  // middle one, half the font's x-height (about 0.26em, some 4px at the
-  // 14px default), so the text is now centred where layout made room.
-  //
-  // With the background every connector label is painted on, under the
-  // text; it takes the group's id, and with it the timeline's classes.
-  appendLabel(g, drawConnectorLabel(transition.label, "siren-transition-label"));
-
-  return g;
+  return transition.label === null ? null : buildConnectorLabels(transition, "siren-transition");
 }
 
 /**

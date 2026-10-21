@@ -21,13 +21,13 @@ import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
 import { entityCodeAt, htmlText } from "../label/characterReferences";
 import { atConnectorLabelSize, plainRun } from "../label/label";
 import { layoutLabel } from "../label/layoutLabel";
-import { wrapConnectorLabel } from "../label/wrapLabel";
 import {
   layoutDirectedGraph,
   type DirectedGraphNodeBox,
   type DirectedGraphTerminalLabel,
 } from "./layoutDirectedGraph";
 import { clusterNode, measureTitles, placedFrame } from "./clusters";
+import { placeConnectors } from "./connectors";
 import { noteBoxSize, noteLinkEdgeId, noteNodeId } from "./notes";
 
 /** Horizontal padding between a class box's edge and its widest text line. */
@@ -430,21 +430,8 @@ export function layoutClassDiagram(
     model.notes.map((note) => [note.id, layoutLabel(note.label, options.measureText)] as const),
   );
 
-  /**
-   * Each labelled relationship's label wrapped and measured at the 12px it
-   * is drawn at (`wrapConnectorLabel`: 150px of text, Mermaid's 200 scaled
-   * to that size, by the label-wrap ADR, nook `01M4R4WDZ`), by the
-   * relationship's id — once, so the box the core keeps clear and the box
-   * the renderer draws in are the same box, and the rows drawn are the
-   * wrapped label's.
-   */
-  const wrappedRelationshipLabelById = new Map(
-    model.relationships.flatMap((rel) =>
-      rel.label === null
-        ? []
-        : [[rel.id, wrapConnectorLabel(rel.label, options.measureText)] as const],
-    ),
-  );
+  /** Each relationship's label wrapped once, before the core (`placeConnectors`). */
+  const connectors = placeConnectors(model.relationships, options.measureText);
 
   const laidOut = layoutDirectedGraph({
     direction: model.direction,
@@ -536,9 +523,7 @@ export function layoutClassDiagram(
         to: rel.to,
         // A labelled relationship asks the core to keep its ranks far enough
         // apart for the text, and reports back where that space ended up.
-        ...(rel.label === null
-          ? {}
-          : { label: wrappedRelationshipLabelById.get(rel.id)!.labelBox }),
+        ...(rel.label === null ? {} : { label: connectors.labelBoxOf(rel.id) }),
         // The radius the line hops keep clear of: the connector is drawn
         // rounded (`CONNECTOR_CURVE`).
         cornerRadius: CONNECTOR_CORNER_RADIUS,
@@ -572,20 +557,6 @@ export function layoutClassDiagram(
     id: ns.id,
     ...placedFrame(boxById.get(namespaceNodeId(ns.id))!, ns.label, namespaceLabelBoxById.get(ns.id)!),
   }));
-
-  /**
-   * Each styled class's declarations, keyed for lookup below.
-   *
-   * `buildClassModel` has already merged everything one class was styled by —
-   * its `style` statements and every `classDef` a `cssClass` applied to it —
-   * into a single entry with no repeated property, and omits a class that
-   * ended up with none. So there is nothing to reconcile here: this carries
-   * the model's answer through, and a class absent from the map is one the
-   * renderer must give no `style` attribute at all.
-   */
-  const styleByClassId = new Map(
-    model.styles.map(({ targetId, style }) => [targetId, style]),
-  );
 
   /**
    * The one interaction each class ends up with.
@@ -637,30 +608,24 @@ export function layoutClassDiagram(
       height: box.height,
       attributes: place(plan.attributes),
       methods: place(plan.methods),
-      style: styleByClassId.get(cls.id) ?? { frame: [], text: [] },
+      // `buildClassModel` has already merged everything one class was styled
+      // by into its `style`, with no repeated property, so there is nothing
+      // to reconcile here; a class it left without one is a class the
+      // renderer gives no `style` attribute at all.
+      style: cls.style ?? { frame: [], text: [] },
       interaction: interactionByClassId.get(cls.id) ?? null,
     };
   });
 
-  const relationships = model.relationships.map<PositionedClassRelationship>(
-    (rel) => {
+  const relationships = connectors.place(routeById).map<PositionedClassRelationship>(
+    (placed, index) => {
+      const rel = model.relationships[index]!;
       const route = routeById.get(rel.id)!;
       return {
-        id: rel.id,
-        from: rel.from,
-        to: rel.to,
+        ...placed,
         line: rel.line,
         fromEnd: rel.fromEnd,
         toEnd: rel.toEnd,
-        points: route.points,
-        hops: route.hops,
-        label:
-          rel.label === null || route.labelAnchor === undefined
-            ? null
-            : {
-                ...wrappedRelationshipLabelById.get(rel.id)!,
-                anchor: route.labelAnchor,
-              },
         fromMultiplicity: rel.fromMultiplicity,
         fromMultiplicityAnchor:
           rel.fromMultiplicity === null ? null : (route.terminalLabelCenters?.startRight ?? null),
