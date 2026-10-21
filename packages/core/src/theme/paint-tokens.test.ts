@@ -1,27 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { readBeside } from "./testing/stylesheet";
 
 /**
  * A colour token may hold `url(#id)` — a page's own `<linearGradient>`, `<radialGradient>` or
  * `<pattern>` — because the theme only ever hands a token's value to `fill` or `stroke` whole
  * (decision 01M5D5ZQQM84YNK3FJ1NE1G2S8). One `color-mix()` or `calc()` around a token would turn
  * that paint server into black without a word, so this file scans `default.css` for any other use.
- *
- * Both files are read off disk the way `readme-tokens.test.ts` reads them (see the note in
- * `default.test.ts` on why neither `?raw` nor `import "node:fs"` works in this package).
  */
-const readText = (relativePath: string): string =>
-  (
-    globalThis as unknown as {
-      process: {
-        getBuiltinModule(id: "node:fs"): { readFileSync(path: string, encoding: "utf8"): string };
-      };
-    }
-  ).process
-    .getBuiltinModule("node:fs")
-    .readFileSync(
-      `${(import.meta as unknown as { dirname: string }).dirname}/${relativePath}`,
-      "utf8",
-    );
+
+/** A binding of `import.meta.url`, not the literal, for `readBeside` (see its doc). */
+const TEST_FILE_URL = import.meta.url;
 
 /** The colour tokens that promise to carry a paint server. */
 const PAINT_TOKENS = [
@@ -101,6 +89,9 @@ function isDropShadowColour(text: string, start: number, length: number): boolea
  * Where a paint token is used as anything but the whole value of `fill`, `stroke`, or a
  * `--siren-*` / `--_siren-*` custom property that carries it on. A glow token is held to the same,
  * except that it may also be the colour of a `drop-shadow()`.
+ *
+ * Scans the raw text rather than `readStylesheet`: it reports a violation's line, which the CSSOM
+ * does not keep, and judges a `var()` by where it sits in the value as written, not as serialised.
  */
 function paintTokenViolations(
   css: string,
@@ -186,12 +177,12 @@ describe("paintTokenViolations", () => {
 
 describe("the colour tokens in default.css", () => {
   it("reach SVG paint only whole, so each can hold url(#id)", () => {
-    expect(paintTokenViolations(readText("default.css"), PAINT_TOKENS, GLOW_TOKENS)).toEqual([]);
+    expect(paintTokenViolations(readBeside(TEST_FILE_URL, "./default.css"), PAINT_TOKENS, GLOW_TOKENS)).toEqual([]);
   });
 
   it("are exactly the README table's Colors and Label paint tokens", () => {
     expect([...PAINT_TOKENS, ...GLOW_TOKENS].sort()).toEqual(
-      readmeColourTokens(readText("../../README.md")).sort(),
+      readmeColourTokens(readBeside(TEST_FILE_URL, "../../README.md")).sort(),
     );
   });
 });
