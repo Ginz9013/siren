@@ -4085,16 +4085,16 @@ enter C fade
         expect(onStepChange).toHaveBeenCalledTimes(1);
       });
 
-      it("a drag is not a click: the button coming up more than 4px from where it went down steps nothing, 4px or less steps", () => {
+      it("a drag is not a click: the button coming up more than 10px from where it went down steps nothing, 10px or less steps", () => {
         const container = document.createElement("div");
         const board = createBoard(container, { source: TWO_STEP_SOURCE, measureText: FAKE_MEASURER });
         board.setFullscreen(true);
 
-        clickAt(canvasOf(container), { down: { x: 10, y: 10 }, up: { x: 13, y: 13 } }); // 4.24px
+        clickAt(canvasOf(container), { down: { x: 10, y: 10 }, up: { x: 18, y: 18 } }); // 11.31px
         clickAt(canvasOf(container), { down: { x: 10, y: 10 }, up: { x: 40, y: 50 } });
         expect(board.controller!.currentStep).toBe(0);
 
-        clickAt(canvasOf(container), { down: { x: 10, y: 10 }, up: { x: 14, y: 10 } }); // exactly 4px
+        clickAt(canvasOf(container), { down: { x: 10, y: 10 }, up: { x: 20, y: 10 } }); // exactly 10px
         expect(board.controller!.currentStep).toBe(1);
       });
 

@@ -28,8 +28,9 @@ const DEFAULT_PLAY_INTERVAL = 2000;
 /**
  * How far, in CSS pixels, the pointer may move between mousedown and click
  * for the click still to step in fullscreen; further, and it was a pan.
+ * Loose enough for a trackpad click, whose finger drifts a few pixels.
  */
-const CLICK_SLOP = 4;
+const CLICK_SLOP = 10;
 /**
  * What the author made interactive in a drawing: `click X call fn()`'s
  * elements, `click X href`'s links (SVG `<a>`), and a sequence participant's
