@@ -18,6 +18,12 @@ While the version is 0.x, a minor release may contain breaking changes.
   step, playback and the full diagram, and does not re-render. Both draw the board on
   `--siren-board-surface` (nook decision `01M5D3SBB`).
 - The built-in bar has a Fullscreen button after Reset view, pressed while fullscreen is on.
+- While `board.fullscreen` is `true`, screen or fill, a plain left click on the board's canvas
+  steps forward one step through the controller, as Next does: `onStepChange` fires, and it stops
+  playback like any manual step. A drag that pans, a click with a modifier key or another button,
+  a click on the author's clickable elements, links or a sequence link menu, the last step and the
+  full diagram all leave the step alone. Outside fullscreen nothing changes, and no public type
+  changes (nook decision `01M5EKKNM`).
 - A dot grid behind the diagram: `BoardOptions.dotGrid` (on when omitted), `board.dotGrid`,
   `board.setDotGrid(on)` and `BoardOptions.onDotGridChange(on)`, shaped like `fullDiagram`. The
   dots are drawn on the board's canvas (`.siren-board-canvas--dots`), 22px apart, and move and
