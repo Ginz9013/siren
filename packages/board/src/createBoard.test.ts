@@ -4019,4 +4019,91 @@ enter C fade
       });
     });
   });
+
+  describe("dot grid", () => {
+    /** The board's canvas, which carries the dot grid's class. */
+    function canvas(container: HTMLElement): HTMLElement {
+      return container.querySelector<HTMLElement>(".siren-board-canvas")!;
+    }
+
+    it("is on by default: board.dotGrid is true and the canvas wears siren-board-canvas--dots", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER });
+
+      expect(board.dotGrid).toBe(true);
+      expect(canvas(container).classList.contains("siren-board-canvas--dots")).toBe(true);
+    });
+
+    it("starts off with { dotGrid: false }: board.dotGrid is false and the canvas has no siren-board-canvas--dots", () => {
+      const container = document.createElement("div");
+      const board = createBoard(container, { source: VALID_SOURCE, measureText: FAKE_MEASURER, dotGrid: false });
+
+      expect(board.dotGrid).toBe(false);
+      expect(canvas(container).classList.contains("siren-board-canvas--dots")).toBe(false);
+    });
+
+    it("sets the canvas class from the initial value with controls: false too — the grid is not the bar's", () => {
+      const on = document.createElement("div");
+      const off = document.createElement("div");
+      createBoard(on, { source: VALID_SOURCE, measureText: FAKE_MEASURER, controls: false });
+      createBoard(off, { source: VALID_SOURCE, measureText: FAKE_MEASURER, controls: false, dotGrid: false });
+
+      expect(canvas(on).classList.contains("siren-board-canvas--dots")).toBe(true);
+      expect(canvas(off).classList.contains("siren-board-canvas--dots")).toBe(false);
+    });
+
+    it("setDotGrid turns it off and on, firing onDotGridChange once per actual change and never for the initial value or a repeat", () => {
+      const container = document.createElement("div");
+      const seen: boolean[] = [];
+      const board = createBoard(container, {
+        source: VALID_SOURCE,
+        measureText: FAKE_MEASURER,
+        onDotGridChange: (on) => seen.push(on),
+      });
+      expect(seen).toEqual([]);
+
+      board.setDotGrid(false);
+      expect(board.dotGrid).toBe(false);
+      expect(canvas(container).classList.contains("siren-board-canvas--dots")).toBe(false);
+      expect(seen).toEqual([false]);
+
+      board.setDotGrid(false);
+      expect(seen).toEqual([false]);
+
+      board.setDotGrid(true);
+      expect(board.dotGrid).toBe(true);
+      expect(canvas(container).classList.contains("siren-board-canvas--dots")).toBe(true);
+      expect(seen).toEqual([false, true]);
+    });
+
+    it("setDotGrid after destroy() does nothing: no throw, no onDotGridChange, no change", () => {
+      const seen: boolean[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: VALID_SOURCE,
+        measureText: FAKE_MEASURER,
+        onDotGridChange: (on) => seen.push(on),
+      });
+      board.destroy();
+
+      expect(() => board.setDotGrid(false)).not.toThrow();
+      expect(seen).toEqual([]);
+      expect(board.dotGrid).toBe(true);
+    });
+
+    it("calls a ControlsFactory's update() once on every change, with the new value already on the board, and not on a no-op", () => {
+      const seen: boolean[] = [];
+      const board = createBoard(document.createElement("div"), {
+        source: VALID_SOURCE,
+        measureText: FAKE_MEASURER,
+        controls: (b) => ({ element: document.createElement("div"), update: () => seen.push(b.dotGrid) }),
+      });
+      seen.length = 0; // the first render's update() is not this test's
+
+      board.setDotGrid(false);
+      board.setDotGrid(false);
+      board.setDotGrid(true);
+
+      expect(seen).toEqual([false, true]);
+    });
+  });
 });

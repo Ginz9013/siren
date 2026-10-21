@@ -232,3 +232,34 @@ describe("board chrome's control bar states", () => {
     }
   });
 });
+
+describe("board chrome's dot grid", () => {
+  it("draws the dot grid on the canvas from the chrome text color, with no color of its own and no new token", () => {
+    // The dots derive from --siren-board-text, so a consumer who redeclares
+    // the chrome tokens for dark chrome gets dark-chrome dots for free; a
+    // literal here would be a color no page theme can reach.
+    const sheet = chromeStylesheet();
+
+    const dots = sheet.rule(".siren-board-canvas--dots")?.cssText;
+    expect(dots).toBeDefined();
+    expect(dots).toMatch(/background-image:\s*radial-gradient\(/);
+    expect(dots).toContain("var(--siren-board-text)");
+    expect(sheet.literalsOutsideTokenBlocks()).toEqual([]);
+
+    // Still the six tokens: the grid opened none of its own.
+    expect([...sheet.declaredTokens()].sort()).toEqual(Object.keys(CHROME).sort());
+  });
+
+  it("spaces and offsets the dots by the view the viewport publishes, falling back to an unmoved view", () => {
+    // 22px apart and 11px in, as siren-website's hero canvas, both scaled
+    // by the zoom and shifted by the pan, so the grid moves with the
+    // diagram like an infinite canvas. The fallbacks keep the grid right
+    // where nothing has published a view yet.
+    const dots = chromeStylesheet().rule(".siren-board-canvas--dots")?.cssText ?? "";
+
+    expect(dots).toMatch(/background-size:\s*calc\(22px \* var\(--_siren-board-view-scale, 1\)\)/);
+    expect(dots).toContain("var(--_siren-board-view-x, 0px)");
+    expect(dots).toContain("var(--_siren-board-view-y, 0px)");
+    expect(dots).toMatch(/background-position:\s*calc\(var\(--_siren-board-view-x, 0px\) \+ 11px \* var\(--_siren-board-view-scale, 1\)\)/);
+  });
+});

@@ -15,6 +15,13 @@ import { createViewport } from "./viewport";
 
 const ERROR_BANNER_CLASS = "siren-board-error";
 const CANVAS_CLASS = "siren-board-canvas";
+/**
+ * On the canvas while the dot grid shows; the chrome stylesheet draws the
+ * dots from it (see styles.ts). A modifier of the canvas rather than an
+ * element of its own, so nothing new sits between the viewport and the
+ * pointer, and the dots are never part of what `render()` mounts or exports.
+ */
+const DOTS_CLASS = "siren-board-canvas--dots";
 /** On the container while the board fills the window in place of the screen; internal, not a public hook. */
 const FILL_CLASS = "siren-board--fill";
 const DEFAULT_PLAY_INTERVAL = 2000;
@@ -24,8 +31,8 @@ const DEFAULT_PLAY_INTERVAL = 2000;
  * `update` once after anything a bar shows may have changed — a `setSource`
  * that rendered, a step change from any source, a `fullDiagram`, `timeline`
  * or `omitAuthorStyles` switch, a `playing` or `playInterval` change, a turn
- * of `fullscreen` — and never after `destroy()`; read the new state off
- * `board` there.
+ * of `fullscreen` or `dotGrid` — and never after `destroy()`; read the new
+ * state off `board` there.
  */
 export type ControlsFactory = (board: Board) => { element: HTMLElement; update?(): void; destroy?(): void };
 
@@ -90,6 +97,14 @@ export interface BoardOptions {
    * hold the new facts in every callback before it.
    */
   onStyles?: (styles: readonly StyleFact[], siren: unknown) => void;
+  /**
+   * Whether the canvas starts with the dot grid behind the diagram; on when
+   * omitted. Change it later with `setDotGrid`. Nothing remembers it across
+   * page loads: a consumer who wants that keeps it from `onDotGridChange`.
+   */
+  dotGrid?: boolean;
+  /** Fired whenever `dotGrid` actually changes, from the built-in bar or a direct `setDotGrid` call. */
+  onDotGridChange?: (dotGrid: boolean) => void;
 }
 
 /**
@@ -194,6 +209,19 @@ export interface Board {
    * `RangeError`. While playing, the next step comes `ms` after this call.
    */
   setPlayInterval(ms: number): void;
+  /**
+   * Whether the canvas shows the dot grid behind the diagram (see
+   * CONTEXT.md's "Dot grid"). Chrome only: it is drawn on board's canvas,
+   * never in the SVG `render()` mounts, so it is never exported.
+   */
+  readonly dotGrid: boolean;
+  /**
+   * Shows or hides the dot grid. Draws nothing and never changes the view,
+   * the step, `playing` or `controller`: the grid is the canvas's
+   * background, not part of the diagram. Setting the current value is a
+   * no-op; after `destroy()`, so is everything.
+   */
+  setDotGrid(on: boolean): void;
   /** Resets pan/zoom to the initial fit-to-container state (scale 1.0, no offset). */
   resetView(): void;
   destroy(): void;
@@ -216,6 +244,13 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
   const canvas = document.createElement("div");
   canvas.className = CANVAS_CLASS;
   container.appendChild(canvas);
+  /**
+   * On unless the caller says otherwise, and set on the canvas here, before
+   * any bar is mounted: the grid belongs to the canvas, so `controls: false`
+   * keeps it, and the initial value is state, not a change, so nothing fires.
+   */
+  let dotGrid = options.dotGrid ?? true;
+  canvas.classList.toggle(DOTS_CLASS, dotGrid);
 
   const viewport = createViewport(canvas);
 
@@ -589,6 +624,19 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     if (changed) updateControls();
   }
 
+  /**
+   * Turns the dot grid by toggling the canvas's class; the chrome stylesheet
+   * does the drawing, and the viewport's published view moves it with
+   * pan/zoom (viewport.ts). No render: the diagram is untouched.
+   */
+  function setDotGrid(on: boolean): void {
+    if (destroyed || on === dotGrid) return;
+    dotGrid = on;
+    canvas.classList.toggle(DOTS_CLASS, dotGrid);
+    updateControls();
+    options.onDotGridChange?.(dotGrid);
+  }
+
   /** Whether the board fills the browser window: its fullscreen where the screen is not to be had. */
   let fill = false;
   /** The `fullscreen` last reported, so a callback fires only when it actually turns. */
@@ -721,9 +769,13 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     get playInterval() {
       return playInterval;
     },
+    get dotGrid() {
+      return dotGrid;
+    },
     setSource,
     setFullDiagram,
     setFullscreen,
+    setDotGrid,
     setOmitAuthorStyles,
     setTimeline,
     play,
