@@ -8,6 +8,12 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-21
+
+Requires `siren-core` ^0.8.0. Breaking for a page that reaches the built-in control bar as the
+board container's own child — `.siren-board > .siren-board-controls`, or
+`container.lastElementChild` — which now sits inside `.siren-board-chrome` (see **Changed**).
+
 ### Added
 
 - `board.fullscreen`, `board.setFullscreen(on)` and `BoardOptions.onFullscreenChange(on)`, shaped
