@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readBeside, readStylesheet } from "./stylesheet";
 
 /** This file's own URL, bound first: Vite rewrites a literal `new URL("…", import.meta.url)`. */
@@ -53,11 +53,11 @@ const FIXTURE = `
 }
 `;
 
-const read = (css: string) => readStylesheet(css, { tokenPrefix: "--t-", rootSelector: ":root" });
+const readFixture = (css: string) => readStylesheet(css, { tokenPrefix: "--t-", rootSelector: ":root" });
 
 describe("readStylesheet", () => {
   it("lists every style rule in sheet order, walking @media and skipping comments and @keyframes", () => {
-    const sheet = read(FIXTURE);
+    const sheet = readFixture(FIXTURE);
 
     expect(sheet.text).toBe(FIXTURE);
     expect(sheet.rules.map((rule) => [rule.selector, rule.nested])).toEqual([
@@ -80,7 +80,7 @@ describe("readStylesheet", () => {
   });
 
   it("finds the one rule whose selector is exactly the one asked for", () => {
-    const sheet = read(FIXTURE);
+    const sheet = readFixture(FIXTURE);
 
     expect(sheet.rule(".siren-edge-fast")?.cssText).toMatch(/animation: var\(--t-march-fast\);/);
     // Exactly: `.siren-edge, :root` is a rule of its own, not a `:root` or a
@@ -90,14 +90,25 @@ describe("readStylesheet", () => {
     expect(sheet.rule(".siren-box")).toBeUndefined();
   });
 
+  it("throws when the injected <style> yields no sheet", () => {
+    // jsdom parses an attached `<style>`; one kept out of the document has a
+    // null `sheet`, which is the only way to reach the guard.
+    const append = vi.spyOn(document.head, "appendChild").mockImplementation((node) => node);
+    try {
+      expect(() => readFixture("a { color: red; }")).toThrow(/has no sheet/);
+    } finally {
+      append.mockRestore();
+    }
+  });
+
   it("throws, naming the selector, when more than one rule is exactly it", () => {
-    const sheet = read(".siren-a { color: red; }\n@media print { .siren-a { color: blue; } }");
+    const sheet = readFixture(".siren-a { color: red; }\n@media print { .siren-a { color: blue; } }");
 
     expect(() => sheet.rule(".siren-a")).toThrow(/2 rules select exactly "\.siren-a"/);
   });
 
   it("names every rule declaring a property, @media ones included", () => {
-    const sheet = read(FIXTURE);
+    const sheet = readFixture(FIXTURE);
 
     expect(sheet.rulesDeclaring("animation")).toEqual([".siren-edge", ".siren-edge-fast"]);
     expect(sheet.rulesDeclaring("--t-march")).toEqual([".siren-edge-fast"]);
@@ -107,7 +118,7 @@ describe("readStylesheet", () => {
   });
 
   it("says a class is selected only when a selector names it as a whole token", () => {
-    const sheet = read(FIXTURE);
+    const sheet = readFixture(FIXTURE);
 
     expect(sheet.selectsClass("siren-box-background")).toBe(true);
     expect(sheet.selectsClass("siren-edge-fast")).toBe(true);
@@ -119,8 +130,31 @@ describe("readStylesheet", () => {
     expect(sheet.selectsClass("siren-ghost")).toBe(false);
   });
 
+  it("sees a class selected only inside @media, since at-rules are walked", () => {
+    const sheet = readFixture(".siren-a { color: red; }\n@media print { .siren-only-print { color: blue; } }");
+
+    expect(sheet.selectsClass("siren-only-print")).toBe(true);
+  });
+
+  it("sees a class named inside :is( and :not(", () => {
+    const sheet = readFixture(":is(.siren-a, .siren-b) .x:not(.siren-c) { color: red; }");
+
+    expect(sheet.selectsClass("siren-a")).toBe(true);
+    expect(sheet.selectsClass("siren-b")).toBe(true);
+    expect(sheet.selectsClass("siren-c")).toBe(true);
+  });
+
+  it("marks rules inside @supports, and @media within it, as nested", () => {
+    const sheet = readFixture("@supports (display: grid) { @media print { .siren-s { color: red; } } .siren-t { color: blue; } }");
+
+    expect(sheet.rules.map((rule) => [rule.selector, rule.nested])).toEqual([
+      [".siren-s", true],
+      [".siren-t", true],
+    ]);
+  });
+
   it("takes as token blocks the rules whose every selector part is the root selector", () => {
-    expect(read(FIXTURE).tokenBlocks().map((rule) => rule.selector)).toEqual([":root, :root", ":root"]);
+    expect(readFixture(FIXTURE).tokenBlocks().map((rule) => rule.selector)).toEqual([":root, :root", ":root"]);
 
     // Board's root selector: `:root` alone is then not a token block.
     const board = readStylesheet(":where(:root) { --b-a: 1px; }\n:root { --b-b: 2px; }", {
@@ -130,41 +164,62 @@ describe("readStylesheet", () => {
     expect(board.tokenBlocks().map((rule) => rule.selector)).toEqual([":where(:root)"]);
   });
 
+  it("never takes a rule with a comma inside :is(…) for a token block", () => {
+    const sheet = readFixture(":is(:root, :root) { --t-a: 1px; }\n:root, :is(:root, .siren-x) { --t-b: 2px; }");
+
+    expect(sheet.rules.map((rule) => rule.selector)).toEqual([":is(:root, :root)", ":root, :is(:root, .siren-x)"]);
+    expect(sheet.tokenBlocks()).toEqual([]);
+  });
+
   it("tells tokens declared anywhere from tokens declared in a token block", () => {
-    const sheet = read(FIXTURE);
+    const sheet = readFixture(FIXTURE);
 
     // Not the comment's `--t-ghost`, and only names under the prefix.
     expect([...sheet.rootTokens()].sort()).toEqual(["--t-fill", "--t-gap", "--t-stroke"]);
     expect([...sheet.declaredTokens()].sort()).toEqual(["--t-fill", "--t-gap", "--t-hook", "--t-march", "--t-stroke"]);
-    expect([...read("a { --u-x: 1px; --t-y: 2px; }").declaredTokens()]).toEqual(["--t-y"]);
+    expect([...readFixture("a { --u-x: 1px; --t-y: 2px; }").declaredTokens()]).toEqual(["--t-y"]);
   });
 
   it("collects every prefixed name read through var(), fallbacks and @media included", () => {
-    expect([...read(FIXTURE).referencedTokens()].sort()).toEqual([
+    expect([...readFixture(FIXTURE).referencedTokens()].sort()).toEqual([
       "--t-fill",
       "--t-gap",
       "--t-march",
       "--t-march-fast",
       "--t-stroke",
     ]);
-    expect([...read("a { color: var(--u-x, var( --t-y)); }").referencedTokens()]).toEqual(["--t-y"]);
+    expect([...readFixture("a { color: var(--u-x, var( --t-y)); }").referencedTokens()]).toEqual(["--t-y"]);
   });
 
-  it("lists each read of exactly one name, as written, and not reads of a longer name", () => {
-    expect(read(FIXTURE).readsOf("--t-march")).toEqual(["var(--t-march, none)"]);
-    expect(read(FIXTURE).readsOf("--t-march-fast")).toEqual(["var(--t-march-fast)", "var(--t-march-fast)"]);
+  it("lists each read of exactly one name, as the CSSOM serialises it, and not reads of a longer name", () => {
+    expect(readFixture(FIXTURE).readsOf("--t-march")).toEqual(["var(--t-march, none)"]);
+    expect(readFixture(FIXTURE).readsOf("--t-march-fast")).toEqual(["var(--t-march-fast)", "var(--t-march-fast)"]);
     // A fallback that itself reads a var is part of the read.
-    expect(read("a { color: var(--t-a, var(--t-b)); }").readsOf("--t-a")).toEqual(["var(--t-a, var(--t-b))"]);
+    expect(readFixture("a { color: var(--t-a, var(--t-b)); }").readsOf("--t-a")).toEqual(["var(--t-a, var(--t-b))"]);
   });
 
-  it("finds colour literals in declaration values outside the token blocks", () => {
+  it("keeps the whitespace inside a read, for a custom property and a standard one alike", () => {
+    const sheet = readFixture("a { color: var( --t-x ); --t-y: var( --t-x , red ); }");
+
+    expect(sheet.readsOf("--t-x")).toEqual(["var( --t-x )", "var( --t-x , red )"]);
+  });
+
+  it("finds color literals in declaration values outside the token blocks", () => {
     // The token blocks' `#fff` and `rgb(` are where literals belong; the
     // fallback in the `.siren-edge, :root` list is not one.
-    expect(read(FIXTURE).literalsOutsideTokenBlocks()).toEqual(["#000"]);
+    expect(readFixture(FIXTURE).literalsOutsideTokenBlocks()).toEqual(["#000"]);
     // Values only: an id selector that looks like hex is no literal.
-    expect(read("#cafe { fill: hsla(0, 0%, 0%, 0.5); stroke: rgba(0, 0, 0, 0); }").literalsOutsideTokenBlocks()).toEqual([
+    expect(readFixture("#cafe { fill: hsla(0, 0%, 0%, 0.5); stroke: rgba(0, 0, 0, 0); }").literalsOutsideTokenBlocks()).toEqual([
       "hsla(",
       "rgba(",
+    ]);
+  });
+
+  it("finds uppercase and 8-digit hex literals as written", () => {
+    expect(readFixture("a { fill: #ABCDEF; stroke: #11223344; color: #FfF; }").literalsOutsideTokenBlocks()).toEqual([
+      "#ABCDEF",
+      "#11223344",
+      "#FfF",
     ]);
   });
 });
@@ -190,7 +245,7 @@ describe("readStylesheet on the real default.css", () => {
     expect(theme.rules.filter((rule) => rule.nested)).toHaveLength(1);
   });
 
-  it("finds no colour literal outside its token block", () => {
+  it("finds no color literal outside its token block", () => {
     expect(theme.literalsOutsideTokenBlocks()).toEqual([]);
   });
 });
