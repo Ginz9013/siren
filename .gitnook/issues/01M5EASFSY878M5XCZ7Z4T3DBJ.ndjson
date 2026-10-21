@@ -1,0 +1,3 @@
+{"id":"01M5EASFSYQ2DMV6YGN3JNWE6C","t":1,"a":"83a1","op":"create","title":"unroutable-connector 診斷對 ER / state 仍說 \"The edge\"：改用 connector 或各 kind 的名詞"}
+{"id":"01M5EASFT7S5DY8JQHP475DAA5","t":2,"a":"83a1","op":"set","k":"description","v":"發現於 render-table board 的 T2 review（spec `01M5EA1EHK37TDW6Q3HJ2K4Q92`）。\n\n`layout/layoutDirectedGraph.ts` 的 `unroutableMemberEdgeMessage` 對五種 kind 共用，句子開頭固定是 `The edge \"…\"`；對 ER relationship 與 state transition 應該用 **connector**（CONTEXT.md 的泛稱；edge 專指 flowchart），或由各 kind 的 row 提供名詞（class `relationship`、state `transition`、ER `relationship`，`resolveTimelineBlocks` 已有 `noun` 的先例）。T2 的 ER / state render() 測試目前把 \"The edge\" 釘住了，改字時一併更新。診斷文字不提 Mermaid。"}
+{"id":"01M5EASFT7ZC3JDP2FZ7DRFR7H","t":3,"a":"83a1","op":"label.add","v":"backlog"}

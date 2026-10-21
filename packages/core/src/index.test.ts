@@ -8931,50 +8931,41 @@ describe("render() of a flowchart edge from a subgraph to its own member inside 
   });
 });
 
-describe("render() of an ER relationship from a subgraph to its own member inside a subgraph that keeps its direction", () => {
-  it("refuses it naming each subgraph by its title, not the id it is laid out by", () => {
-    // The same graph the flowchart cases above refuse: a relationship may
-    // name a subgraph (`clusterEndpointIds`), and the subgraph is laid out by
-    // a generated id (`subgraph:1`) the author never wrote.
+/** The unroutable-connector diagnostic, in these names, for a frame that lays out with direction LR. */
+const refusal = (edge: string, cluster: string, member: string, holder: string) => ({
+  severity: "error",
+  message:
+    `The edge "${edge}" between "${cluster}" and "${member}", which is inside it, cannot be drawn within ` +
+    `"${holder}", which lays out its members with direction LR. Remove the direction from "${holder}", ` +
+    `or connect "${cluster}" to something outside it.`,
+});
+
+describe("render() of an ER relationship from an ER subgraph to its own member inside an ER subgraph that keeps its direction", () => {
+  it("refuses it naming each ER subgraph by its title, not the id it is laid out by", () => {
+    // This refusal is the shared layout core's own: `layoutDirectedGraph.ts`
+    // refuses, before ELK, an edge between a cluster and its own member inside
+    // a cluster that keeps its direction. An ER relationship reaches it
+    // because it may name an ER subgraph (`clusterEndpointIds`), which is laid
+    // out by a generated id (`subgraph:1`) the author never wrote. What
+    // Mermaid does with this ER shape was not measured.
     for (const [source, edge, cluster, member, holder] of [
       ['erDiagram\nsubgraph A["Outer"]\ndirection LR\nsubgraph B[Bee]\nF\nend\nend\nB ||--|| F : r', "B:F", "Bee", "F", "Outer"],
       ["erDiagram\nsubgraph A\ndirection LR\nsubgraph B\nF\nend\nend\nF ||--|| B : r", "F:B", "B", "F", "A"],
     ] as const) {
       const result = render(source, document.createElement("div"));
-      expect([source, result.svg, result.diagnostics]).toEqual([
-        source,
-        null,
-        [
-          {
-            severity: "error",
-            message:
-              `The edge "${edge}" between "${cluster}" and "${member}", which is inside it, cannot be drawn within ` +
-              `"${holder}", which lays out its members with direction LR. Remove the direction from "${holder}", ` +
-              `or connect "${cluster}" to something outside it.`,
-          },
-        ],
-      ]);
+      expect([source, result.svg, result.diagnostics]).toEqual([source, null, [refusal(edge, cluster, member, holder)]]);
     }
   });
 });
 
 describe("render() of a state transition from a composite to its own member inside a frame that keeps its direction", () => {
-  /** The diagnostic the flowchart and ER cases above give, in these names. */
-  const refusal = (edge: string, cluster: string, member: string, holder: string, direction: string) => ({
-    severity: "error",
-    message:
-      `The edge "${edge}" between "${cluster}" and "${member}", which is inside it, cannot be drawn within ` +
-      `"${holder}", which lays out its members with direction ${direction}. Remove the direction from "${holder}", ` +
-      `or connect "${cluster}" to something outside it.`,
-  });
-
   it("names a composite by the id the author gave it", () => {
     for (const [source, edge] of [
       ["stateDiagram-v2\nstate A {\ndirection LR\nstate B {\nF\n}\nB --> F\n}", "B-F"],
       ["stateDiagram-v2\nstate A {\ndirection LR\nstate B {\nF\n}\nF --> B\n}", "F-B"],
     ] as const) {
       const result = render(source, document.createElement("div"));
-      expect([source, result.svg, result.diagnostics]).toEqual([source, null, [refusal(edge, "B", "F", "A", "LR")]]);
+      expect([source, result.svg, result.diagnostics]).toEqual([source, null, [refusal(edge, "B", "F", "A")]]);
     }
   });
 
@@ -8988,7 +8979,7 @@ describe("render() of a state transition from a composite to its own member insi
       ["stateDiagram-v2\nstate Z {\nX\n--\nY\n}\nstate A {\nG\n--\ndirection LR\nstate B {\nF\n}\nB --> F\n}", "region 2 of A"],
     ] as const) {
       const result = render(source, document.createElement("div"));
-      expect([source, result.svg, result.diagnostics]).toEqual([source, null, [refusal("B-F", "B", "F", holder, "LR")]]);
+      expect([source, result.svg, result.diagnostics]).toEqual([source, null, [refusal("B-F", "B", "F", holder)]]);
     }
   });
 });

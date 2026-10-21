@@ -32,6 +32,7 @@ import type {
   PositionedGraph,
   PositionedSequenceDiagram,
   PositionedStateDiagram,
+  ResolvedState,
   ResolvedTimeline,
   SequenceModel,
   SirenRenderResult,
@@ -500,6 +501,28 @@ function bySubgraphTitle(
   return (layoutId) => titleById.get(layoutId) ?? layoutId;
 }
 
+/**
+ * A `nameOf` that puts each concurrent region's place in its composite for its
+ * generated id. A region is a frame the author never named: it is laid out by
+ * a generated id (`region:1`, ADR-0010) counted across the whole document, and
+ * the author wrote only the `--` that divides its composite. So it is named by
+ * its place there, `region 2 of A`, counted within that composite from 1 in
+ * `states` order. A composite's and a plain state's ids are the author's own
+ * and pass through. A region always has a composite; the `parentId === null`
+ * check is for `ResolvedState`'s type only, which allows a top level.
+ */
+function byRegionPlace(states: readonly ResolvedState[]): (layoutId: string) => string {
+  const regionNames = new Map<string, string>();
+  const regionCounts = new Map<string, number>();
+  for (const state of states) {
+    if (state.kind !== "region" || state.parentId === null) continue;
+    const regionNumber = (regionCounts.get(state.parentId) ?? 0) + 1;
+    regionCounts.set(state.parentId, regionNumber);
+    regionNames.set(state.id, `region ${regionNumber} of ${state.parentId}`);
+  }
+  return (layoutId) => regionNames.get(layoutId) ?? layoutId;
+}
+
 /** The model `buildGraphModel` hands back for a document of kind `K`. */
 type ModelOf<K extends DiagramKind> = Extract<GraphModelResult, { kind: K }>["model"];
 
@@ -579,24 +602,9 @@ const RENDER_KIND: { [K in DiagramKind]: Pipeline<ModelOf<K>, unknown> } = {
   state: pipeline<StateModel, PositionedStateDiagram>({
     layout: layoutStateDiagram,
     render: renderStateDiagramToSVG,
-    // A concurrent region is a frame the author never named: it is laid out by
-    // a generated id (`region:1`, ADR-0010) counted across the whole document,
-    // and the author wrote only the `--` that divides its composite. So it is
-    // named by its place there, `region 2 of A`, counted in `states` order
-    // within that composite from 1. A composite's and a plain state's ids are
-    // the author's own and pass through. A region always has a composite; the
-    // `null` check is for `ResolvedState`'s type, which allows a top level.
-    nameOf: (model) => {
-      const regionNames = new Map<string, string>();
-      const regionCounts = new Map<string, number>();
-      for (const state of model.states) {
-        if (state.kind !== "region" || state.parentId === null) continue;
-        const n = (regionCounts.get(state.parentId) ?? 0) + 1;
-        regionCounts.set(state.parentId, n);
-        regionNames.set(state.id, `region ${n} of ${state.parentId}`);
-      }
-      return (layoutId) => regionNames.get(layoutId) ?? layoutId;
-    },
+    // A concurrent region is laid out by a generated id (`region:1`); the
+    // author knows it by its place in its composite (`region 2 of A`).
+    nameOf: (model) => byRegionPlace(model.states),
   }),
   // Reaches the shared core, so `LayoutEngineError` is possible in principle,
   // and a consumer's measurer can refuse an entity's name here exactly as it
@@ -605,10 +613,10 @@ const RENDER_KIND: { [K in DiagramKind]: Pipeline<ModelOf<K>, unknown> } = {
   er: pipeline<ErModel, PositionedErDiagram>({
     layout: layoutErDiagram,
     render: renderErDiagramToSVG,
-    // A relationship may name a subgraph (`clusterEndpointIds`), so a subgraph
-    // can be either cluster in the diagnostic; it is laid out by its generated
-    // id (`subgraph:1`), and the author knows it by its title. An entity's and
-    // a relationship's ids are the author's own.
+    // A relationship may name an ER subgraph (`clusterEndpointIds`), so an ER
+    // subgraph can be either cluster in the diagnostic; it is laid out by its
+    // generated id (`subgraph:1`), and the author knows it by its title. An
+    // entity's and a relationship's ids are the author's own.
     nameOf: (model) => bySubgraphTitle(model.subgraphs),
   }),
 };
