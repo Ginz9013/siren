@@ -1455,8 +1455,11 @@ the line. A colour written in a label's own
 markup (`<span style="color:…">`, `<font color>`, `background-color`) is not an **author style**:
 it is drawn as written, no omission ever removes it, and it carries no **style fact**, so a host
 cannot take it back to the tokens. A name no declaration uses omits
-nothing and is not an error. Applied in `render()` alone, to the model once its facts are taken
-and before layout, so no renderer knows a property can be omitted.
+nothing and is not an error. Handed to each model builder through `buildGraphModel`'s option: a
+**style fact** is always taken from the unstruck style, and the target's `style` is the struck
+one, so a fact states what the author wrote whatever was omitted, and neither layout nor any
+renderer knows a property can be omitted. `render()`'s callers see no difference from when
+`render()` struck it itself: the option behaves as it did, and only the hop moved.
 _Avoid_: hidden style, suppressed style, theme override (it overrides nothing; it removes)
 
 **Comment**:

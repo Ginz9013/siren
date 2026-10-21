@@ -46,7 +46,6 @@ function model(
       // label with no tag in it as.
       label: label === undefined || label === null ? null : plainLabel(label),
     })),
-    styles: [],
     timeline: { totalSteps: 0, entries: [] },
   };
 }
@@ -159,7 +158,6 @@ describe("layoutStateDiagram", () => {
           { id: "B-Done", from: "B", to: "Done", label: null },
           { id: "Idle-A", from: "Idle", to: "A", label: null },
         ],
-        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -331,7 +329,6 @@ describe("layoutStateDiagram", () => {
         { id: "Done", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
       ],
       transitions: [{ id: "Inner-Done", from: "Inner", to: "Done", label: null }],
-      styles: [],
       timeline: { totalSteps: 0, entries: [] },
     };
 
@@ -381,7 +378,6 @@ describe("layoutStateDiagram", () => {
         { id: "Beside", kind: "state", stereotype: null, descriptions: [], parentId: "Inner", direction: null, note: null },
       ],
       transitions: [{ id: "Deep-Beside", from: "Deep", to: "Beside", label: null }],
-      styles: [],
       timeline: { totalSteps: 0, entries: [] },
     };
 
@@ -427,7 +423,6 @@ describe("layoutStateDiagram", () => {
         { id: "Before-Outer", from: "Before", to: "Outer", label: null },
         { id: "Inner-Done", from: "Inner", to: "Done", label: null },
       ],
-      styles: [],
       timeline: { totalSteps: 0, entries: [] },
     };
 
@@ -469,7 +464,6 @@ describe("layoutStateDiagram", () => {
           { id: "start:1-Idle", from: "start:1", to: "Idle", label: null },
           { id: "Idle-end:1", from: "Idle", to: "end:1", label: null },
         ],
-        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -523,7 +517,6 @@ describe("layoutStateDiagram", () => {
           { id: "Choice-Split", from: "Choice", to: "Split", label: null },
           { id: "Split-Merge", from: "Split", to: "Merge", label: null },
         ],
-        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -577,7 +570,6 @@ describe("layoutStateDiagram", () => {
             { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
           ],
           transitions: [{ id: "A-Split", from: "A", to: "Split", label: null }],
-          styles: [],
           timeline: { totalSteps: 0, entries: [] },
         },
         options,
@@ -604,7 +596,6 @@ describe("layoutStateDiagram", () => {
             { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
           ],
           transitions: [{ id: "A-Split", from: "A", to: "Split", label: null }],
-          styles: [],
           timeline: { totalSteps: 0, entries: [] },
         },
         options,
@@ -631,7 +622,6 @@ describe("layoutStateDiagram", () => {
             { id: "A", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
           ],
           transitions: [{ id: "A-Choice", from: "A", to: "Choice", label: null }],
-          styles: [],
           timeline: { totalSteps: 0, entries: [] },
         },
         options,
@@ -658,7 +648,6 @@ describe("layoutStateDiagram", () => {
           { id: "Undescribed", kind: "state", stereotype: null, descriptions: [], parentId: null, direction: null, note: null },
         ],
         transitions: [{ id: "s-Undescribed", from: "s", to: "Undescribed", label: null }],
-        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -701,7 +690,6 @@ describe("layoutStateDiagram", () => {
           { id: "t", kind: "state", stereotype: null, descriptions: [plainLabel("only")], parentId: null, direction: null, note: null },
         ],
         transitions: [{ id: "s-t", from: "s", to: "t", label: null }],
-        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -741,7 +729,6 @@ describe("layoutStateDiagram", () => {
           { id: "Busy", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
         ],
         transitions: [{ id: "Idle-Busy", from: "Idle", to: "Busy", label: null }],
-        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -789,7 +776,6 @@ describe("layoutStateDiagram", () => {
           { id: "Beside", kind: "state", stereotype: null, descriptions: [], parentId: "Outer", direction: null, note: null },
         ],
         transitions: [{ id: "Deep-Beside", from: "Deep", to: "Beside", label: null }],
-        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -854,7 +840,6 @@ describe("layoutStateDiagram", () => {
           { id: "A-B", from: "A", to: "B", label: null },
           { id: "C-D", from: "C", to: "D", label: null },
         ],
-        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -934,7 +919,6 @@ describe("layoutStateDiagram", () => {
             { id: "X-Y", from: "X", to: "Y", label: null },
             { id: "C-D", from: "C", to: "D", label: null },
           ],
-          styles: [],
           timeline: { totalSteps: 0, entries: [] },
         },
         options,
@@ -960,7 +944,6 @@ describe("layoutStateDiagram", () => {
             { id: "A-B", from: "A", to: "B", label: null },
             { id: "C-D", from: "C", to: "D", label: null },
           ],
-          styles: [],
           timeline: { totalSteps: 0, entries: [] },
         },
         options,
@@ -1016,7 +999,6 @@ describe("layoutStateDiagram", () => {
           { id: "A-B", from: "A", to: "B", label: null },
           { id: "C-D", from: "C", to: "D", label: null },
         ],
-        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -1054,7 +1036,6 @@ describe("layoutStateDiagram", () => {
         { id: "A-B", from: "A", to: "B", label: null },
         { id: "C-D", from: "C", to: "D", label: null },
       ],
-      styles: [],
       timeline: { totalSteps: 0, entries: [] },
     });
     const sideways = layoutStateDiagram(divided("LR"), options);
@@ -1094,7 +1075,6 @@ describe("layoutStateDiagram", () => {
           { id: "start:1-Outer", from: "start:1", to: "Outer", label: null },
           { id: "Outer-Done", from: "Outer", to: "Done", label: null },
         ],
-        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -1159,7 +1139,6 @@ describe("layoutStateDiagram", () => {
           { id: "X-C", from: "X", to: "C", label: null },
           { id: "A-B", from: "A", to: "B", label: null },
         ],
-        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -1193,7 +1172,6 @@ describe("layoutStateDiagram", () => {
         to,
         label: null,
       })),
-      styles: [],
       timeline: { totalSteps: 0, entries: [] },
     });
     const placedIn = (laid: ReturnType<typeof layoutStateDiagram>) => (id: string) =>
@@ -1234,7 +1212,6 @@ describe("layoutStateDiagram", () => {
           { id: "Before-Outer", from: "Before", to: "Outer", label: null },
           { id: "First-Second", from: "First", to: "Second", label: null },
         ],
-        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -1266,22 +1243,24 @@ describe("layoutStateDiagram", () => {
   it("carries each state's resolved author style onto the box, and leaves an unstyled one empty", () => {
     // Layout carries the model's answer rather than reconciling anything:
     // `resolveStyles` has already merged everything one state was styled by
-    // and dropped the rejected values, and a state absent from `styles` is
-    // one the renderer must give no `style` attribute at all. The empty
+    // and dropped the rejected values, and a state with no `style` is one
+    // the renderer must give no `style` attribute at all. The empty
     // halves are what let it ask without testing for `undefined`.
     const base = model([{ from: "Idle", to: "Busy" }]);
     const laid = layoutStateDiagram(
       {
         ...base,
-        styles: [
-          {
-            targetId: "Busy",
-            style: {
-              frame: [{ property: "fill", value: "#f96" }],
-              text: [{ property: "fill", value: "#fff" }],
-            },
-          },
-        ],
+        states: base.states.map((state) =>
+          state.id === "Busy"
+            ? {
+                ...state,
+                style: {
+                  frame: [{ property: "fill", value: "#f96" }],
+                  text: [{ property: "fill", value: "#fff" }],
+                },
+              }
+            : state,
+        ),
       },
       options,
     );
@@ -1323,7 +1302,6 @@ describe("layoutStateDiagram — a composite's title", () => {
           { id: "X-A", from: "X", to: "A", label: null },
           { id: "A-B", from: "A", to: "B", label: null },
         ],
-        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,
@@ -1387,7 +1365,6 @@ describe("layoutStateDiagram — Mermaid 12's handover order", () => {
           { id: "Named-Outer", from: "Named", to: "Outer", label: null },
           { id: "Outer-end:1", from: "Outer", to: "end:1", label: null },
         ],
-        styles: [],
         timeline: { totalSteps: 0, entries: [] },
       },
       options,

@@ -16,6 +16,7 @@ import { drawPlaced } from "../label/drawPlaced";
 import { buildConnectorLabels, buildConnectorLine } from "./connector";
 import { drawConnectorRoute } from "./connectorCurve";
 import { appendAccessibleText } from "./appendAccessibleText";
+import { applyInlineStyle } from "./inlineStyle";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 import { wrapInteraction } from "./wrapInteraction";
@@ -446,7 +447,7 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
   frame.setAttribute("y", String(positionedClass.y));
   frame.setAttribute("width", String(positionedClass.width));
   frame.setAttribute("height", String(positionedClass.height));
-  applyAuthorStyle(frame, positionedClass.style.frame);
+  applyInlineStyle(frame, positionedClass.style.frame);
   g.appendChild(frame);
 
   /**
@@ -474,7 +475,7 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
    * never name the same property (see `classifierStyle`).
    */
   const appendClassText = (label: SVGTextElement, classifierDeclarations: StyleProperty[] = []): void => {
-    applyAuthorStyle(label, [...positionedClass.style.text, ...classifierDeclarations]);
+    applyInlineStyle(label, [...positionedClass.style.text, ...classifierDeclarations]);
     g.appendChild(label);
   };
 
@@ -485,7 +486,7 @@ function buildClass(positionedClass: PositionedClass): SVGGElement {
    */
   const appendName = (y: number): void => {
     const drawn = drawLabel(positionedClass.label, positionedClass.labelBox, { x: centerX, y }, "siren-class-name");
-    applyAuthorStyle(drawn.text, positionedClass.style.text);
+    applyInlineStyle(drawn.text, positionedClass.style.text);
     appendLabel(g, drawn);
   };
 
@@ -656,34 +657,6 @@ function nameBand(positionedClass: PositionedClass): { top: number; bottom: numb
         ? positionedClass.y + positionedClass.height
         : firstCompartment.dividerY,
   };
-}
-
-/**
- * Writes the author's resolved `style`/`classDef`/`cssClass` declarations onto
- * `element` as an inline `style` attribute, in declaration order, or leaves the
- * element without one when the author styled nothing.
- *
- * Inline rather than a generated class rule, and on the drawn shape rather than
- * its enclosing `<g>` — both for the same cascade reason, recorded in ADR-0008.
- * The theme styles `.siren-class-frame` directly, so an inline declaration on
- * the frame outranks it without needing `!important`, while the same
- * declaration on the `<g>` would only ever be *inherited* by the frame and so
- * would lose to the theme's own rule.
- *
- * The values are written verbatim. They are author input, but they arrive here
- * having already passed `buildClassModel`'s gate (no `url(`, no `expression(`,
- * no `;`, no backslash), and re-checking here would fork that single source of
- * truth. This attribute is a CSS sink, never an HTML one: nothing is parsed as
- * markup, so the hard `textContent`-never-`innerHTML` invariant is untouched.
- */
-function applyAuthorStyle(element: SVGElement, style: StyleProperty[]): void {
-  if (style.length === 0) {
-    return;
-  }
-  element.setAttribute(
-    "style",
-    style.map(({ property, value }) => `${property}:${value}`).join(";"),
-  );
 }
 
 /**

@@ -337,19 +337,6 @@ export function layoutStateDiagram(
   );
   const routeById = new Map(laidOut.edges.map((route, index) => [route.id, { ...route, ...clipped[index]! }]));
 
-  /**
-   * Each styled state's declarations, keyed for lookup below.
-   *
-   * `buildStateModel` has already merged everything one state was styled by
-   * and dropped the values its gate refused, and omits a state that ended up
-   * with none — so there is nothing to reconcile here. A state absent from
-   * this map gets the empty pair, which is what says "no `style` attribute"
-   * to the renderer without it having to test for a missing field.
-   */
-  const styleByStateId = new Map(
-    model.styles.map(({ targetId, style }) => [targetId, style]),
-  );
-
   const states = model.states.map<PositionedState>((state) => {
     // A composite's box is its frame, as the core placed it.
     const box = boxById.get(state.id)!;
@@ -371,7 +358,12 @@ export function layoutStateDiagram(
         y: box.y + planned.y,
         ...(box.title === undefined ? {} : { x: box.title.x }),
       })),
-      style: styleByStateId.get(state.id) ?? { frame: [], text: [] },
+      // `buildStateModel` has already merged everything one state was styled
+      // by and dropped the values its gate refused, so there is nothing to
+      // reconcile here. A state it left without a `style` gets the empty
+      // pair, which is what says "no `style` attribute" to the renderer
+      // without it having to test for a missing field.
+      style: state.style ?? { frame: [], text: [] },
       dividerY: plan.dividerY === null ? null : box.y + plan.dividerY,
       note: placeNote(state, wrappedNoteById, boxById, routeById),
     };

@@ -5,12 +5,12 @@ import type {
   PositionedErEntity,
   PositionedErRelationship,
   PositionedErSubgraph,
-  StyleProperty,
 } from "../contracts";
 import { appendLabel, drawLabel } from "../label/drawLabel";
 import { drawPlaced } from "../label/drawPlaced";
 import { buildConnectorLabels, buildConnectorLine } from "./connector";
 import { appendAccessibleText } from "./appendAccessibleText";
+import { applyInlineStyle } from "./inlineStyle";
 import { mintIdScope } from "./mintIdScope";
 import { sizeCanvas } from "./sizeCanvas";
 
@@ -235,10 +235,10 @@ function buildSubgraph(subgraph: PositionedErSubgraph): SVGGElement {
   frame.setAttribute("y", String(subgraph.y));
   frame.setAttribute("width", String(subgraph.width));
   frame.setAttribute("height", String(subgraph.height));
-  // The author's `style s1 …` / `class s1 …`, on the rect the theme styles
-  // and not on the group — the placement ADR-0008 argues for an entity's
-  // box, and the element Mermaid 12.2.0 itself puts it on.
-  applyAuthorStyle(frame, subgraph.style?.frame ?? []);
+  // The author's `style s1 …` / `class s1 …` lands on the rect — measured,
+  // the element Mermaid 12.2.0 itself puts it on (placement: see
+  // `applyInlineStyle`).
+  applyInlineStyle(frame, subgraph.style?.frame ?? []);
   g.appendChild(frame);
 
   // Drawn by `drawLabel` at the anchor in the title strip: one plain row is
@@ -248,7 +248,7 @@ function buildSubgraph(subgraph: PositionedErSubgraph): SVGGElement {
   // The title is the one text a cluster draws, so it is where an author's
   // `color` lands — measured, Mermaid 12.2.0 colours the cluster label with
   // it — already translated to the `fill` SVG paints text with.
-  applyAuthorStyle(title.text, subgraph.style?.text ?? []);
+  applyInlineStyle(title.text, subgraph.style?.text ?? []);
   appendLabel(g, title);
 
   return g;
@@ -260,6 +260,9 @@ function buildSubgraph(subgraph: PositionedErSubgraph): SVGGElement {
  * dashed when it is non-identifying, and nothing else. Its label is a group
  * of its own — `buildRelationshipLabels` — drawn after every line
  * (ADR-0016; see `connector.ts`).
+ *
+ * Measured: no styling statement in this kind can name an **ER
+ * relationship** (see `buildErModel`), so nothing here applies one.
  */
 function buildRelationship(
   relationship: PositionedErRelationship,
@@ -435,7 +438,7 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
   frame.setAttribute("y", String(entity.y));
   frame.setAttribute("width", String(entity.width));
   frame.setAttribute("height", String(entity.height));
-  applyAuthorStyle(frame, entity.style.frame);
+  applyInlineStyle(frame, entity.style.frame);
   g.appendChild(frame);
 
   const table = entity.attributeTable;
@@ -451,7 +454,7 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
     { x: entity.x + entity.width / 2, y: (entity.y + nameRowBottom) / 2 },
     "siren-er-entity-label",
   );
-  applyAuthorStyle(drawn.text, entity.style.text);
+  applyInlineStyle(drawn.text, entity.style.text);
   appendLabel(g, drawn);
 
   if (table !== null) {
@@ -474,7 +477,7 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
           // A type or name that spans lines is drawn the same way, one plain
           // row per line (`PositionedErAttributeLinesCell`).
           const drawn = drawPlaced(cell, className);
-          applyAuthorStyle(drawn.text, entity.style.text);
+          applyInlineStyle(drawn.text, entity.style.text);
           appendLabel(g, drawn);
           continue;
         }
@@ -497,55 +500,13 @@ function buildEntity(entity: PositionedErEntity): SVGGElement {
         // every attribute label in the same box alike — a `class` names the
         // entity, not one of its rows. `renderStateDiagramToSVG` gives a
         // state's description rows the same reading.
-        applyAuthorStyle(text, entity.style.text);
+        applyInlineStyle(text, entity.style.text);
         g.appendChild(text);
       }
     }
   }
 
   return g;
-}
-
-/**
- * Writes the author's resolved `style`/`classDef`/`class`/`:::` declarations
- * onto `element` as an inline `style` attribute, in declaration order, or
- * leaves the element without one when the author styled nothing.
- *
- * The same function `renderClassDiagramToSVG` and `renderStateDiagramToSVG`
- * have, for the same reasons, spelled the same way: inline rather than a
- * generated class rule, and on the **drawn shape** rather than its enclosing
- * `<g>`, both for the cascade reason ADR-0008 records. The theme styles
- * `.siren-er-entity-frame`, `.siren-er-entity-label` and
- * `.siren-er-attribute` directly, so an inline declaration on those elements
- * outranks it without `!important`, while the same declaration on the `<g>`
- * would only ever be *inherited* by them and so would lose.
- *
- * ⚠️ **No `!important`, and that is a deliberate departure from Mermaid's
- * own markup rather than an oversight.** Mermaid writes `fill:#f96
- * !important` because it applies author styles through a generated class
- * rule that has to beat its own theme; Siren writes the declaration on the
- * element the theme targets, where specificity already settles it — and a
- * `!important` here would also outrank a *consumer's* stylesheet, which is
- * the thing ADR-0008 exists to keep reachable.
- *
- * The values are written verbatim. They are author input, but they arrive
- * here having already passed `resolveStyles`' gate in `buildErModel` (no
- * `url(`, no `expression(`, no `;`, no backslash), and re-checking here
- * would fork that single source of truth. This attribute is a CSS sink,
- * never an HTML one: nothing is parsed as markup, so the hard
- * `textContent`-never-`innerHTML` invariant is untouched.
- *
- * A **relationship** is deliberately not reached by this: measured, no
- * styling statement in this kind can name one (see `buildErModel`).
- */
-function applyAuthorStyle(element: SVGElement, style: StyleProperty[]): void {
-  if (style.length === 0) {
-    return;
-  }
-  element.setAttribute(
-    "style",
-    style.map(({ property, value }) => `${property}:${value}`).join(";"),
-  );
 }
 
 /** One `<line class="siren-er-entity-divider">` between the two points given. */

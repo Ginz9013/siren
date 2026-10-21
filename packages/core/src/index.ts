@@ -23,7 +23,6 @@ import type {
   AuthorStyle,
   Diagnostic,
   GraphModel,
-  ResolvedStyle,
   ResolvedTimeline,
   SirenRenderResult,
   TextMeasurer,
@@ -438,36 +437,6 @@ function withIcons(
 }
 
 /**
- * `style` with each declaration a caller named in
- * `RenderOptions.omitAuthorStyles` struck out.
- *
- * Only `render()` applies it, to each kind's model once its style facts
- * were taken and before layout, so no layout module or renderer knows a
- * property can be omitted: a renderer simply never sees the declaration,
- * and an edge with no `stroke` left takes the theme's arrowhead as an edge
- * never given one does. A new object rather than an edit, since a fact may
- * share this one and must keep what was written.
- *
- * The list is in the author's spelling and the text half in SVG's: the
- * model holds an author's `color` as the `fill` a `<text>` is painted with
- * (see `AuthorStyle.text`), so that `fill` is matched as `color`.
- */
-function withoutOmitted(style: AuthorStyle, omitted: ReadonlySet<string>): AuthorStyle {
-  return {
-    frame: style.frame.filter(({ property }) => !omitted.has(property.toLowerCase())),
-    text: style.text.filter(({ property }) => {
-      const name = property.toLowerCase();
-      return !omitted.has(name === "fill" ? "color" : name);
-    }),
-  };
-}
-
-/** A class, state or ER model's `styles`, each struck out as `withoutOmitted` does. */
-function withoutOmittedStyles(styles: ResolvedStyle[], omitted: ReadonlySet<string>): ResolvedStyle[] {
-  return styles.map((resolved) => ({ ...resolved, style: withoutOmitted(resolved.style, omitted) }));
-}
-
-/**
  * What `render()` returns when there is no diagram to mount: no SVG, no
  * controller (the two are null together), and no timelines or style facts
  * to offer — but the frontmatter's `siren`, which the diagram's failure does
@@ -526,15 +495,15 @@ export function render(
     return failedRender(diagnostics, siren);
   }
 
-  const graphResult = buildGraphModel(parseResult.document);
+  const graphResult = buildGraphModel(parseResult.document, { omitAuthorStyles: options.omitAuthorStyles });
   diagnostics.push(...graphResult.diagnostics);
 
   const timelines = (graphResult.model.namedTimelines ?? []).map((block) => block.name);
-  // A sequence model has no styling to report, so it has no field to read.
-  const styles = graphResult.kind === "sequence" ? [] : (graphResult.model.styleFacts ?? []);
-  // Read only after the facts above were taken, which is why they state what
-  // the author wrote whatever is omitted (see `withoutOmitted`).
-  const omitted = new Set((options.omitAuthorStyles ?? []).map((name) => name.toLowerCase()));
+  // Every kind's model has the field — a sequence model's is never written —
+  // and each builder took its facts before striking what the caller omits,
+  // so they state what the author wrote either way (see
+  // `RenderOptions.omitAuthorStyles`).
+  const styles = graphResult.model.styleFacts ?? [];
 
   // Dispatch on the *result's* tag rather than on the document's. They are
   // the same word — `buildGraphModel` carries the document's kind out
@@ -545,8 +514,7 @@ export function render(
     // it: it reaches the shared core, so `LayoutEngineError` is possible in
     // principle, and a consumer's measurer can refuse a name here exactly as
     // it can refuse a label anywhere else.
-    const erModel = { ...graphResult.model, styles: withoutOmittedStyles(graphResult.model.styles, omitted) };
-    const erLayout = attemptLayout(() => layoutErDiagram(erModel, { measureText }));
+    const erLayout = attemptLayout(() => layoutErDiagram(graphResult.model, { measureText }));
     if (!erLayout.placed) {
       diagnostics.push(erLayout.diagnostic);
       return failedRender(diagnostics, siren);
@@ -563,8 +531,7 @@ export function render(
   }
 
   if (graphResult.kind === "state") {
-    const stateModel = { ...graphResult.model, styles: withoutOmittedStyles(graphResult.model.styles, omitted) };
-    const stateLayout = attemptLayout(() => layoutStateDiagram(stateModel, { measureText }));
+    const stateLayout = attemptLayout(() => layoutStateDiagram(graphResult.model, { measureText }));
     if (!stateLayout.placed) {
       diagnostics.push(stateLayout.diagnostic);
       return failedRender(diagnostics, siren);
@@ -592,8 +559,7 @@ export function render(
     // site bare would mean a future source of a missing coordinate escapes
     // `render()` as a thrown error here while the other two kinds report it,
     // and `Diagnostic`'s contract is that it is returned and never thrown.
-    const classModel = { ...graphResult.model, styles: withoutOmittedStyles(graphResult.model.styles, omitted) };
-    const classLayout = attemptLayout(() => layoutClassDiagram(classModel, { measureText }));
+    const classLayout = attemptLayout(() => layoutClassDiagram(graphResult.model, { measureText }));
     if (!classLayout.placed) {
       diagnostics.push(classLayout.diagnostic);
       return failedRender(diagnostics, siren);
@@ -644,31 +610,24 @@ export function render(
     return { svg: sequenceSvg, controller: sequenceController, diagnostics, timelines, styles, siren };
   }
 
-  // Bound to a local here, and in the three branches above, to give the model
-  // the name its own layout stage knows it by. The binding used to be
+  // Bound to a local here, and in the sequence branch above, to give the
+  // model the name its own layout stage knows it by. The binding used to be
   // load-bearing and no longer is: a *property* narrowing (`graphResult.graph
   // !== null`) is discarded inside the function expression below, which is
   // what forced a local rather than a `!`, but narrowing a `const` on its own
   // discriminant survives into one — so `graphResult.model` would read
-  // correctly there too. One more hand-written step the tag took over.
+  // correctly there too, as it does in the class, state and ER branches. One
+  // more hand-written step the tag took over.
   const iconed = withIcons(graphResult.model, options.iconPacks ?? []);
   diagnostics.push(...iconed.diagnostics);
   if (iconed.diagnostics.length > 0) {
     return failedRender(diagnostics, siren);
   }
-  const graph = {
-    ...iconed.graph,
-    nodes: iconed.graph.nodes.map((node) => ({ ...node, style: withoutOmitted(node.style, omitted) })),
-    edges: iconed.graph.edges.map((edge) => ({ ...edge, style: withoutOmitted(edge.style, omitted) })),
-    subgraphs: iconed.graph.subgraphs.map((subgraph) =>
-      subgraph.style === undefined ? subgraph : { ...subgraph, style: withoutOmitted(subgraph.style, omitted) },
-    ),
-  };
   // A subgraph is laid out by its generated id (`subgraph:2`); the author
   // knows it by its title. A node's and an edge's ids are the author's own.
-  const subgraphTitles = new Map(graph.subgraphs.map((subgraph) => [subgraph.id, subgraph.label.text]));
+  const subgraphTitles = new Map(iconed.graph.subgraphs.map((subgraph) => [subgraph.id, subgraph.label.text]));
   const flowchartLayout = attemptLayout(
-    () => layoutGraph(graph, { measureText }),
+    () => layoutGraph(iconed.graph, { measureText }),
     (layoutId) => subgraphTitles.get(layoutId) ?? layoutId,
   );
   if (!flowchartLayout.placed) {

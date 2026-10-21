@@ -99,8 +99,9 @@ writing down explicitly because it is what an author actually hits.
 Every piece of text a class draws takes its color from the token theme and only from it:
 `.siren-class-name`, `.siren-member` and `.siren-class-annotation` all resolve to
 `var(--siren-node-text)`. There is no `--siren-class-*` token family at all — the class diagram
-reuses the node tokens wholesale. `applyAuthorStyle` writes to the frame rect and nothing else, by
-the placement argument above. So an author directive can change what is *behind* the text but can
+reuses the node tokens wholesale. `applyAuthorStyle` (since renamed `applyInlineStyle`, in
+`packages/core/src/renderer/inlineStyle.ts`, and shared by all four renderers) writes to the frame
+rect and nothing else, by the placement argument above. So an author directive can change what is *behind* the text but can
 never change the text, and the two halves of one box end up governed by different systems. Set an
 opaque light `fill` and a dark theme still paints light label text on it; set an opaque dark `fill`
 and a light theme does the mirror image. Either way the box is unreadable, and the author has no

@@ -786,6 +786,47 @@ describe("buildGraphModel", () => {
     expect(byId.B.style).toEqual({ frame: [], text: [] });
   });
 
+  it("hands `omitAuthorStyles` to the builder, which leaves the named properties off the target and in its fact", () => {
+    const document: SirenDocument = {
+      kind: "flowchart",
+      interactions: [],
+      direction: "TB",
+      nodes: [{ id: "A", label: plainLabel("A"), shape: "rect" }],
+      edges: [],
+      subgraphs: [],
+      linkStyles: [],
+      styles: [
+        {
+          styleKind: "style",
+          authoredAs: "style",
+          targetIds: ["A"],
+          name: null,
+          properties: [
+            { property: "fill", value: "#fdd" },
+            { property: "stroke", value: "#c00" },
+          ],
+          line: 3,
+          column: 1,
+        },
+      ],
+      accTitle: null,
+      accDescr: null,
+      timeline: null,
+    };
+
+    const result = buildGraphModel(document, { omitAuthorStyles: ["FILL"] });
+
+    if (result.kind !== "flowchart") {
+      throw new Error(`expected a flowchart result, got a ${result.kind} one`);
+    }
+    const graph = result.model;
+    expect(graph.nodes[0]?.style).toEqual({ frame: [{ property: "stroke", value: "#c00" }], text: [] });
+    expect(graph.styleFacts?.[0]?.effective.frame).toEqual([
+      { property: "fill", value: "#fdd" },
+      { property: "stroke", value: "#c00" },
+    ]);
+  });
+
   it("drops a flowchart `style` on an id no node declares without reporting, leaving the node unstyled", () => {
     const document: SirenDocument = {
       kind: "flowchart",

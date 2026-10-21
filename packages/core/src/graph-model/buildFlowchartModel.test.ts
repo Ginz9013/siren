@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FlowchartDocument, SirenNode } from "../contracts";
 import { buildFlowchartModel } from "./buildFlowchartModel";
+import { omittedStyleNames } from "./omitAuthorStyles";
 import { plainLabel, plainRun } from "../label/label";
 
 /**
@@ -907,5 +908,96 @@ describe("buildFlowchartModel's edge data", () => {
     const { diagnostics } = buildFlowchartModel(withData({ curve: name }));
 
     expect(diagnostics).toEqual([{ severity: "error", message, line: 3, column: 5 }]);
+  });
+});
+
+describe("buildFlowchartModel's omitted author styles", () => {
+  /**
+   * `A --> B` inside `subgraph one`, with `style A fill:#f96,color:#00f`,
+   * `style one fill:#eee,stroke:#333` and `linkStyle 0 stroke:#f00,color:#0a0`.
+   */
+  const styledDocument = () =>
+    flowchartDocument({
+      nodes: [sirenNode({ id: "A" }), sirenNode({ id: "B" })],
+      edges: [{ from: "A", to: "B", line: "solid", fromEnd: "none", toEnd: "arrow", minLength: 1, label: null }],
+      subgraphs: [
+        { name: "one", label: plainLabel("one"), nodeIds: ["A"], subgraphs: [], direction: null },
+        { name: "two", label: plainLabel("two"), nodeIds: ["B"], subgraphs: [], direction: null },
+      ],
+      styles: [
+        {
+          styleKind: "style",
+          authoredAs: "style",
+          targetIds: ["A"],
+          name: null,
+          properties: [
+            { property: "fill", value: "#f96" },
+            { property: "color", value: "#00f" },
+          ],
+          line: 4,
+          column: 1,
+        },
+        {
+          styleKind: "style",
+          authoredAs: "style",
+          targetIds: ["one"],
+          name: null,
+          properties: [
+            { property: "fill", value: "#eee" },
+            { property: "stroke", value: "#333" },
+          ],
+          line: 5,
+          column: 1,
+        },
+      ],
+      linkStyles: [
+        {
+          targets: ["0"],
+          properties: [
+            { property: "stroke", value: "#f00" },
+            { property: "color", value: "#0a0" },
+          ],
+          line: 6,
+          column: 1,
+        },
+      ],
+    });
+
+  it("writes each target's style without the omitted properties, and leaves an unstyled subgraph without one", () => {
+    const { graph, diagnostics } = buildFlowchartModel(styledDocument(), omittedStyleNames(["fill", "stroke"]));
+
+    expect(diagnostics).toEqual([]);
+    expect(graph.nodes.find((node) => node.id === "A")?.style).toEqual({
+      frame: [],
+      text: [{ property: "fill", value: "#00f" }],
+    });
+    expect(graph.subgraphs.find((subgraph) => subgraph.id === "subgraph:1")?.style).toEqual({ frame: [], text: [] });
+    expect(graph.subgraphs.find((subgraph) => subgraph.id === "subgraph:2")).not.toHaveProperty("style");
+    expect(graph.edges[0]?.style).toEqual({ frame: [], text: [{ property: "fill", value: "#0a0" }] });
+  });
+
+  it("keeps every style fact as the author wrote it, omitted properties included", () => {
+    const { graph } = buildFlowchartModel(styledDocument(), omittedStyleNames(["fill", "stroke"]));
+
+    expect(graph.styleFacts?.map(({ id, effective }) => ({ id, effective }))).toEqual([
+      {
+        id: "A",
+        effective: { frame: [{ property: "fill", value: "#f96" }], text: [{ property: "fill", value: "#00f" }] },
+      },
+      {
+        id: "subgraph:1",
+        effective: {
+          frame: [
+            { property: "fill", value: "#eee" },
+            { property: "stroke", value: "#333" },
+          ],
+          text: [],
+        },
+      },
+      {
+        id: "A-B",
+        effective: { frame: [{ property: "stroke", value: "#f00" }], text: [{ property: "fill", value: "#0a0" }] },
+      },
+    ]);
   });
 });

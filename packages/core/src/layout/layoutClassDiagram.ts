@@ -559,20 +559,6 @@ export function layoutClassDiagram(
   }));
 
   /**
-   * Each styled class's declarations, keyed for lookup below.
-   *
-   * `buildClassModel` has already merged everything one class was styled by —
-   * its `style` statements and every `classDef` a `cssClass` applied to it —
-   * into a single entry with no repeated property, and omits a class that
-   * ended up with none. So there is nothing to reconcile here: this carries
-   * the model's answer through, and a class absent from the map is one the
-   * renderer must give no `style` attribute at all.
-   */
-  const styleByClassId = new Map(
-    model.styles.map(({ targetId, style }) => [targetId, style]),
-  );
-
-  /**
    * The one interaction each class ends up with.
    *
    * Unlike a style, an interaction does not merge: a class is drawn either as
@@ -622,7 +608,11 @@ export function layoutClassDiagram(
       height: box.height,
       attributes: place(plan.attributes),
       methods: place(plan.methods),
-      style: styleByClassId.get(cls.id) ?? { frame: [], text: [] },
+      // `buildClassModel` has already merged everything one class was styled
+      // by into its `style`, with no repeated property, so there is nothing
+      // to reconcile here; a class it left without one is a class the
+      // renderer gives no `style` attribute at all.
+      style: cls.style ?? { frame: [], text: [] },
       interaction: interactionByClassId.get(cls.id) ?? null,
     };
   });

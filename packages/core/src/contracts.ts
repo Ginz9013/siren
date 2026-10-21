@@ -1175,6 +1175,13 @@ export interface SequenceModel {
   timeline: ResolvedTimeline;
   /** The named blocks, resolved, on the terms of `GraphModel.namedTimelines`. */
   namedTimelines?: NamedTimeline<ResolvedTimeline>[];
+  /**
+   * Never written: a sequence diagram takes no author styling (see the
+   * glossary's **Author style**), so it has no style facts to report. It is
+   * declared only so `render()` reads the one field off all five kinds'
+   * models alike, and finds nothing here.
+   */
+  styleFacts?: StyleFact[];
 }
 
 /** Result of `buildSequenceModel`. */
@@ -2459,6 +2466,22 @@ export interface ResolvedClass {
   members: ClassMember[];
   /** The namespace this class belongs to, or `null` when it belongs to none. */
   namespaceId: string | null;
+  /**
+   * Everything this class was styled by — its `style` statements and every
+   * `classDef` a `cssClass` applied to it — merged by `resolveStyles` into
+   * one pair with no repeated property and the values its gate refused
+   * dropped, and written here by `buildClassModel` with the declarations a
+   * caller omitted struck (`withoutOmitted`).
+   *
+   * Absent when nothing styled it, and absent too when the author styled it
+   * but the gate refused every declaration: the resolver reports only a
+   * target left with at least one. Optional for the reason
+   * `ResolvedSubgraph.style` gives — a model built without one still
+   * type-checks. Layout reads an absent `style` as the empty pair
+   * (`?? { frame: [], text: [] }`), which says "no `style` attribute" to the
+   * renderer.
+   */
+  style?: AuthorStyle;
 }
 
 /**
@@ -2557,6 +2580,10 @@ export interface ResolvedInteraction {
  * `targetId` is a target's id in the sense the glossary gives that word —
  * the authored thing a style is attached to — so it is a class in a class
  * diagram and a node in a flowchart, and this type never has to know which.
+ *
+ * It is the resolver's answer, which each model builder writes onto its
+ * target (`GraphNode.style`, `ResolvedClass.style`, …); no model carries a
+ * list of these.
  */
 export interface ResolvedStyle {
   targetId: string;
@@ -2567,9 +2594,9 @@ export interface ResolvedStyle {
  * A `ResolvedStyle` with its provenance kept: what `resolveStyleFacts`
  * returns, and what a model's `styleFacts` are made from.
  *
- * Kept beside `ResolvedStyle` rather than folded into it, because a model's
- * `styles` is what its renderer paints and has no use for where a
- * declaration came from; the provenance travels only as far as
+ * Kept beside `ResolvedStyle` rather than folded into it, because the style
+ * a builder writes onto a target is what its renderer paints and has no use
+ * for where a declaration came from; the provenance travels only as far as
  * `SirenRenderResult.styles`.
  */
 export interface ResolvedStyleFact extends ResolvedStyle {
@@ -2595,7 +2622,6 @@ export interface ClassModel {
   namespaces: ResolvedClassNamespace[];
   notes: ResolvedClassNote[];
   interactions: ResolvedInteraction[];
-  styles: ResolvedStyle[];
   timeline: ResolvedTimeline;
   /** The named blocks, resolved, on the terms of `GraphModel.namedTimelines`. */
   namedTimelines?: NamedTimeline<ResolvedTimeline>[];
@@ -3320,6 +3346,26 @@ export interface ResolvedState {
    * makes it unaddressable from a `timeline:` block.
    */
   note: StateNote | null;
+  /**
+   * Everything this state was styled by, merged by `resolveStyles` into one
+   * pair with no repeated property and the values its gate refused dropped,
+   * and written here by `buildStateModel` with the declarations a caller
+   * omitted struck (`withoutOmitted`).
+   *
+   * Absent when nothing styled it, and absent too when the author styled it
+   * but the gate refused every declaration: the resolver reports only a
+   * target left with at least one. Optional for the reason
+   * `ResolvedSubgraph.style` gives — a model built without one still
+   * type-checks. Layout reads an absent `style` as the empty pair
+   * (`?? { frame: [], text: [] }`), which says "no `style` attribute" to the
+   * renderer.
+   *
+   * Only a **state** can be a target: measured, mermaid 11.17.2 records a
+   * `classes` array on a state and nowhere else, so no `class` statement
+   * can name a transition. Always absent on a pseudo-state, whose generated
+   * id no statement can spell.
+   */
+  style?: AuthorStyle;
 }
 
 /**
@@ -3359,16 +3405,6 @@ export interface StateModel {
   direction: Direction;
   states: ResolvedState[];
   transitions: ResolvedStateTransition[];
-  /**
-   * Each styled state's accepted declarations, already flattened by the
-   * shared `resolveStyles` — one entry per state that ended up with at
-   * least one, and none for a state the author styled with nothing.
-   *
-   * Only a **state** can be a target: measured, mermaid 11.17.2 records a
-   * `classes` array on a state and nowhere else, so no `class` statement
-   * can name a transition.
-   */
-  styles: ResolvedStyle[];
   timeline: ResolvedTimeline;
   /** The named blocks, resolved, on the terms of `GraphModel.namedTimelines`. */
   namedTimelines?: NamedTimeline<ResolvedTimeline>[];
@@ -4101,6 +4137,28 @@ export interface ResolvedErEntity {
    * which.
    */
   parentId: string | null;
+  /**
+   * Everything this entity was styled by, merged by `resolveStyles` into one
+   * pair with no repeated property and the values its gate refused dropped,
+   * and written here by `buildErModel` with the declarations a caller
+   * omitted struck (`withoutOmitted`).
+   *
+   * Absent when nothing styled it, and absent too when the author styled it
+   * but the gate refused every declaration: the resolver reports only a
+   * target left with at least one. Optional for the reason
+   * `ResolvedSubgraph.style` gives — a model built without one still
+   * type-checks. Layout reads an absent `style` as the empty pair
+   * (`?? { frame: [], text: [] }`), which says "no `style` attribute" to the
+   * renderer.
+   *
+   * ⚠️ **An entity or a cluster can be styled, and a relationship
+   * deliberately cannot**, which is why `ResolvedErRelationship` has no
+   * such field. Measured from Mermaid's own database: `addCssStyles` and
+   * `setClass` reach `entities` and `subGraphs` and nothing else, so
+   * `style CUSTOMER:ORDER fill:#f96` paints nothing there — and
+   * `CUSTOMER:ORDER` is exactly the id this model gives that relationship.
+   */
+  style?: AuthorStyle;
 }
 
 /**
@@ -4150,6 +4208,16 @@ export interface ResolvedErSubgraph {
    * distinction.
    */
   direction: Direction | null;
+  /**
+   * This cluster's author declarations, on the terms of
+   * `ResolvedErEntity.style` — absent when nothing styled it or the gate
+   * refused every declaration, and read by layout as the empty pair. The
+   * statement named the block the author typed; `buildErModel` rewrote that
+   * name to this generated id (see `ErStyleDecl.clusterTargets`) before
+   * resolving, and a nested frame never inherits it — measured, mermaid
+   * 12.2.0 paints only the cluster the statement named.
+   */
+  style?: AuthorStyle;
 }
 
 /**
@@ -4258,22 +4326,6 @@ export interface ErModel {
    * a frame being painted behind what it groups.
    */
   subgraphs: ResolvedErSubgraph[];
-  /**
-   * Each styled entity's and cluster's accepted declarations, already
-   * flattened by the shared `resolveStyles` — one entry per target that
-   * ended up with at least one, and none for a target the author styled
-   * with nothing. A cluster's entry is keyed on its **generated** id
-   * (`subgraph:1`), which `buildErModel` wrote in for the block name the
-   * author typed (see `ErStyleDecl.clusterTargets`).
-   *
-   * ⚠️ **An entity or a cluster can be a target, and a relationship
-   * deliberately cannot.** Measured from Mermaid's own database: `addCssStyles` and
-   * `setClass` reach `entities` and `subGraphs` and nothing else, so
-   * `style CUSTOMER:ORDER fill:#f96` paints nothing there — and
-   * `CUSTOMER:ORDER` is exactly the id this model gives that relationship,
-   * so the two lists are not interchangeable however alike they look.
-   */
-  styles: ResolvedStyle[];
   /**
    * The `timeline:` block resolved against this kind's three target kinds —
    * an **entity**, by the id its author wrote whatever an alias renamed it
