@@ -3,11 +3,15 @@
  * Validates Siren (.srn) documents by rendering them with siren-core, and
  * prints every diagnostic as file:line:column.
  *
- *   node validate.mjs <file.srn>... [--ids]
+ *   node validate.mjs <file.srn>... [--ids] [--icons <pack.json>]...
  *   cat doc.srn | node validate.mjs - [--ids]
  *
  * --ids also lists every id a timeline can name in the rendered diagram,
  * including generated ones such as subgraph:1, loop:1 or start:1.
+ *
+ * --icons passes an Iconify JSON icon pack to render(), so a flowchart's
+ * icon nodes (A@{ icon: "prefix:name" }) can be drawn. Repeat it for each
+ * pack. Without it, every icon node is an error.
  *
  * Needs `siren-core` and `jsdom`, resolved from the current directory:
  *
@@ -20,14 +24,35 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+const usage = "Usage: node validate.mjs <file.srn>... [--ids] [--icons <pack.json>]...   (use - to read stdin)";
 const args = process.argv.slice(2);
-const showIds = args.includes("--ids");
-const files = args.filter((arg) => arg !== "--ids");
+let showIds = false;
+const iconPackPaths = [];
+const files = [];
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === "--ids") showIds = true;
+  else if (args[i] === "--icons") {
+    if (args[i + 1] === undefined) {
+      console.error(usage);
+      process.exit(2);
+    }
+    iconPackPaths.push(args[++i]);
+  } else files.push(args[i]);
+}
 
 if (files.length === 0) {
-  console.error("Usage: node validate.mjs <file.srn>... [--ids]   (use - to read stdin)");
+  console.error(usage);
   process.exit(2);
 }
+
+const iconPacks = iconPackPaths.map((path) => {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    console.error(`Cannot read the icon pack ${path}: ${error.message}`);
+    process.exit(2);
+  }
+});
 
 // Resolve from the directory the user runs in, not from this script's own
 // location: a skill folder has no node_modules of its own.
@@ -59,7 +84,7 @@ async function load(name) {
 
 const { JSDOM } = await load("jsdom");
 const dom = new JSDOM("<!doctype html><html><body></body></html>");
-for (const key of ["window", "document", "Node", "Element", "HTMLElement", "SVGElement", "MouseEvent"]) {
+for (const key of ["window", "document", "Node", "Element", "HTMLElement", "SVGElement", "MouseEvent", "DOMParser"]) {
   globalThis[key] = key === "window" ? dom.window : dom.window[key];
 }
 const { render } = await load("siren-core");
@@ -70,7 +95,7 @@ for (const file of files) {
   const source = readFileSync(file === "-" ? 0 : file, "utf8");
   const name = file === "-" ? "<stdin>" : file;
   const container = document.createElement("div");
-  const { svg, controller, diagnostics } = render(source, container);
+  const { svg, controller, diagnostics, timelines } = render(source, container, { iconPacks });
 
   const errors = diagnostics.filter((d) => d.severity === "error");
   const warnings = diagnostics.filter((d) => d.severity === "warning");
@@ -83,6 +108,16 @@ for (const file of files) {
   for (const d of diagnostics) {
     const at = d.line === undefined ? name : `${name}:${d.line}${d.column === undefined ? "" : `:${d.column}`}`;
     console.log(`  ${at} ${d.severity}: ${d.message}`);
+  }
+
+  // Named timeline blocks: the step count above is the first block's, so give
+  // each block's own.
+  if (svg !== null && timelines.length > 0) {
+    const counts = timelines.map((timeline) => {
+      const { controller: c } = render(source, document.createElement("div"), { iconPacks, timeline });
+      return `${timeline} (${c.totalSteps} step(s))`;
+    });
+    console.log(`  timelines: ${counts.join(", ")}`);
   }
 
   if (showIds && svg !== null) {
