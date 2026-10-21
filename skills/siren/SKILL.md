@@ -10,7 +10,7 @@ A Siren document is a Mermaid diagram followed by an optional `timeline:` block,
 several named `timeline <name>:` blocks when one diagram tells more than one story. Each
 line of a timeline is one step, and says what to reveal, highlight or remove. The
 renderer is `siren-core` (npm), and a document is usually saved with the `.srn`
-extension.
+extension. This skill matches `siren-core` and `siren-board` 0.8.
 
 ```
 flowchart LR
@@ -56,6 +56,9 @@ the timeline, unless the diagram uses something Siren rejects.
 ## Document shape
 
 ```
+---                       optional front matter
+siren: { … }              for the host page; other keys are read but not applied
+---
 <diagram header>          flowchart LR | sequenceDiagram | classDiagram | stateDiagram-v2 | erDiagram
 <diagram body>            Mermaid syntax
 
@@ -67,23 +70,21 @@ timeline <name>:          or several named blocks instead (never both)
   <step 1>
 ```
 
-- The first non-comment line must be the diagram header, after an optional YAML front
-  matter (`---` … `---`) at the very top. Siren reads the front matter as Mermaid does,
-  but doesn't apply its settings yet; it supports no diagram types other than these five.
+- The first non-comment line must be the diagram header, after the optional front
+  matter at the very top. Siren supports these five diagram types and no others.
+- **Settings are not applied yet.** Front matter `config`, `title` and the like, and
+  `%%{init: …}%%` / `%%{wrap}%%` directives, are read and each reported as a warning; the
+  diagram is drawn without them. So don't use them to set a theme, curve or font: a
+  warning-free document has none. Two exceptions pass silently: `look: classic`, and a
+  top-level `siren:` key, whose value `render()` hands to the host page untouched.
 - `timeline:` starts the block, and every remaining line belongs to it. Nothing closes
   it, so it must come last. With named blocks, each one runs from its header to the next
   `timeline <name>:` header, or to the end of the document.
 - Only a whole line is a comment: a line whose first non-blank characters are `%%`. A
-  `%%` in the middle of a line is not a comment. Inside a label or other text it is kept
-  as text; elsewhere it is usually an error, depending on where it is. So put each comment
-  on a line of its own. (Inside a `timeline:` block, `%%` still starts a comment anywhere
-  on a line.) A comment line needs text after its `%%`: a line of only `%%` is refused in
-  flowcharts and ER diagrams, so write `%% text` or leave the line blank.
-  `%%{init: ...}%%` directives (one line or several) and `%%{wrap}%%` are read as Mermaid
-  reads them, but no setting is applied yet: each setting is reported as a warning, and
-  the diagram is drawn without it. An init that is not valid JSON is reported, and then,
-  as in Mermaid, no init in the document is read. Any other `%%{...}%%` directive is
-  removed with a warning.
+  `%%` in the middle of a line is text, or an error, depending on where it is, so put
+  each comment on a line of its own. (Inside a `timeline:` block, `%%` starts a comment
+  anywhere on a line.) A line of only `%%` is refused in flowcharts and ER diagrams, so
+  write `%% text` or leave the line blank.
 
 ## Timeline
 
@@ -91,12 +92,12 @@ Each non-blank line is one step, numbered by position from 1. Don't write step n
 `step 1: enter A fade` is an error. A step holds one or more actions separated by
 commas, and they all play together.
 
-| Action                  | Effects                                                          |
-| ----------------------- | ---------------------------------------------------------------- |
-| `enter <id> <effect>`   | `fade`, `slide-left`, `slide-right`, `slide-top`, `slide-bottom` |
-| `exit <id> <effect>`    | `fade`, `slide-left`, `slide-right`, `slide-top`, `slide-bottom` |
-| `highlight <id> <effect>` | `outline`, `glow`                                              |
-| `unhighlight <id>`      | none; writing an effect is an error                              |
+| Action                    | Effects                                                          |
+| ------------------------- | ---------------------------------------------------------------- |
+| `enter <id> <effect>`     | `fade`, `slide-left`, `slide-right`, `slide-top`, `slide-bottom` |
+| `exit <id> <effect>`      | `fade`, `slide-left`, `slide-right`, `slide-top`, `slide-bottom` |
+| `highlight <id> <effect>` | `outline`, `glow`                                                |
+| `unhighlight <id>`        | none; writing an effect is an error                              |
 
 `enter`, `exit` and `highlight` require an effect.
 
@@ -105,8 +106,9 @@ the left, and `exit X slide-left` leaves toward the left. The same holds for `-r
 `-top` (above) and `-bottom` (below).
 
 `outline` recolors and thickens a shape's border or a line. `glow` adds a colored halo
-and recolors the border at its normal width. A connection's arrowhead keeps its color
-under both.
+and recolors the border at its normal width. Both win over any color or width the author
+gave the target, for as long as it stays highlighted. A connection's arrowhead keeps its
+color.
 
 ### Rules the renderer enforces
 
@@ -129,7 +131,12 @@ under both.
   the same step as the container.
 - **Highlights persist** until `unhighlight`. Several targets can be highlighted at
   once. A new `highlight` on the same target replaces its effect.
-- **Ids must exist.** An id that isn't in the diagram is an error.
+- **Ids must exist and be unique.** An id that isn't in the diagram is an error, and so
+  is an id that two things share (a node named `A-B` beside the edge `A --> B`).
+- **Invisible edges stay invisible.** `A ~~~ B` is a valid target, but an `outline`
+  highlight leaves it invisible, so don't use one to point at anything.
+- **Animated edges march on their own.** An edge with `e1@{ animate: true }` keeps its
+  dash animation at every step; the timeline still enters, exits and highlights it.
 
 ### Several timelines
 
@@ -163,36 +170,41 @@ timeline wallet:
 ## Target ids
 
 Every action names its target by id. Authored things use the id you wrote. Connections
-join their two ends. Things without a name get a generated id numbered in source
-order.
+join their two ends, unless you named the edge. Things without a name get a generated id
+numbered in source order.
 
-| Diagram   | Target                               | Id                                         |
-| --------- | ------------------------------------ | ------------------------------------------ |
-| Flowchart | Node                                 | `A` in `A[Label]`, not the label           |
-|           | Edge                                 | `A-B` for `A --> B`, whatever the arrow    |
-|           | Subgraph                             | `subgraph:1`, `subgraph:2`, ... even when it has a name |
-| Sequence  | Participant or actor                 | `Alice` in `participant Alice as Al`       |
-|           | Message                              | `Alice-Bob` for `Alice->>Bob` (sender first) |
-|           | Block                                | `loop:1`, `alt:1`, `opt:1`, `par:1`, `critical:1`, `break:1`, `rect:1`, numbered per keyword |
-|           | Box grouping                         | `box:1`, `box:2`, ...                      |
-|           | Note                                 | `note:1`, `note:2`, ... in source order    |
-|           | Activation bar                       | `activation:1`, ... numbered as each bar opens |
-| Class     | Class                                | `Order`                                    |
-|           | Relationship                         | `Left-Right` as written: `Media <|-- Track` is `Media-Track` |
-|           | Namespace, note                      | `namespace:1`, `note:1`, ...               |
-| State     | State or composite state             | `Idle`, and the id, not the description    |
-|           | Transition                           | `Idle-Running`                             |
-|           | `[*]`                                | `start:1`, `end:1`, ... one start and one end per nesting level |
-|           | Concurrent region                    | `region:1`, `region:2`, ...                |
-| ER        | Entity                               | `CUSTOMER`                                 |
-|           | Relationship                         | `CUSTOMER:ORDER` (a colon, because entity names may contain `-`) |
-|           | Subgraph                             | `subgraph:1`, ...                          |
+| Diagram   | Target                       | Id                                                  |
+| --------- | ---------------------------- | --------------------------------------------------- |
+| Flowchart | Node                         | `A` in `A[Label]` or `A@{ … }`, not the label        |
+|           | Edge                         | `A-B` for `A --> B` or `A ~~~ B`, whatever the arrow |
+|           | Named edge                   | `e1` for `A e1@--> B`                               |
+|           | Subgraph                     | `subgraph:1`, `subgraph:2`, ... even when it has a handle |
+| Sequence  | Participant or actor         | `Alice` in `participant Alice as Al`                |
+|           | Message                      | `Alice-Bob` for `Alice->>Bob` (sender first)        |
+|           | Block                        | `loop:1`, `alt:1`, `opt:1`, `par:1`, `critical:1`, `break:1`, `rect:1`, numbered per keyword |
+|           | Box grouping                 | `box:1`, `box:2`, ...                               |
+|           | Note                         | `note:1`, `note:2`, ... in source order             |
+|           | Activation bar               | `activation:1`, ... numbered as each bar opens      |
+| Class     | Class                        | `Order`                                             |
+|           | Relationship                 | `Left-Right` as written: `Media <|-- Track` is `Media-Track` |
+|           | Namespace                    | `namespace:1`, ... one per frame, outer first, in the order blocks open |
+|           | Note                         | `note:1`, ...                                       |
+| State     | State or composite state     | `Idle`, and the id, not the description             |
+|           | Transition                   | `Idle-Running`                                      |
+|           | `[*]`                        | `start:1`, `end:1`, ... one start and one end per nesting level |
+|           | Concurrent region            | `region:1`, `region:2`, ...                         |
+| ER        | Entity                       | `CUSTOMER`                                          |
+|           | Relationship                 | `CUSTOMER:ORDER` (a colon, because entity names may contain `-`) |
+|           | Subgraph                     | `subgraph:1`, ...                                   |
 
 - A repeated connection between the same pair, in the same direction, gets `#2`,
-  `#3`, ... from its second occurrence: `A-B`, `A-B#2`.
+  `#3`, ... from its second occurrence: `A-B`, `A-B#2`. Named edges still count:
+  `A e1@--> B` then `A --> B` gives `e1` and `A-B#2`.
 - A connection's id follows the direction written, so a reply `Bob-->>Alice` is
   `Bob-Alice`.
 - `A --> B & C` creates `A-B` and `A-C`. A chain `A --> B --> C` creates `A-B` and `B-C`.
+- Name an edge (`A e1@--> B`) when its generated id would be awkward, for example the
+  third of several parallel edges.
 
 Generated numbering is easy to get wrong in a large diagram. Run the validator with
 `--ids` to list every id exactly as the renderer produced it.
@@ -215,16 +227,17 @@ Generated numbering is easy to get wrong in a large diagram. Run the validator w
   element can't come back.
 - **Prefer `fade`.** Use slides where movement means something.
 - **Keep it short.** 5 to 15 steps suit most diagrams. Beyond about 20, consider
-  splitting into several documents.
+  splitting the story into named timelines or several documents.
 
 ## Color and styling
 
 A Siren diagram is usually viewed under a theme you can't see. The page may redeclare
 Siren's theme tokens for a dark mode, brand colors or print, and every element you leave
 unstyled follows them. Mermaid's styling statements (`classDef`, `class`, `:::`, `style`,
-`linkStyle`) are emitted as inline styles that override the theme, so a color you write
+`linkStyle`) are drawn as inline styles that override the theme, so a color you write
 looks the same under every theme: a light fill becomes a glaring panel on a dark page,
-and a dark stroke disappears into it.
+and a dark stroke disappears into it. (A host page can drop them with
+`omitAuthorStyles`, but don't count on it.)
 
 - **Prefer the theme.** Write no styling by default. Show structure with subgraphs,
   node shapes and labels, and point at things with the timeline's `highlight` rather
@@ -232,6 +245,9 @@ and a dark stroke disappears into it.
 - **Add color only when it carries meaning** the structure can't, such as which layer a
   node belongs to, or your own systems against external ones. Use few classes, apply
   each one consistently, and don't color for decoration.
+- **Write hex colors and plain values only.** Flowchart and ER style values refuse every
+  CSS function (`rgb(`, `hsl(`, `var(`), and ER values refuse `.` and `!important` as
+  well. See [Style values](references/syntax.md#style-values).
 - **When you add color, make it work on light and dark backgrounds:**
   - `fill`: translucent, as 8-digit hex with an alpha around `22` to `40`
     (`fill:#3b82f633`). The theme's background shows through, and the theme's label
@@ -242,30 +258,26 @@ and a dark stroke disappears into it.
   - `color` (label text): leave it unset on a translucent fill. Only an opaque fill
     needs it, and an opaque fill should be rare. If you use one, pair it with a `color`
     that contrasts with that fill, since the box will look the same on any page.
+  - `stroke-width`: whole numbers (`2px`), since ER values can't hold a `.`.
   - `linkStyle`: leave edges to the theme. If you must style one, use a mid-tone stroke.
     Never set `linkStyle default` to a dark or light gray, which hides every edge under
     one of the themes.
-- **Don't `style` a subgraph.** Siren draws subgraphs in the theme's colors and ignores
-  a `style` on one without a warning. Color its nodes instead.
-- **Don't fight the highlight.** `highlight` recolors a shape's border to the theme's
-  highlight color (teal on the default theme), but an author's `stroke` or
-  `stroke-width` wins over it. On a target with its own stroke, `outline` changes
-  nothing visible and `glow` shows only its halo. Keep `stroke` and `stroke-width` off
-  elements the timeline highlights, and use `fill` alone to mark them. Also avoid teal
-  and cyan in author colors, so highlighted elements still stand out.
+- **Subgraphs can be styled** by their handle (`style backend fill:#3b82f611`, or
+  `class backend layer`). Keep a subgraph's fill fainter than its nodes', around `11` to
+  `22` alpha, so the nodes inside still stand out.
+- **Highlights always show.** While a target is highlighted, the highlight's color and
+  width replace the author's `stroke` and `stroke-width`, even `!important`, and go back
+  when it is unhighlighted. Avoid teal and cyan in author colors, so the default theme's
+  teal highlight still stands out against them.
 
 ```
 flowchart LR
   classDef external fill:#64748b33,stroke:#64748b
-  classDef ours fill:#3b82f633
+  classDef ours fill:#3b82f633,stroke:#3b82f6
   Browser([Browser]):::external --> App[App]:::ours
   App --> Auth[Auth]:::ours
   Auth --> LDAP[(LDAP)]:::external
 ```
-
-`App` and `Auth` carry only a fill, so a `highlight` on them still recolors their
-border. The external nodes have a stroke, so leave them out of highlights or drop the
-stroke.
 
 ## Validating
 
@@ -290,48 +302,70 @@ diagram.srn: ERRORS (1 error(s), 0 warning(s), 5 step(s))
   `warning` as a bug unless the user wants that behavior.
 - `OK` means well-formed, not well-staged. The validator doesn't judge the story:
   review step 0 and the order of steps yourself.
-- With named blocks, the errors and warnings cover every block, but the step count is the
-  first block's.
+- The step count is the first block's. With named blocks, a `timelines:` line lists each
+  block with its own step count. The errors and warnings cover every block.
+- A document with icon nodes needs their packs: pass each Iconify JSON file with
+  `--icons <pack.json>` (repeatable). Without it, every icon is an error.
 - Pass `-` to read from stdin. The exit code is 1 when any document has an error.
 - If the timeline rejects an id that `--ids` lists, that kind of element can't be
   animated yet. Leave it out of the timeline.
-- Every document you produce must, with its timeline blocks removed, pass the check the
-  Siren repository runs on its own examples, run from a Siren checkout as
-  `pnpm --filter siren-core check-examples -- diagram.srn`: real Mermaid 12.2.0 must
-  accept it, which `OK` alone does not prove.
+- Every document you produce must, with its timeline blocks removed, also be accepted by
+  Mermaid 12.2.0, which `OK` alone does not prove. From a Siren checkout, check it with
+  `pnpm --filter siren-core check-examples -- diagram.srn`.
 
 If you can't run Node.js, check the document by hand against the rules above, and tell
 the user it hasn't been validated.
 
 ## Common errors
 
-| Diagnostic                                                  | Fix                                                                     |
-| ----------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `Expected "flowchart TB", ... found "..."`                  | The first line must be one of the five headers. Remove front matter.    |
-| `Unrecognized <kind> line: "..."`                           | That syntax isn't supported. Rewrite it with a supported form from references/syntax.md. |
-| `create participant "X" comes after "X" is already used`     | Move the `create` above the first line that names X.                    |
-| `The created participant "X" has no creating message`       | Make the next message after `create participant X` one sent to X (`A->>X: ...`), with nothing in between. |
-| `The destroyed participant "X" has no destroying message`   | Make the next message after `destroy X` one sent by or to X, with nothing in between. |
+Most refusals name the cause and the fix in their own text, so read the message first.
+These are the ones that come up most:
+
+| Diagnostic | Fix |
+| ---------- | --- |
+| `Expected "flowchart TB", ... found "..."` | The first line after any front matter must be one of the supported headers. Siren draws only the five diagram types. |
+| `Unrecognized <kind> line: "..."` | That syntax isn't supported. Rewrite it with a supported form from references/syntax.md. |
+| `A style declaration cannot hold "(": fill:rgb(...)` | Write a hex color or a name. The message gives the hex for `rgb()`. |
+| `Character "." cannot appear in a `style` declaration list in erDiagram` | ER values take only letters, digits, `#-_*:,`. Write whole numbers and drop `!important`. |
+| `... Frontmatter title is read but not drawn yet` (warning), or another setting warning | Remove the setting. Siren doesn't apply front matter or init settings yet. |
+| `No icon pack "x" is registered` | The host page must pass the pack as `iconPacks`. Validate with `--icons`, or use a shape instead of an icon. |
+| `Siren never fetches an image while drawing` | Embed the image as a `data:` URL, or drop the image. |
+| `An edge label without quotes cannot begin with a word holding "@"` | Quote the whole label: `A -->|"a@b"| B`. |
+| `The edge id "e1" is already the id of the node "e1"` | Give the edge another id. |
+| `create participant "X" comes after "X" is already used` | Move the `create` above the first line that names X. |
+| `The created participant "X" has no creating message` | Make the next message after `create participant X` one sent to X (`A->>X: ...`), with nothing in between. |
+| `The destroyed participant "X" has no destroying message` | Make the next message after `destroy X` one sent by or to X, with nothing in between. |
 | `... has no creating message, so the create draws nothing` (warning) | Add a message sent to X right after `create participant X`, or make it a plain `participant X`. |
 | `... has no destroying message, so the destroy draws nothing` (warning) | Add a message sent by or to X right after `destroy X`, or remove the `destroy`. |
-| `timeline: references unknown id "X"`                       | Check the id against `--ids`. Use the node id, not its label.           |
-| `"highlight" on "X" at step N comes before it becomes visible` | Move the action to or after X's `enter` step.                        |
-| `edge "A-B" remains visible after its endpoint "B" exits`   | Add `exit A-B <effect>` at or before B's exit step.                     |
-| `"X" already has a "enter" action`                          | Remove the second `enter`. An element enters once.                      |
-| `Unknown highlight effect ""`                               | Add an effect: `highlight X outline`.                                   |
-| `Unrecognized timeline action: "step 1: ..."`               | Remove the step prefix. The line's position is its number.              |
-| `An unnamed "timeline:" block cannot share a document with named ones` | Name every block, or keep only the unnamed one.               |
-| `A document declares at most one unnamed "timeline:" block` | Name each block: `timeline <name>:`.                                    |
-| `Timeline "X" is already declared on line N`                | Give each block a different name.                                       |
-| `Invalid timeline name "X"`                                 | Use only letters, digits, `_` and `-` in the name.                      |
-| `linkStyle interpolate "X" is a curve Siren does not draw yet` | Use `basis`, `linear`, `step`, `stepBefore`, `stepAfter` or `rounded`. |
-| `linkStyle interpolate "X" names no curve`                  | Check the spelling and case: `stepBefore`, not `stepbefore`.            |
+| `timeline: references unknown id "X"` | Check the id against `--ids`. Use the node id, not its label. |
+| `timeline: "X" is the id of more than one thing in the diagram` | Rename the node, or name the edge with `id@`. |
+| `"highlight" on "X" at step N comes before it becomes visible` | Move the action to or after X's `enter` step. |
+| `edge "A-B" remains visible after its endpoint "B" exits` | Add `exit A-B <effect>` at or before B's exit step. |
+| `"X" already has a "enter" action` | Remove the second `enter`. An element enters once. |
+| `Unknown highlight effect ""` | Add an effect: `highlight X outline`. |
+| `Unrecognized timeline action: "step 1: ..."` | Remove the step prefix. The line's position is its number. |
+| `An unnamed "timeline:" block cannot share a document with named ones` | Name every block, or keep only the unnamed one. |
+| `A document declares at most one unnamed "timeline:" block` | Name each block: `timeline <name>:`. |
+| `Timeline "X" is already declared on line N` | Give each block a different name. |
+| `Invalid timeline name "X"` | Use only letters, digits, `_` and `-` in the name. |
+| `linkStyle interpolate "X" is a curve Siren does not draw yet` | Use `rounded`, `basis`, `linear`, `step`, `stepBefore` or `stepAfter`. |
+| `linkStyle interpolate "X" names no curve` (warning) | Check the spelling and case: `stepBefore`, not `stepbefore`. |
 
 ## Using the result
 
 Tell the user how to view the document when they ask, or when it isn't obvious:
 
-- `siren-board` (npm) is a ready-made player with step controls, pan and zoom:
-  `createBoard(element, { source })`, plus `import "siren-core/theme.css"`.
-- `siren-core` (npm) renders to SVG with `render(source, element)` and returns a
-  controller with `next()`, `prev()` and `reset()`.
+- **`siren-board`** (npm) is a ready-made player: step controls, play/pause, pan and
+  zoom, a timeline picker, fullscreen (where a click on the canvas steps forward) and a
+  dot-grid background. `createBoard(element, { source })`, plus
+  `import "siren-core/theme.css"`. Options include `iconPacks`, `dotGrid`,
+  `omitAuthorStyles` and callbacks such as `onStepChange`, `onDiagnostics` and
+  `onStyles`. The board has `setFullscreen()`, `setDotGrid()`, `play()` and `pause()`.
+- **`siren-core`** (npm) renders to SVG with `render(source, element, options?)`, and
+  returns `{ svg, controller, diagnostics, timelines, styles, siren }`. The controller
+  has `next()`, `prev()` and `reset()`. Options: `timeline` (a block name, or `false`
+  for the plain diagram), `iconPacks`, `omitAuthorStyles`, `onClick` (for `click … call`)
+  and `measureText`.
+- **Theming** is done with CSS custom properties (`--siren-*`) from `theme.css`. A color
+  token may also hold `url(#id)` to a gradient or pattern on the page, except
+  `--siren-highlight-color`.

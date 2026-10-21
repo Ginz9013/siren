@@ -39,11 +39,14 @@ npm install --no-save siren-core jsdom
 node <skill-dir>/scripts/validate.mjs diagram.srn --ids
 ```
 
+A document with flowchart icon nodes also needs its Iconify JSON packs:
+`--icons <pack.json>`, once per pack.
+
 ## Contents of `siren`
 
 ```
 siren/
-  SKILL.md              workflow, document shape, timeline rules, target ids, common errors
-  references/syntax.md  supported syntax for each diagram type, and what isn't supported
+  SKILL.md              workflow, document shape, timeline rules, target ids, color, common errors
+  references/syntax.md  supported syntax for each diagram type, style value rules, and what isn't supported
   scripts/validate.mjs  validator
 ```
