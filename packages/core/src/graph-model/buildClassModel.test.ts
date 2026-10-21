@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AuthorStyle, ClassDecl, ClassDocument, ClassMember, ClassModel, ClassRelationship, Label } from "../contracts";
+import type { ClassDecl, ClassDocument, ClassMember, ClassModel, ClassRelationship, Label, ResolvedStyle } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
 import { parseClassDiagram } from "../parser/parseClassDiagram";
 import { buildClassModel } from "./buildClassModel";
@@ -39,7 +39,7 @@ function classDocument(overrides: Partial<ClassDocument> = {}): ClassDocument {
  * `{ targetId, style }` — so a test about what styling resolved to reads it
  * off the classes, where `buildClassModel` writes it.
  */
-function styledClasses(model: ClassModel): { targetId: string; style: AuthorStyle }[] {
+function styledClasses(model: ClassModel): ResolvedStyle[] {
   return model.classes.flatMap((cls) => (cls.style === undefined ? [] : [{ targetId: cls.id, style: cls.style }]));
 }
 

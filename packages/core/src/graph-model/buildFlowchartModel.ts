@@ -15,7 +15,7 @@ import type {
 } from "../contracts";
 import { CURVES, FLOWCHART_DEFAULT_CURVE, isCurve, isMermaidOnlyCurve, type Curve } from "../curve/curve";
 import { generatedId } from "./generatedId";
-import { NOTHING_OMITTED, withoutOmitted } from "./omitAuthorStyles";
+import { NOTHING_OMITTED, withoutOmitted, writeAuthorStyles } from "./omitAuthorStyles";
 import { resolveInteractions } from "./resolveInteractions";
 import { asStyleFact, resolveStyleFacts, resolveStyles } from "./resolveStyles";
 import { resolveTimelineBlocks } from "./resolveTimeline";
@@ -105,29 +105,21 @@ export function buildFlowchartModel(
       ? declaration
       : { ...declaration, targetIds: declaration.targetIds.map((id) => idByName.get(id) ?? id) },
   );
-  const styleFacts: StyleFact[] = [];
-  for (const resolved of resolveStyleFacts(
+  const resolvedStyles = resolveStyleFacts(
     // `default` is applied to nodes only: Mermaid does not paint a subgraph's
     // frame with it (measured on 12.2.0).
     withImplicitDefaultClass(styles, [...nodeById.keys()]),
     new Set([...nodeById.keys(), ...subgraphById.keys()]),
     diagnostics,
-  )) {
-    // Every id `resolveStyles` returns is one it was handed, so this cannot
-    // miss; a node nothing styled keeps the empty halves it was built with.
-    //
-    // Both halves are carried, not just the frame's: which of a node's
-    // elements a declaration is about was settled by `resolveStyles`, and
-    // re-deciding it here would be the second opinion that split is meant
-    // to prevent.
-    //
-    // The fact is taken from `resolved` and the target given what is left
-    // once the caller's omitted properties are struck (see `withoutOmitted`).
-    const { targetId, style } = resolved;
-    const target = nodeById.get(targetId) ?? subgraphById.get(targetId)!;
-    target.style = withoutOmitted(style, omitted);
-    styleFacts.push(asStyleFact(resolved, subgraphById.has(targetId) ? "subgraph" : "node"));
-  }
+  );
+  // A node nothing styled keeps the empty halves it was built with. Both
+  // halves are carried, not just the frame's: which of a node's elements a
+  // declaration is about was settled by `resolveStyles`, and re-deciding it
+  // here would be the second opinion that split is meant to prevent.
+  writeAuthorStyles(resolvedStyles, (id) => nodeById.get(id) ?? subgraphById.get(id), omitted);
+  const styleFacts: StyleFact[] = resolvedStyles.map((resolved) =>
+    asStyleFact(resolved, subgraphById.has(resolved.targetId) ? "subgraph" : "node"),
+  );
 
   // The same resolver `resolveStyles` above already shares with the class
   // diagram, one URL allowlist over: nothing here looks at a node, so
@@ -263,7 +255,9 @@ export function buildFlowchartModel(
     }
   }
   // Struck only once every edge's fact holds what was painted above, so an
-  // omitted declaration is still in the fact (see `withoutOmitted`).
+  // omitted declaration is still in the fact (see `withoutOmitted`). Not
+  // `writeAuthorStyles`: an edge's style is built from its tiers here, not
+  // handed over as the resolver's answer, and every edge is struck.
   for (const edge of edges) {
     edge.style = withoutOmitted(edge.style, omitted);
   }

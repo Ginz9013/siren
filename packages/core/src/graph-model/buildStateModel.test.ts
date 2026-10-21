@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AuthorStyle, Direction, StateDocument, StateModel } from "../contracts";
+import type { Direction, ResolvedStyle, StateDocument, StateModel } from "../contracts";
 import { plainLabel } from "../label/label";
 import { parseStateDiagram } from "../parser/parseStateDiagram";
 import { buildStateModel } from "./buildStateModel";
@@ -57,7 +57,7 @@ function document(
  * `{ targetId, style }` — so a test about what styling resolved to reads it
  * off the states, where `buildStateModel` writes it.
  */
-function styledStates(model: StateModel): { targetId: string; style: AuthorStyle }[] {
+function styledStates(model: StateModel): ResolvedStyle[] {
   return model.states.flatMap((state) => (state.style === undefined ? [] : [{ targetId: state.id, style: state.style }]));
 }
 

@@ -54,10 +54,11 @@ import { unsafeStyleValue } from "../unsafeStyleValue";
  * **Every `targetId` in the result is one of `validTargetIds`** — a target
  * the document names but nothing declares is dropped here, silently, the
  * way Mermaid drops it. That is a promise callers lean on rather than a
- * detail: `buildFlowchartModel` writes each result straight onto
- * `nodeById.get(targetId)!`, so a result naming an unknown id would crash
- * `render()` with a TypeError instead of returning a diagnostic (found by
- * mutation, 01M37GQS1). `resolveStyles.test.ts` pins it.
+ * detail: every builder writes each result onto its target through
+ * `writeAuthorStyles`, which throws on an id it finds no target for, so a
+ * result naming an unknown id would crash `render()` instead of returning a
+ * diagnostic (found by mutation, 01M37GQS1). `resolveStyles.test.ts` pins
+ * it.
  *
  * Each result also keeps its provenance — the classes that reached the
  * target, and the statement each surviving declaration came from — which is
@@ -206,9 +207,10 @@ export function resolveStyleFacts(
 
 /**
  * `resolveStyleFacts` without the provenance: the declarations each styled
- * target is painted with, which is all a model's `styles` carries. The
- * rules, and the promise that every `targetId` is one of `validTargetIds`,
- * are that function's.
+ * target is painted with — the part a builder writes onto its target as
+ * `style`, while the facts travel separately as the model's `styleFacts`.
+ * The rules, and the promise that every `targetId` is one of
+ * `validTargetIds`, are that function's.
  */
 export function resolveStyles(
   declarations: readonly StyleDecl[],

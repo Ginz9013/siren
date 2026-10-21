@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type {
-  AuthorStyle,
   ErAttribute,
   ErDocument,
   ErModel,
   ErRelationshipDecl,
   ErSubgraph,
+  ResolvedStyle,
   StyleDecl,
 } from "../contracts";
 import { plainLabel, plainRun } from "../label/label";
@@ -555,7 +555,7 @@ describe("buildErModel resolves the timeline", () => {
  * model's order, as `{ targetId, style }` — so a test about what styling
  * resolved to reads it off the targets, where `buildErModel` writes it.
  */
-function styledTargets(model: ErModel): { targetId: string; style: AuthorStyle }[] {
+function styledTargets(model: ErModel): ResolvedStyle[] {
   return [...model.entities, ...model.subgraphs].flatMap((target) =>
     target.style === undefined ? [] : [{ targetId: target.id, style: target.style }],
   );

@@ -2469,10 +2469,17 @@ export interface ResolvedClass {
   /**
    * Everything this class was styled by — its `style` statements and every
    * `classDef` a `cssClass` applied to it — merged by `resolveStyles` into
-   * one pair with no repeated property, and written here by
-   * `buildClassModel`. Absent when nothing styled it, the rule
-   * `ResolvedSubgraph.style` has: layout reads that as the empty pair, for
-   * which the renderer gives no `style` attribute at all.
+   * one pair with no repeated property and the values its gate refused
+   * dropped, and written here by `buildClassModel` with the declarations a
+   * caller omitted struck (`withoutOmitted`).
+   *
+   * Absent when nothing styled it, and absent too when the author styled it
+   * but the gate refused every declaration: the resolver reports only a
+   * target left with at least one. Optional for the reason
+   * `ResolvedSubgraph.style` gives — a model built without one still
+   * type-checks. Layout reads an absent `style` as the empty pair
+   * (`?? { frame: [], text: [] }`), which says "no `style` attribute" to the
+   * renderer.
    */
   style?: AuthorStyle;
 }
@@ -3342,9 +3349,16 @@ export interface ResolvedState {
   /**
    * Everything this state was styled by, merged by `resolveStyles` into one
    * pair with no repeated property and the values its gate refused dropped,
-   * and written here by `buildStateModel`. Absent when nothing styled it,
-   * the rule `ResolvedSubgraph.style` has: layout reads that as the empty
-   * pair, which says "no `style` attribute" to the renderer.
+   * and written here by `buildStateModel` with the declarations a caller
+   * omitted struck (`withoutOmitted`).
+   *
+   * Absent when nothing styled it, and absent too when the author styled it
+   * but the gate refused every declaration: the resolver reports only a
+   * target left with at least one. Optional for the reason
+   * `ResolvedSubgraph.style` gives — a model built without one still
+   * type-checks. Layout reads an absent `style` as the empty pair
+   * (`?? { frame: [], text: [] }`), which says "no `style` attribute" to the
+   * renderer.
    *
    * Only a **state** can be a target: measured, mermaid 11.17.2 records a
    * `classes` array on a state and nowhere else, so no `class` statement
@@ -4126,9 +4140,16 @@ export interface ResolvedErEntity {
   /**
    * Everything this entity was styled by, merged by `resolveStyles` into one
    * pair with no repeated property and the values its gate refused dropped,
-   * and written here by `buildErModel`. Absent when nothing styled it, the
-   * rule `ResolvedSubgraph.style` has: layout reads that as the empty pair,
-   * which says "no `style` attribute" to the renderer.
+   * and written here by `buildErModel` with the declarations a caller
+   * omitted struck (`withoutOmitted`).
+   *
+   * Absent when nothing styled it, and absent too when the author styled it
+   * but the gate refused every declaration: the resolver reports only a
+   * target left with at least one. Optional for the reason
+   * `ResolvedSubgraph.style` gives — a model built without one still
+   * type-checks. Layout reads an absent `style` as the empty pair
+   * (`?? { frame: [], text: [] }`), which says "no `style` attribute" to the
+   * renderer.
    *
    * ⚠️ **An entity or a cluster can be styled, and a relationship
    * deliberately cannot**, which is why `ResolvedErRelationship` has no
@@ -4189,11 +4210,12 @@ export interface ResolvedErSubgraph {
   direction: Direction | null;
   /**
    * This cluster's author declarations, on the terms of
-   * `ResolvedErEntity.style` — absent when nothing styled it. The statement
-   * named the block the author typed; `buildErModel` rewrote that name to
-   * this generated id (see `ErStyleDecl.clusterTargets`) before resolving,
-   * and a nested frame never inherits it — measured, mermaid 12.2.0 paints
-   * only the cluster the statement named.
+   * `ResolvedErEntity.style` — absent when nothing styled it or the gate
+   * refused every declaration, and read by layout as the empty pair. The
+   * statement named the block the author typed; `buildErModel` rewrote that
+   * name to this generated id (see `ErStyleDecl.clusterTargets`) before
+   * resolving, and a nested frame never inherits it — measured, mermaid
+   * 12.2.0 paints only the cluster the statement named.
    */
   style?: AuthorStyle;
 }

@@ -7,7 +7,7 @@ import type {
   StateModelResult,
 } from "../contracts";
 import { generatedId } from "./generatedId";
-import { NOTHING_OMITTED, withoutOmitted } from "./omitAuthorStyles";
+import { NOTHING_OMITTED, writeAuthorStyles } from "./omitAuthorStyles";
 import { asStyleFact, resolveStyleFacts } from "./resolveStyles";
 import { resolveTimelineBlocks } from "./resolveTimeline";
 
@@ -126,17 +126,8 @@ export function buildStateModel(
     new Set(states.map((state) => state.id)),
     diagnostics,
   );
-  // Written onto each state the resolver returned — every one is a state it
-  // was handed — and onto no other, so a state nothing styled has no
-  // `style`. The facts below are taken from `resolvedStyles`, so they keep
-  // what the caller omits here (see `withoutOmitted`).
   const stateById = new Map(states.map((state) => [state.id, state]));
-  for (const { targetId, style } of resolvedStyles) {
-    const target = stateById.get(targetId);
-    if (target !== undefined) {
-      target.style = withoutOmitted(style, omitted);
-    }
-  }
+  writeAuthorStyles(resolvedStyles, (id) => stateById.get(id), omitted);
 
   // States and transitions share one id space, exactly as a flowchart's
   // nodes and edges do, so an author animates any element of the diagram the

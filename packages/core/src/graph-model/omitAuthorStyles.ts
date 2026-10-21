@@ -1,4 +1,4 @@
-import type { AuthorStyle } from "../contracts";
+import type { AuthorStyle, ResolvedStyle } from "../contracts";
 
 /**
  * What a model builder strikes when its caller omits nothing — the default
@@ -20,13 +20,15 @@ export function omittedStyleNames(names: readonly string[] | undefined): Readonl
  * `style` with each declaration a caller named in
  * `RenderOptions.omitAuthorStyles` struck out.
  *
- * Only the model builders apply it, each as it writes a target's `style` and
- * after that target's style fact was taken — which is why the facts state
- * what the author wrote whatever is omitted — so no layout module or
- * renderer knows a property can be omitted: a renderer simply never sees the
- * declaration, and an edge with no `stroke` left takes the theme's arrowhead
- * as an edge never given one does. A new object rather than an edit, since a
- * fact may share this one and must keep what was written.
+ * Only the model builders apply it, to the `style` they write onto a target.
+ * A target's style fact is always taken from the unstruck style — the
+ * resolver's answer, or for a flowchart edge the style its tiers built — and
+ * the target's `style` is the struck one, so a fact states what the author
+ * wrote whatever was omitted. No layout module or renderer knows a property
+ * can be omitted: a renderer simply never sees the declaration, and an edge
+ * with no `stroke` left takes the theme's arrowhead as an edge never given
+ * one does. A new object rather than an edit, since a fact may share this
+ * one and must keep what was written.
  *
  * The list is in the author's spelling and the text half in SVG's: the
  * model holds an author's `color` as the `fill` a `<text>` is painted with
@@ -40,4 +42,33 @@ export function withoutOmitted(style: AuthorStyle, omitted: ReadonlySet<string>)
       return !omitted.has(name === "fill" ? "color" : name);
     }),
   };
+}
+
+/**
+ * Writes each resolved target's style, with the omitted declarations struck
+ * (`withoutOmitted`), onto the model item `targetOf` finds for its id.
+ *
+ * One helper rather than a loop in each builder, so the promise is stated
+ * once: every target the resolver answered for gets the struck style, and a
+ * target it did not answer for keeps no `style` at all. The caller takes its
+ * style facts from `resolved` itself, which this leaves as written.
+ *
+ * A miss throws, naming the id: the resolver only returns ids it was handed
+ * (see `resolveStyleFacts`), so a lookup that finds nothing is a builder
+ * whose lookup disagrees with the ids it handed over — a programming error,
+ * refused by name the way `placeConnectors` refuses a missing route, rather
+ * than a style silently dropped or a TypeError with no id in it.
+ */
+export function writeAuthorStyles(
+  resolved: readonly ResolvedStyle[],
+  targetOf: (id: string) => { style?: AuthorStyle } | undefined,
+  omitted: ReadonlySet<string>,
+): void {
+  for (const { targetId, style } of resolved) {
+    const target = targetOf(targetId);
+    if (target === undefined) {
+      throw new Error(`writeAuthorStyles: no target for style ${targetId}`);
+    }
+    target.style = withoutOmitted(style, omitted);
+  }
 }

@@ -391,13 +391,15 @@ export function layoutErDiagram(model: ErModel, options: LayoutOptions): Positio
       y: box.y,
       width: box.width,
       height: box.height,
-      // Read off the entity itself, so no list handed out in another order
-      // can style the wrong box. `buildErModel` has already merged everything
-      // one entity was styled by and dropped the values its gate refused, so
-      // there is nothing to reconcile here; an entity it left without a
-      // `style` gets the empty pair, which is what says "no `style`
-      // attribute" to the renderer without it having to test for a missing
-      // field. `layoutStateDiagram` reads a state's the same way.
+      // `buildErModel` has already merged everything one entity was styled
+      // by and dropped the values its gate refused, so there is nothing to
+      // reconcile here. An entity it left without a `style` gets the empty
+      // pair, which is what says "no `style` attribute" to the renderer
+      // without it having to test for a missing field — the renderer asks
+      // one question of every box. A style lost on the way would draw a
+      // perfectly good picture and report nothing, so the builder is where
+      // that is refused: `writeAuthorStyles` throws by name on a style with
+      // no target. `layoutStateDiagram` reads a state's the same way.
       style: entity.style ?? { frame: [], text: [] },
       // The plan was measured against the box's own top-left corner, so
       // placing it is one translation — the step `layoutClassDiagram` takes

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuthorStyle } from "../contracts";
-import { omittedStyleNames, withoutOmitted } from "./omitAuthorStyles";
+import { omittedStyleNames, withoutOmitted, writeAuthorStyles } from "./omitAuthorStyles";
 
 const painted = (): AuthorStyle => ({
   frame: [
@@ -56,5 +56,35 @@ describe("withoutOmitted", () => {
 
     expect(struck).not.toBe(style);
     expect(style).toEqual(painted());
+  });
+});
+
+describe("writeAuthorStyles", () => {
+  it("writes the struck style onto the target the lookup returns", () => {
+    const styled: { style?: AuthorStyle } = {};
+    const unstyled: { style?: AuthorStyle } = {};
+    const targets = new Map([
+      ["a", styled],
+      ["b", unstyled],
+    ]);
+    const style = painted();
+
+    writeAuthorStyles([{ targetId: "a", style }], (id) => targets.get(id), omittedStyleNames(["stroke"]));
+
+    expect(styled.style).toEqual({
+      frame: [
+        { property: "fill", value: "#f96" },
+        { property: "stroke-width", value: "4px" },
+      ],
+      text: [{ property: "fill", value: "#00f" }],
+    });
+    expect(unstyled).not.toHaveProperty("style");
+    expect(style).toEqual(painted());
+  });
+
+  it("throws by name when the lookup finds no target", () => {
+    expect(() =>
+      writeAuthorStyles([{ targetId: "ghost", style: painted() }], () => undefined, omittedStyleNames(undefined)),
+    ).toThrow("writeAuthorStyles: no target for style ghost");
   });
 });
