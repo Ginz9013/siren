@@ -4563,3 +4563,208 @@ describe("createBoard's own measurer, with no measureText given, measures in the
     expect(frameHeight(container, "B")).toBe(20 * 1.5 + 11 + 11);
   });
 });
+
+describe("board.relayout()", () => {
+  /** A two-row A over a one-row B, so the row height shows the font size; three steps to stand on. */
+  const STEPPED = `flowchart TD
+A["one<br>two"] --> B[one]
+B --> C[end]
+timeline:
+enter B fade
+enter C fade
+highlight A outline
+`;
+  /** The same nodes with two named timelines: `card` has one step, `wallet` two. */
+  const TWO_TIMELINES = `flowchart TD
+A["one<br>two"] --> B[one]
+B --> C[end]
+timeline card:
+enter B fade
+timeline wallet:
+enter B fade
+enter C fade
+`;
+  /** A's two rows are one line taller than B's one: 1.5 × the font size. */
+  const rowGap = (root: ParentNode) => frameHeight(root, "A") - frameHeight(root, "B");
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("redraws the same source in the tokens as they are now, at the step shown, keeping the view, and fires only onStyles", () => {
+    const tokens: Record<string, string> = {};
+    stubTokens(tokens);
+    const container = document.createElement("div");
+    const calls: string[] = [];
+    const board = createBoard(container, {
+      source: STEPPED,
+      measureText: measurerAt(28),
+      onStepChange: () => calls.push("step"),
+      onDiagnostics: () => calls.push("diagnostics"),
+      onTimelineChange: () => calls.push("timeline"),
+      onFullDiagramChange: () => calls.push("fullDiagram"),
+      onStyles: () => calls.push("styles"),
+    });
+    board.controller!.next();
+    board.controller!.next();
+    const canvas = container.querySelector<HTMLElement>(".siren-board-canvas")!;
+    stubRect(canvas, { width: 400, height: 300 });
+    canvas.dispatchEvent(
+      new WheelEvent("wheel", { clientX: 100, clientY: 100, deltaY: -500, bubbles: true, cancelable: true }),
+    );
+    const zoomed = readViewportTransform(container);
+    const diagnostics = board.diagnostics;
+    const before = board.controller;
+    // Drawn at the default 14px first.
+    expect(rowGap(container)).toBe(14 * 1.5);
+    calls.length = 0;
+
+    tokens["--siren-font-size"] = "28px";
+    board.relayout();
+
+    expect(rowGap(container)).toBe(28 * 1.5);
+    expect(board.controller!.currentStep).toBe(2);
+    expect(board.controller!.totalSteps).toBe(3);
+    expect(board.controller).not.toBe(before);
+    expect(readViewportTransform(container)).toEqual(zoomed);
+    expect(board.diagnostics).toBe(diagnostics);
+    expect(calls).toEqual(["styles"]);
+  });
+
+  it("redraws even when no token changed, and onStyles fires", () => {
+    const container = document.createElement("div");
+    let stylesCalls = 0;
+    const board = createBoard(container, {
+      source: STEPPED,
+      measureText: measurerAt(14),
+      onStyles: () => stylesCalls++,
+    });
+    const svg = container.querySelector(".siren-board-viewport svg");
+    stylesCalls = 0;
+
+    board.relayout();
+
+    expect(container.querySelector(".siren-board-viewport svg")).not.toBe(svg);
+    expect(stylesCalls).toBe(1);
+  });
+
+  it("on a timeline other than the first, stays on it at its step", () => {
+    const tokens: Record<string, string> = {};
+    stubTokens(tokens);
+    const container = document.createElement("div");
+    const board = createBoard(container, { source: TWO_TIMELINES, measureText: measurerAt(28) });
+    board.setTimeline("wallet");
+    board.controller!.next();
+
+    tokens["--siren-font-size"] = "28px";
+    board.relayout();
+
+    expect(rowGap(container)).toBe(28 * 1.5);
+    expect(board.timeline).toBe("wallet");
+    expect(board.controller!.totalSteps).toBe(2);
+    expect(board.controller!.currentStep).toBe(1);
+  });
+
+  it("in the full diagram, stays in it, and switching it off returns to the step shown before", () => {
+    const tokens: Record<string, string> = {};
+    stubTokens(tokens);
+    const container = document.createElement("div");
+    const changes: boolean[] = [];
+    const board = createBoard(container, {
+      source: STEPPED,
+      measureText: measurerAt(28),
+      onFullDiagramChange: (on) => changes.push(on),
+    });
+    board.controller!.next();
+    board.setFullDiagram(true);
+
+    tokens["--siren-font-size"] = "28px";
+    board.relayout();
+
+    expect(rowGap(container)).toBe(28 * 1.5);
+    expect(board.fullDiagram).toBe(true);
+    expect(board.controller!.totalSteps).toBe(0);
+    expect(changes).toEqual([true]);
+
+    board.setFullDiagram(false);
+
+    expect(board.controller!.currentStep).toBe(1);
+  });
+
+  it("while playing, does not pause: the next playback step lands on the new drawing", () => {
+    vi.useFakeTimers();
+    const tokens: Record<string, string> = {};
+    stubTokens(tokens);
+    const container = document.createElement("div");
+    const playback: boolean[] = [];
+    const board = createBoard(container, {
+      source: STEPPED,
+      measureText: measurerAt(28),
+      onPlaybackChange: (playing) => playback.push(playing),
+    });
+    board.play();
+    expect(board.controller!.currentStep).toBe(1);
+
+    tokens["--siren-font-size"] = "28px";
+    board.relayout();
+
+    expect(board.playing).toBe(true);
+    expect(playback).toEqual([true]);
+    const svg = container.querySelector(".siren-board-viewport svg");
+    vi.advanceTimersByTime(board.playInterval);
+
+    expect(board.controller!.currentStep).toBe(2);
+    expect(container.querySelector(".siren-board-viewport svg")).toBe(svg);
+    expect(rowGap(container)).toBe(28 * 1.5);
+  });
+
+  it("with the error banner up, redraws the last source that rendered, leaving the banner and diagnostics", () => {
+    const tokens: Record<string, string> = {};
+    stubTokens(tokens);
+    const container = document.createElement("div");
+    let diagnosticsCalls = 0;
+    const board = createBoard(container, {
+      source: STEPPED,
+      measureText: measurerAt(28),
+      onDiagnostics: () => diagnosticsCalls++,
+    });
+    board.setSource("this is not a valid siren document");
+    const diagnostics = board.diagnostics;
+    diagnosticsCalls = 0;
+
+    tokens["--siren-font-size"] = "28px";
+    board.relayout();
+
+    expect(rowGap(container)).toBe(28 * 1.5);
+    expect(container.querySelector(".siren-board-error")).not.toBeNull();
+    expect(board.diagnostics).toBe(diagnostics);
+    expect(diagnosticsCalls).toBe(0);
+  });
+
+  it("with no source, or after destroy(), is a no-op that throws nothing and fires nothing", () => {
+    let stylesCalls = 0;
+    const empty = createBoard(document.createElement("div"), {
+      measureText: measurerAt(14),
+      onStyles: () => stylesCalls++,
+    });
+
+    expect(() => empty.relayout()).not.toThrow();
+    expect(empty.controller).toBeNull();
+    expect(stylesCalls).toBe(0);
+
+    const container = document.createElement("div");
+    const board = createBoard(container, {
+      source: STEPPED,
+      measureText: measurerAt(14),
+      onStyles: () => stylesCalls++,
+    });
+    board.destroy();
+    const controller = board.controller;
+    stylesCalls = 0;
+
+    expect(() => board.relayout()).not.toThrow();
+    expect(board.controller).toBe(controller);
+    expect(stylesCalls).toBe(0);
+  });
+});

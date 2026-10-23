@@ -210,6 +210,21 @@ export interface Board {
    * replaces `controller`: read it again rather than keeping the old one.
    */
   setOmitAuthorStyles(list: readonly string[]): void;
+  /**
+   * Lays the last rendered source out again in the theme's `--siren-*`
+   * tokens as they are now — call it after changing the theme. Redraws at
+   * the step shown, on the current timeline or in the full diagram as
+   * before, with the current `omitAuthorStyles`; it redraws even when no
+   * token changed. While the error banner is up it redraws the last source
+   * that rendered and leaves the banner alone. Playback keeps going: a
+   * pending step lands on the new drawing. Never changes the view or
+   * `diagnostics`, and fires `onStyles` only — neither `onStepChange`,
+   * `onDiagnostics`, `onTimelineChange` nor `onFullDiagramChange`. Like
+   * `setOmitAuthorStyles`, it replaces `controller`: read it again rather
+   * than keeping the old one. With no source rendered, or after `destroy()`,
+   * it is a no-op.
+   */
+  relayout(): void;
   /** Whether playback is running (see CONTEXT.md's "Playback"). */
   readonly playing: boolean;
   /** Milliseconds between playback steps. */
@@ -514,6 +529,30 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
       return;
     }
     omitAuthorStyles = Object.freeze([...list]);
+    redraw();
+  }
+
+  /**
+   * Re-reads the theme's tokens by re-rendering the last rendered source
+   * (`renderDocument` reads them on every render). Like
+   * `setOmitAuthorStyles`, the document did not change, only how it is
+   * drawn, so it leaves the rest of the board as it is.
+   */
+  function relayout(): void {
+    // A destroyed board draws nothing and reports nothing more.
+    if (destroyed) return;
+    redraw();
+  }
+
+  /**
+   * Re-renders the last rendered source as the board now draws it, at the
+   * step shown, on the current timeline or in the full diagram as before —
+   * the path `setOmitAuthorStyles` and `relayout` share. Leaves
+   * `diagnostics`, the view and the error banner alone, does not pause (the
+   * steps are the same, so a pending playback step lands on the new
+   * drawing), and fires only `onStyles`. No rendered source draws nothing.
+   */
+  function redraw(): void {
     let drawn = false;
     if (renderedSource !== null) {
       const step = wrappedController?.currentStep ?? 0;
@@ -846,6 +885,7 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     setFullscreen,
     setDotGrid,
     setOmitAuthorStyles,
+    relayout,
     setTimeline,
     play,
     pause,
