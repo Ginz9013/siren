@@ -8,12 +8,16 @@ import type {
   PositionedMessage,
   PositionedNote,
   PositionedParticipant,
-  PositionedSequenceDiagram,
   PositionedSequenceElement,
   SequenceArrowHead,
 } from "../contracts";
 import { appendLabel, drawLabel } from "../label/drawLabel";
-import { ACTOR_FIGURE_HALF_WIDTH, ACTOR_FIGURE_WIDTH } from "../layout/layoutSequence";
+import {
+  ACTOR_FIGURE_HALF_WIDTH,
+  ACTOR_FIGURE_WIDTH,
+  titleBandHeightOf,
+  type TitledPositionedSequenceDiagram,
+} from "../layout/layoutSequence";
 import { buildSequenceLinkMenu } from "./buildSequenceLinkMenu";
 import { drawPlaced } from "../label/drawPlaced";
 import { mintIdScope } from "./mintIdScope";
@@ -97,7 +101,7 @@ const HEAD_MARKER_NAME: Record<SequenceArrowHead, string | null> = {
  * `buildBlock`), a `<g class="siren-box">` background per participant
  * grouping, and a `<text class="siren-title">` when a title is present.
  */
-export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGElement {
+export function renderSequenceToSVG(diagram: TitledPositionedSequenceDiagram): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
   sizeCanvas(svg, diagram.width, diagram.height);
 
@@ -139,7 +143,7 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
   svg.appendChild(buildDefs(scope));
 
   if (diagram.title !== null) {
-    svg.appendChild(buildTitle(diagram.title, diagram.width));
+    svg.appendChild(buildTitle(diagram.title, diagram.width, titleBandHeightOf(diagram)));
   }
 
   // Boxes first, before anything they group: SVG paints in document order,
@@ -425,12 +429,16 @@ function buildBlockKeyword(kind: string, x: number, y: number): SVGTextElement {
   return keyword;
 }
 
-/** Builds the `<text class="siren-title">`, centered above the diagram. */
-function buildTitle(title: string, diagramWidth: number): SVGTextElement {
+/**
+ * Builds the `<text class="siren-title">`, centered above the diagram in
+ * the middle of the band layout reserved for it (`bandHeight`; 20px down in
+ * the default 40px band).
+ */
+function buildTitle(title: string, diagramWidth: number, bandHeight: number): SVGTextElement {
   const text = document.createElementNS(SVG_NS, "text") as SVGTextElement;
   text.setAttribute("class", "siren-title");
   text.setAttribute("x", String(diagramWidth / 2));
-  text.setAttribute("y", "20");
+  text.setAttribute("y", String(bandHeight / 2));
   text.setAttribute("text-anchor", "middle");
   text.textContent = title;
   return text;

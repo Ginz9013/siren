@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { plainLabel, plainRun } from "../label/label";
 import { renderSequenceToSVG } from "./renderSequenceToSVG";
+import { DEFAULT_TYPOGRAPHY, render, type Typography } from "../index";
 import type {
   PositionedSequenceDiagram,
   PositionedParticipant,
@@ -1330,3 +1331,35 @@ describe("renderSequenceToSVG's labels", () => {
   });
 });
 
+
+/**
+ * A sequence diagram drawn through `render()` at a typography (spec
+ * theme-typography): the title band and the `.siren-title` drawn in it.
+ */
+describe("renderSequenceToSVG at a typography", () => {
+  const titled = `sequenceDiagram
+title Handshake overview
+participant A
+participant B
+A->>B: Hello
+`;
+  /** The SVG's markup with its minted id scope (`mintIdScope`) made constant. */
+  const markupOf = (typography?: Partial<Typography>) =>
+    render(titled, document.createElement("div"), typography === undefined ? {} : { typography })
+      .svg!.outerHTML.replace(/__[a-z0-9]{8}/g, "__scope");
+
+  it("draws the title 20px down at the default titleFontSize of 18", () => {
+    const svg = render(titled, document.createElement("div")).svg!;
+    expect(svg.querySelector("text.siren-title")!.getAttribute("y")).toBe("20");
+  });
+
+  it("draws the title in the middle of its band: 40px down at a titleFontSize of 36", () => {
+    const svg = render(titled, document.createElement("div"), { typography: { titleFontSize: 36 } }).svg!;
+    expect(svg.querySelector("text.siren-title")!.getAttribute("y")).toBe("40");
+  });
+
+  it("draws the same SVG with no typography, {}, and DEFAULT_TYPOGRAPHY", () => {
+    expect(markupOf({})).toBe(markupOf());
+    expect(markupOf(DEFAULT_TYPOGRAPHY)).toBe(markupOf());
+  });
+});
