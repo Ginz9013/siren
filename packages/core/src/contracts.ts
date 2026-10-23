@@ -156,7 +156,7 @@ export type TimelineActionKind = "enter" | "exit" | "highlight" | "unhighlight";
  * the tag vocabulary (ADR-0015) never have to touch this file; re-exported
  * here so every other module still finds its cross-module types in one place.
  */
-import type { Label, LabelBox, PlacedLabel } from "./label/label";
+import type { Label, LabelBox, PlacedLabel, Typography } from "./label/label";
 import type { Curve } from "./curve/curve";
 import type { IconGlyph } from "./icon/iconPacks";
 
@@ -168,6 +168,7 @@ export type {
   LabelProblem,
   LabelRun,
   PlacedLabel,
+  Typography,
 } from "./label/label";
 
 /** A node as declared in source, before graph-model resolution. */
@@ -1768,6 +1769,13 @@ export interface TextMeasurer {
 /** Options accepted by `layoutGraph`. */
 export interface LayoutOptions {
   measureText: TextMeasurer;
+  /**
+   * The sizes the text is drawn at, which `measureText` measures at
+   * (`Typography.fontSize`): `render()` hands every layout its resolved
+   * `RenderOptions.typography`. Absent — a layout called directly, as the
+   * layout tests do — is `DEFAULT_TYPOGRAPHY`.
+   */
+  typography?: Typography;
 }
 
 /**

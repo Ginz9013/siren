@@ -10,8 +10,8 @@ import { type Curve, curveCornerRadius, FLOWCHART_DEFAULT_CURVE } from "../curve
 import { layoutDirectedGraph } from "./layoutDirectedGraph";
 import { placeConnectors } from "./connectors";
 import { clusterNode, measureTitles, mermaidClosingOrder, placedFrame, SUBGRAPH_PADDING } from "./clusters";
-import { wrapNodeLabel } from "../label/wrapLabel";
-import { BASE_FONT_SIZE_PX } from "../label/label";
+import { wrapConnectorLabel, wrapNodeLabel } from "../label/wrapLabel";
+import { DEFAULT_TYPOGRAPHY } from "../label/label";
 import { LINE_HEIGHT_RATIO } from "../label/layoutLabel";
 import { SHAPES } from "./shapes/shapeTable";
 import type { Rect, Size } from "./shapes/shape";
@@ -56,22 +56,28 @@ export function layoutGraph(
   graph: GraphModel,
   options: LayoutOptions,
 ): PositionedGraph {
+  // The px the measurer measures at and a node's text is drawn at
+  // (`Typography.fontSize`): what its rows are spaced by, and what the
+  // measurer's one-line answer holds a line of.
+  const typography = options.typography ?? DEFAULT_TYPOGRAPHY;
+  const { fontSize } = typography;
   // Each label wrapped and measured once, here, and carried to the renderer
   // on the positioned node: the shape is sized around this box, and the
   // wrapped rows are drawn where it says they sit. The renderer has no
   // measurer, so a second opinion there was never an option. A node's text
-  // is drawn at the 14px base, so it wraps at Mermaid's 200px scaled to 14
-  // (`wrapNodeLabel`; the label-wrap ADR, nook `01M4R4WDZ`).
+  // is drawn at `fontSize`, so it wraps at Mermaid's 200px scaled to that
+  // size — 175px at the default 14 (`wrapNodeLabel`; the label-wrap ADR,
+  // nook `01M4R4WDZ`).
   const wrappedById = new Map(
-    graph.nodes.map((node) => [node.id, wrapNodeLabel(node.label, options.measureText)]),
+    graph.nodes.map((node) => [node.id, wrapNodeLabel(node.label, options.measureText, fontSize)]),
   );
   // The empty measurement contains padding only horizontally and one
-  // 21px text row vertically. Enlarge the shape envelope, leaving the
+  // text row vertically (21px at the default 14px). Enlarge the shape envelope, leaving the
   // original label box and wrap width for the renderer.
   const empty = options.measureText.measure("");
   const extraPadding = {
     width: Math.max(0, empty.width),
-    height: Math.max(0, empty.height - BASE_FONT_SIZE_PX * LINE_HEIGHT_RATIO),
+    height: Math.max(0, empty.height - fontSize * LINE_HEIGHT_RATIO),
   };
 
   // The direction a shape is drawn for: its nearest enclosing subgraph's
@@ -101,12 +107,12 @@ export function layoutGraph(
 
   // A subgraph's title is measured once too, for the same two readers: the
   // title band the core keeps in the frame, and the renderer.
-  const titleBoxById = measureTitles(graph.subgraphs, options.measureText);
+  const titleBoxById = measureTitles(graph.subgraphs, options.measureText, fontSize);
 
-  // Each edge label wrapped at the 12px an edge label is drawn at, not the
-  // node's 14px (`placeConnectors`): the box handed to the core below and
-  // the one the renderer draws in are this one.
-  const connectors = placeConnectors(graph.edges, options.measureText);
+  // Each edge label wrapped at the `labelFontSize` an edge label is drawn
+  // at, not the node's `fontSize` (`placeConnectors`): the box handed to the
+  // core below and the one the renderer draws in are this one.
+  const connectors = placeConnectors(graph.edges, options.measureText, wrapConnectorLabel, typography);
 
   const laidOut = layoutDirectedGraph({
     direction: graph.direction,

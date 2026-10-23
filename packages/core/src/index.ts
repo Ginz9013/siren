@@ -18,6 +18,7 @@ import { renderErDiagramToSVG } from "./renderer/renderErDiagramToSVG";
 import { createAnimationController } from "./animation/createAnimationController";
 import { type IconifyJSON, resolveIcon } from "./icon/iconPacks";
 import { mintIdScope } from "./renderer/mintIdScope";
+import { DEFAULT_TYPOGRAPHY } from "./label/label";
 import type { DiagramKind } from "./parser/parseDirection";
 import type {
   AnimationController,
@@ -27,6 +28,7 @@ import type {
   ErModel,
   GraphModel,
   GraphModelResult,
+  LayoutOptions,
   PositionedClassDiagram,
   PositionedErDiagram,
   PositionedGraph,
@@ -38,9 +40,19 @@ import type {
   SirenRenderResult,
   StateModel,
   TextMeasurer,
+  Typography,
 } from "./contracts";
 
-export type { AnimationController, Diagnostic, SirenRenderResult, StyleFact, StyleSource, TextMeasurer } from "./contracts";
+export type {
+  AnimationController,
+  Diagnostic,
+  SirenRenderResult,
+  StyleFact,
+  StyleSource,
+  TextMeasurer,
+  Typography,
+} from "./contracts";
+export { DEFAULT_TYPOGRAPHY } from "./label/label";
 export type { IconifyIcon, IconifyJSON } from "./icon/iconPacks";
 
 /**
@@ -149,6 +161,48 @@ export interface RenderOptions {
    * not an error, and an empty list is the same as leaving this out.
    */
   omitAuthorStyles?: readonly string[];
+
+  /**
+   * The px sizes the diagram's text is drawn at — the theme's
+   * `--siren-font-size`, `--siren-label-font-size` and
+   * `--siren-title-font-size` — so the boxes, connector label backgrounds
+   * and title bands are sized for the text the theme actually draws. A field
+   * left out takes `DEFAULT_TYPOGRAPHY`'s, so leaving it all out, passing
+   * `{}`, and passing `DEFAULT_TYPOGRAPHY` draw the same picture.
+   *
+   * **`measureText` has to measure at `fontSize`.** The measurer is asked
+   * about a string and nothing else; layout takes its answer as text at
+   * `fontSize` and scales it for a connector label (`labelFontSize` over
+   * `fontSize`). The default measurer is an estimate and reads none of this.
+   *
+   * Read here rather than from the computed style because core cannot:
+   * jsdom computes no custom property (nook decision `01M5KT454`). A value
+   * that is not a finite positive number is the caller's mistake, not the
+   * author's, so it throws a `RangeError` naming the field before the
+   * container is touched, as an undeclared `timeline` name does.
+   */
+  typography?: Partial<Typography>;
+}
+
+/**
+ * `options.typography` with every field it leaves out filled in from
+ * `DEFAULT_TYPOGRAPHY`, or a `RangeError` naming the first field that is
+ * not a finite positive number. Run before anything else in `render()`, so
+ * a refused typography leaves the container as it was.
+ */
+function resolveTypography(typography: Partial<Typography> = {}): Typography {
+  const resolved: Typography = {
+    fontSize: typography.fontSize ?? DEFAULT_TYPOGRAPHY.fontSize,
+    labelFontSize: typography.labelFontSize ?? DEFAULT_TYPOGRAPHY.labelFontSize,
+    titleFontSize: typography.titleFontSize ?? DEFAULT_TYPOGRAPHY.titleFontSize,
+  };
+  for (const field of ["fontSize", "labelFontSize", "titleFontSize"] as const) {
+    const value = resolved[field];
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new RangeError(`typography.${field} must be a finite positive number of px; got ${String(value)}`);
+    }
+  }
+  return resolved;
 }
 
 const DEFAULT_CHAR_WIDTH = 8;
@@ -480,7 +534,7 @@ function failedRender(diagnostics: Diagnostic[], siren: unknown): SirenRenderRes
 interface Pipeline<M, P> {
   /** Flowchart only today: resolves icons from the caller's packs; a diagnostic here stops the render. */
   prepare?: (model: M, options: RenderOptions) => { model: M; diagnostics: Diagnostic[] };
-  layout: (model: M, options: { measureText: TextMeasurer }) => P;
+  layout: (model: M, options: LayoutOptions) => P;
   render(positioned: P): SVGSVGElement;
   /**
    * The author's word for a layout id in the unroutable-connector diagnostic
@@ -649,6 +703,7 @@ export function render(
   container: HTMLElement,
   options: RenderOptions = {},
 ): SirenRenderResult {
+  const typography = resolveTypography(options.typography);
   const measureText = refusingBadMeasurements(options.measureText ?? defaultMeasurer);
   const diagnostics: Diagnostic[] = [];
 
@@ -690,7 +745,7 @@ export function render(
     model = prepared.model;
   }
 
-  const laidOut = attemptLayout(() => row.layout(model, { measureText }), row.nameOf?.(model));
+  const laidOut = attemptLayout(() => row.layout(model, { measureText, typography }), row.nameOf?.(model));
   if (!laidOut.placed) {
     diagnostics.push(laidOut.diagnostic);
     return failedRender(diagnostics, siren);

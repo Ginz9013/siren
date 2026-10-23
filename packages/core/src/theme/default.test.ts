@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render } from "../index";
+import { DEFAULT_TYPOGRAPHY, render } from "../index";
 import { BASE_FONT_SIZE_PX } from "../label/label";
 import { FRAME_PAINT } from "../layout/shapes/shape";
 import { NODE_DATA_SHAPES } from "../parser/flowchartNodeData";
@@ -1358,6 +1358,23 @@ A["x <mark>m</mark> <a href='https://e.x'>l</a>"]`);
 
     expect(declared?.[1]).toBeDefined();
     expect(Number(declared![1])).toBe(BASE_FONT_SIZE_PX);
+  });
+
+  // `render()` lays out for `DEFAULT_TYPOGRAPHY` when the caller passes no
+  // typography, so it has to be the sizes this theme draws at — every one of
+  // the three tokens it stands for.
+  it("declares the three font sizes DEFAULT_TYPOGRAPHY lays out for", () => {
+    const tokenPx = (token: string) => {
+      const declared = new RegExp(`${token}:\\s*(\\d*\\.?\\d+)px;`).exec(ruleBody(":root"));
+      expect(declared?.[1], token).toBeDefined();
+      return Number(declared![1]);
+    };
+
+    expect({
+      fontSize: tokenPx("--siren-font-size"),
+      labelFontSize: tokenPx("--siren-label-font-size"),
+      titleFontSize: tokenPx("--siren-title-font-size"),
+    }).toEqual(DEFAULT_TYPOGRAPHY);
   });
 });
 

@@ -2,10 +2,11 @@ import type { TextMeasurer } from "../contracts";
 import {
   atConnectorLabelSize,
   BASE_FONT_SIZE_PX,
-  CONNECTOR_LABEL_FONT_SIZE_PX,
+  DEFAULT_TYPOGRAPHY,
   MERMAID_ER_LABEL_FONT_SIZE_PX,
   wrapWidthAt,
   type Label,
+  type LabelSizes,
   type LabelBox,
   type LabelRun,
 } from "./label";
@@ -88,15 +89,15 @@ export function wrapLabel(
   // (`layoutLabel`), and the wrap width bounds the text alone: a row fits
   // when it is no wider than the two together.
   const paddedWrapWidth = wrapWidth + measurerPadding(measureText);
-  if (label.rows.every((row) => drawnWidth(row, measureText) <= paddedWrapWidth)) {
+  if (label.rows.every((row) => drawnWidth(row, measureText, spacing) <= paddedWrapWidth)) {
     return { label, labelBox: box };
   }
-  const rows = label.rows.flatMap((row) => wrapRow(row, measureText, paddedWrapWidth));
+  const rows = label.rows.flatMap((row) => wrapRow(row, measureText, paddedWrapWidth, spacing));
   const wrapped: Label = {
     text: rows.map((row) => row.map((run) => run.text).join("")).join("\n"),
     rows,
   };
-  const widest = Math.max(...rows.map((row) => drawnWidth(row, measureText)));
+  const widest = Math.max(...rows.map((row) => drawnWidth(row, measureText, spacing)));
   return {
     label: wrapped,
     labelBox: { ...layoutLabel(wrapped, measureText, spacing), width: Math.max(paddedWrapWidth, widest) },
@@ -118,8 +119,13 @@ interface Character {
  * wider than `paddedWrapWidth` on its own is a row of its own, wider than
  * the rest.
  */
-function wrapRow(written: LabelRun[], measureText: TextMeasurer, paddedWrapWidth: number): LabelRun[][] {
-  if (drawnWidth(written, measureText) <= paddedWrapWidth) {
+function wrapRow(
+  written: LabelRun[],
+  measureText: TextMeasurer,
+  paddedWrapWidth: number,
+  spacing: LineSpacing,
+): LabelRun[][] {
+  if (drawnWidth(written, measureText, spacing) <= paddedWrapWidth) {
     return [written];
   }
   const characters = written.flatMap((run) => Array.from(run.text, (text) => ({ text, run })));
@@ -127,7 +133,7 @@ function wrapRow(written: LabelRun[], measureText: TextMeasurer, paddedWrapWidth
   let row: Character[] = [];
   for (const piece of pieces(characters)) {
     const candidate = [...row, ...piece];
-    if (row.length > 0 && widthOf(runsOf(trimEnd(candidate)), measureText) > paddedWrapWidth) {
+    if (row.length > 0 && widthOf(runsOf(trimEnd(candidate)), measureText, spacing) > paddedWrapWidth) {
       rows.push(trimEnd(row));
       row = piece;
     } else {
@@ -217,74 +223,85 @@ function runsOf(row: Character[]): LabelRun[] {
  * How wide `row` is drawn: its width without the spaces that end it, which
  * draw nothing. A row that is nothing but spaces is as wide as an empty one.
  */
-function drawnWidth(row: LabelRun[], measureText: TextMeasurer): number {
+function drawnWidth(row: LabelRun[], measureText: TextMeasurer, spacing: LineSpacing): number {
   const drawn = runsOf(trimEnd(row.flatMap((run) => Array.from(run.text, (text) => ({ text, run })))));
-  return widthOf(drawn.length > 0 ? drawn : [{ ...row[0]!, text: "" }], measureText);
+  return widthOf(drawn.length > 0 ? drawn : [{ ...row[0]!, text: "" }], measureText, spacing);
 }
 
-/** `layoutLabel`'s width for a label of the one row `row`. */
-function widthOf(row: LabelRun[], measureText: TextMeasurer): number {
-  return layoutLabel({ text: "", rows: [row] }, measureText).width;
+/**
+ * `layoutLabel`'s width for a label of the one row `row`, with the label's
+ * own `spacing`: its base size is what an absolute px run is a scale of.
+ */
+function widthOf(row: LabelRun[], measureText: TextMeasurer, spacing: LineSpacing): number {
+  return layoutLabel({ text: "", rows: [row] }, measureText, spacing).width;
 }
-
-/** A connector's label wraps at Mermaid's 200px scaled to the 12px it is drawn at: 150px of text. */
-const CONNECTOR_LABEL_WRAP_WIDTH = wrapWidthAt(CONNECTOR_LABEL_FONT_SIZE_PX);
 
 /**
  * Wraps a connector's label — a flowchart edge's, and by the label-wrap ADR
  * a state transition's and a class relationship's (an ER relationship's is
- * `wrapErRelationshipLabel`'s) — at the 12px it is
- * drawn at: `layoutConnectorLabel`'s measurer and line spacing, and the wrap
- * width for that size (150px of text), all three together, so no caller can
- * pair a width, a measurer and a line height meant for different sizes.
- * Here rather than beside `layoutConnectorLabel` because `layoutLabel.ts`
- * is what this module is built on.
+ * `wrapErRelationshipLabel`'s) — at the `labelFontSize` it is drawn at
+ * (12px by default): `layoutConnectorLabel`'s measurer and line spacing,
+ * and the wrap width for that size (`wrapWidthAt`: 150px of text at 12px),
+ * all three together, so no caller can pair a width, a measurer and a line
+ * height meant for different sizes. `sizes` defaults to
+ * `DEFAULT_TYPOGRAPHY`. Here rather than beside `layoutConnectorLabel`
+ * because `layoutLabel.ts` is what this module is built on.
  */
-export function wrapConnectorLabel(label: Label, measureText: TextMeasurer): WrappedLabel {
-  return wrapLabel(label, atConnectorLabelSize(measureText), CONNECTOR_LABEL_WRAP_WIDTH, {
-    fontSizePx: CONNECTOR_LABEL_FONT_SIZE_PX,
+export function wrapConnectorLabel(
+  label: Label,
+  measureText: TextMeasurer,
+  sizes: LabelSizes = DEFAULT_TYPOGRAPHY,
+): WrappedLabel {
+  return wrapLabel(label, atConnectorLabelSize(measureText, sizes), wrapWidthAt(sizes.labelFontSize), {
+    fontSizePx: sizes.labelFontSize,
+    baseFontSizePx: sizes.fontSize,
   });
 }
 
 /**
- * An ER relationship's label, drawn at 12px, wraps at Mermaid's 200px
- * scaled by 12 over the 14px Mermaid draws that label at: 200 × 12/14 ≈
- * 171.43px of text.
- */
-const ER_RELATIONSHIP_LABEL_WRAP_WIDTH = wrapWidthAt(
-  CONNECTOR_LABEL_FONT_SIZE_PX,
-  MERMAID_ER_LABEL_FONT_SIZE_PX,
-);
-
-/**
  * Wraps an ER relationship's label. Drawn and measured as every connector
- * label is — `layoutConnectorLabel`'s 12px measurer and 18px line spacing —
- * but Mermaid draws this one label at 14px rather than 16px and still wraps
- * it at 200px (measured, mermaid 11.17.2), so its rows are wider: 200 ×
- * 12/14 px of text, which holds as much as Mermaid's row does (the
+ * label is — `layoutConnectorLabel`'s measurer and line spacing at
+ * `labelFontSize` (12px and 18px lines by default) — but Mermaid draws this
+ * one label at 14px rather than 16px and still wraps it at 200px (measured,
+ * mermaid 11.17.2), so its rows are wider: 200 × `labelFontSize`/14 px of
+ * text (≈ 171.43px at 12px), which holds as much as Mermaid's row does (the
  * label-wrap ADR, nook `01M4R4WDZ`, as amended). Width, measurer and
- * spacing are paired here for the reason `wrapConnectorLabel` gives.
+ * spacing are paired here for the reason `wrapConnectorLabel` gives;
+ * `sizes` defaults to `DEFAULT_TYPOGRAPHY`.
  *
  * The one way an ER relationship's `PlacedConnector` differs from every
  * other kind's connector: the ER layout hands this to `placeConnectors` as
  * its wrap, where the others take the default, `wrapConnectorLabel`.
  */
-export function wrapErRelationshipLabel(label: Label, measureText: TextMeasurer): WrappedLabel {
-  return wrapLabel(label, atConnectorLabelSize(measureText), ER_RELATIONSHIP_LABEL_WRAP_WIDTH, {
-    fontSizePx: CONNECTOR_LABEL_FONT_SIZE_PX,
-  });
+export function wrapErRelationshipLabel(
+  label: Label,
+  measureText: TextMeasurer,
+  sizes: LabelSizes = DEFAULT_TYPOGRAPHY,
+): WrappedLabel {
+  return wrapLabel(
+    label,
+    atConnectorLabelSize(measureText, sizes),
+    wrapWidthAt(sizes.labelFontSize, MERMAID_ER_LABEL_FONT_SIZE_PX),
+    { fontSizePx: sizes.labelFontSize, baseFontSizePx: sizes.fontSize },
+  );
 }
 
-/** A label at the 14px base size wraps at Mermaid's 200px scaled to 14px: 175px of text. */
-const NODE_LABEL_WRAP_WIDTH = wrapWidthAt(BASE_FONT_SIZE_PX);
-
 /**
- * Wraps a label drawn at the 14px base size — a flowchart node's, and by
- * the label-wrap ADR a state's description and a state diagram's note — at
- * 175px of text, Mermaid's 200px scaled to that size. The counterpart of
- * `wrapConnectorLabel` for the base size, so every caller wrapping at 14px
- * shares the one width.
+ * Wraps a label drawn at the base size — a flowchart node's, and by the
+ * label-wrap ADR a state's description and a state diagram's note — at
+ * Mermaid's 200px scaled to that size: 175px of text at the default 14px
+ * (`wrapWidthAt`), so a row holds as many characters at any size. The
+ * counterpart of `wrapConnectorLabel` for the base size, so every caller
+ * wrapping at it shares the one width.
+ *
+ * `fontSizePx` is `Typography.fontSize`, the size `measureText` measures
+ * at, which also spaces the rows; `BASE_FONT_SIZE_PX` for a caller that
+ * passes none.
  */
-export function wrapNodeLabel(label: Label, measureText: TextMeasurer): WrappedLabel {
-  return wrapLabel(label, measureText, NODE_LABEL_WRAP_WIDTH);
+export function wrapNodeLabel(
+  label: Label,
+  measureText: TextMeasurer,
+  fontSizePx: number = BASE_FONT_SIZE_PX,
+): WrappedLabel {
+  return wrapLabel(label, measureText, wrapWidthAt(fontSizePx), { fontSizePx, baseFontSizePx: fontSizePx });
 }
