@@ -92,16 +92,13 @@ export interface ConnectorPlacement {
  * It does not call the core and knows no kind: clipping, multiplicities,
  * cardinalities, interface labels and terminal labels stay with each
  * adapter, which reads them off the same route.
- *
- * `options` may also be a bare wrap function — the form callers used before
- * typography existed, which leaves `sizes` at the default.
  */
 export function placeConnectors(
   items: readonly ConnectorItem[],
   measureText: TextMeasurer,
-  options: ConnectorOptions | ConnectorLabelWrap = {},
+  options: ConnectorOptions = {},
 ): ConnectorPlacement {
-  const { wrap = wrapConnectorLabel, sizes } = typeof options === "function" ? { wrap: options } : options;
+  const { wrap = wrapConnectorLabel, sizes } = options;
   const wrappedById = new Map(
     items.flatMap((item) => (item.label === null ? [] : [[item.id, wrap(item.label, measureText, sizes)] as const])),
   );
