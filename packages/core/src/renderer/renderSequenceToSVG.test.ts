@@ -1331,7 +1331,6 @@ describe("renderSequenceToSVG's labels", () => {
   });
 });
 
-
 /**
  * A sequence diagram drawn through `render()` at a typography (spec
  * theme-typography): the title band and the `.siren-title` drawn in it.

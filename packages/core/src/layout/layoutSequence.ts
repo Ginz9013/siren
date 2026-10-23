@@ -117,7 +117,8 @@ const BOTTOM_MARGIN = 20;
 /**
  * Vertical space reserved above the first participant row when a title is
  * present, at the `Typography.titleFontSize` of 18 the title is drawn at by
- * default; the band grows in proportion to that size (`titleBandHeight`).
+ * default; the band grows in proportion to that size (`titleBandHeight`),
+ * and is recorded as `PositionedSequenceDiagram.titleBand`.
  */
 const TITLE_HEIGHT = 40;
 /** The `titleFontSize` `TITLE_HEIGHT` is the band for: `default.css`'s `--siren-title-font-size`. */
@@ -332,11 +333,13 @@ function layoutNote(
  * from measured label width) and their box `width`/`height`. `top`/`bottom`
  * and `drawnInBottomRow` are filled in afterward, once the statement walk has found the diagram's
  * full vertical extent and any `create`/`destroy` row that truncates this
- * particular lifeline.
+ * particular lifeline. A label's rows sit `participantLine` apart — the
+ * `sequenceParticipantLine` `layoutSequence` resolved once.
  */
 function layoutParticipants(
   model: SequenceModel,
   options: LayoutOptions,
+  participantLine: LineSpacing,
 ): PositionedParticipant[] {
   const participants: PositionedParticipant[] = [];
   let nextLeft = LEFT_MARGIN;
@@ -344,11 +347,7 @@ function layoutParticipants(
   const linksByParticipantId = mergeLinks(model.interactions);
 
   for (const decl of model.participants) {
-    const labelBox = layoutLabel(
-      decl.label,
-      options.measureText,
-      sequenceParticipantLine(options.typography ?? DEFAULT_TYPOGRAPHY),
-    );
+    const labelBox = layoutLabel(decl.label, options.measureText, participantLine);
     const width = labelBox.width + PARTICIPANT_PADDING_X * 2;
     const height =
       decl.participantKind === "actor"
@@ -830,11 +829,12 @@ function layoutMessage(
 export function layoutSequence(
   model: SequenceModel,
   options: LayoutOptions,
-): TitledPositionedSequenceDiagram {
+): PositionedSequenceDiagram {
   // The sizes this diagram's text is drawn at (`Typography`) — the 0.8.0
   // sizes when a layout is called directly, as `render()` always passes one.
   const typography = options.typography ?? DEFAULT_TYPOGRAPHY;
-  const participants = layoutParticipants(model, options);
+  const participantLine = sequenceParticipantLine(typography);
+  const participants = layoutParticipants(model, options, participantLine);
   const ctx: SequenceLayoutContext = {
     laneCenterById: new Map(participants.map((p) => [p.id, p.x])),
     participantsById: new Map(participants.map((p) => [p.id, p])),
@@ -861,7 +861,7 @@ export function layoutSequence(
   // labelled box would otherwise be drawn behind (and hidden by) the
   // participant boxes it groups.
   const boxLabelBoxes = model.boxes.map((box) =>
-    box.label === null ? null : layoutLabel(box.label, options.measureText, sequenceParticipantLine(typography)),
+    box.label === null ? null : layoutLabel(box.label, options.measureText, participantLine),
   );
   const topRowTop =
     titleHeight + boxLabelBoxes.reduce((max, box) => Math.max(max, box?.height ?? 0), 0);
@@ -926,9 +926,7 @@ export function layoutSequence(
 
   return {
     title: model.title,
-    // Recorded only when it is not the default band, so a diagram laid out
-    // at the default typography is the object it was in 0.8.0.
-    ...(titleHeight !== 0 && titleHeight !== TITLE_HEIGHT ? { titleBandHeight: titleHeight } : {}),
+    titleBand: titleHeight,
     accTitle: model.accTitle,
     accDescr: model.accDescr,
     participants,
@@ -938,22 +936,6 @@ export function layoutSequence(
     width: extent.width,
     height: extent.height,
   };
-}
-
-/**
- * A positioned sequence diagram as `layoutSequence` returns it: the
- * contract's, plus the height of the band its title was given when that is
- * not `TITLE_HEIGHT` — a `titleFontSize` other than 18 — so the renderer
- * draws `.siren-title` in the middle of the band the layout reserved.
- * Absent (the default band, or no title), the band is `TITLE_HEIGHT`.
- */
-export type TitledPositionedSequenceDiagram = PositionedSequenceDiagram & {
-  titleBandHeight?: number;
-};
-
-/** The height of `diagram`'s title band (`TitledPositionedSequenceDiagram`). */
-export function titleBandHeightOf(diagram: TitledPositionedSequenceDiagram): number {
-  return diagram.titleBandHeight ?? TITLE_HEIGHT;
 }
 
 /**

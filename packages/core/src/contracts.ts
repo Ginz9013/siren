@@ -1404,6 +1404,15 @@ export interface PositionedBox {
  */
 export interface PositionedSequenceDiagram {
   title: string | null;
+  /**
+   * The height of the band layout reserved above the participant row for
+   * `title`, which the renderer draws `.siren-title` halfway down: 40px at
+   * a `Typography.titleFontSize` of 18, in proportion to it otherwise, and
+   * 0 when `title` is `null`. `layoutSequence` always writes it. Optional
+   * only so a diagram built by hand need not: absent, no band was reserved,
+   * and a title is drawn on the canvas's top edge.
+   */
+  titleBand?: number;
   /** Carried through unchanged; drawn as the SVG's `<title>` element, never on the canvas. */
   accTitle: string | null;
   /** Carried through unchanged; drawn as the SVG's `<desc>` element, never on the canvas. */

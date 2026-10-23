@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { plainLabel, plainRun } from "../label/label";
+import { DEFAULT_TYPOGRAPHY, plainLabel, plainRun } from "../label/label";
 import type {
   Label,
   PositionedSequenceElement,
@@ -10,6 +10,7 @@ import type {
   TextMeasurer,
 } from "../contracts";
 import { ACTOR_FIGURE_HALF_WIDTH, layoutSequence } from "./layoutSequence";
+import { measurerAt } from "../testing/measurerAt";
 
 /** Deterministic fake measurer, same fixture pattern as layoutGraph.test.ts. */
 const fakeMeasurer: TextMeasurer = {
@@ -2403,17 +2404,11 @@ describe("layoutSequence: a participant a message creates and nothing destroys",
  * a caller's `measureText`.
  */
 describe("layoutSequence at a typography", () => {
-  function measurerAt(fontSize: number): TextMeasurer {
-    return {
-      measure: (text) => ({ width: Array.from(text).length * fontSize * 0.6 + 16, height: fontSize * 1.5 + 11 }),
-    };
-  }
-
   function at(
     model: SequenceModel,
     sizes: Partial<{ fontSize: number; labelFontSize: number; titleFontSize: number }>,
   ) {
-    const typography = { fontSize: 14, labelFontSize: 12, titleFontSize: 18, ...sizes };
+    const typography = { ...DEFAULT_TYPOGRAPHY, ...sizes };
     return layoutSequence(model, { measureText: measurerAt(typography.fontSize), typography });
   }
 
@@ -2423,6 +2418,29 @@ describe("layoutSequence at a typography", () => {
 
       expect(at(titled, {}).participants[0]!.top).toBe(40);
       expect(at(titled, { titleFontSize: 36 }).participants[0]!.top).toBe(80);
+    });
+
+    it("moves a labelled box's background and caption down with the 80px band at a titleFontSize of 36", () => {
+      const boxed: SequenceModel = {
+        ...coreModel(),
+        title: "My Diagram",
+        boxes: [{ id: "box:1", color: null, label: plainLabel("Tier"), participantIds: ["A", "B"] }],
+      };
+      const atDefault = at(boxed, {}).boxes[0]!;
+      const atLarge = at(boxed, { titleFontSize: 36 }).boxes[0]!;
+
+      expect(atDefault.y).toBe(40);
+      expect(atLarge.y).toBe(80);
+      expect(atLarge.label!.anchor.y).toBe(atDefault.label!.anchor.y + 40);
+      expect(atLarge.height).toBe(atDefault.height);
+    });
+
+    it("records the band it reserved as titleBand: 40, 80 at a titleFontSize of 36, and 0 with no title", () => {
+      const titled: SequenceModel = { ...coreModel(), title: "My Diagram" };
+
+      expect(at(titled, {}).titleBand).toBe(40);
+      expect(at(titled, { titleFontSize: 36 }).titleBand).toBe(80);
+      expect(at(coreModel(), { titleFontSize: 36 }).titleBand).toBe(0);
     });
 
     it("changes nothing when the diagram has no title", () => {
