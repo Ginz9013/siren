@@ -19,8 +19,8 @@ import type {
 } from "../contracts";
 import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
 import { entityCodeAt, htmlText } from "../label/characterReferences";
-import { atConnectorLabelSize, plainRun } from "../label/label";
-import { layoutLabel } from "../label/layoutLabel";
+import { atConnectorLabelSize, DEFAULT_TYPOGRAPHY, type LabelSizes, plainRun } from "../label/label";
+import { baseSizeSpacing, layoutLabel } from "../label/layoutLabel";
 import {
   layoutDirectedGraph,
   type DirectedGraphNodeBox,
@@ -224,11 +224,15 @@ interface ClassBoxPlan {
 /**
  * Measures a class box from its own lines: as wide as its widest measured
  * line plus padding, and as tall as its name line and every member line
- * stacked, each compartment padded and preceded by a divider.
+ * stacked, each compartment padded and preceded by a divider. Its text is
+ * drawn at `sizes.fontSize`, the size the measurer measures at, so the
+ * name's rows are a line of that size apart (`baseSizeSpacing`); an
+ * annotation and a member line take the measurer's own answer.
  */
 function planClassBox(
   cls: ResolvedClass,
   options: LayoutOptions,
+  sizes: LabelSizes,
 ): ClassBoxPlan {
   const measure = (text: string) => options.measureText.measure(text);
   const widths: number[] = [];
@@ -247,7 +251,7 @@ function planClassBox(
   // The name is a label, so it is measured row by row: a `<br>` in a
   // written label makes the band one line taller per row it adds.
   const label = classLabel(cls);
-  const labelBox = layoutLabel(label, options.measureText);
+  const labelBox = layoutLabel(label, options.measureText, baseSizeSpacing(sizes));
   widths.push(labelBox.width);
   bottom += labelBox.height + CLASS_PADDING_Y;
 
@@ -303,17 +307,18 @@ function planClassBox(
 
 /**
  * A multiplicity as the core's terminal label: the size its text measures at
- * the 12px it is drawn at (`.siren-multiplicity` takes the connector label's
- * font size, so it is measured the way a connector's label is,
- * `atConnectorLabelSize`), and Mermaid's clearance where its end draws a
- * marker.
+ * the `labelFontSize` it is drawn at (`.siren-multiplicity` takes the
+ * connector label's font size, so it is measured the way a connector's label
+ * is, `atConnectorLabelSize`; 12px by default), and Mermaid's clearance where
+ * its end draws a marker.
  */
 function multiplicityLabel(
   text: string,
   end: ResolvedClassRelationship["fromEnd"],
   options: LayoutOptions,
+  sizes: LabelSizes,
 ): DirectedGraphTerminalLabel {
-  const size = atConnectorLabelSize(options.measureText).measure(text);
+  const size = atConnectorLabelSize(options.measureText, sizes).measure(text);
   return {
     width: size.width,
     height: size.height,
@@ -353,8 +358,12 @@ export function layoutClassDiagram(
   model: ClassModel,
   options: LayoutOptions,
 ): PositionedClassDiagram {
+  // The sizes the diagram's text is drawn at: `fontSize` for a class box, a
+  // note and a namespace title, the size the measurer measures at;
+  // `labelFontSize` for a relationship's label and its multiplicities.
+  const typography = options.typography ?? DEFAULT_TYPOGRAPHY;
   const planById = new Map(
-    model.classes.map((cls) => [cls.id, planClassBox(cls, options)]),
+    model.classes.map((cls) => [cls.id, planClassBox(cls, options, typography)]),
   );
 
   const knownClassIds = new Set(model.classes.map((cls) => cls.id));
@@ -415,23 +424,29 @@ export function layoutClassDiagram(
 
   /**
    * Each framed namespace's title, measured once (`measureTitles`), by the
-   * namespace's id.
+   * namespace's id — at `fontSize`, which a frame's title is drawn at.
    */
   const namespaceLabelBoxById = measureTitles(
     groups.map(({ ns }) => ns),
     options.measureText,
+    typography,
   );
 
   /**
    * Each note's label as `layoutLabel` measured it, by the note's id — the
-   * box its own is padded around, and the box the renderer draws in.
+   * box its own is padded around, and the box the renderer draws in. Drawn
+   * at `fontSize`, so its rows are a line of that size apart.
    */
+  const noteSpacing = baseSizeSpacing(typography);
   const noteLabelBoxById = new Map(
-    model.notes.map((note) => [note.id, layoutLabel(note.label, options.measureText)] as const),
+    model.notes.map((note) => [note.id, layoutLabel(note.label, options.measureText, noteSpacing)] as const),
   );
 
-  /** Each relationship's label wrapped once, before the core (`placeConnectors`). */
-  const connectors = placeConnectors(model.relationships, options.measureText);
+  /**
+   * Each relationship's label wrapped once, before the core
+   * (`placeConnectors`), at the `labelFontSize` it is drawn at.
+   */
+  const connectors = placeConnectors(model.relationships, options.measureText, { sizes: typography });
 
   const laidOut = layoutDirectedGraph({
     direction: model.direction,
@@ -538,10 +553,10 @@ export function layoutClassDiagram(
               terminalLabels: {
                 ...(rel.fromMultiplicity === null
                   ? {}
-                  : { startRight: multiplicityLabel(rel.fromMultiplicity, rel.fromEnd, options) }),
+                  : { startRight: multiplicityLabel(rel.fromMultiplicity, rel.fromEnd, options, typography) }),
                 ...(rel.toMultiplicity === null
                   ? {}
-                  : { endLeft: multiplicityLabel(rel.toMultiplicity, rel.toEnd, options) }),
+                  : { endLeft: multiplicityLabel(rel.toMultiplicity, rel.toEnd, options, typography) }),
               },
             }),
       })),
