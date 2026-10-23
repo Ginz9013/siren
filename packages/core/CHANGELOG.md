@@ -8,6 +8,8 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-23
+
 Nothing a document draws changes unless `render()` is given a `typography` other than the
 default: without one, with `{}` or with `DEFAULT_TYPOGRAPHY`, every diagram is the same SVG as in
 0.8.0. A caller that passes its own `measureText` and changes the size it measures at now has to

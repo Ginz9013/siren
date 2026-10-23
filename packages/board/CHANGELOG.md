@@ -8,7 +8,10 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
-With the default theme's font tokens, every diagram is drawn as in 0.8.0. A theme that changes
+## [0.8.1] - 2026-10-23
+
+Requires `siren-core` ^0.8.1, whose `render()` takes the `typography` the board now passes. With
+the default theme's font tokens, every diagram is drawn as in 0.8.0. A theme that changes
 `--siren-font-size`, `--siren-label-font-size` or `--siren-title-font-size` now gets boxes sized
 for its text, and a `measureText` you pass has to measure at the theme's `--siren-font-size`
 (see **Changed**).
