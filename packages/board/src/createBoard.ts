@@ -10,6 +10,7 @@ import type {
 } from "siren-core";
 import { ensureStylesInjected } from "./styles";
 import { createCanvasTextMeasurer } from "./textMeasurer";
+import { readTypography } from "./typography";
 import { createDefaultControls } from "./defaultControls";
 import { createViewport } from "./viewport";
 
@@ -52,7 +53,12 @@ export type ControlsFactory = (board: Board) => { element: HTMLElement; update?(
 export interface BoardOptions {
   /** Initial `.srn` source. Omit to mount an empty board and call `setSource` later. */
   source?: string;
-  /** Overrides board's default real-browser canvas measurer (see textMeasurer.ts). */
+  /**
+   * Overrides board's default real-browser canvas measurer (see
+   * textMeasurer.ts), which measures in the theme's `--siren-font-family`
+   * and `--siren-font-size`. Board still lays out at the theme's sizes, so
+   * this one must measure at `--siren-font-size` too.
+   */
   measureText?: TextMeasurer;
   /** Fired on every `setSource` call (construction included), fatal or warning-only. */
   onDiagnostics?: (diagnostics: Diagnostic[]) => void;
@@ -267,7 +273,20 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
 
   const viewport = createViewport(canvas);
 
-  const measureText = options.measureText ?? createCanvasTextMeasurer();
+  /**
+   * Board's own measurer, when the caller gives none: one per font, rebuilt
+   * only when the theme's family or size has changed since the last render.
+   */
+  let ownMeasurer: { font: string; measurer: TextMeasurer } | null = null;
+  function measurerFor(fontFamily: string, fontSize: number): TextMeasurer {
+    // A caller's measurer is the caller's to keep in step with the theme.
+    if (options.measureText !== undefined) return options.measureText;
+    const font = `${fontSize}px ${fontFamily}`;
+    if (ownMeasurer?.font !== font) {
+      ownMeasurer = { font, measurer: createCanvasTextMeasurer({ fontFamily, fontSize }) };
+    }
+    return ownMeasurer.measurer;
+  }
   let wrappedController: AnimationController | null = null;
   let diagnostics: Diagnostic[] = [];
   let destroyed = false;
@@ -350,8 +369,13 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
    * default, the first block).
    */
   function renderDocument(source: string, full: boolean, name: string | null = null) {
+    // Read where the theme's CSS reaches the SVG, afresh on every render, so
+    // a theme changed since the last one is laid out at its new sizes. The
+    // family stays here: only the measurer needs it.
+    const { fontFamily, ...typography } = readTypography(viewport.content);
     return render(source, viewport.content, {
-      measureText,
+      measureText: measurerFor(fontFamily, typography.fontSize),
+      typography,
       onClick: options.onClick,
       ...(options.iconPacks === undefined ? {} : { iconPacks: options.iconPacks }),
       timeline: full ? false : (name ?? true),

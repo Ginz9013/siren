@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render } from "siren-core";
+import type { RenderOptions, TextMeasurer } from "siren-core";
 import { createBoard } from "./createBoard";
 import type { Board } from "./createBoard";
 
@@ -4434,5 +4436,145 @@ timeline:
         expect(container.querySelector(".siren-board-corner")).toBeNull();
       });
     });
+  });
+});
+
+/**
+ * jsdom's `getComputedStyle` resolves no custom properties, so these tests
+ * answer the `--siren-*` tokens themselves (for every element, which includes
+ * the one board reads them from) and let every other property read as jsdom
+ * would. `tokens` is read on each call, so a test may change it later.
+ */
+function stubTokens(tokens: Record<string, string>): void {
+  const real = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) => {
+    const style = real(element, pseudo);
+    const read = style.getPropertyValue.bind(style);
+    style.getPropertyValue = (property: string) => tokens[property] ?? read(property);
+    return style;
+  });
+}
+
+/**
+ * Answers as a font of `fontSize` px would — glyphs 0.6 × the size wide, a
+ * line 1.5 × the size tall, plus 16px across and 11px down — the contract
+ * the theme's `--siren-font-size` puts on a caller's `measureText`.
+ */
+function measurerAt(fontSize: number): TextMeasurer {
+  return {
+    measure: (text) => ({ width: Array.from(text).length * fontSize * 0.6 + 16, height: fontSize * 1.5 + 11 }),
+  };
+}
+
+/** Core's own drawing of `source`, for comparing board's against. */
+function coreSvg(source: string, options: RenderOptions): SVGSVGElement {
+  return render(source, document.createElement("div"), options).svg!;
+}
+
+function frameHeight(root: ParentNode, id: string): number {
+  return Number(root.querySelector(`[data-siren-id="${id}"] .siren-node-frame`)!.getAttribute("height"));
+}
+
+function labelBackground(root: ParentNode): { width: number; height: number } {
+  const rect = root.querySelector(".siren-connector-label-background")!;
+  return { width: Number(rect.getAttribute("width")), height: Number(rect.getAttribute("height")) };
+}
+
+describe("createBoard lays out at the theme's typography tokens", () => {
+  const TWO_ROWS = 'flowchart TD\n  A["one<br>two"]\n  B[one]';
+  const EDGE_LABEL = 'flowchart LR\n  A -- "edge label" --> B';
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("hands core the token's fontSize: its nodes are as tall as core draws them at 28px", () => {
+    stubTokens({ "--siren-font-size": "28px" });
+    const measureText = measurerAt(28);
+    const container = document.createElement("div");
+
+    createBoard(container, { source: TWO_ROWS, measureText });
+
+    const heights = (root: ParentNode) => [frameHeight(root, "A"), frameHeight(root, "B")];
+    const at28 = heights(coreSvg(TWO_ROWS, { measureText, typography: { fontSize: 28 } }));
+    // Sanity: the size makes a difference to these nodes, so the match below means something.
+    expect(at28).not.toEqual(heights(coreSvg(TWO_ROWS, { measureText })));
+    expect(heights(container)).toEqual(at28);
+    // Rows a 28px line (× 1.5) apart.
+    expect(frameHeight(container, "A") - frameHeight(container, "B")).toBe(28 * 1.5);
+  });
+
+  it("hands core the token's labelFontSize: a connector label's background is as core draws it at 24px", () => {
+    stubTokens({ "--siren-label-font-size": "24px" });
+    const measureText = measurerAt(14);
+    const container = document.createElement("div");
+
+    createBoard(container, { source: EDGE_LABEL, measureText });
+
+    const at24 = labelBackground(coreSvg(EDGE_LABEL, { measureText, typography: { labelFontSize: 24 } }));
+    expect(at24).not.toEqual(labelBackground(coreSvg(EDGE_LABEL, { measureText })));
+    expect(labelBackground(container)).toEqual(at24);
+  });
+
+  it("reads the tokens again on every render: setSource after the theme changes lays out at the new size", () => {
+    const tokens: Record<string, string> = {};
+    stubTokens(tokens);
+    const measureText = measurerAt(28);
+    const container = document.createElement("div");
+    const board = createBoard(container, { source: TWO_ROWS, measureText });
+
+    tokens["--siren-font-size"] = "28px";
+    board.setSource(TWO_ROWS);
+
+    expect(frameHeight(container, "A") - frameHeight(container, "B")).toBe(28 * 1.5);
+  });
+});
+
+describe("createBoard's own measurer, with no measureText given, measures in the theme's font", () => {
+  /** Every font a canvas context is given; each glyph measures 10px wide. */
+  let fonts: string[];
+
+  beforeEach(() => {
+    fonts = [];
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation((() => ({
+      set font(value: string) {
+        fonts.push(value);
+      },
+      measureText: (text: string) => ({ width: Array.from(text).length * 10 }),
+    })) as unknown as HTMLCanvasElement["getContext"]);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("measures in 14px system-ui, as 0.8.0 did, when no token is readable", () => {
+    createBoard(document.createElement("div"), { source: VALID_SOURCE });
+
+    expect(fonts.at(-1)).toBe("14px system-ui, sans-serif");
+  });
+
+  it("measures in the tokens' family and size, and again in the new ones after the theme changes", () => {
+    const tokens: Record<string, string> = { "--siren-font-family": "monospace", "--siren-font-size": "20px" };
+    stubTokens(tokens);
+    const board = createBoard(document.createElement("div"), { source: VALID_SOURCE });
+
+    expect(fonts.at(-1)).toBe("20px monospace");
+
+    tokens["--siren-font-family"] = "Georgia, serif";
+    tokens["--siren-font-size"] = "24px";
+    board.setSource(VALID_SOURCE);
+
+    expect(fonts.at(-1)).toBe("24px Georgia, serif");
+  });
+
+  it("lays a node out at the measurer's answer for the token's size: a one-row frame is 20 × 1.5 + 11 tall, padded once more", () => {
+    stubTokens({ "--siren-font-size": "20px" });
+    const container = document.createElement("div");
+
+    createBoard(container, { source: 'flowchart TD\n  B[one]' });
+
+    // Core pads a one-row frame by the measurer's own padding, 11px — see core's typography tests.
+    expect(frameHeight(container, "B")).toBe(20 * 1.5 + 11 + 11);
   });
 });
