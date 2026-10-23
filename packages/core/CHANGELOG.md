@@ -28,7 +28,9 @@ pass that size as `typography.fontSize` (see **Changed**).
   `.siren-title` drawn halfway down it. A field that is not a finite number above 0 throws a
   `RangeError` naming it, and the container is left untouched (nook decision `01M5KT454`).
 - `Typography` and `DEFAULT_TYPOGRAPHY` are exported from `siren-core`.
-- `PositionedSequenceDiagram.titleBand`: the height of the band layout reserves for the title.
+- `PositionedSequenceDiagram.titleBand`: the height of the band layout reserves for the title,
+  40px at the default typography and 0 with no title. `layoutSequence` always writes it; a
+  hand-built diagram without it reserves no band, and its title is drawn on the top edge.
 
 ### Changed
 

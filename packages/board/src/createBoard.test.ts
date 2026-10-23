@@ -4767,4 +4767,17 @@ enter C fade
     expect(board.controller).toBe(controller);
     expect(stylesCalls).toBe(0);
   });
+
+  it("with no source, does not tell the control bar either: nothing it shows changed", () => {
+    let updates = 0;
+    const board = createBoard(document.createElement("div"), {
+      measureText: measurerAt(14),
+      controls: () => ({ element: document.createElement("div"), update: () => updates++ }),
+    });
+    updates = 0;
+
+    board.relayout();
+
+    expect(updates).toBe(0);
+  });
 });

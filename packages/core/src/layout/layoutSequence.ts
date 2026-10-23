@@ -213,9 +213,10 @@ interface SequenceLayoutContext {
   /** Threaded down for the labels `layoutStatements` measures: a message's and a note's. */
   measureText: LayoutOptions["measureText"];
   /**
-   * The line those labels' rows are spaced at (`sequenceLine`): measured,
-   * and still measured, at `Typography.fontSize` though CSS draws a message
-   * at `--siren-label-font-size` (spec theme-typography, Non-goals).
+   * The line those labels' rows are spaced at (`sequenceLine`), at
+   * `Typography.fontSize` — the size CSS draws a message and a note at. A
+   * block's condition is spaced at it too though CSS draws that at
+   * `--siren-label-font-size` (backlog `01M5KT4X56`).
    */
   line: LineSpacing;
 }

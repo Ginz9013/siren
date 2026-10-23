@@ -538,8 +538,10 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
    * drawn, so it leaves the rest of the board as it is.
    */
   function relayout(): void {
-    // A destroyed board draws nothing and reports nothing more.
-    if (destroyed) return;
+    // A destroyed board draws nothing and reports nothing more; with no
+    // document rendered yet there is nothing to lay out again, and no state
+    // the bar shows has changed, so it is not told either.
+    if (destroyed || renderedSource === null) return;
     redraw();
   }
 
