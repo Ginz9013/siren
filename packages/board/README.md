@@ -51,8 +51,9 @@ createBoard(document.getElementById("board"), { source });
 - **Pan and zoom**: drag to move the diagram, and scroll to zoom toward the cursor.
 - **Dot grid**: a dotted background behind the diagram that pans and zooms with it, like an
   infinite canvas. On by default; one click turns it off.
-- **Accurate layout**: labels are measured with the browser's real text metrics, so boxes
-  fit their text.
+- **Accurate layout**: labels are measured with the browser's real text metrics, in the
+  theme's font family and sizes, so boxes fit their text. Change the theme's font tokens and
+  `relayout()` sizes the boxes for them.
 - **Live updates**: call `setSource()` to re-render, for example as someone types in an
   editor.
 - **Error display**: when a document fails to render, the board keeps the last good
@@ -279,6 +280,39 @@ redraws the document where it was: the same step, timeline or full diagram, pan 
 playback keeps going. Passing the list the board already has (the same names in the same order)
 does nothing.
 
+### Changing the theme's fonts
+
+Before every render, the board reads `--siren-font-family`, `--siren-font-size`,
+`--siren-label-font-size` and `--siren-title-font-size` where the theme reaches the diagram,
+measures labels in that family and size, and passes the sizes to `render()` as `typography`
+(see [siren-core's Measuring text](https://www.npmjs.com/package/siren-core#measuring-text)).
+A theme that changes them gets boxes sized for its text:
+
+```css
+:root {
+  --siren-font-family: "Inter", sans-serif;
+  --siren-font-size: 16px;
+  --siren-label-font-size: 13px;
+}
+```
+
+Write the sizes in `px`. A size token in any other unit (`1rem`, `calc(…)`), or one that is not
+above 0, is read as the default for that token alone, 14px, 12px or 18px, while the browser still
+draws the text at the size you wrote, so the boxes no longer fit it. An empty family is read as
+`system-ui, sans-serif`.
+
+A theme that changes after the board has drawn, such as a dark-mode switch with other fonts,
+needs a call to relayout the diagram:
+
+```js
+document.documentElement.classList.toggle("large-type");
+board.relayout();
+```
+
+`relayout()` draws the same document again in the tokens as they are now: the same step,
+timeline or full diagram, pan and zoom, and playback keeps going. It redraws even when no token
+changed, and does nothing before a document has rendered.
+
 ### Keyboard navigation
 
 ```js
@@ -427,10 +461,10 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `onPlaybackChange` | `(playing: boolean) => void`                |         | Called whenever `playing` changes: playback starts, is paused, reaches the last step, or is stopped. |
 | `dotGrid`       | `boolean`                                      | `true`  | Whether the canvas starts with the dot grid behind the diagram. Change it with `setDotGrid()`. Not remembered across page loads. |
 | `onDotGridChange` | `(dotGrid: boolean) => void`                 |         | Called whenever `dotGrid` changes, from the built-in Dot grid button or `setDotGrid()`. Not called for the initial value. |
-| `measureText`   | `TextMeasurer`                                 | canvas  | Replaces the canvas-based text measurer, for example to match a custom font.        |
+| `measureText`   | `TextMeasurer`                                 | canvas  | Replaces the canvas-based text measurer, for example to match a custom font. It must measure at the theme's `--siren-font-size`: the board still lays out at the sizes it reads from the tokens. |
 | `iconPacks`     | `readonly IconifyJSON[]`                       |         | Icon packs, as Iconify JSON handed over as data, that a flowchart node's `@{ icon: "prefix:name" }` is drawn from. Nothing is fetched: an icon no pack holds, or a pack not of Iconify JSON's shape, is an error diagnostic. Only shapes and local references in an icon's body are drawn. |
 | `omitAuthorStyles` | `readonly string[]`                         | `[]`    | The author's style properties not to draw, passed to `render()` unchanged. Change it with `setOmitAuthorStyles()`. |
-| `onStyles`      | `(styles: readonly StyleFact[], siren: unknown) => void` |  | Called after every render that draws — from `setSource()`, `setTimeline()`, `setFullDiagram()` or `setOmitAuthorStyles()` — with that render's `styles` and `siren`, unchanged. Not called when `setSource()` fails. It is the render's last callback: `board.styles` and `board.siren` already hold the new values in `update()`, `onTimelineChange` and every other callback before it. |
+| `onStyles`      | `(styles: readonly StyleFact[], siren: unknown) => void` |  | Called after every render that draws — from `setSource()`, `setTimeline()`, `setFullDiagram()`, `setOmitAuthorStyles()` or `relayout()` — with that render's `styles` and `siren`, unchanged. Not called when `setSource()` fails. It is the render's last callback: `board.styles` and `board.siren` already hold the new values in `update()`, `onTimelineChange` and every other callback before it. |
 
 ### `Board`
 
@@ -448,6 +482,7 @@ Mounts a board into `container` and renders `options.source`, if given.
 | `setFullscreen(on)` | Enters or leaves fullscreen, filling the browser window where the Fullscreen API is unavailable or refuses. With the API, `fullscreen` changes once the browser has switched; otherwise at once. While the request is pending nothing more is asked and the last call wins: after a final `false` the board leaves the screen as soon as it is entered (`onFullscreenChange` fires `true`, then `false`), or, if refused, does not fill the window. Keeps pan and zoom, the step, the timeline, playback and the full diagram, and does not re-render. Setting the current value does nothing, and so does the call after `destroy()`. |
 | `omitAuthorStyles` | The list every render is given as `omitAuthorStyles`. Starts as the option, or `[]`. Frozen: change it with `setOmitAuthorStyles()`. |
 | `setOmitAuthorStyles(list)` | Redraws the document with another `omitAuthorStyles`, keeping the step, the timeline, the full diagram, pan and zoom, `diagnostics` and playback, and replaces `controller` once a document has rendered. Before that, it only records the list for the first render. An equal list (the same names in the same order, compared case-insensitively as `render()` reads them, so `["FILL"]` equals `["fill"]`) does nothing. |
+| `relayout()`      | Redraws the document in the theme's font tokens as they are now, after a theme change. Keeps the step, the timeline, the full diagram, pan and zoom, `diagnostics`, the error banner and playback, fires `onStyles` and no other callback, and replaces `controller`. While the error banner shows, it redraws the last document that rendered. Does nothing before a document has rendered, and after `destroy()`. |
 | `styles`          | The `styles` of the last render that drew, as `render()` returned them. `[]` until one has; unchanged by a `setSource()` that fails. |
 | `siren`           | The `siren` (the frontmatter's `siren:` value) of the last render that drew, on the same terms as `styles`. `undefined` until one has. |
 | `playing`         | Whether playback is running. Starts `false`.                                             |
@@ -472,14 +507,53 @@ type ControlsFactory = (board: Board) => {
 
 `update` is called once after each change the bar may show: a `setSource()` that rendered,
 a step change from any source (including `board.controller.next()` in code), a
-`fullDiagram`, `fullscreen`, `dotGrid`, `timeline` or `omitAuthorStyles` switch, and a change to `playing` or `playInterval`. It is never called after
+`fullDiagram`, `fullscreen`, `dotGrid`, `timeline` or `omitAuthorStyles` switch, a `relayout()`, and a change to `playing` or `playInterval`. It is never called after
 `destroy()`. The built-in bar is an ordinary
 `ControlsFactory` kept in step through this same hook.
 
 `destroy` is called when the board is destroyed.
 
-`Diagnostic`, `AnimationController`, `StyleFact` and `TextMeasurer` come from `siren-core`. See the
-[siren-core API](https://www.npmjs.com/package/siren-core#api).
+`Diagnostic`, `AnimationController`, `StyleFact`, `TextMeasurer` and `Typography` come from
+`siren-core`. See the [siren-core API](https://www.npmjs.com/package/siren-core#api).
+
+### `readTypography(element)`
+
+```ts
+interface BoardTypography extends Typography {
+  fontFamily: string;
+}
+
+function readTypography(element: Element): BoardTypography;
+```
+
+Reads `--siren-font-family`, `--siren-font-size`, `--siren-label-font-size` and
+`--siren-title-font-size` off `element`'s computed style, on the terms of
+[Changing the theme's fonts](#changing-the-themes-fonts): a size that is not a px length above 0,
+or an empty token, takes the default for that field alone. The board reads them this way before
+every render. Use it to lay out a diagram outside the board, such as an export, at the sizes the
+board shows.
+
+### `createCanvasTextMeasurer(font?)`
+
+```ts
+function createCanvasTextMeasurer(font?: { fontFamily: string; fontSize: number }): TextMeasurer;
+```
+
+The board's own measurer: canvas text metrics in `${fontSize}px ${fontFamily}`, answering a
+string's width plus 24px, and a height of `fontSize × 1.5 + 11`. Left out, `font` is
+`14px system-ui, sans-serif`, 32px tall. Together with `readTypography`, it renders with
+`siren-core` exactly as the board does:
+
+```js
+import { render } from "siren-core";
+import { createCanvasTextMeasurer, readTypography } from "siren-board";
+
+const { fontFamily, ...typography } = readTypography(container);
+render(source, container, {
+  typography,
+  measureText: createCanvasTextMeasurer({ fontFamily, fontSize: typography.fontSize }),
+});
+```
 
 ## Styling
 

@@ -8,6 +8,37 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+With the default theme's font tokens, every diagram is drawn as in 0.8.0. A theme that changes
+`--siren-font-size`, `--siren-label-font-size` or `--siren-title-font-size` now gets boxes sized
+for its text, and a `measureText` you pass has to measure at the theme's `--siren-font-size`
+(see **Changed**).
+
+### Added
+
+- `board.relayout()` draws the last rendered document again in the theme's font tokens as they
+  are now, for a theme changed after the board drew. It keeps the step, the timeline, the full
+  diagram, the view, `diagnostics`, the error banner and playback, fires `onStyles` and no other
+  callback, and replaces `controller`. Before a document has rendered, and after `destroy()`, it
+  does nothing.
+- `readTypography(element)` and the `BoardTypography` type: the four font tokens off an element's
+  computed style, as the board reads them.
+- `createCanvasTextMeasurer(font?)` is exported: the board's own measurer, in
+  `${fontSize}px ${fontFamily}`, answering a string's width plus 24px and a height of
+  `fontSize × 1.5 + 11`. Left out, `font` is `14px system-ui, sans-serif`, 32px tall, as before.
+  With `readTypography`, it renders with `siren-core` as the board does.
+
+### Changed
+
+- Before every render (`setSource()`, `setTimeline()`, `setFullDiagram()`,
+  `setOmitAuthorStyles()`, `relayout()`), the board reads `--siren-font-family`,
+  `--siren-font-size`, `--siren-label-font-size` and `--siren-title-font-size` off the layer the
+  SVG is mounted in, measures in that family and size, and passes the sizes to `render()` as
+  `typography`. Its measurer used to be a fixed `14px system-ui, sans-serif`. Only px sizes are
+  read: a size in another unit (`1rem`, `calc(…)`), or not above 0, is read as the default for
+  that token alone, and an empty family as `system-ui, sans-serif`.
+- A `measureText` passed in `BoardOptions` must measure at the theme's `--siren-font-size`, where
+  it used to measure at 14px; the board still passes the token sizes to `render()`.
+
 ## [0.8.0] - 2026-10-21
 
 Requires `siren-core` ^0.8.0. Breaking for a page that reaches the built-in control bar as the

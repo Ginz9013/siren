@@ -85,7 +85,14 @@
      it on that block's `data-siren-id` group, or every block at once here. */
   --siren-subgraph-fill: none;
 
-  /* Typography tokens */
+  /* Typography tokens. CSS draws with them; layout cannot read them (core
+     reads no computed style), so it sizes every box from `render()`'s
+     `typography` option instead — `fontSize`, `labelFontSize` and
+     `titleFontSize`, defaulting to the three px sizes below. siren-board
+     reads these four tokens before every render, px values only, and passes
+     the sizes on; it measures in the family. A caller of `render()` who
+     changes a size passes it there too, or the boxes stay sized for these
+     defaults. */
   --siren-font-family: system-ui, sans-serif;
   --siren-font-size: 14px;
   --siren-title-font-size: 18px;
@@ -251,10 +258,11 @@
  * It tracks the node stroke because it is a container of boxes, not a
  * connector.
  *
- * No `font-size` on the title: `layoutGraph` measures it in
- * `--siren-font-size` and grows the frame's top strip from what it measured,
- * so shrinking or growing it here would leave the drawn text disagreeing with
- * the strip built to hold it.
+ * No `font-size` on the title: `layoutGraph` measures it at
+ * `typography.fontSize` — the size of `--siren-font-size`, which siren-board
+ * reads off this token and passes to `render()` — and grows the frame's top
+ * strip from what it measured, so shrinking or growing it here would leave
+ * the drawn text disagreeing with the strip built to hold it.
  */
 .siren-subgraph-frame {
   fill: var(--siren-subgraph-fill);
@@ -373,7 +381,9 @@
  * `.siren-multiplicity` — an annotation *of* the line — tracks the line's
  * color instead. It takes `--siren-label-font-size` for the same reason
  * every other secondary label does: an edge label sits between two boxes
- * and would crowd them at the node's own size.
+ * and would crowd them at the node's own size. Layout sizes the label's
+ * background for `typography.labelFontSize`, scaling what the measurer
+ * answers at `typography.fontSize` by the one over the other.
  *
  * text-anchor/dominant-baseline stay with the renderer, for the reason
  * `.siren-node text` gives.
@@ -435,7 +445,8 @@
 /* Shared type for the sequence and class diagrams' grouping elements; the
    `<text>` children inherit it and only restate what they change. The class
    groups belong here rather than in a rule of their own: `layoutClassDiagram`
-   sizes every class box from text measured in this font at this size, so a
+   sizes every class box from text measured at `typography.fontSize` (this
+   size, as siren-board reads it, in this family by board's measurer), so a
    group left out renders its members in the browser's default face and the
    box no longer fits what it holds. A connector's label group is here for
    the same reason its connector's group is: since ADR-0016 the text sits in
@@ -621,6 +632,13 @@
   fill: var(--siren-node-text);
 }
 
+/*
+ * A sequence diagram's title, the one text `--siren-title-font-size`
+ * reaches: a frame's title is drawn at `--siren-font-size`. Layout reserves
+ * a band above the participant row 40px tall at the default 18px, in
+ * proportion to `typography.titleFontSize` otherwise, and the title is drawn
+ * halfway down it.
+ */
 .siren-title {
   font-family: var(--siren-font-family);
   font-size: var(--siren-title-font-size);
@@ -812,8 +830,8 @@
 
 /*
  * No `font-size` on either label below: `layoutClassDiagram` measures a
- * namespace's label and a note's text in the group font declared above and
- * sizes the frame and the box from it, so shrinking or growing them here would
+ * namespace's label and a note's text at `typography.fontSize`, the size of
+ * the group font declared above, and sizes the frame and the box from it, so shrinking or growing them here would
  * leave the drawn text disagreeing with the box that was built to hold it.
  */
 .siren-namespace-label {
@@ -1036,8 +1054,9 @@ svg:not(.siren-state svg) {
  * The name on the strip along the frame's top, weighted like every other
  * thing that titles a group — a subgraph's label and a namespace's.
  *
- * No `font-size`: `layoutStateDiagram` measures this text in the group font
- * declared above and grows the strip from what it measured, so shrinking or
+ * No `font-size`: `layoutStateDiagram` measures this text at
+ * `typography.fontSize`, the size of the group font declared above, and
+ * grows the strip from what it measured, so shrinking or
  * growing it here would leave the drawn title disagreeing with the strip
  * built to hold it.
  */
@@ -1594,10 +1613,11 @@ svg:not(.siren-state svg) {
  * flowchart subgraph's token, for the same figure. It tracks the node stroke
  * because it is a container of boxes, not a connector.
  *
- * No `font-size` on the title: `layoutErDiagram` measures it in
- * `--siren-font-size` and grows the frame's top strip from what it
- * measured, so shrinking or growing it here would leave the drawn text
- * disagreeing with the strip built to hold it.
+ * No `font-size` on the title: `layoutErDiagram` measures it at
+ * `typography.fontSize` — the size of `--siren-font-size`, which
+ * siren-board reads off this token and passes to `render()` — and grows the
+ * frame's top strip from what it measured, so shrinking or growing it here
+ * would leave the drawn text disagreeing with the strip built to hold it.
  */
 .siren-er-subgraph-frame {
   fill: var(--siren-subgraph-fill);

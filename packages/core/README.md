@@ -334,6 +334,7 @@ through diagnostics and does not throw for them.
 | `timeline`         | `boolean \| string`                    | Which timeline to apply. A document may declare several, and by default only the first applies. See below. |
 | `iconPacks`        | `IconifyJSON[]`                        | Icon packs a flowchart's icon nodes (`A@{ icon: "fa:user" }`) are drawn from. See below. |
 | `omitAuthorStyles` | `string[]`                             | Author style properties not to draw, such as `["fill", "stroke", "color"]`. See below. |
+| `typography`       | `Partial<Typography>`                  | The px font sizes your theme draws at, so boxes are sized for them. See [Measuring text](#measuring-text). |
 
 #### Registering icon packs
 
@@ -409,7 +410,7 @@ their labels exactly:
 
 ```js
 const ctx = document.createElement("canvas").getContext("2d");
-ctx.font = "14px system-ui, sans-serif"; // match your --siren-font-* tokens
+ctx.font = "14px system-ui, sans-serif"; // your --siren-font-size and --siren-font-family
 
 render(source, container, {
   measureText: {
@@ -420,6 +421,51 @@ render(source, container, {
 ```
 
 `siren-board` does this for you.
+
+The measurer is only ever asked about a string, so layout has to be told what size it
+measures at. That is `typography`: the px sizes your theme's text tokens draw at.
+
+```ts
+interface Typography {
+  fontSize: number;      // --siren-font-size, default 14
+  labelFontSize: number; // --siren-label-font-size, default 12
+  titleFontSize: number; // --siren-title-font-size, default 18
+}
+```
+
+**`measureText` must measure at `typography.fontSize`.** From that size, layout spaces a
+label's rows 1.5 × the size apart (a sequence diagram keeps its own spacing, 19/16 of the size
+for a message, a note or a block condition and one size for a participant), scales the measurer's
+answer by `labelFontSize / fontSize` for a connector's label, wraps a label at a width in
+proportion to its size, measures a subgraph's, namespace's, ER subgraph's or composite state's
+title at `fontSize`, and makes a sequence diagram's title band 40px × `titleFontSize / 18`. An
+author's `font-size:20px` in a label counts against `fontSize` too. A field left out takes
+the default, exported as `DEFAULT_TYPOGRAPHY`; leaving `typography` out, passing `{}` and
+passing `DEFAULT_TYPOGRAPHY` draw the same picture. The default estimate reads none of it.
+
+If you change a size token, pass the same size here and measure in it:
+
+```js
+const fontSize = 16; // :root { --siren-font-size: 16px; }
+ctx.font = `${fontSize}px system-ui, sans-serif`;
+
+render(source, container, {
+  typography: { fontSize },
+  measureText: {
+    measure: (text) => ({ width: ctx.measureText(text).width + 24, height: fontSize * 1.5 + 11 }),
+  },
+});
+```
+
+Siren cannot read the tokens itself, since it has to work in jsdom, which resolves no custom
+property; `siren-board` reads them for you. A size that is not a finite number above 0 throws a
+`RangeError` naming the field. That is a mistake in the calling code, so it is not a
+diagnostic, and the container is left untouched.
+
+Two labels are sized at `fontSize` though the theme draws them at `--siren-label-font-size`:
+a sequence diagram's block condition (the `[...]` after `alt`, `loop` and the rest), and a class
+diagram's lollipop interface name and `«annotation»`. Layout leaves them the room text at
+`fontSize` takes, as it always has.
 
 #### Click interactions
 
@@ -528,6 +574,11 @@ with in Mermaid's HTML labels; `--siren-edge-label-fill` is the translucent back
 behind an edge label, so a line passing under the label does not cross its text. They sit outside the five-color palette, so a marked or linked run
 looks the same whichever palette is in use, unless you repaint them — and a dark palette
 should repaint `--siren-label-link`, as in the example above.
+
+The text tokens change what the browser draws, not how large layout makes the boxes. If you
+change `--siren-font-size`, `--siren-label-font-size` or `--siren-title-font-size`, pass the
+same sizes to `render()` as `typography` (see [Measuring text](#measuring-text));
+`siren-board` reads them for you.
 
 Per-element styling from the document itself (`classDef`, `class`, `style`, `linkStyle`,
 `:::name`) works as it does in Mermaid and takes precedence over the theme.
