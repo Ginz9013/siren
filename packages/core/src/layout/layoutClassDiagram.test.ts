@@ -14,8 +14,9 @@ import type {
   TextMeasurer,
   Label,
 } from "../contracts";
-import { CONNECTOR_LABEL_SCALE, plainLabel, plainRun } from "../label/label";
+import { CONNECTOR_LABEL_SCALE, DEFAULT_TYPOGRAPHY, plainLabel, plainRun } from "../label/label";
 import { layoutClassDiagram } from "./layoutClassDiagram";
+import { measurerAt } from "../testing/measurerAt";
 
 /** A label of these rows, each one plain run — what `a<br/>b` reads as. */
 const rowsLabel = (...rows: string[]): Label => ({
@@ -2210,5 +2211,147 @@ describe("layoutClassDiagram — notes inside namespaces", () => {
     expect(encloses(outer, noteOf(diagram, "note:1"))).toBe(true);
     expect(overlaps(inner, noteOf(diagram, "note:1"))).toBe(false);
     expect(encloses(inner, noteOf(diagram, "note:2"))).toBe(true);
+  });
+});
+
+/**
+ * `LayoutOptions.typography`, which `render()` always passes resolved: the
+ * sizes a class diagram's text is drawn at (spec theme-typography, Domain
+ * decisions 2–5). The measurer answers as a font of `fontSize` px would —
+ * glyphs 0.6 × the size wide, a line 1.5 × the size tall, a constant padding
+ * of 16px across and 11px down — the contract `typography.fontSize` puts on
+ * a caller's `measureText`.
+ */
+describe("layoutClassDiagram at a typography", () => {
+  function at(model: ClassModel, sizes: Partial<{ fontSize: number; labelFontSize: number }>): PositionedClassDiagram {
+    const typography = { fontSize: 14, labelFontSize: 12, titleFontSize: 18, ...sizes };
+    return layoutClassDiagram(model, { measureText: measurerAt(typography.fontSize), typography });
+  }
+
+  it("lays out at DEFAULT_TYPOGRAPHY exactly as with no typography at all", () => {
+    const model = classModel({
+      classes: [
+        cls("A", [attribute({ name: "a" }), method({ name: "f" })], { annotation: "interface", namespaceId: "namespace:1" }),
+        cls("B", [], { label: rowsLabel("two", "rows") }),
+      ],
+      relationships: [
+        relationship("A", "B", {
+          label: plainLabel("a label long enough that it has to wrap onto a second row"),
+          fromMultiplicity: "1",
+          toMultiplicity: "*",
+        }),
+      ],
+      namespaces: [namespace("namespace:1", ["A"], "N")],
+      notes: [note("note:1", "said", "B")],
+    });
+
+    expect(layoutClassDiagram(model, { measureText: fakeMeasurer, typography: DEFAULT_TYPOGRAPHY })).toEqual(
+      layoutClassDiagram(model, { measureText: fakeMeasurer }),
+    );
+  });
+
+  describe("a relationship's label, drawn at labelFontSize", () => {
+    const labelled = (text: string) =>
+      classModel({
+        classes: [cls("A"), cls("B")],
+        relationships: [relationship("A", "B", { label: plainLabel(text) })],
+      });
+
+    it("is measured at labelFontSize / fontSize of the measurer's answer: doubling labelFontSize doubles its box", () => {
+      const at12 = at(labelled("uses"), { labelFontSize: 12 }).relationships[0].label!.labelBox;
+      const at24 = at(labelled("uses"), { labelFontSize: 24 }).relationships[0].label!.labelBox;
+
+      // 12/14 of the measurer's answer at 12px, 24/14 at 24px.
+      expect(at12.width).toBeCloseTo((4 * 14 * 0.6 + 16) * (12 / 14), 6);
+      expect(at24.width).toBeCloseTo((4 * 14 * 0.6 + 16) * (24 / 14), 6);
+      expect(at24.height).toBeCloseTo(at12.height * 2, 6);
+    });
+
+    it("wraps at a width that grows with labelFontSize, so the same words share a row at any size", () => {
+      const text = "the quick brown fox jumps over the lazy dog once more";
+      // Every size doubled, the measurer with them: each row holds the
+      // words it held at the default sizes.
+      const rowsAt = (sizes: { fontSize: number; labelFontSize: number }) =>
+        at(labelled(text), sizes).relationships[0].label!.label.rows.map((row) =>
+          row.map((run) => run.text).join(""),
+        );
+
+      const atDefault = rowsAt({ fontSize: 14, labelFontSize: 12 });
+      expect(atDefault.length).toBeGreaterThan(1);
+      expect(rowsAt({ fontSize: 28, labelFontSize: 24 })).toEqual(atDefault);
+    });
+  });
+
+  describe("a multiplicity, drawn at labelFontSize", () => {
+    const counted = classModel({
+      direction: "LR",
+      classes: [cls("A"), cls("B")],
+      relationships: [relationship("A", "B", { fromMultiplicity: "0..many", toMultiplicity: "0..many" })],
+    });
+
+    it("keeps room for a box that grows with labelFontSize, so its centre sits further from its end", () => {
+      const offsets = (labelFontSize: number) => {
+        const routed = at(counted, { labelFontSize }).relationships[0];
+        const first = routed.points[0];
+        const last = routed.points[routed.points.length - 1];
+        return [distance(routed.fromMultiplicityAnchor!, first), distance(routed.toMultiplicityAnchor!, last)];
+      };
+
+      const [fromAt12, toAt12] = offsets(12);
+      const [fromAt24, toAt24] = offsets(24);
+      expect(fromAt24).toBeGreaterThan(fromAt12);
+      expect(toAt24).toBeGreaterThan(toAt12);
+    });
+  });
+
+  describe("a class box, drawn at fontSize", () => {
+    const heightOf = (fontSize: number, partial: Partial<ResolvedClass>, members: ClassMember[] = []) =>
+      classById(at(classModel({ classes: [cls("A", members, partial)] }), { fontSize }), "A").height;
+
+    it("spaces a written name's rows a line of fontSize × 1.5 apart: at 28px, a second row adds 42px", () => {
+      expect(heightOf(28, { label: rowsLabel("one", "two") }) - heightOf(28, { label: rowsLabel("one") })).toBe(
+        28 * 1.5,
+      );
+    });
+
+    it("gives an annotation and each member line the measurer's line at fontSize", () => {
+      const line = 28 * 1.5 + 11;
+      expect(heightOf(28, { annotation: "interface" }) - heightOf(28, {})).toBe(line);
+      expect(
+        heightOf(28, {}, [attribute({ name: "a" }), attribute({ name: "b" })]) -
+          heightOf(28, {}, [attribute({ name: "a" })]),
+      ).toBe(line);
+    });
+  });
+
+  describe("a note, drawn at fontSize", () => {
+    it("spaces its rows a line of fontSize × 1.5 apart: at 28px, a second row adds 42px", () => {
+      const noteHeight = (label: Label) =>
+        noteById(
+          at(classModel({ classes: [cls("A")], notes: [{ id: "note:1", label, targetId: null }] }), { fontSize: 28 }),
+          "note:1",
+        ).labelBox.height;
+
+      expect(noteHeight(rowsLabel("one", "two")) - noteHeight(rowsLabel("one"))).toBe(28 * 1.5);
+    });
+  });
+
+  describe("a namespace's title, drawn at fontSize", () => {
+    it("gives the title band a line of fontSize × 1.5 per row: at 28px, a second row adds 42px", () => {
+      const title = (label: Label) => {
+        const ns: ResolvedClassNamespace = { id: "namespace:1", parentId: null, label, classIds: ["A"], noteIds: [] };
+        const [frame] = at(
+          classModel({ classes: [cls("A", [], { namespaceId: "namespace:1" })], namespaces: [ns] }),
+          { fontSize: 28 },
+        ).namespaces;
+        return frame;
+      };
+
+      const one = title(rowsLabel("Zoo"));
+      const two = title(rowsLabel("Big", "Zoo"));
+      expect(one.label.labelBox.height).toBe(28 * 1.5 + 11);
+      expect(two.label.labelBox.height - one.label.labelBox.height).toBe(28 * 1.5);
+      expect(two.height - one.height).toBe(28 * 1.5);
+    });
   });
 });

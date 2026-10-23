@@ -354,6 +354,21 @@ describe("wrapErRelationshipLabel", () => {
     expect(wrapped.label).toBe(label);
     expect(wrapped.labelBox).toEqual(layoutConnectorLabel(label, measurer14));
   });
+
+  // Decision 4 of the theme-typography spec: the wrap width follows the size
+  // the label is drawn at, still against Mermaid's 14px for this one label.
+  it("wraps at 200 × 24/14 px of 24px text, on 36px lines, when labelFontSize is 24", () => {
+    const { label } = readLabel("alpha beta gam delta", { dialect: "html" });
+
+    const wrapped = wrapErRelationshipLabel(label, measurer14, { fontSize: 14, labelFontSize: 24 });
+
+    // At 24px a character is 24px wide and the padding 24px; 342.86px holds
+    // 14 of them, the same row as at 12px.
+    expect(rowTexts(wrapped.label)).toEqual(["alpha beta gam", "delta"]);
+    expect(wrapped.labelBox.width).toBeCloseTo(200 * (24 / 14) + 24, 6);
+    // Two 36px lines, padded once by 48 − 36 = 12px.
+    expect(wrapped.labelBox.height).toBe(84);
+  });
 });
 
 describe("wrapNodeLabel", () => {

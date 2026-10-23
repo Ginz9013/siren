@@ -165,7 +165,7 @@ export function drawLabel(
     const centre = top + measured.y;
     // One line at the base size: a row is as tall as its tallest run, and
     // every run is one line times its scale (`layoutLabel`).
-    const line = measured.height / Math.max(...runs.map(measuredScale));
+    const line = measured.height / Math.max(...runs.map((run) => measuredScale(run, box.baseFontSizePx)));
     // How far below the row's baseline the text position is, in the
     // `<text>` element's font size; every row starts at its absolute `y`,
     // so at zero.
@@ -188,7 +188,7 @@ export function drawLabel(
       }
       for (const paint of paints) {
         const place = measured.runs[runIndex]!;
-        const height = line * measuredScale(run);
+        const height = line * measuredScale(run, box.baseFontSizePx);
         // The run's own line, shifted as its text is — by the same fraction,
         // of the line rather than of a font size nothing here knows.
         const y = centre + BASELINE_SHIFT[run.baseline] * height - height / 2;

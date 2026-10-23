@@ -10,7 +10,8 @@
  * inside its frames, while other diagram kinds retain the shared default.
  */
 import type { Direction, Label, LabelBox, PlacedLabel, TextMeasurer } from "../contracts";
-import { layoutLabel } from "../label/layoutLabel";
+import { DEFAULT_TYPOGRAPHY, type LabelSizes } from "../label/label";
+import { baseSizeSpacing, layoutLabel } from "../label/layoutLabel";
 import type { DirectedGraphNode, DirectedGraphNodeBox } from "./layoutDirectedGraph";
 
 /**
@@ -32,12 +33,19 @@ export const SUBGRAPH_PADDING = 12;
  * the band the core keeps in the frame and the title the renderer draws are
  * the same box. Never wrapped: Mermaid draws a frame's title as plain text,
  * which it does not wrap (the label-wrap ADR, nook `01M4R4WDZ`).
+ *
+ * At `sizes.fontSize`, the `Typography.fontSize` the measurer measures at
+ * (`baseSizeSpacing`): a frame's title is drawn at `--siren-font-size`, not
+ * at the title size, which is a sequence diagram's `.siren-title` alone.
+ * `sizes` defaults to `DEFAULT_TYPOGRAPHY`.
  */
 export function measureTitles(
   groups: readonly { id: string; label: Label }[],
   measureText: TextMeasurer,
+  sizes: LabelSizes = DEFAULT_TYPOGRAPHY,
 ): Map<string, LabelBox> {
-  return new Map(groups.map((group) => [group.id, layoutLabel(group.label, measureText)] as const));
+  const spacing = baseSizeSpacing(sizes);
+  return new Map(groups.map((group) => [group.id, layoutLabel(group.label, measureText, spacing)] as const));
 }
 
 /**

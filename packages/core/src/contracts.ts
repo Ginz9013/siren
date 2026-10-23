@@ -156,7 +156,7 @@ export type TimelineActionKind = "enter" | "exit" | "highlight" | "unhighlight";
  * the tag vocabulary (ADR-0015) never have to touch this file; re-exported
  * here so every other module still finds its cross-module types in one place.
  */
-import type { Label, LabelBox, PlacedLabel } from "./label/label";
+import type { Label, LabelBox, PlacedLabel, Typography } from "./label/label";
 import type { Curve } from "./curve/curve";
 import type { IconGlyph } from "./icon/iconPacks";
 
@@ -168,6 +168,7 @@ export type {
   LabelProblem,
   LabelRun,
   PlacedLabel,
+  Typography,
 } from "./label/label";
 
 /** A node as declared in source, before graph-model resolution. */
@@ -1403,6 +1404,15 @@ export interface PositionedBox {
  */
 export interface PositionedSequenceDiagram {
   title: string | null;
+  /**
+   * The height of the band layout reserved above the participant row for
+   * `title`, which the renderer draws `.siren-title` halfway down: 40px at
+   * a `Typography.titleFontSize` of 18, in proportion to it otherwise, and
+   * 0 when `title` is `null`. `layoutSequence` always writes it. Optional
+   * only so a diagram built by hand need not: absent, no band was reserved,
+   * and a title is drawn on the canvas's top edge.
+   */
+  titleBand?: number;
   /** Carried through unchanged; drawn as the SVG's `<title>` element, never on the canvas. */
   accTitle: string | null;
   /** Carried through unchanged; drawn as the SVG's `<desc>` element, never on the canvas. */
@@ -1768,6 +1778,13 @@ export interface TextMeasurer {
 /** Options accepted by `layoutGraph`. */
 export interface LayoutOptions {
   measureText: TextMeasurer;
+  /**
+   * The sizes the text is drawn at, which `measureText` measures at
+   * (`Typography.fontSize`): `render()` hands every layout its resolved
+   * `RenderOptions.typography`. Absent — a layout called directly, as the
+   * layout tests do — is `DEFAULT_TYPOGRAPHY`.
+   */
+  typography?: Typography;
 }
 
 /**
@@ -1829,10 +1846,11 @@ export interface PlacedConnector {
   hops: LineHop[];
   /**
    * The connector's label, wrapped and placed: the label as drawn — its rows
-   * after wrapping its 12px text at the width its kind wraps at (the wrap
-   * function `placeConnectors` is handed: `wrapConnectorLabel`, the default,
-   * at 150px for a flowchart edge, a class relationship and a state
-   * transition; `wrapErRelationshipLabel` at 200 × 12/14 ≈ 171.43px for an
+   * after wrapping its text at the width its kind wraps at (the wrap
+   * function `placeConnectors` is handed, at the default typography:
+   * `wrapConnectorLabel`, the default, at 150px for a flowchart edge, a
+   * class relationship and a state transition, its 12px text;
+   * `wrapErRelationshipLabel` at 200 × 12/14 ≈ 171.43px for an
    * ER relationship — Mermaid wraps its 14px ER label at 200px; the
    * label-wrap ADR, nook `01M4R4WDZ`, as amended), so it may hold more rows
    * than the author wrote — the box measured for those rows, which is the

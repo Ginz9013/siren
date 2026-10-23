@@ -92,7 +92,8 @@ of the core renderer (see [ADR-0005](docs/adr/0005-board-is-a-separate-package-t
 not part of it; does not parse, layout, or render anything itself.
 It passes core's style facts through untouched: it hands `omitAuthorStyles` to every `render()`
 and hands back each render's `styles` and `siren`, and makes no theme judgement of its own; what
-they mean is the host's.
+they mean is the host's. It is also the one reader of the theme's text **design tokens**: before
+every render it reads them as a **Typography** and measures in their family and size.
 _Avoid_: canvas, viewer, widget
 
 **View**:
@@ -234,6 +235,8 @@ redeclaring tokens under a selector they choose and apply when they decide — s
 **chrome tokens**, not design tokens: they color board's control bar and error banner, live in
 board's injected stylesheet, and have the same shape — one set, one `:root` block (ADR-0006 keeps
 board's chrome out of core's theme).
+The four text tokens reach layout as well as CSS, but not by being read there: their sizes are
+handed to `render()` as a **Typography**, which the board reads off the tokens.
 One consequence is worth stating because it is the reason a rule below exists: a color token is
 always named at its point of use, never aliased into a new `--siren-*` in `:root`. A custom
 property substitutes against the element its declaration sits on, so an alias in `:root` freezes
@@ -315,6 +318,31 @@ never filled. There is no colour there for a redeclaration to change, so no toke
 _Avoid_: scoped theme, per-target theme (there is one theme; a redeclaration on a target's
 elements is the consumer's own CSS), override (an author's inline `style` is what overrides, and it
 outranks every token)
+
+**Typography**:
+The px sizes a diagram's text is drawn at, which layout sizes every box for: `fontSize`,
+`labelFontSize` and `titleFontSize`, the sizes of the **design tokens** `--siren-font-size`,
+`--siren-label-font-size` and `--siren-title-font-size`. The default, `DEFAULT_TYPOGRAPHY`, is
+`default.css`'s 14, 12 and 18, and with it every diagram is drawn as before typography existed. A
+caller hands it to `render()` as `typography`; core cannot read the tokens itself, because it has
+to work in jsdom, which resolves no custom property (nook decision `01M5KT454`). The **board** reads
+them, before every render, off the layer its SVG is mounted in, and takes a token in px only — any
+other unit, or a size not above 0, is read as that token's default. The font family
+(`--siren-font-family`) is not part of it: only the text measurer needs a family, so board keeps it
+in its own `BoardTypography` and core never sees it.
+**The text measurer measures at `fontSize`.** `TextMeasurer.measure` is asked about a string and
+nothing else, so a caller's measurer answers for text at `fontSize`, and every other size is
+derived from that answer: a **label**'s rows are a line of its size apart, a **connector**'s label
+is the answer scaled by `labelFontSize / fontSize`, a **wrap** width is in proportion to the size
+the label is drawn at, and an author's px font size counts against `fontSize`. A frame's title (a
+**subgraph**'s, a **namespace**'s, an **ER subgraph**'s, a **composite state**'s) is drawn and
+measured at `fontSize`; `titleFontSize` reaches only a sequence diagram's `.siren-title`, whose
+band above the **participant row** is 40px at 18 and in proportion otherwise. Three labels are
+drawn at `--siren-label-font-size` but measured at `fontSize` — a sequence **control-flow
+block**'s condition and a class diagram's lollipop interface name and annotation — a gap kept so
+the default picture stays the same (nook backlog `01M5KT4X56`, `01M5KVMJ3H`).
+_Avoid_: font settings, font config (it is three sizes, and the family is the measurer's), theme
+(the theme is the tokens; typography is the sizes layout is told)
 
 **Id scope**:
 The `__` plus exactly eight characters that every id *inside* one rendered SVG is suffixed with —
@@ -551,11 +579,13 @@ that only want a string, such as a diagnostic quoting the label.
 What is drawn is the rows.
 
 A label's rows are one **line** apart, and a line is 1.5 times the size the label is drawn at,
-Mermaid's 24px for 16px text: **21px** at a node's 14px, **18px** at a connector label's 12px. The
+Mermaid's 24px for 16px text: at the default **typography**, **21px** at a node's 14px and **18px**
+at a connector label's 12px; at any other, 1.5 times its `fontSize` or `labelFontSize`. The
 measurer's height for one string is one line plus its vertical padding, and that padding is added
 once around all the rows, never per row — so a one-row label is exactly as tall as the measurer's
 answer. Sequence text follows Mermaid's SVG text instead: a message's, note's and block condition's
-rows are 19/16 of the font size apart, a participant's and a box caption's one font size.
+rows are 19/16 of the font size apart, a participant's and a box caption's one font size — the
+**typography**'s `fontSize`.
 
 The **picture** a label is held to is what Mermaid's default `htmlLabels: true` shows a reader; the
 **drawing** stays SVG `<text>`/`<tspan>` with author text through `textContent`, never `innerHTML`
@@ -621,7 +651,7 @@ One module owns all of it, `packages/core/src/label/`: `readLabel` reads the sou
 and reports **problems** at character offsets, which the parser turns into diagnostics at the
 author's own line and column (an error refuses the document, as an unrecognized line does);
 `layoutLabel` measures it into a `LabelBox` — a row as tall as its tallest run, the label its rows
-stacked, an author's px size measured against the 14px base, a run's letter- and word-spacing
+stacked, an author's px size measured against the **typography**'s `fontSize` (14px by default), a run's letter- and word-spacing
 counted into its width, a bold run at the regular weight and a monospace run in the regular font (a
 deliberate simplification, not a gap); `drawLabel`
 draws it at the box's centre. A label layout has measured and placed is a **placed label**
@@ -640,9 +670,10 @@ a drawn row — a Markdown string's plain *line* break is one way to start a row
 Breaking a **label**'s rows into more rows so that none is wider than the label's **wrap width**,
 as Mermaid wraps its HTML labels (nook decisions `01M4R4WDZ` and `01M4R7HBG`). The wrap width is
 Mermaid's 200px scaled by the size Siren draws the label at over the size Mermaid draws it at,
-`200 × Siren px / Mermaid px`: **175** for a flowchart node's 14px text, **150** for a connector
-label's 12px (Mermaid's 16px), and **200 × 12/14 ≈ 171.43** for an ER relationship's 12px label,
-which Mermaid draws at 14px. Not configurable — Mermaid's `flowchart.wrappingWidth` is not
+`200 × Siren px / Mermaid px`, Siren's px being the **typography**'s `fontSize` for a node and
+`labelFontSize` for a connector label. At the default sizes: **175** for a flowchart node's 14px
+text, **150** for a connector label's 12px (Mermaid's 16px), and **200 × 12/14 ≈ 171.43** for an
+ER relationship's 12px label, which Mermaid draws at 14px. Not configurable — Mermaid's `flowchart.wrappingWidth` is not
 read. A row that fits is left as written; each row the author wrote (a `<br>` still ends one) is
 wrapped on its own. A row breaks after a space, which is not drawn, and between two characters
 either of which is CJK, but never before closing punctuation (`，。、；：？！」』）】》,.;:?!)]}`); a piece
@@ -650,9 +681,10 @@ that cannot be broken and is wider than the wrap width stands on its own row and
 wrap width bounds the **text** alone, as Mermaid's fixed-width `<div>` does: the measurer's padding
 is outside it, so once a label wraps its box is the wrap width plus that padding — or as wide as an
 overflowing row — and its runs keep their properties across the breaks. `wrapLabel` in
-`packages/core/src/label/` does it; `wrapNodeLabel` beside it wraps a 14px label at 175, and
-`wrapConnectorLabel` a connector label at 150 with the 12px measurer and line spacing, and
-`wrapErRelationshipLabel` an ER relationship's label the same way at 171.43; the caller decides
+`packages/core/src/label/` does it; `wrapNodeLabel` beside it wraps a node's label (at 175 by
+default), and `wrapConnectorLabel` a connector label (at 150) with the measurer and line spacing
+for `labelFontSize`, and `wrapErRelationshipLabel` an ER relationship's label the same way (at
+171.43); the caller decides
 which labels wrap. Wrapped: a flowchart node's label and a flowchart edge's label; a
 state's description, a state diagram's note (at 175) and a transition label (at 150); a class
 **relationship**'s label (at 150) and an ER **relationship**'s label (at 171.43). Never wrapped: a subgraph's
@@ -737,7 +769,8 @@ is not a state an author can reach. Layout reserves space for it, which makes th
 one part of an edge that changes *where the line goes* as well as what is drawn on it. The space
 is reserved **on the line**, centred on a point the route passes through — for a flowchart, ELK's
 inline `CENTER` edge label, as Mermaid 12.2.0 hands it over (measured: "yes" centred on the line,
-the gap between the boxes grown from 40 to 101); measured at the 12px the label is drawn at, not the node's 14px; class
+the gap between the boxes grown from 40 to 101); measured at the size the label is drawn at (`labelFontSize`, 12px by default), not the node's
+`fontSize`; class
 relationships, state transitions and ER relationships place theirs the same way (an ER
 relationship's measured too: Mermaid 12.2.0 centres each on its route, a self-relationship's
 beside its loop, and Siren's land at the same fractions along the same routes). In the markup the

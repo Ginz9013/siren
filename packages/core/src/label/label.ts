@@ -120,6 +120,14 @@ export interface LabelBox {
   width: number;
   height: number;
   rows: LabelBoxRow[];
+  /**
+   * The px an author's absolute px run was counted against when the box was
+   * measured (`measuredScale`) — `Typography.fontSize` — which `drawLabel`
+   * reads so it places that run's background at the scale layout gave it.
+   * Absent when it is the default 14px (`DEFAULT_TYPOGRAPHY.fontSize`), so
+   * a box laid out at the default typography is the box it always was.
+   */
+  baseFontSizePx?: number;
 }
 
 /**
@@ -203,12 +211,53 @@ export function relativeScale(run: LabelRun): number | null {
 }
 
 /**
+ * The px sizes a diagram's text is drawn at, which layout sizes every box
+ * for: the theme's `--siren-font-size`, `--siren-label-font-size` and
+ * `--siren-title-font-size`, handed to `render()` as `typography` by a
+ * caller that can read them (core cannot: jsdom computes no custom
+ * property). The font family is not here — only a measurer needs it, and
+ * the measurer is the caller's (nook decision `01M5KT454`).
+ *
+ * Declared here, beside the label functions that take its sizes, for the
+ * reason `contracts.ts` gives for the rest of the label model; re-exported
+ * from there and from the package.
+ */
+export interface Typography {
+  /**
+   * px a label of scale 1 is drawn **and measured** at —
+   * `--siren-font-size`. A caller's `measureText` answers for text at this
+   * size; rows are this × the line-height ratio apart, an author's absolute
+   * px run (`font-size:20px`) and an `em` spacing count against it, and a
+   * node's text wraps at the width for it (`wrapWidthAt`).
+   */
+  fontSize: number;
+  /**
+   * px a connector label is drawn at — `--siren-label-font-size`. The
+   * measurer's answer is scaled by this over `fontSize` for it
+   * (`atConnectorLabelSize`), and it wraps at the width for this size.
+   */
+  labelFontSize: number;
+  /** px a diagram title (`.siren-title`) is drawn at — `--siren-title-font-size`. */
+  titleFontSize: number;
+}
+
+/**
  * The base size an author's absolute px size, and an `em` spacing, is
- * measured against: Siren's default `--siren-font-size`, which
- * `theme/default.test.ts` holds this to. A consumer who changes that token
- * gets boxes sized for 14px around such a run (the spec's accepted risk).
+ * measured against when nothing says otherwise: Siren's default
+ * `--siren-font-size`, which `theme/default.test.ts` holds this to. A
+ * consumer who changes that token passes the new size as
+ * `typography.fontSize`, and every function here taking a size takes it in
+ * place of this one (nook decision `01M5KT454`, which retires the accepted
+ * risk this constant used to carry).
  */
 export const BASE_FONT_SIZE_PX = 14;
+
+/**
+ * The px Siren's default theme draws a diagram title at:
+ * `--siren-title-font-size`, which `theme/default.test.ts` holds
+ * `DEFAULT_TYPOGRAPHY` to.
+ */
+const TITLE_FONT_SIZE_PX = 18;
 
 /**
  * The px a connector's label is drawn at: Siren's default
@@ -217,48 +266,81 @@ export const BASE_FONT_SIZE_PX = 14;
  * `.siren-edge-label`, a class relationship's `.siren-relationship-label`, a
  * state transition's `.siren-transition-label`, an ER relationship's
  * `.siren-er-relationship-label` — takes that token, where a measurer
- * measures at `BASE_FONT_SIZE_PX`.
+ * measures at `--siren-font-size`. The default of
+ * `Typography.labelFontSize`, which a caller's typography replaces.
  */
 export const CONNECTOR_LABEL_FONT_SIZE_PX = 12;
 
 /**
  * How large a connector label is drawn relative to what the measurer
- * measured: `CONNECTOR_LABEL_FONT_SIZE_PX` over `BASE_FONT_SIZE_PX`.
+ * measured, at the default typography: `CONNECTOR_LABEL_FONT_SIZE_PX` over
+ * `BASE_FONT_SIZE_PX`. At any other, it is `labelFontSize / fontSize`
+ * (`atConnectorLabelSize`).
  */
 export const CONNECTOR_LABEL_SCALE = CONNECTOR_LABEL_FONT_SIZE_PX / BASE_FONT_SIZE_PX;
 
 /**
- * `measureText` answering for text set at a connector label's 12px rather
- * than the 14px it measures at — what each of the four connector adapters
- * measures a connector's label with, so the room the layout keeps on the line is
- * the size the label is drawn at.
+ * The default theme's typography — what `render()` lays out for when the
+ * caller passes none, or leaves a field out — and the sizes every label
+ * function here falls back to. With it, the picture is exactly the one drawn
+ * before `typography` existed. Frozen: it is shared by every render.
+ */
+export const DEFAULT_TYPOGRAPHY: Readonly<Typography> = Object.freeze({
+  fontSize: BASE_FONT_SIZE_PX,
+  labelFontSize: CONNECTOR_LABEL_FONT_SIZE_PX,
+  titleFontSize: TITLE_FONT_SIZE_PX,
+});
+
+/**
+ * The two sizes a label function needs of a `Typography`: the size the
+ * measurer measures at and a node's text is drawn at, and the size a
+ * connector label is drawn at. Every function taking it defaults to
+ * `DEFAULT_TYPOGRAPHY`, so a caller that passes none lays out exactly as
+ * before typography existed.
+ */
+export type LabelSizes = Pick<Typography, "fontSize" | "labelFontSize">;
+
+/**
+ * `measureText` answering for text set at a connector label's
+ * `labelFontSize` rather than the `fontSize` it measures at (12px and 14px
+ * by default) — what each of the four connector adapters measures a
+ * connector's label with, so the room the layout keeps on the line is the
+ * size the label is drawn at.
  *
  * **Scaled, because `TextMeasurer` cannot be asked about a font size.** Its
  * one method takes a string and nothing else, and widening it would change
  * the public interface every consumer implements (`render()`'s
- * `measureText`, `siren-board`'s canvas measurer). The same text at 12/14
- * the size is 12/14 as wide and as tall, so the whole answer is scaled —
- * the measurer's own padding with it, since the interface cannot say which
- * part of an answer is glyphs and which is padding, and treating the box as
- * proportional to the font is the one reading that needs no such split.
+ * `measureText`, `siren-board`'s canvas measurer). The same text at
+ * `labelFontSize / fontSize` the size is that much as wide and as tall, so
+ * the whole answer is scaled — the measurer's own padding with it, since
+ * the interface cannot say which part of an answer is glyphs and which is
+ * padding, and treating the box as proportional to the font is the one
+ * reading that needs no such split. A measurer that does not measure at
+ * `typography.fontSize` gets a label box off by the ratio between the two
+ * (nook decision `01M5KT454`).
  *
- * Two approximations follow, both on runs the author sized themselves: a run
- * with an absolute px size (`font-size:20px`) is drawn at that size but
- * measured here at 12/14 of it, and an `em` letter- or word-spacing is
- * counted against the 14px base by `layoutLabel`. Neither occurs in a label
- * written without inline styles.
+ * One approximation follows, on runs the author sized themselves: a run
+ * with an absolute px size (`font-size:20px`), and an `em` letter- or
+ * word-spacing, is counted against `fontSize` — the base every absolute
+ * size is a scale of (`measuredScale`) — and so measured here at
+ * `labelFontSize / fontSize` of the size it is drawn at. Neither occurs in a
+ * label written without inline styles.
  *
  * The measurer is spelled structurally rather than as `contracts.ts`'s
  * `TextMeasurer` for the reason `PlacedLabel` gives: this module imports
  * nothing from the contract that re-exports it.
  */
-export function atConnectorLabelSize(measureText: {
-  measure(text: string): { width: number; height: number };
-}): { measure(text: string): { width: number; height: number } } {
+export function atConnectorLabelSize(
+  measureText: {
+    measure(text: string): { width: number; height: number };
+  },
+  sizes: LabelSizes = DEFAULT_TYPOGRAPHY,
+): { measure(text: string): { width: number; height: number } } {
+  const scale = sizes.labelFontSize / sizes.fontSize;
   return {
     measure(text: string) {
       const size = measureText.measure(text);
-      return { width: size.width * CONNECTOR_LABEL_SCALE, height: size.height * CONNECTOR_LABEL_SCALE };
+      return { width: size.width * scale, height: size.height * scale };
     },
   };
 }
@@ -266,16 +348,19 @@ export function atConnectorLabelSize(measureText: {
 /**
  * The factor `run` is *measured* at relative to one measured line: its
  * scale, or, for an absolute size the author wrote in px, that size over
- * the 14px base. Any other absolute size (`large`, `1.2rem`) has no number
- * of px to read and is measured at the base size. `layoutLabel` sizes a run
- * with this and `drawLabel` places its background with it, so the two agree.
+ * `baseFontSizePx` — `Typography.fontSize`, the size the measurer measures
+ * at, 14px when the caller gives none. Any other absolute size (`large`,
+ * `1.2rem`) has no number of px to read and is measured at the base size.
+ * `layoutLabel` sizes a run with this and `drawLabel` places its background
+ * with it, against the same base (`LabelBox.baseFontSizePx`), so the two
+ * agree.
  */
-export function measuredScale(run: LabelRun): number {
+export function measuredScale(run: LabelRun, baseFontSizePx: number = DEFAULT_TYPOGRAPHY.fontSize): number {
   if ("scale" in run.fontSize) {
     return run.fontSize.scale;
   }
   const px = /^(\d*\.?\d+)px$/i.exec(run.fontSize.absolute);
-  return px === null ? 1 : Number(px[1]) / BASE_FONT_SIZE_PX;
+  return px === null ? 1 : Number(px[1]) / baseFontSizePx;
 }
 
 /**
@@ -315,11 +400,10 @@ export const MERMAID_ER_LABEL_FONT_SIZE_PX = 14;
  * by the size Siren draws the label at over the size Mermaid draws it at
  * (`mermaidFontSizePx`, 16px unless given), so a row holds as many
  * characters as Mermaid's does (the label-wrap ADR, nook `01M4R4WDZ`, as
- * amended). A node's 14px (`BASE_FONT_SIZE_PX`) wraps at 175, a connector
- * label's 12px (`CONNECTOR_LABEL_FONT_SIZE_PX`) at 150, and an ER
- * relationship's 12px label, which Mermaid draws at 14px
- * (`MERMAID_ER_LABEL_FONT_SIZE_PX`), at 200 × 12/14 ≈ 171.43. `wrapLabel`
- * takes the result.
+ * amended). At the default sizes (`DEFAULT_TYPOGRAPHY`), a node's 14px
+ * wraps at 175, a connector label's 12px at 150, and an ER relationship's
+ * 12px label, which Mermaid draws at 14px (`MERMAID_ER_LABEL_FONT_SIZE_PX`),
+ * at 200 × 12/14 ≈ 171.43. `wrapLabel` takes the result.
  */
 export function wrapWidthAt(fontSizePx: number, mermaidFontSizePx: number = MERMAID_FONT_SIZE_PX): number {
   return (MERMAID_WRAPPING_WIDTH_PX * fontSizePx) / mermaidFontSizePx;

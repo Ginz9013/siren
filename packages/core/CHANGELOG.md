@@ -8,6 +8,38 @@ While the version is 0.x, a minor release may contain breaking changes.
 
 ## [Unreleased]
 
+Nothing a document draws changes unless `render()` is given a `typography` other than the
+default: without one, with `{}` or with `DEFAULT_TYPOGRAPHY`, every diagram is the same SVG as in
+0.8.0. A caller that passes its own `measureText` and changes the size it measures at now has to
+pass that size as `typography.fontSize` (see **Changed**).
+
+### Added
+
+- `RenderOptions.typography`, a `Partial<Typography>`: the px sizes the theme draws text at,
+  `fontSize` (`--siren-font-size`), `labelFontSize` (`--siren-label-font-size`) and
+  `titleFontSize` (`--siren-title-font-size`). A field left out takes `DEFAULT_TYPOGRAPHY`'s,
+  `{ fontSize: 14, labelFontSize: 12, titleFontSize: 18 }`. Layout sizes every diagram kind from
+  it: a label's rows are 1.5 × its size apart (a sequence diagram keeps its 19/16 and one-size
+  spacing, now of `fontSize`), a connector label's box is the measurer's answer scaled by
+  `labelFontSize / fontSize`, wrap widths grow and shrink with the size (175px of text at 14px,
+  150px for a connector label at 12px), a subgraph's, namespace's, ER subgraph's and composite
+  state's title is measured at `fontSize`, an author's px font size and `em` spacing count against
+  `fontSize`, and a sequence diagram's title band is 40px × `titleFontSize / 18`, with
+  `.siren-title` drawn halfway down it. A field that is not a finite number above 0 throws a
+  `RangeError` naming it, and the container is left untouched (nook decision `01M5KT454`).
+- `Typography` and `DEFAULT_TYPOGRAPHY` are exported from `siren-core`.
+- `PositionedSequenceDiagram.titleBand`: the height of the band layout reserves for the title,
+  40px at the default typography and 0 with no title. `layoutSequence` always writes it; a
+  hand-built diagram without it reserves no band, and its title is drawn on the top edge.
+
+### Changed
+
+- `measureText` now measures at `typography.fontSize`, where it measured at a fixed 14px. At the
+  default typography nothing changes. The default estimate reads no typography. A sequence
+  diagram's block condition, and a class diagram's lollipop interface name and annotation, are
+  still laid out for text at `fontSize` though the theme draws them at
+  `--siren-label-font-size`, as in 0.8.0.
+
 ## [0.8.0] - 2026-10-21
 
 Nothing a document draws changes, and no public type changes: every bundled example renders the

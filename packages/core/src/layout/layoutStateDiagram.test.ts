@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Direction, Label, StateModel, TextMeasurer } from "../contracts";
-import { CONNECTOR_LABEL_SCALE, plainLabel, plainRun } from "../label/label";
+import { CONNECTOR_LABEL_SCALE, DEFAULT_TYPOGRAPHY, plainLabel, plainRun } from "../label/label";
 import { layoutStateDiagram } from "./layoutStateDiagram";
+import { measurerAt } from "../testing/measurerAt";
 
 /** Deterministic fake measurer, the fixture pattern every layout test here uses. */
 const fakeMeasurer: TextMeasurer = {
@@ -1745,5 +1746,122 @@ describe("layoutStateDiagram — a note's connector on a figure's outline", () =
     const start = choice.note!.connector[0]!;
     const off = Math.abs(start.x - (choice.x + hw)) / hw + Math.abs(start.y - (choice.y + hh)) / hh - 1;
     expect(Math.abs(off) * (hw * hh) / Math.hypot(hw, hh)).toBeLessThanOrEqual(0.5);
+  });
+});
+
+/**
+ * `LayoutOptions.typography`, which `render()` always passes: the measurer
+ * here answers as a font of `fontSize` px would — glyphs 0.6 × the size
+ * wide, a line 1.5 × the size tall, and a constant padding of 16px across
+ * and 11px down — the contract `typography.fontSize` puts on `measureText`
+ * (spec `01M5KT49PV`, decisions 1–5). Expected sizes are arithmetic on those
+ * numbers and on Mermaid's 1.5 line-height ratio.
+ */
+describe("layoutStateDiagram — typography", () => {
+  const at = (fontSize: number, labelFontSize = 12) => ({
+    measureText: measurerAt(fontSize),
+    typography: { fontSize, labelFontSize, titleFontSize: 18 },
+  });
+
+  it("scales a transition label by labelFontSize / fontSize, so doubling labelFontSize doubles its box", () => {
+    const labelled = model([{ from: "a", to: "b", label: "abcd" }]);
+    const [atTwelve] = layoutStateDiagram(labelled, at(14, 12)).transitions;
+    const [atTwentyFour] = layoutStateDiagram(labelled, at(14, 24)).transitions;
+
+    // One row of `abcd` at 14px is 4 × 8.4 + 16 = 49.6 wide and 32 tall;
+    // drawn at 24px it is 24/14 of that.
+    expect(atTwentyFour.label!.labelBox.width).toBeCloseTo((4 * 8.4 + 16) * (24 / 14), 6);
+    expect(atTwentyFour.label!.labelBox.height).toBeCloseTo(32 * (24 / 14), 6);
+    expect(atTwentyFour.label!.labelBox.width).toBeCloseTo(atTwelve.label!.labelBox.width * 2, 6);
+    expect(atTwentyFour.label!.labelBox.height).toBeCloseTo(atTwelve.label!.labelBox.height * 2, 6);
+  });
+
+  const rows = (...texts: string[]): Label => ({
+    text: texts.join("\n"),
+    rows: texts.map((text) => [plainRun(text)]),
+  });
+  /** States `one` and `two` side by side, each with these descriptions. */
+  const describedPair = (one: Label[], two: Label[]): StateModel => {
+    const pair = model([], ["one", "two"]);
+    pair.states[0].descriptions = one;
+    pair.states[1].descriptions = two;
+    return pair;
+  };
+
+  it("spaces a state's description rows a fontSize line apart, and the box grows by that line", () => {
+    const laid = layoutStateDiagram(describedPair([rows("ab")], [rows("ab", "cd")]), at(28));
+    const [one, two] = laid.states;
+
+    // One row is the measurer's answer, 28 × 1.5 + 11 = 53; a second row
+    // adds one 28 × 1.5 = 42px line, and the box grows by that alone.
+    expect(one.labels[0].labelBox.height).toBe(53);
+    expect(two.labels[0].labelBox.height).toBe(53 + 42);
+    expect(two.height - one.height).toBe(42);
+  });
+
+  it("spaces a note's rows a fontSize line apart", () => {
+    const noted = describedPair([], []);
+    noted.states[0].note = { position: "right of", label: rows("ab", "cd") };
+
+    const note = layoutStateDiagram(noted, at(28)).states[0].note!;
+
+    expect(note.labelBox.height).toBe(53 + 42);
+  });
+
+  // Decision 4: a description and a note wrap at Mermaid's 200px scaled to
+  // the fontSize they are drawn at — 200 × 28/16 = 350px of text at 28px.
+  // At 16.8px a character, 20 characters (336px) fit and 22 (369.6px) do
+  // not, so the rows break as at the default 14px, where the text is half
+  // as wide and the width half as large: each row holds as many characters.
+  it("wraps a description and a note at Mermaid's 200px scaled to fontSize", () => {
+    const long = plainLabel("alpha beta gamma delta epsilon zeta");
+    const noted = describedPair([long], []);
+    noted.states[0].note = { position: "right of", label: long };
+
+    const [state] = layoutStateDiagram(noted, at(28)).states;
+
+    expect(state.labels[0].label.rows.map((row) => row.map((run) => run.text).join(""))).toEqual([
+      "alpha beta gamma",
+      "delta epsilon zeta",
+    ]);
+    // The wrap width plus the measurer's 16px of padding.
+    expect(state.labels[0].labelBox.width).toBe(350 + 16);
+    expect(state.note!.label.rows.map((row) => row.map((run) => run.text).join(""))).toEqual([
+      "alpha beta gamma",
+      "delta epsilon zeta",
+    ]);
+    expect(state.note!.labelBox.width).toBe(350 + 16);
+  });
+
+  // Decision 5: a composite's title is drawn at `fontSize` (CSS draws it at
+  // `--siren-font-size`), so its rows are a line of that size apart and the
+  // band the core keeps for it grows with them.
+  it("spaces a composite's title rows a fontSize line apart, and keeps its member below them", () => {
+    const nested = model([], ["Outer", "Inner"]);
+    nested.states[0] = { ...nested.states[0], kind: "composite", descriptions: [rows("ab", "cd")] };
+    nested.states[1] = { ...nested.states[1], parentId: "Outer" };
+
+    const laid = layoutStateDiagram(nested, at(28));
+    const outer = laid.states.find((state) => state.id === "Outer")!;
+    const inner = laid.states.find((state) => state.id === "Inner")!;
+    const [title] = outer.labels;
+
+    expect(title.labelBox.height).toBe(53 + 42);
+    expect(inner.y).toBeGreaterThanOrEqual(title.y + title.labelBox.height / 2);
+  });
+
+  it("lays out exactly as with no typography when handed DEFAULT_TYPOGRAPHY", () => {
+    const busy = model([
+      { from: "a", to: "b", label: "alpha beta gamma delta epsilon zeta" },
+      { from: "b", to: "C", label: "go" },
+    ]);
+    busy.states[0].descriptions = [rows("first", "second"), plainLabel("alpha beta gamma delta epsilon zeta")];
+    busy.states[0].note = { position: "left of", label: rows("n1", "n2") };
+    busy.states[2] = { ...busy.states[2], kind: "composite", descriptions: [rows("Cee", "sub")] };
+    busy.states.push({ ...busy.states[1], id: "inside", parentId: "C" });
+
+    expect(layoutStateDiagram(busy, { measureText: fakeMeasurer, typography: DEFAULT_TYPOGRAPHY })).toEqual(
+      layoutStateDiagram(busy, { measureText: fakeMeasurer }),
+    );
   });
 });

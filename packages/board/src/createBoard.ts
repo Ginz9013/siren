@@ -10,6 +10,7 @@ import type {
 } from "siren-core";
 import { ensureStylesInjected } from "./styles";
 import { createCanvasTextMeasurer } from "./textMeasurer";
+import { readTypography } from "./typography";
 import { createDefaultControls } from "./defaultControls";
 import { createViewport } from "./viewport";
 
@@ -52,7 +53,12 @@ export type ControlsFactory = (board: Board) => { element: HTMLElement; update?(
 export interface BoardOptions {
   /** Initial `.srn` source. Omit to mount an empty board and call `setSource` later. */
   source?: string;
-  /** Overrides board's default real-browser canvas measurer (see textMeasurer.ts). */
+  /**
+   * Overrides board's default real-browser canvas measurer (see
+   * textMeasurer.ts), which measures in the theme's `--siren-font-family`
+   * and `--siren-font-size`. Board still lays out at the theme's sizes, so
+   * this one must measure at `--siren-font-size` too.
+   */
   measureText?: TextMeasurer;
   /** Fired on every `setSource` call (construction included), fatal or warning-only. */
   onDiagnostics?: (diagnostics: Diagnostic[]) => void;
@@ -204,6 +210,22 @@ export interface Board {
    * replaces `controller`: read it again rather than keeping the old one.
    */
   setOmitAuthorStyles(list: readonly string[]): void;
+  /**
+   * Lays the last rendered source out again in the typography design tokens
+   * (see CONTEXT.md's "Design token") as they are now — call it after
+   * changing the theme. Redraws at
+   * the step shown, on the current timeline or in the full diagram as
+   * before, with the current `omitAuthorStyles`; it redraws even when no
+   * token changed. While the error banner is up it redraws the last source
+   * that rendered and leaves the banner alone. Playback keeps going: a
+   * pending step lands on the new drawing. Never changes the view or
+   * `diagnostics`, and fires `onStyles` only — neither `onStepChange`,
+   * `onDiagnostics`, `onTimelineChange` nor `onFullDiagramChange`. Like
+   * `setOmitAuthorStyles`, it replaces `controller`: read it again rather
+   * than keeping the old one. With no source rendered, or after `destroy()`,
+   * it is a no-op.
+   */
+  relayout(): void;
   /** Whether playback is running (see CONTEXT.md's "Playback"). */
   readonly playing: boolean;
   /** Milliseconds between playback steps. */
@@ -267,7 +289,20 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
 
   const viewport = createViewport(canvas);
 
-  const measureText = options.measureText ?? createCanvasTextMeasurer();
+  /**
+   * Board's own measurer, when the caller gives none: one per font, rebuilt
+   * only when the theme's family or size has changed since the last render.
+   */
+  let ownMeasurer: { font: string; measurer: TextMeasurer } | null = null;
+  function measurerFor(fontFamily: string, fontSize: number): TextMeasurer {
+    // A caller's measurer is the caller's to keep in step with the theme.
+    if (options.measureText !== undefined) return options.measureText;
+    const font = `${fontSize}px ${fontFamily}`;
+    if (ownMeasurer?.font !== font) {
+      ownMeasurer = { font, measurer: createCanvasTextMeasurer({ fontFamily, fontSize }) };
+    }
+    return ownMeasurer.measurer;
+  }
   let wrappedController: AnimationController | null = null;
   let diagnostics: Diagnostic[] = [];
   let destroyed = false;
@@ -350,8 +385,13 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
    * default, the first block).
    */
   function renderDocument(source: string, full: boolean, name: string | null = null) {
+    // Read where the theme's CSS reaches the SVG, afresh on every render, so
+    // a theme changed since the last one is laid out at its new sizes. The
+    // family stays here: only the measurer needs it.
+    const { fontFamily, ...typography } = readTypography(viewport.content);
     return render(source, viewport.content, {
-      measureText,
+      measureText: measurerFor(fontFamily, typography.fontSize),
+      typography,
       onClick: options.onClick,
       ...(options.iconPacks === undefined ? {} : { iconPacks: options.iconPacks }),
       timeline: full ? false : (name ?? true),
@@ -473,11 +513,9 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
 
   /**
    * Re-renders the last rendered source with another `omitAuthorStyles`
-   * (core strikes the properties out, ADR-0005: board never parses).
-   * Like `setFullDiagram`, it leaves `diagnostics`, the view, and the error
-   * banner alone, and fires neither `onDiagnostics` nor `onStepChange`: the
-   * document did not change, only how it is drawn. Nor does it pause: the
-   * steps are the same, so a pending playback step lands on the new drawing.
+   * (core strikes the properties out, ADR-0005: board never parses) — the
+   * document did not change, only how it is drawn, so it goes through
+   * `redraw`.
    */
   function setOmitAuthorStyles(list: readonly string[]): void {
     if (destroyed) return;
@@ -490,6 +528,32 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
       return;
     }
     omitAuthorStyles = Object.freeze([...list]);
+    redraw();
+  }
+
+  /**
+   * Re-reads the theme's tokens by re-rendering the last rendered source
+   * (`renderDocument` reads them on every render). Like
+   * `setOmitAuthorStyles`, the document did not change, only how it is
+   * drawn, so it leaves the rest of the board as it is.
+   */
+  function relayout(): void {
+    // A destroyed board draws nothing and reports nothing more; with no
+    // document rendered yet there is nothing to lay out again, and no state
+    // the bar shows has changed, so it is not told either.
+    if (destroyed || renderedSource === null) return;
+    redraw();
+  }
+
+  /**
+   * Re-renders the last rendered source as the board now draws it, at the
+   * step shown, on the current timeline or in the full diagram as before —
+   * the path `setOmitAuthorStyles` and `relayout` share. Leaves
+   * `diagnostics`, the view and the error banner alone, does not pause (the
+   * steps are the same, so a pending playback step lands on the new
+   * drawing), and fires only `onStyles`. No rendered source draws nothing.
+   */
+  function redraw(): void {
     let drawn = false;
     if (renderedSource !== null) {
       const step = wrappedController?.currentStep ?? 0;
@@ -822,6 +886,7 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
     setFullscreen,
     setDotGrid,
     setOmitAuthorStyles,
+    relayout,
     setTimeline,
     play,
     pause,

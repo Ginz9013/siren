@@ -139,7 +139,7 @@ export function renderSequenceToSVG(diagram: PositionedSequenceDiagram): SVGSVGE
   svg.appendChild(buildDefs(scope));
 
   if (diagram.title !== null) {
-    svg.appendChild(buildTitle(diagram.title, diagram.width));
+    svg.appendChild(buildTitle(diagram.title, diagram.width, diagram.titleBand ?? 0));
   }
 
   // Boxes first, before anything they group: SVG paints in document order,
@@ -425,12 +425,16 @@ function buildBlockKeyword(kind: string, x: number, y: number): SVGTextElement {
   return keyword;
 }
 
-/** Builds the `<text class="siren-title">`, centered above the diagram. */
-function buildTitle(title: string, diagramWidth: number): SVGTextElement {
+/**
+ * Builds the `<text class="siren-title">`, centered above the diagram in
+ * the middle of the band layout reserved for it (`bandHeight`,
+ * `PositionedSequenceDiagram.titleBand`; 20px down in the default 40px band).
+ */
+function buildTitle(title: string, diagramWidth: number, bandHeight: number): SVGTextElement {
   const text = document.createElementNS(SVG_NS, "text") as SVGTextElement;
   text.setAttribute("class", "siren-title");
   text.setAttribute("x", String(diagramWidth / 2));
-  text.setAttribute("y", "20");
+  text.setAttribute("y", String(bandHeight / 2));
   text.setAttribute("text-anchor", "middle");
   text.textContent = title;
   return text;

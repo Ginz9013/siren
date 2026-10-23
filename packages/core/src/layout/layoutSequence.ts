@@ -21,6 +21,7 @@ import type {
   SequenceModel,
 } from "../contracts";
 import { layoutLabel, type LineSpacing } from "../label/layoutLabel";
+import { DEFAULT_TYPOGRAPHY, type Typography } from "../label/label";
 
 /** Horizontal padding added around a participant's measured label. */
 const PARTICIPANT_PADDING_X = 16;
@@ -81,17 +82,22 @@ const MESSAGE_ROW_HEIGHT = 40;
  * Mermaid draws sequence text as SVG `<text>`, and these rows sit 19px apart
  * at 16px (measured in headless Chrome, mermaid 11.17.2: a two-row message,
  * note, `alt` condition and `else` condition alike) — not the 1.5 of its
- * HTML labels — so at Siren's 14px a row is 16.625px.
+ * HTML labels — so at Siren's default 14px a row is 16.625px. Drawn and
+ * measured at `Typography.fontSize`, so the row is that size times 19/16.
  */
-const SEQUENCE_LINE: LineSpacing = { lineHeightRatio: 19 / 16 };
+function sequenceLine(typography: Typography): LineSpacing {
+  return { fontSizePx: typography.fontSize, baseFontSizePx: typography.fontSize, lineHeightRatio: 19 / 16 };
+}
 
 /**
  * The line of a participant and a box's caption, which Mermaid spaces closer
  * than its other sequence text: one font size apart, each row's `dy` 8px
  * either side of the centre at 16px (measured, mermaid 11.17.2). At Siren's
- * 14px a row is 14px.
+ * default 14px a row is 14px: one `Typography.fontSize`.
  */
-const SEQUENCE_PARTICIPANT_LINE: LineSpacing = { lineHeightRatio: 1 };
+function sequenceParticipantLine(typography: Typography): LineSpacing {
+  return { fontSizePx: typography.fontSize, baseFontSizePx: typography.fontSize, lineHeightRatio: 1 };
+}
 /** Vertical gap between the bottom of a message's label and its arrow. */
 const MESSAGE_LABEL_GAP = 4;
 /** Horizontal padding added around a note's measured text. */
@@ -108,8 +114,15 @@ const SELF_MESSAGE_LOOP_WIDTH = 50;
 const RIGHT_MARGIN = 20;
 /** Vertical space reserved below the last message row, above the bottom participant boxes. */
 const BOTTOM_MARGIN = 20;
-/** Vertical space reserved above the first participant row when a title is present. */
+/**
+ * Vertical space reserved above the first participant row when a title is
+ * present, at the `Typography.titleFontSize` of 18 the title is drawn at by
+ * default; the band grows in proportion to that size (`titleBandHeight`),
+ * and is recorded as `PositionedSequenceDiagram.titleBand`.
+ */
 const TITLE_HEIGHT = 40;
+/** The `titleFontSize` `TITLE_HEIGHT` is the band for: `default.css`'s `--siren-title-font-size`. */
+const TITLE_HEIGHT_FONT_SIZE = 18;
 /** Horizontal padding a block's frame extends beyond the leftmost/rightmost lane it touches. */
 const BLOCK_PADDING_X = 20;
 /**
@@ -199,6 +212,13 @@ interface SequenceLayoutContext {
   closedActivations: PositionedActivation[];
   /** Threaded down for the labels `layoutStatements` measures: a message's and a note's. */
   measureText: LayoutOptions["measureText"];
+  /**
+   * The line those labels' rows are spaced at (`sequenceLine`), at
+   * `Typography.fontSize` — the size CSS draws a message and a note at. A
+   * block's condition is spaced at it too though CSS draws that at
+   * `--siren-label-font-size` (backlog `01M5KT4X56`).
+   */
+  line: LineSpacing;
 }
 
 /** One activation bar's still-open half: its own id and the y it opened at. */
@@ -314,11 +334,13 @@ function layoutNote(
  * from measured label width) and their box `width`/`height`. `top`/`bottom`
  * and `drawnInBottomRow` are filled in afterward, once the statement walk has found the diagram's
  * full vertical extent and any `create`/`destroy` row that truncates this
- * particular lifeline.
+ * particular lifeline. A label's rows sit `participantLine` apart — the
+ * `sequenceParticipantLine` `layoutSequence` resolved once.
  */
 function layoutParticipants(
   model: SequenceModel,
   options: LayoutOptions,
+  participantLine: LineSpacing,
 ): PositionedParticipant[] {
   const participants: PositionedParticipant[] = [];
   let nextLeft = LEFT_MARGIN;
@@ -326,7 +348,7 @@ function layoutParticipants(
   const linksByParticipantId = mergeLinks(model.interactions);
 
   for (const decl of model.participants) {
-    const labelBox = layoutLabel(decl.label, options.measureText, SEQUENCE_PARTICIPANT_LINE);
+    const labelBox = layoutLabel(decl.label, options.measureText, participantLine);
     const width = labelBox.width + PARTICIPANT_PADDING_X * 2;
     const height =
       decl.participantKind === "actor"
@@ -457,7 +479,7 @@ function layoutStatements(
       // A label's rows stack upward from its arrow, so its last row sits
       // where a one-row label always did and every row above it pushes the
       // arrow down by its own height.
-      const labelBox = layoutLabel(statement.message.label, ctx.measureText, SEQUENCE_LINE);
+      const labelBox = layoutLabel(statement.message.label, ctx.measureText, ctx.line);
       y += MESSAGE_ROW_HEIGHT + heightBesides(labelBox, labelBox.rows.length - 1);
       const message = layoutMessage(statement.message, labelBox, ctx.laneCenterById, y);
       elements.push({ kind: "message", message });
@@ -535,7 +557,7 @@ function layoutStatements(
     }
 
     if (statement.kind === "note") {
-      const labelBox = layoutLabel(statement.note.label, ctx.measureText, SEQUENCE_LINE);
+      const labelBox = layoutLabel(statement.note.label, ctx.measureText, ctx.line);
       y += NOTE_ROW_GAP;
       const note = layoutNote(statement.note, labelBox, ctx, y);
       elements.push({ kind: "note", note });
@@ -737,7 +759,7 @@ function placeCondition(
   if (label === null) {
     return null;
   }
-  const labelBox = layoutLabel(label, ctx.measureText, SEQUENCE_LINE);
+  const labelBox = layoutLabel(label, ctx.measureText, ctx.line);
   return {
     label,
     labelBox,
@@ -809,7 +831,11 @@ export function layoutSequence(
   model: SequenceModel,
   options: LayoutOptions,
 ): PositionedSequenceDiagram {
-  const participants = layoutParticipants(model, options);
+  // The sizes this diagram's text is drawn at (`Typography`) — the 0.8.0
+  // sizes when a layout is called directly, as `render()` always passes one.
+  const typography = options.typography ?? DEFAULT_TYPOGRAPHY;
+  const participantLine = sequenceParticipantLine(typography);
+  const participants = layoutParticipants(model, options, participantLine);
   const ctx: SequenceLayoutContext = {
     laneCenterById: new Map(participants.map((p) => [p.id, p.x])),
     participantsById: new Map(participants.map((p) => [p.id, p])),
@@ -820,6 +846,7 @@ export function layoutSequence(
     openActivationsByParticipantId: new Map(),
     closedActivations: [],
     measureText: options.measureText,
+    line: sequenceLine(typography),
   };
 
   // Every declared lane's box hangs downward from the top row's own top edge
@@ -828,14 +855,14 @@ export function layoutSequence(
   // and the statements below it start where that band ends. Reserving the
   // band above `top` instead would lay the first message inside the box.
   const topRowHeight = participants.reduce((max, p) => Math.max(max, p.height), 0);
-  const titleHeight = model.title === null ? 0 : TITLE_HEIGHT;
+  const titleHeight = model.title === null ? 0 : titleBandHeight(typography);
   // A box's background starts at the same edge the top row now does, and its
   // caption is drawn across the top of that background — so the row starts a
   // caption lower — by the tallest caption, every row of it — whenever a
   // labelled box would otherwise be drawn behind (and hidden by) the
   // participant boxes it groups.
   const boxLabelBoxes = model.boxes.map((box) =>
-    box.label === null ? null : layoutLabel(box.label, options.measureText, SEQUENCE_PARTICIPANT_LINE),
+    box.label === null ? null : layoutLabel(box.label, options.measureText, participantLine),
   );
   const topRowTop =
     titleHeight + boxLabelBoxes.reduce((max, box) => Math.max(max, box?.height ?? 0), 0);
@@ -900,6 +927,7 @@ export function layoutSequence(
 
   return {
     title: model.title,
+    titleBand: titleHeight,
     accTitle: model.accTitle,
     accDescr: model.accDescr,
     participants,
@@ -909,6 +937,15 @@ export function layoutSequence(
     width: extent.width,
     height: extent.height,
   };
+}
+
+/**
+ * The height of the band a title reserves above the first participant row:
+ * `TITLE_HEIGHT` at a `titleFontSize` of 18, in proportion to it otherwise
+ * (spec theme-typography, Domain decision 5).
+ */
+function titleBandHeight(typography: Typography): number {
+  return (TITLE_HEIGHT * typography.titleFontSize) / TITLE_HEIGHT_FONT_SIZE;
 }
 
 /**

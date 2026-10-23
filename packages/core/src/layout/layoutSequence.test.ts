@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { plainLabel, plainRun } from "../label/label";
+import { DEFAULT_TYPOGRAPHY, plainLabel, plainRun } from "../label/label";
 import type {
   Label,
   PositionedSequenceElement,
@@ -10,6 +10,7 @@ import type {
   TextMeasurer,
 } from "../contracts";
 import { ACTOR_FIGURE_HALF_WIDTH, layoutSequence } from "./layoutSequence";
+import { measurerAt } from "../testing/measurerAt";
 
 /** Deterministic fake measurer, same fixture pattern as layoutGraph.test.ts. */
 const fakeMeasurer: TextMeasurer = {
@@ -2391,5 +2392,105 @@ describe("layoutSequence: a participant a message creates and nothing destroys",
 
     const untold = createdModel([messageStatement("m1", "A", "A", "before")]);
     expect(lanes(untold).byId.C!.x).toBe(lanes(declaredInstead(untold)).byId.C!.x);
+  });
+});
+
+/**
+ * `LayoutOptions.typography`, which `render()` always passes resolved: the
+ * sizes a sequence diagram's text is drawn at (spec theme-typography, Domain
+ * decisions 1–5). The measurer answers as a font of `fontSize` px would —
+ * glyphs 0.6 × the size wide, a line 1.5 × the size tall, a constant padding
+ * of 16px across and 11px down — the contract `typography.fontSize` puts on
+ * a caller's `measureText`.
+ */
+describe("layoutSequence at a typography", () => {
+  function at(
+    model: SequenceModel,
+    sizes: Partial<{ fontSize: number; labelFontSize: number; titleFontSize: number }>,
+  ) {
+    const typography = { ...DEFAULT_TYPOGRAPHY, ...sizes };
+    return layoutSequence(model, { measureText: measurerAt(typography.fontSize), typography });
+  }
+
+  describe("the title band, 40px at a titleFontSize of 18", () => {
+    it("is 80px tall at a titleFontSize of 36, so the participant row starts 80px down", () => {
+      const titled: SequenceModel = { ...coreModel(), title: "My Diagram" };
+
+      expect(at(titled, {}).participants[0]!.top).toBe(40);
+      expect(at(titled, { titleFontSize: 36 }).participants[0]!.top).toBe(80);
+    });
+
+    it("moves a labelled box's background and caption down with the 80px band at a titleFontSize of 36", () => {
+      const boxed: SequenceModel = {
+        ...coreModel(),
+        title: "My Diagram",
+        boxes: [{ id: "box:1", color: null, label: plainLabel("Tier"), participantIds: ["A", "B"] }],
+      };
+      const atDefault = at(boxed, {}).boxes[0]!;
+      const atLarge = at(boxed, { titleFontSize: 36 }).boxes[0]!;
+
+      expect(atDefault.y).toBe(40);
+      expect(atLarge.y).toBe(80);
+      expect(atLarge.label!.anchor.y).toBe(atDefault.label!.anchor.y + 40);
+      expect(atLarge.height).toBe(atDefault.height);
+    });
+
+    it("records the band it reserved as titleBand: 40, 80 at a titleFontSize of 36, and 0 with no title", () => {
+      const titled: SequenceModel = { ...coreModel(), title: "My Diagram" };
+
+      expect(at(titled, {}).titleBand).toBe(40);
+      expect(at(titled, { titleFontSize: 36 }).titleBand).toBe(80);
+      expect(at(coreModel(), { titleFontSize: 36 }).titleBand).toBe(0);
+    });
+
+    it("changes nothing when the diagram has no title", () => {
+      expect(at(coreModel(), { titleFontSize: 36 })).toEqual(at(coreModel(), {}));
+    });
+  });
+
+  describe("a label's rows, a line of fontSize apart", () => {
+    const rowsLabel = (...rows: string[]): Label => ({
+      text: rows.join("\n"),
+      rows: rows.map((row) => [plainRun(row)]),
+    });
+
+    /** A model whose one message, one note and participant A carry `label`. */
+    function labelled(label: Label): SequenceModel {
+      return {
+        ...coreModel(),
+        participants: [{ ...declaredParticipant("A", "x"), label }, declaredParticipant("B", "Bob")],
+        statements: [
+          { kind: "message", message: { ...messageOf(messageStatement("m1", "A", "B", "x")), label } },
+          { kind: "note", note: { id: "note:1", placement: "over", from: "A", to: "B", label } },
+        ],
+      };
+    }
+
+    function messageOf(statement: ResolvedSequenceStatement) {
+      if (statement.kind !== "message") throw new Error("not a message");
+      return statement.message;
+    }
+
+    /** How much taller a two-row label is than a one-row one, at `fontSize`. */
+    function rowAddedAt(fontSize: number) {
+      const one = at(labelled(rowsLabel("one")), { fontSize });
+      const two = at(labelled(rowsLabel("one", "two")), { fontSize });
+      const message = (d: typeof one) => messagesOf(d)[0]!.label.labelBox.height;
+      const note = (d: typeof one) => notesOf(d)[0]!.labelBox.height;
+      const participant = (d: typeof one) => d.participants.find((p) => p.id === "A")!.labelBox.height;
+      return {
+        message: message(two) - message(one),
+        note: note(two) - note(one),
+        participant: participant(two) - participant(one),
+      };
+    }
+
+    it("spaces a message's and a note's rows 28 × 19/16 apart, and a participant's 28, at a fontSize of 28", () => {
+      expect(rowAddedAt(28)).toEqual({ message: (28 * 19) / 16, note: (28 * 19) / 16, participant: 28 });
+    });
+
+    it("spaces them 14 × 19/16 and 14 apart at the default fontSize", () => {
+      expect(rowAddedAt(14)).toEqual({ message: (14 * 19) / 16, note: (14 * 19) / 16, participant: 14 });
+    });
   });
 });
