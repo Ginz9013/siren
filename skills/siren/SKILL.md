@@ -352,8 +352,9 @@ Tell the user how to view the document when they ask, or when it isn't obvious:
 - **`siren-core`** (npm) renders to SVG with `render(source, element, options?)`, and
   returns `{ svg, controller, diagnostics, timelines, styles, siren }`. The controller
   has `next()`, `prev()` and `reset()`. Options: `timeline` (a block name, or `false`
-  for the plain diagram), `iconPacks`, `omitAuthorStyles`, `onClick` (for `click … call`)
-  and `measureText`.
+  for the plain diagram), `iconPacks`, `omitAuthorStyles`, `onClick` (for `click … call`),
+  `measureText` and `typography` (the px font sizes to lay out at, which `measureText`
+  must measure at too).
 - The controller also has `totalSteps` and `currentStep`. `prev()` jumps back without
   animating. An unknown `timeline` name makes `render()` throw a `RangeError`.
 - **A standalone HTML page** can load both from jsDelivr with no build step:
@@ -364,6 +365,10 @@ Tell the user how to view the document when they ask, or when it isn't obvious:
   token may also hold `url(#id)` to a gradient or pattern on the page, except
   `--siren-highlight-color`. Effect timings are tokens too: `--siren-fade-duration`,
   `--siren-slide-duration`, `--siren-slide-distance` and `--siren-highlight-duration`.
+  The font tokens (`--siren-font-family`, `--siren-font-size`, `--siren-label-font-size`,
+  `--siren-title-font-size`, in px) also size the boxes: `siren-board` reads them before
+  every render, and `board.relayout()` lays the diagram out again after they change. With
+  `siren-core` alone, pass the sizes as `typography`.
 - The board has more options, methods and callbacks than listed here (`setSource`,
   `setTimeline`, `setFullDiagram`, `controls`, `playInterval`, `onTimelineChange`, …).
   For embedding details, point the user to the `siren-core` and `siren-board` READMEs.
