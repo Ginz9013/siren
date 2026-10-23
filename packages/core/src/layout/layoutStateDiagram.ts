@@ -26,7 +26,8 @@ import { placeConnectors } from "./connectors";
 import { circleOutline, edgesOf } from "./shapes/shape";
 import { noteBoxSize, noteLinkEdgeId, noteNodeId } from "./notes";
 import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
-import { plainLabel } from "../label/label";
+import { DEFAULT_TYPOGRAPHY, plainLabel } from "../label/label";
+import { baseSizeSpacing } from "../label/layoutLabel";
 import {
   NO_WRAP,
   wrapLabel,
@@ -153,6 +154,11 @@ export function layoutStateDiagram(
   model: StateModel,
   options: LayoutOptions,
 ): PositionedStateDiagram {
+  // The sizes every label here is laid out at (`Typography`): a state's
+  // rows, its note's and a composite's title at `fontSize`, a transition's
+  // label at `labelFontSize` — the 0.8.0 sizes when a layout is called
+  // directly, as `render()` always passes one.
+  const typography = options.typography ?? DEFAULT_TYPOGRAPHY;
   const levelDirectionOf = levelDirections(model);
   const planById = new Map(
     model.states.map(
@@ -163,8 +169,9 @@ export function layoutStateDiagram(
 
   /**
    * The states carrying a note, each with the note itself and its label
-   * wrapped at the 14px it is drawn at (`wrapNodeLabel`: measured, mermaid
-   * 11.17.2 wraps a note, one-line or block, at 200px) — narrowed and measured
+   * wrapped at the `fontSize` it is drawn at (`wrapNodeLabel`: measured,
+   * mermaid 11.17.2 wraps a note, one-line or block, at 200px, so 175px at
+   * the default 14) — narrowed and measured
    * here once so that the three places below that add a node, add an edge
    * and read the result back all work from the same list, and the box and
    * rows the note was sized around are the ones it is drawn with.
@@ -176,7 +183,7 @@ export function layoutStateDiagram(
           {
             state,
             note: state.note,
-            ...wrapNodeLabel(state.note.label, options.measureText),
+            ...wrapNodeLabel(state.note.label, options.measureText, typography),
           },
         ],
   );
@@ -184,8 +191,11 @@ export function layoutStateDiagram(
     notedStates.map(({ state, label, labelBox }) => [state.id, { label, labelBox }]),
   );
 
-  /** Each transition's label wrapped once, before the core (`placeConnectors`). */
-  const connectors = placeConnectors(model.transitions, options.measureText);
+  /**
+   * Each transition's label wrapped once, before the core
+   * (`placeConnectors`), at the `labelFontSize` it is drawn at.
+   */
+  const connectors = placeConnectors(model.transitions, options.measureText, { sizes: typography });
 
   /**
    * A state as the core is handed it. A composite or a concurrent region
@@ -604,9 +614,13 @@ function planStateBox(
       dividerY = bottom;
       bottom += STATE_PADDING_Y;
     }
-    // Wrapped at the 14px it is drawn at: measured, mermaid 11.17.2 wraps a
-    // state's description and its quoted name at 200px.
-    const placed = placeLabel(wrapNodeLabel(label, options.measureText), bottom);
+    // Wrapped at the `fontSize` it is drawn at, its rows a line of that size
+    // apart: measured, mermaid 11.17.2 wraps a state's description and its
+    // quoted name at 200px (175px at the default 14).
+    const placed = placeLabel(
+      wrapNodeLabel(label, options.measureText, options.typography ?? DEFAULT_TYPOGRAPHY),
+      bottom,
+    );
     planned.push(placed);
     bottom += placed.labelBox.height;
   });
@@ -640,8 +654,13 @@ function planTitleStrip(labels: Label[], options: LayoutOptions): StateBoxPlan {
   for (const label of labels) {
     // Never wrapped: measured, mermaid 11.17.2 draws a composite's title —
     // its quoted name, or the description `Outer : …` gives it — on one row
-    // however long it is, as it does a flowchart subgraph's.
-    const placed = placeLabel(wrapLabel(label, options.measureText, NO_WRAP), bottom);
+    // however long it is, as it does a flowchart subgraph's. Its rows a
+    // line of `fontSize` apart, the size CSS draws it at (`measureTitles`
+    // for a subgraph's title is the same).
+    const placed = placeLabel(
+      wrapLabel(label, options.measureText, NO_WRAP, baseSizeSpacing(options.typography ?? DEFAULT_TYPOGRAPHY)),
+      bottom,
+    );
     planned.push(placed);
     bottom += placed.labelBox.height;
   }
