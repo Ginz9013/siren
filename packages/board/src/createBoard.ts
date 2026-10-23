@@ -211,8 +211,9 @@ export interface Board {
    */
   setOmitAuthorStyles(list: readonly string[]): void;
   /**
-   * Lays the last rendered source out again in the theme's `--siren-*`
-   * tokens as they are now — call it after changing the theme. Redraws at
+   * Lays the last rendered source out again in the typography design tokens
+   * (see CONTEXT.md's "Design token") as they are now — call it after
+   * changing the theme. Redraws at
    * the step shown, on the current timeline or in the full diagram as
    * before, with the current `omitAuthorStyles`; it redraws even when no
    * token changed. While the error banner is up it redraws the last source
@@ -512,11 +513,9 @@ export function createBoard(container: HTMLElement, options: BoardOptions = {}):
 
   /**
    * Re-renders the last rendered source with another `omitAuthorStyles`
-   * (core strikes the properties out, ADR-0005: board never parses).
-   * Like `setFullDiagram`, it leaves `diagnostics`, the view, and the error
-   * banner alone, and fires neither `onDiagnostics` nor `onStepChange`: the
-   * document did not change, only how it is drawn. Nor does it pause: the
-   * steps are the same, so a pending playback step lands on the new drawing.
+   * (core strikes the properties out, ADR-0005: board never parses) — the
+   * document did not change, only how it is drawn, so it goes through
+   * `redraw`.
    */
   function setOmitAuthorStyles(list: readonly string[]): void {
     if (destroyed) return;
