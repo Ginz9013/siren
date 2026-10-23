@@ -5,19 +5,13 @@ import type { GraphModel, TextMeasurer } from "./contracts";
 import { parseSiren } from "./parser/parseSiren";
 import { buildGraphModel } from "./graph-model/buildGraphModel";
 import { layoutGraph } from "./layout/layoutGraph";
+import { measurerAt } from "./testing/measurerAt";
 
-/**
- * `render()`'s `typography` option, observed where it lands: the geometry of
- * the SVG it draws. The measurer here answers as a font of `fontSize` px
- * would — glyphs 0.6 × the size wide, a line 1.5 × the size tall, and a
- * constant padding of 16px across and 11px down — which is the contract
- * `typography.fontSize` puts on a caller's `measureText`.
- */
-function measurerAt(fontSize: number): TextMeasurer {
-  return {
-    measure: (text) => ({ width: Array.from(text).length * fontSize * 0.6 + 16, height: fontSize * 1.5 + 11 }),
-  };
-}
+// `render()`'s `typography` option, observed where it lands: the geometry of
+// the SVG it draws. The measurer here (`measurerAt`) answers as a font of
+// `fontSize` px would — glyphs 0.6 × the size wide, a line 1.5 × the size
+// tall, and a constant padding of 16px across and 11px down — which is the
+// contract `typography.fontSize` puts on a caller's `measureText`.
 
 /** The flowchart `source` declares, as `render()` hands it to `layoutGraph`. */
 function graphModel(source: string): GraphModel {

@@ -16,6 +16,7 @@ import type {
 } from "../contracts";
 import { CONNECTOR_LABEL_SCALE, DEFAULT_TYPOGRAPHY, plainLabel, plainRun } from "../label/label";
 import { layoutClassDiagram } from "./layoutClassDiagram";
+import { measurerAt } from "../testing/measurerAt";
 
 /** A label of these rows, each one plain run — what `a<br/>b` reads as. */
 const rowsLabel = (...rows: string[]): Label => ({
@@ -2222,12 +2223,6 @@ describe("layoutClassDiagram — notes inside namespaces", () => {
  * a caller's `measureText`.
  */
 describe("layoutClassDiagram at a typography", () => {
-  function measurerAt(fontSize: number): TextMeasurer {
-    return {
-      measure: (text) => ({ width: Array.from(text).length * fontSize * 0.6 + 16, height: fontSize * 1.5 + 11 }),
-    };
-  }
-
   function at(model: ClassModel, sizes: Partial<{ fontSize: number; labelFontSize: number }>): PositionedClassDiagram {
     const typography = { fontSize: 14, labelFontSize: 12, titleFontSize: 18, ...sizes };
     return layoutClassDiagram(model, { measureText: measurerAt(typography.fontSize), typography });

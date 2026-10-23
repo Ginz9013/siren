@@ -3,6 +3,7 @@ import { render } from "siren-core";
 import type { RenderOptions, TextMeasurer } from "siren-core";
 import { createBoard } from "./createBoard";
 import type { Board } from "./createBoard";
+import { stubTokens } from "./testing/stubTokens";
 
 /** A minimal valid document: two nodes, one edge, no timeline. */
 const VALID_SOURCE = `flowchart TD
@@ -4438,22 +4439,6 @@ timeline:
     });
   });
 });
-
-/**
- * jsdom's `getComputedStyle` resolves no custom properties, so these tests
- * answer the `--siren-*` tokens themselves (for every element, which includes
- * the one board reads them from) and let every other property read as jsdom
- * would. `tokens` is read on each call, so a test may change it later.
- */
-function stubTokens(tokens: Record<string, string>): void {
-  const real = window.getComputedStyle.bind(window);
-  vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) => {
-    const style = real(element, pseudo);
-    const read = style.getPropertyValue.bind(style);
-    style.getPropertyValue = (property: string) => tokens[property] ?? read(property);
-    return style;
-  });
-}
 
 /**
  * Answers as a font of `fontSize` px would — glyphs 0.6 × the size wide, a

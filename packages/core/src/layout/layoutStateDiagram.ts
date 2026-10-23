@@ -26,7 +26,7 @@ import { placeConnectors } from "./connectors";
 import { circleOutline, edgesOf } from "./shapes/shape";
 import { noteBoxSize, noteLinkEdgeId, noteNodeId } from "./notes";
 import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
-import { DEFAULT_TYPOGRAPHY, plainLabel } from "../label/label";
+import { DEFAULT_TYPOGRAPHY, plainLabel, type LabelSizes } from "../label/label";
 import { baseSizeSpacing } from "../label/layoutLabel";
 import {
   NO_WRAP,
@@ -163,7 +163,7 @@ export function layoutStateDiagram(
   const planById = new Map(
     model.states.map(
       (state) =>
-        [state.id, planStateBox(state, levelDirectionOf(state), options)] as const,
+        [state.id, planStateBox(state, levelDirectionOf(state), options, typography)] as const,
     ),
   );
 
@@ -544,6 +544,7 @@ function planStateBox(
   state: ResolvedState,
   levelDirection: Direction,
   options: LayoutOptions,
+  sizes: LabelSizes,
 ): StateBoxPlan {
   if (state.kind === "start" || state.kind === "end") {
     const size = PSEUDO_STATE_ARCHIV * 2;
@@ -579,7 +580,7 @@ function planStateBox(
   // `state X { A --> B }` comes back as a cluster holding `A` and `B`, not
   // as a diamond.
   if (state.kind === "composite") {
-    return planTitleStrip(labels, options);
+    return planTitleStrip(labels, options, sizes);
   }
 
   // A stereotyped state is sized from its figure and draws no text at all —
@@ -618,7 +619,7 @@ function planStateBox(
     // apart: measured, mermaid 11.17.2 wraps a state's description and its
     // quoted name at 200px (175px at the default 14).
     const placed = placeLabel(
-      wrapNodeLabel(label, options.measureText, options.typography ?? DEFAULT_TYPOGRAPHY),
+      wrapNodeLabel(label, options.measureText, sizes),
       bottom,
     );
     planned.push(placed);
@@ -647,7 +648,7 @@ function planStateBox(
  * compartment, and a frame's title strip is not one — what is below it is
  * the members' own boxes.
  */
-function planTitleStrip(labels: Label[], options: LayoutOptions): StateBoxPlan {
+function planTitleStrip(labels: Label[], options: LayoutOptions, sizes: LabelSizes): StateBoxPlan {
   const planned: PositionedStateLabel[] = [];
   let bottom = SUBGRAPH_PADDING;
 
@@ -658,7 +659,7 @@ function planTitleStrip(labels: Label[], options: LayoutOptions): StateBoxPlan {
     // line of `fontSize` apart, the size CSS draws it at (`measureTitles`
     // for a subgraph's title is the same).
     const placed = placeLabel(
-      wrapLabel(label, options.measureText, NO_WRAP, baseSizeSpacing(options.typography ?? DEFAULT_TYPOGRAPHY)),
+      wrapLabel(label, options.measureText, NO_WRAP, baseSizeSpacing(sizes)),
       bottom,
     );
     planned.push(placed);

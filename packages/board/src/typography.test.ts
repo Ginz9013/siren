@@ -2,21 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readTypography } from "./typography";
 import * as sirenBoard from "./index";
 import type { BoardTypography } from "./index";
-
-/**
- * jsdom's `getComputedStyle` resolves no custom properties, so these tests
- * answer the four `--siren-*` tokens themselves and let every other property
- * read as jsdom would.
- */
-function stubTokens(tokens: Record<string, string>): void {
-  const real = window.getComputedStyle.bind(window);
-  vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) => {
-    const style = real(element, pseudo);
-    const read = style.getPropertyValue.bind(style);
-    style.getPropertyValue = (property: string) => tokens[property] ?? read(property);
-    return style;
-  });
-}
+import { stubTokens } from "./testing/stubTokens";
 
 afterEach(() => {
   vi.restoreAllMocks();

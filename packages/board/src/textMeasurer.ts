@@ -1,11 +1,17 @@
 import { DEFAULT_TYPOGRAPHY } from "siren-core";
 import type { TextMeasurer } from "siren-core";
-import { DEFAULT_FONT_FAMILY } from "./typography";
+import { DEFAULT_FONT_FAMILY, type BoardTypography } from "./typography";
 
 const PADDING_X = 24;
 /** Room above and below a line: 0.8.0's 32px line at 14px, less 14 × 1.5. */
 const PADDING_Y = 11;
-/** A line's height as a multiple of the font size — core's line spacing. */
+/**
+ * A line's height as a multiple of the font size. Mirrors core's
+ * `LINE_HEIGHT_RATIO` (`label/layoutLabel.ts`: Mermaid's 24px line at its
+ * 16px font, 24/16 = 1.5), which core keeps internal and does not export
+ * from `siren-core` — so board keeps this copy, and the measurer answers a
+ * line exactly as tall as core spaces one.
+ */
 const LINE_HEIGHT_RATIO = 1.5;
 
 /**
@@ -22,7 +28,7 @@ const LINE_HEIGHT_RATIO = 1.5;
  * has no canvas text metrics — but by the demo pages' visual checks.
  */
 export function createCanvasTextMeasurer(
-  font: { fontFamily: string; fontSize: number } = {
+  font: Pick<BoardTypography, "fontFamily" | "fontSize"> = {
     fontFamily: DEFAULT_FONT_FAMILY,
     fontSize: DEFAULT_TYPOGRAPHY.fontSize,
   },

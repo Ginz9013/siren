@@ -8,8 +8,9 @@ import type {
   PositionedErDiagram,
   TextMeasurer,
 } from "../contracts";
-import { CONNECTOR_LABEL_SCALE, plainLabel, plainRun } from "../label/label";
+import { CONNECTOR_LABEL_SCALE, DEFAULT_TYPOGRAPHY, plainLabel, plainRun } from "../label/label";
 import { layoutErDiagram } from "./layoutErDiagram";
+import { measurerAt } from "../testing/measurerAt";
 
 /** Deterministic fake measurer, the fixture pattern every layout test here uses. */
 const fakeMeasurer: TextMeasurer = {
@@ -1060,10 +1061,6 @@ describe("layoutErDiagram — Mermaid's order", () => {
  * size tall, and a constant padding of 16px across and 11px down.
  */
 describe("layoutErDiagram at a typography", () => {
-  const measurerAt = (fontSize: number): TextMeasurer => ({
-    measure: (text) => ({ width: Array.from(text).length * fontSize * 0.6 + 16, height: fontSize * 1.5 + 11 }),
-  });
-
   it("draws a relationship's label box at labelFontSize / fontSize: doubling labelFontSize doubles it", () => {
     const at = (labelFontSize: number) =>
       layoutErDiagram(relating(CUSTOMER_PLACES_ORDER), {
@@ -1161,5 +1158,31 @@ describe("layoutErDiagram at a typography", () => {
 
     expect(frame.label.labelBox.height).toBe(42 * 2 + 11);
     expect(membersTop - frame.y).toBe(12 + 95 + 12);
+  });
+
+  it("lays out at DEFAULT_TYPOGRAPHY exactly as with no typography at all", () => {
+    const busy: ErModel = {
+      ...model(),
+      entities: [
+        {
+          id: "CUSTOMER",
+          label: { text: "Customer\nRecord", rows: [[plainRun("Customer")], [plainRun("Record")]] },
+          attributes: [
+            { type: "string", name: "name", keys: ["PK"], comment: { text: "alpha\nb", rows: [[plainRun("alpha")], [plainRun("b")]] } },
+            { type: "int", name: "age", keys: [], comment: plainLabel("") },
+          ],
+          parentId: "subgraph:1",
+        },
+        { id: "ORDER", label: plainLabel("ORDER"), attributes: [], parentId: "subgraph:1" },
+      ],
+      relationships: [
+        { ...CUSTOMER_PLACES_ORDER, label: plainLabel("places a label long enough that it has to wrap onto a second row") },
+      ],
+      subgraphs: [{ id: "subgraph:1", label: plainLabel("sales"), parentId: null, direction: "LR" }],
+    };
+
+    expect(layoutErDiagram(busy, { measureText: fakeMeasurer, typography: DEFAULT_TYPOGRAPHY })).toEqual(
+      layoutErDiagram(busy, { measureText: fakeMeasurer }),
+    );
   });
 });

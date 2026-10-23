@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Direction, Label, StateModel, TextMeasurer } from "../contracts";
 import { CONNECTOR_LABEL_SCALE, DEFAULT_TYPOGRAPHY, plainLabel, plainRun } from "../label/label";
 import { layoutStateDiagram } from "./layoutStateDiagram";
+import { measurerAt } from "../testing/measurerAt";
 
 /** Deterministic fake measurer, the fixture pattern every layout test here uses. */
 const fakeMeasurer: TextMeasurer = {
@@ -1757,9 +1758,6 @@ describe("layoutStateDiagram — a note's connector on a figure's outline", () =
  * numbers and on Mermaid's 1.5 line-height ratio.
  */
 describe("layoutStateDiagram — typography", () => {
-  const measurerAt = (fontSize: number): TextMeasurer => ({
-    measure: (text) => ({ width: Array.from(text).length * fontSize * 0.6 + 16, height: fontSize * 1.5 + 11 }),
-  });
   const at = (fontSize: number, labelFontSize = 12) => ({
     measureText: measurerAt(fontSize),
     typography: { fontSize, labelFontSize, titleFontSize: 18 },
