@@ -15,8 +15,8 @@ import type {
   ResolvedErEntity,
 } from "../contracts";
 import { CONNECTOR_CORNER_RADIUS } from "../curve/curve";
-import { plainRun } from "../label/label";
-import { layoutLabel } from "../label/layoutLabel";
+import { DEFAULT_TYPOGRAPHY, plainRun, type LabelSizes } from "../label/label";
+import { baseSizeSpacing, layoutLabel } from "../label/layoutLabel";
 import { wrapErRelationshipLabel } from "../label/wrapLabel";
 import {
   layoutDirectedGraph,
@@ -165,10 +165,13 @@ interface ErBoxPlan {
  * hanging it off the right-hand edge, would leave the last rule floating in
  * the middle of a wide box.
  */
-function planErBox(entity: ResolvedErEntity, options: LayoutOptions): ErBoxPlan {
+function planErBox(entity: ResolvedErEntity, options: LayoutOptions, sizes: LabelSizes): ErBoxPlan {
   const measure = (text: string) => options.measureText.measure(text);
+  // Rows a line of `fontSize` apart, the size every text in the box is
+  // drawn and measured at.
+  const spacing = baseSizeSpacing(sizes);
   // Every row of the name, stacked: an alias may break into several (ADR-0015).
-  const labelBox = layoutLabel(entity.label, options.measureText);
+  const labelBox = layoutLabel(entity.label, options.measureText, spacing);
   const nameRowHeight = labelBox.height + ENTITY_PADDING_Y * 2;
   const nameRowWidth = labelBox.width + ENTITY_PADDING_X * 2;
 
@@ -186,7 +189,7 @@ function planErBox(entity: ResolvedErEntity, options: LayoutOptions): ErBoxPlan 
    * columns are one line of literal text, measured as written.
    */
   const commentBoxes = entity.attributes.map((attribute) =>
-    layoutLabel(attribute.comment, options.measureText),
+    layoutLabel(attribute.comment, options.measureText, spacing),
   );
   /** Each type and name that spans lines, as the rows it draws — `drawnRows`. */
   const rowsByCell = new Map<string, { label: Label; labelBox: LabelBox }>();
@@ -195,7 +198,7 @@ function planErBox(entity: ResolvedErEntity, options: LayoutOptions): ErBoxPlan 
       if (column !== "type" && column !== "name") continue;
       const label = drawnRows(textOf(attribute));
       if (label !== null) {
-        rowsByCell.set(`${index}:${column}`, { label, labelBox: layoutLabel(label, options.measureText) });
+        rowsByCell.set(`${index}:${column}`, { label, labelBox: layoutLabel(label, options.measureText, spacing) });
       }
     }
   });
@@ -302,18 +305,26 @@ function planErBox(entity: ResolvedErEntity, options: LayoutOptions): ErBoxPlan 
  * it again.
  */
 export function layoutErDiagram(model: ErModel, options: LayoutOptions): PositionedErDiagram {
+  // The sizes the diagram's text is drawn at: `fontSize` for an entity, an
+  // attribute and a block's title, the size the measurer measures at;
+  // `labelFontSize` for a relationship's label.
+  const typography = options.typography ?? DEFAULT_TYPOGRAPHY;
   const planById = new Map(
-    model.entities.map((entity) => [entity.id, planErBox(entity, options)] as const),
+    model.entities.map((entity) => [entity.id, planErBox(entity, options, typography)] as const),
   );
   /**
    * Each relationship's label wrapped once, before the core
-   * (`placeConnectors`) — at ER's own width, `wrapErRelationshipLabel`'s
-   * 200 × 12/14 ≈ 171.43px of text rather than every other connector's
-   * 150px, as Mermaid wraps its 14px ER label at 200px.
+   * (`placeConnectors`) at the `labelFontSize` it is drawn at, and at ER's
+   * own width: `wrapErRelationshipLabel`'s 200 × labelFontSize/14 px of
+   * text (≈ 171.43px at the default 12) rather than every other
+   * connector's, as Mermaid wraps its 14px ER label at 200px.
    */
-  const connectors = placeConnectors(model.relationships, options.measureText, wrapErRelationshipLabel);
-  /** Each block's title, measured once (`measureTitles`). */
-  const titleBoxById = measureTitles(model.subgraphs, options.measureText);
+  const connectors = placeConnectors(model.relationships, options.measureText, {
+    wrap: wrapErRelationshipLabel,
+    sizes: typography,
+  });
+  /** Each block's title, measured once (`measureTitles`) at `fontSize`, the size it is drawn at. */
+  const titleBoxById = measureTitles(model.subgraphs, options.measureText, typography);
 
   const laidOut = layoutDirectedGraph({
     // The document's own direction — `TB` unless the author wrote a

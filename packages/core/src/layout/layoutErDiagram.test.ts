@@ -1051,3 +1051,115 @@ describe("layoutErDiagram — Mermaid's order", () => {
     expect(centreX(laidOut, "B")).toBeLessThan(centreX(laidOut, "A"));
   });
 });
+
+/**
+ * `LayoutOptions.typography` — the sizes `render()` resolves and hands every
+ * layout (spec `01M5KT49PV`, Domain decisions 2–5). The measurer answers as
+ * a font of `fontSize` px would, the contract `typography.fontSize` puts on
+ * a caller's `measureText`: glyphs 0.6 × the size wide, a line 1.5 × the
+ * size tall, and a constant padding of 16px across and 11px down.
+ */
+describe("layoutErDiagram at a typography", () => {
+  const measurerAt = (fontSize: number): TextMeasurer => ({
+    measure: (text) => ({ width: Array.from(text).length * fontSize * 0.6 + 16, height: fontSize * 1.5 + 11 }),
+  });
+
+  it("draws a relationship's label box at labelFontSize / fontSize: doubling labelFontSize doubles it", () => {
+    const at = (labelFontSize: number) =>
+      layoutErDiagram(relating(CUSTOMER_PLACES_ORDER), {
+        measureText: measurerAt(14),
+        typography: { fontSize: 14, labelFontSize, titleFontSize: 18 },
+      }).relationships[0].label!.labelBox;
+
+    // At 12/14 the measurer's answer for `places` (6 × 8.4 + 16 = 66.4 by
+    // 32) is 56.91 by 27.43; at 24/14 it is twice that.
+    expect(at(12).width).toBeCloseTo((66.4 * 12) / 14, 6);
+    expect(at(24).width).toBeCloseTo((66.4 * 24) / 14, 6);
+    expect(at(24).height).toBeCloseTo((32 * 24) / 14, 6);
+  });
+
+  it("wraps a relationship's label at 200 × labelFontSize / 14 px, so a line holds about as many characters at any size", () => {
+    // Mermaid wraps its 14px ER label at 200px (`MERMAID_ER_LABEL_FONT_SIZE_PX`),
+    // so a 24px label wraps at 200 × 24/14 ≈ 342.86px of text. A character
+    // is 0.6 × 24 = 14.4px there, as it is 7.2px at 12px against 171.43px:
+    // the same 23 characters fit at both sizes, and the box is twice as wide.
+    const at = (labelFontSize: number) =>
+      layoutErDiagram(
+        relating({ ...CUSTOMER_PLACES_ORDER, label: plainLabel("alpha beta gamma delta epsilon zeta") }),
+        { measureText: measurerAt(14), typography: { fontSize: 14, labelFontSize, titleFontSize: 18 } },
+      ).relationships[0].label!;
+    const rowTextsOf = (label: ReturnType<typeof at>) =>
+      label.label.rows.map((row) => row.map((run) => run.text).join(""));
+
+    expect(rowTextsOf(at(24))).toEqual(["alpha beta gamma delta", "epsilon zeta"]);
+    expect(rowTextsOf(at(12))).toEqual(rowTextsOf(at(24)));
+    expect(at(24).labelBox.width).toBeCloseTo(at(12).labelBox.width * 2, 6);
+    // A wrapped label is as wide as its wrap width, plus the measurer's
+    // padding at that size.
+    expect(at(24).labelBox.width).toBeCloseTo((200 * 24) / 14 + (16 * 24) / 14, 6);
+  });
+
+  it("spaces an entity name's rows a line of fontSize × 1.5 apart: at 28px, two rows and the padding make 111", () => {
+    // Two 42px lines, the measurer's 53 − 42 = 11px of padding once, and the
+    // name row's 8 above and 8 below. A one-row name stays the measurer's
+    // own height, 53, inside the same 16.
+    const laidOut = layoutErDiagram(
+      {
+        ...model(),
+        entities: [
+          { id: "C", label: { text: "Customer\nRecord", rows: [[plainRun("Customer")], [plainRun("Record")]] }, attributes: [], parentId: null },
+          { id: "D", label: plainLabel("D"), attributes: [], parentId: null },
+        ],
+      },
+      { measureText: measurerAt(28), typography: { fontSize: 28, labelFontSize: 24, titleFontSize: 36 } },
+    );
+    const [twoRows, oneRow] = laidOut.entities;
+
+    expect(twoRows.height).toBe(42 * 2 + 11 + 8 * 2);
+    expect(twoRows.labelBox.rows.map((row) => row.y)).toEqual([5.5 + 21, 5.5 + 42 + 21]);
+    expect(oneRow.height).toBe(53 + 8 * 2);
+  });
+
+  it("spaces an attribute's rows a line of fontSize × 1.5 apart, in a comment and in a type or name that spans lines", () => {
+    // At 28px: the name row is the measurer's 53 and 8 + 8; each attribute
+    // row two 42px lines, the 11px of padding once, and 8 + 8 — 111.
+    const laidOut = layoutErDiagram(
+      modelWithAttributes("E", [
+        { type: "string", name: "name", keys: [], comment: { text: "alpha\nb", rows: [[plainRun("alpha")], [plainRun("b")]] } },
+        { type: "string", name: "a\nb", keys: [], comment: plainLabel("") },
+      ]),
+      { measureText: measurerAt(28), typography: { fontSize: 28, labelFontSize: 24, titleFontSize: 36 } },
+    );
+    const [entity] = laidOut.entities;
+    const table = tableOf(laidOut, "E");
+    const comment = table.rows[0].cells.find((cell) => cell.column === "comment")!;
+    const name = table.rows[1].cells.find((cell) => cell.column === "name")!;
+    if (!("labelBox" in comment) || !("labelBox" in name)) throw new Error("a cell of two rows was not laid out as rows");
+
+    expect(comment.labelBox.height).toBe(42 * 2 + 11);
+    expect(name.labelBox.height).toBe(42 * 2 + 11);
+    expect(entity.height).toBe(53 + 16 + 111 + 111);
+  });
+
+  it("sizes a block's title band at fontSize: at 28px a two-row title is 12 + 95 + 12 above its members", () => {
+    // The title is drawn at `--siren-font-size` (spec Domain decision 5), so
+    // its two rows are 42px apart with the measurer's 11px once: 95.
+    const twoRows = { text: "sales\nteam", rows: [[plainRun("sales")], [plainRun("team")]] };
+    const laidOut = layoutErDiagram(
+      {
+        ...model(),
+        entities: [
+          { id: "A", label: plainLabel("A"), attributes: [], parentId: "subgraph:1" },
+          { id: "B", label: plainLabel("B"), attributes: [], parentId: "subgraph:1" },
+        ],
+        subgraphs: [{ id: "subgraph:1", label: twoRows, parentId: null, direction: "LR" }],
+      },
+      { measureText: measurerAt(28), typography: { fontSize: 28, labelFontSize: 24, titleFontSize: 36 } },
+    );
+    const [frame] = laidOut.subgraphs;
+    const membersTop = Math.min(boxOf(laidOut.entities, "A").top, boxOf(laidOut.entities, "B").top);
+
+    expect(frame.label.labelBox.height).toBe(42 * 2 + 11);
+    expect(membersTop - frame.y).toBe(12 + 95 + 12);
+  });
+});
