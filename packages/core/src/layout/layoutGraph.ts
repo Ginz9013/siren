@@ -10,7 +10,7 @@ import { type Curve, curveCornerRadius, FLOWCHART_DEFAULT_CURVE } from "../curve
 import { layoutDirectedGraph } from "./layoutDirectedGraph";
 import { placeConnectors } from "./connectors";
 import { clusterNode, measureTitles, mermaidClosingOrder, placedFrame, SUBGRAPH_PADDING } from "./clusters";
-import { wrapConnectorLabel, wrapNodeLabel } from "../label/wrapLabel";
+import { wrapNodeLabel } from "../label/wrapLabel";
 import { DEFAULT_TYPOGRAPHY } from "../label/label";
 import { LINE_HEIGHT_RATIO } from "../label/layoutLabel";
 import { SHAPES } from "./shapes/shapeTable";
@@ -69,11 +69,12 @@ export function layoutGraph(
   // size — 175px at the default 14 (`wrapNodeLabel`; the label-wrap ADR,
   // nook `01M4R4WDZ`).
   const wrappedById = new Map(
-    graph.nodes.map((node) => [node.id, wrapNodeLabel(node.label, options.measureText, fontSize)]),
+    graph.nodes.map((node) => [node.id, wrapNodeLabel(node.label, options.measureText, typography)]),
   );
   // The empty measurement contains padding only horizontally and one
-  // text row vertically (21px at the default 14px). Enlarge the shape envelope, leaving the
-  // original label box and wrap width for the renderer.
+  // text row vertically (21px at the default 14px). Enlarge the shape
+  // envelope, leaving the original label box and wrap width for the
+  // renderer.
   const empty = options.measureText.measure("");
   const extraPadding = {
     width: Math.max(0, empty.width),
@@ -107,12 +108,12 @@ export function layoutGraph(
 
   // A subgraph's title is measured once too, for the same two readers: the
   // title band the core keeps in the frame, and the renderer.
-  const titleBoxById = measureTitles(graph.subgraphs, options.measureText, fontSize);
+  const titleBoxById = measureTitles(graph.subgraphs, options.measureText, typography);
 
   // Each edge label wrapped at the `labelFontSize` an edge label is drawn
   // at, not the node's `fontSize` (`placeConnectors`): the box handed to the
   // core below and the one the renderer draws in are this one.
-  const connectors = placeConnectors(graph.edges, options.measureText, wrapConnectorLabel, typography);
+  const connectors = placeConnectors(graph.edges, options.measureText, { sizes: typography });
 
   const laidOut = layoutDirectedGraph({
     direction: graph.direction,

@@ -1,7 +1,6 @@
 import type { TextMeasurer } from "../contracts";
 import {
   atConnectorLabelSize,
-  BASE_FONT_SIZE_PX,
   DEFAULT_TYPOGRAPHY,
   measuredScale,
   type Label,
@@ -38,10 +37,11 @@ import {
  * **Heights.** A row is as tall as its tallest run, and a run is one line
  * times its font-size scale (`measuredScale`: an author's absolute px size
  * counts as a scale of `LineSpacing.baseFontSizePx`, `Typography.fontSize`).
- * A line is Mermaid's: the size the label is drawn at times its line-height
- * ratio (`LineSpacing`; 14px × 1.5 = 21px unless the caller says otherwise) — never the measurer's height,
- * which is a line *plus* its padding and cannot say which is which. The
- * rows are stacked with no gap, and the measurer's vertical padding — its
+ * A line is Mermaid's: the size the label is drawn at times its
+ * line-height ratio (`LineSpacing`; 14px × 1.5 = 21px unless the caller
+ * says otherwise) — never the measurer's height, which is a line *plus* its
+ * padding and cannot say which is which. The rows are stacked with no gap,
+ * and the measurer's vertical padding — its
  * answer for `""` less one line — is added once, half above them and half
  * below, as Mermaid's shape padding sits outside its label `<div>`. So a
  * one-row label at scale 1 is exactly as tall as the measurer's answer, the
@@ -55,9 +55,9 @@ import {
  * mark or background rect, which takes the run's measured width — is as
  * wide as the text drawn with them. A `px` value counts as written; an `em`
  * value is a multiple of the run's own size, the base
- * (`LineSpacing.baseFontSizePx`) times its `measuredScale`; any other unit (`rem`, `ch`, `%`) or keyword (`normal`)
- * has no px to read here and is measured as no spacing, though it is still
- * drawn.
+ * (`LineSpacing.baseFontSizePx`) times its `measuredScale`; any other unit
+ * (`rem`, `ch`, `%`) or keyword (`normal`) has no px to read here and is
+ * measured as no spacing, though it is still drawn.
  *
  * Bold runs are measured at the regular weight, a simplification the
  * Markdown labels this replaces already made and the spec keeps: a
@@ -71,9 +71,9 @@ import {
  */
 export function layoutLabel(label: Label, measureText: TextMeasurer, spacing: LineSpacing = {}): LabelBox {
   const {
-    fontSizePx = BASE_FONT_SIZE_PX,
+    fontSizePx = DEFAULT_TYPOGRAPHY.fontSize,
     lineHeightRatio = LINE_HEIGHT_RATIO,
-    baseFontSizePx = BASE_FONT_SIZE_PX,
+    baseFontSizePx = DEFAULT_TYPOGRAPHY.fontSize,
   } = spacing;
   const measured = label.rows.map((row) =>
     row.map((run) => ({
@@ -111,7 +111,7 @@ export function layoutLabel(label: Label, measureText: TextMeasurer, spacing: Li
     rows,
     // Recorded for `drawLabel` only when it is not the default, which it
     // assumes when the field is absent.
-    ...(baseFontSizePx === BASE_FONT_SIZE_PX ? {} : { baseFontSizePx }),
+    ...(baseFontSizePx === DEFAULT_TYPOGRAPHY.fontSize ? {} : { baseFontSizePx }),
   };
 }
 
@@ -127,13 +127,18 @@ export const LINE_HEIGHT_RATIO = 24 / 16;
 /**
  * How far apart a label's rows are: `layoutLabel` cannot read it off
  * `TextMeasurer`, which answers for a string and nothing else.
- * `fontSizePx` is the px a run of scale 1 is drawn at — the 14px base
- * (`BASE_FONT_SIZE_PX`) unless the caller says otherwise, and
- * `Typography.fontSize` for a label drawn at the base size — and has to be
- * the size `measureText` answers for, since the measurer's answer for one
- * line is that line plus its padding (a connector label's measurer is
- * scaled to its size, `atConnectorLabelSize`). `lineHeightRatio` is a line's height
- * over that size, `LINE_HEIGHT_RATIO` unless the caller says otherwise.
+ * `fontSizePx` is the px a run of scale 1 is drawn at — the default 14px
+ * base (`DEFAULT_TYPOGRAPHY.fontSize`) unless the caller says otherwise,
+ * and `Typography.fontSize` for a label drawn at the base size — and has to
+ * be the size `measureText` answers for, since the measurer's answer for
+ * one line is that line plus its padding (a connector label's measurer is
+ * scaled to its size, `atConnectorLabelSize`). `lineHeightRatio` is a
+ * line's height over that size, `LINE_HEIGHT_RATIO` unless the caller says
+ * otherwise.
+ *
+ * A caller holding a `Typography` spells neither size by hand: a label
+ * drawn at the base size takes `baseSizeSpacing`, a connector's label
+ * `connectorLabelSpacing`.
  */
 export interface LineSpacing {
   fontSizePx?: number;
@@ -142,11 +147,30 @@ export interface LineSpacing {
    * The px an author's absolute px run and an `em` spacing are counted
    * against (`measuredScale`): `Typography.fontSize`, the size the
    * measurer measures at — which for a connector label is not
-   * `fontSizePx`, the size that label is drawn at. `BASE_FONT_SIZE_PX`
-   * unless the caller says otherwise; recorded on the box
+   * `fontSizePx`, the size that label is drawn at.
+   * `DEFAULT_TYPOGRAPHY.fontSize` unless the caller says otherwise; recorded on the box
    * (`LabelBox.baseFontSizePx`) when it is anything else, for `drawLabel`.
    */
   baseFontSizePx?: number;
+}
+
+/**
+ * The spacing of a label drawn at the base size, `sizes.fontSize` — a
+ * node's, a frame's title, a state's description: rows a line of that size
+ * apart, and an author's absolute px run counted against the same size.
+ */
+export function baseSizeSpacing(sizes: LabelSizes = DEFAULT_TYPOGRAPHY): LineSpacing {
+  return { fontSizePx: sizes.fontSize, baseFontSizePx: sizes.fontSize };
+}
+
+/**
+ * The spacing of a connector's label: rows a line of `sizes.labelFontSize`
+ * apart, the size it is drawn at, while an author's absolute px run is
+ * still counted against `sizes.fontSize`, the size the measurer measures
+ * at. Pairs with `atConnectorLabelSize`'s measurer.
+ */
+export function connectorLabelSpacing(sizes: LabelSizes = DEFAULT_TYPOGRAPHY): LineSpacing {
+  return { fontSizePx: sizes.labelFontSize, baseFontSizePx: sizes.fontSize };
 }
 
 /**
@@ -165,10 +189,7 @@ export function layoutConnectorLabel(
   measureText: TextMeasurer,
   sizes: LabelSizes = DEFAULT_TYPOGRAPHY,
 ): LabelBox {
-  return layoutLabel(label, atConnectorLabelSize(measureText, sizes), {
-    fontSizePx: sizes.labelFontSize,
-    baseFontSizePx: sizes.fontSize,
-  });
+  return layoutLabel(label, atConnectorLabelSize(measureText, sizes), connectorLabelSpacing(sizes));
 }
 
 /**

@@ -9,10 +9,10 @@
  * Shared because the four adapters each kept a copy of these two steps, and
  * what comes out of them is one record, `PlacedConnector`, every kind's
  * connector extends (nook decision `01M5D99KNB4R5FVDRWCG902ZAC`). The wrap
- * function is a parameter because it is the one thing that differs: an ER
- * relationship wraps at 200 × 12/14 ≈ 171.43px (`wrapErRelationshipLabel`),
- * the others at 150px (`wrapConnectorLabel`) — the label-wrap ADR, nook
- * `01M4R4WDZ`, as amended.
+ * function is a parameter because it is the one thing that differs: at the
+ * default typography an ER relationship wraps at 200 × 12/14 ≈ 171.43px
+ * (`wrapErRelationshipLabel`), the others at 150px (`wrapConnectorLabel`) —
+ * the label-wrap ADR, nook `01M4R4WDZ`, as amended.
  */
 import type { Label, LabelBox, PlacedConnector, PlacedLabel, Point, TextMeasurer } from "../contracts";
 import type { LabelSizes } from "../label/label";
@@ -41,6 +41,17 @@ export type ConnectorRoute = Pick<DirectedGraphEdgeRoute, "points" | "hops" | "l
  */
 export type ConnectorLabelWrap = (label: Label, measureText: TextMeasurer, sizes?: LabelSizes) => WrappedLabel;
 
+/** How `placeConnectors` wraps and sizes the labels; every field optional. */
+export interface ConnectorOptions {
+  /** The kind's wrap: `wrapConnectorLabel` when absent. */
+  wrap?: ConnectorLabelWrap;
+  /**
+   * The caller's typography, handed to `wrap`: `DEFAULT_TYPOGRAPHY` (the
+   * wrap's own default) when absent.
+   */
+  sizes?: LabelSizes;
+}
+
 /** What `placeConnectors` answers: each label wrapped, and the step that places them once the core has routed them. */
 export interface ConnectorPlacement {
   /**
@@ -65,13 +76,14 @@ export interface ConnectorPlacement {
  * phases (nook decision `01M5D99KNB4R5FVDRWCG902ZAC`):
  *
  * 1. **Before the core** — called, it wraps and measures each labelled
- *    connector's label **once**, with `wrap`, at the `labelFontSize` a
- *    connector label is drawn at (`sizes`, the caller's typography; 12px
- *    when it gives none). `wrap` is the one thing that differs by kind: a flowchart
- *    edge, a class relationship and a state transition wrap at 150px of text
- *    (`wrapConnectorLabel`, the default); an ER relationship at 200 × 12/14 ≈
- *    171.43px (`wrapErRelationshipLabel`), as Mermaid wraps its 14px ER label
- *    at 200px (the label-wrap ADR, nook `01M4R4WDZ`, as amended).
+ *    connector's label **once**, with `options.wrap`, at the
+ *    `labelFontSize` a connector label is drawn at (`options.sizes`, the
+ *    caller's typography; 12px when it gives none). `wrap` is the one thing
+ *    that differs by kind: at the default sizes a flowchart edge, a class
+ *    relationship and a state transition wrap at 150px of text
+ *    (`wrapConnectorLabel`, the default); an ER relationship at 200 × 12/14
+ *    ≈ 171.43px (`wrapErRelationshipLabel`), as Mermaid wraps its 14px ER
+ *    label at 200px (the label-wrap ADR, nook `01M4R4WDZ`, as amended).
  * 2. **After the core** — `place` re-attaches each connector to its route:
  *    `points` and `hops` straight from the route, and the wrapped label
  *    placed at `labelAnchor` — or `null` when the model gave no label or the
@@ -80,13 +92,16 @@ export interface ConnectorPlacement {
  * It does not call the core and knows no kind: clipping, multiplicities,
  * cardinalities, interface labels and terminal labels stay with each
  * adapter, which reads them off the same route.
+ *
+ * `options` may also be a bare wrap function — the form callers used before
+ * typography existed, which leaves `sizes` at the default.
  */
 export function placeConnectors(
   items: readonly ConnectorItem[],
   measureText: TextMeasurer,
-  wrap: ConnectorLabelWrap = wrapConnectorLabel,
-  sizes?: LabelSizes,
+  options: ConnectorOptions | ConnectorLabelWrap = {},
 ): ConnectorPlacement {
+  const { wrap = wrapConnectorLabel, sizes } = typeof options === "function" ? { wrap: options } : options;
   const wrappedById = new Map(
     items.flatMap((item) => (item.label === null ? [] : [[item.id, wrap(item.label, measureText, sizes)] as const])),
   );

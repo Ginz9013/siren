@@ -1,7 +1,6 @@
 import type { TextMeasurer } from "../contracts";
 import {
   atConnectorLabelSize,
-  BASE_FONT_SIZE_PX,
   DEFAULT_TYPOGRAPHY,
   MERMAID_ER_LABEL_FONT_SIZE_PX,
   wrapWidthAt,
@@ -10,7 +9,13 @@ import {
   type LabelBox,
   type LabelRun,
 } from "./label";
-import { layoutLabel, measurerPadding, type LineSpacing } from "./layoutLabel";
+import {
+  baseSizeSpacing,
+  connectorLabelSpacing,
+  layoutLabel,
+  measurerPadding,
+  type LineSpacing,
+} from "./layoutLabel";
 
 /**
  * A label as it is drawn once wrapped, and the box it was measured into —
@@ -252,10 +257,12 @@ export function wrapConnectorLabel(
   measureText: TextMeasurer,
   sizes: LabelSizes = DEFAULT_TYPOGRAPHY,
 ): WrappedLabel {
-  return wrapLabel(label, atConnectorLabelSize(measureText, sizes), wrapWidthAt(sizes.labelFontSize), {
-    fontSizePx: sizes.labelFontSize,
-    baseFontSizePx: sizes.fontSize,
-  });
+  return wrapLabel(
+    label,
+    atConnectorLabelSize(measureText, sizes),
+    wrapWidthAt(sizes.labelFontSize),
+    connectorLabelSpacing(sizes),
+  );
 }
 
 /**
@@ -282,7 +289,7 @@ export function wrapErRelationshipLabel(
     label,
     atConnectorLabelSize(measureText, sizes),
     wrapWidthAt(sizes.labelFontSize, MERMAID_ER_LABEL_FONT_SIZE_PX),
-    { fontSizePx: sizes.labelFontSize, baseFontSizePx: sizes.fontSize },
+    connectorLabelSpacing(sizes),
   );
 }
 
@@ -294,14 +301,15 @@ export function wrapErRelationshipLabel(
  * counterpart of `wrapConnectorLabel` for the base size, so every caller
  * wrapping at it shares the one width.
  *
- * `fontSizePx` is `Typography.fontSize`, the size `measureText` measures
- * at, which also spaces the rows; `BASE_FONT_SIZE_PX` for a caller that
- * passes none.
+ * At `sizes.fontSize`, `Typography.fontSize`, the size `measureText`
+ * measures at, which also spaces the rows (`baseSizeSpacing`). `sizes`
+ * defaults to `DEFAULT_TYPOGRAPHY`, and is the same value every other label
+ * hook takes, so a caller hands each of them its one typography.
  */
 export function wrapNodeLabel(
   label: Label,
   measureText: TextMeasurer,
-  fontSizePx: number = BASE_FONT_SIZE_PX,
+  sizes: LabelSizes = DEFAULT_TYPOGRAPHY,
 ): WrappedLabel {
-  return wrapLabel(label, measureText, wrapWidthAt(fontSizePx), { fontSizePx, baseFontSizePx: fontSizePx });
+  return wrapLabel(label, measureText, wrapWidthAt(sizes.fontSize), baseSizeSpacing(sizes));
 }

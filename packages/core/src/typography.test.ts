@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { DEFAULT_TYPOGRAPHY, render, type RenderOptions } from "./index";
-import type { TextMeasurer } from "./contracts";
+import type { GraphModel, TextMeasurer } from "./contracts";
+import { parseSiren } from "./parser/parseSiren";
+import { buildGraphModel } from "./graph-model/buildGraphModel";
+import { layoutGraph } from "./layout/layoutGraph";
 
 /**
  * `render()`'s `typography` option, observed where it lands: the geometry of
@@ -14,6 +17,15 @@ function measurerAt(fontSize: number): TextMeasurer {
   return {
     measure: (text) => ({ width: Array.from(text).length * fontSize * 0.6 + 16, height: fontSize * 1.5 + 11 }),
   };
+}
+
+/** The flowchart `source` declares, as `render()` hands it to `layoutGraph`. */
+function graphModel(source: string): GraphModel {
+  const result = buildGraphModel(parseSiren(source).document!);
+  if (result.kind !== "flowchart") {
+    throw new Error(`expected a flowchart, got ${result.kind}`);
+  }
+  return result.model;
 }
 
 function draw(source: string, options: RenderOptions = {}): SVGSVGElement {
@@ -75,6 +87,23 @@ describe("a flowchart node at typography.fontSize", () => {
     expect(nodeHeight(large, "B") - measurerAt(28).measure("one").height).toBe(
       nodeHeight(base, "B") - measurerAt(14).measure("one").height,
     );
+  });
+
+  // Characterization: `layoutLabel`'s one-row label is exactly the
+  // measurer's answer, and `layoutGraph` pads the frame by the measurer's
+  // vertical padding (its answer for "" less one line) once more — the
+  // relation `layoutGraph.test.ts` pins at the default size, here at 28px.
+  it("lays a one-row label out exactly the measurer's height at 28px, in a frame padded once more", () => {
+    const measureText = measurerAt(28);
+    const measured = measureText.measure("one").height;
+    const padding = measureText.measure("").height - 28 * 1.5;
+    const graph = graphModel(source);
+    const node = layoutGraph(graph, { measureText, typography: { ...DEFAULT_TYPOGRAPHY, fontSize: 28 } }).nodes.find(
+      (laid) => laid.id === "B",
+    )!;
+    expect(node.labelBox.height).toBe(measured);
+    expect(node.height).toBe(measured + padding);
+    expect(nodeHeight(draw(source, { measureText, typography: { fontSize: 28 } }), "B")).toBe(measured + padding);
   });
 });
 
@@ -176,6 +205,36 @@ describe("an author's absolute px run counts against typography.fontSize", () =>
     expect(attr(svg, background, "height")).toBe(42);
     const row = svg.querySelector('[data-siren-id="A"] .siren-label-row')!;
     expect(attr(svg, background, "y") + 42 / 2).toBe(Number(row.getAttribute("y")));
+  });
+});
+
+// Characterization of already-correct code: a connector label's measurer is
+// scaled by labelFontSize / fontSize, but an author's absolute px run in it
+// still counts against fontSize, so a 28px run at fontSize 28 is scale 1 —
+// laid out as plain text — and `drawLabel` places its background on the
+// same base (`LabelBox.baseFontSizePx`).
+describe("an author's absolute px run in a flowchart edge label counts against typography.fontSize", () => {
+  const styled = 'flowchart LR\n  A -- "a<span style=\'font-size:28px;background-color:#ff0\'>bb</span>" --> B';
+  const plain = 'flowchart LR\n  A -- "abb" --> B';
+  const options = { measureText: measurerAt(28), typography: { fontSize: 28 } };
+
+  it("lays a 28px run out at scale 1 when the text is 28px: the label box is a plain label's", () => {
+    const box = edgeLabelBackground(draw(styled, options));
+    const plainBox = edgeLabelBackground(draw(plain, options));
+    // Two runs' widths summed, against one run's: equal to rounding.
+    expect(box.width).toBeCloseTo(plainBox.width, 9);
+    expect(box.height).toBeCloseTo(plainBox.height, 9);
+  });
+
+  it("draws the run's background where layout measured it: its text's width at 12px, one 18px line, on the row", () => {
+    const svg = draw(styled, options);
+    // A run's background is drawn beside the label's `<text>`, not in it.
+    const background = ".siren-label-background";
+    // "bb" measured at 28px is 2 × 16.8 wide, scaled to the 12px label.
+    expect(attr(svg, background, "width")).toBeCloseTo(2 * 28 * 0.6 * (12 / 28), 9);
+    expect(attr(svg, background, "height")).toBeCloseTo(12 * 1.5, 9);
+    const row = svg.querySelector(".siren-edge-label .siren-label-row")!;
+    expect(attr(svg, background, "y") + (12 * 1.5) / 2).toBeCloseTo(Number(row.getAttribute("y")), 9);
   });
 });
 

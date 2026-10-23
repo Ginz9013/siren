@@ -124,8 +124,8 @@ export interface LabelBox {
    * The px an author's absolute px run was counted against when the box was
    * measured (`measuredScale`) — `Typography.fontSize` — which `drawLabel`
    * reads so it places that run's background at the scale layout gave it.
-   * Absent when it is the default 14px (`BASE_FONT_SIZE_PX`), so a box laid
-   * out at the default typography is the box it always was.
+   * Absent when it is the default 14px (`DEFAULT_TYPOGRAPHY.fontSize`), so
+   * a box laid out at the default typography is the box it always was.
    */
   baseFontSizePx?: number;
 }
@@ -355,7 +355,7 @@ export function atConnectorLabelSize(
  * with it, against the same base (`LabelBox.baseFontSizePx`), so the two
  * agree.
  */
-export function measuredScale(run: LabelRun, baseFontSizePx: number = BASE_FONT_SIZE_PX): number {
+export function measuredScale(run: LabelRun, baseFontSizePx: number = DEFAULT_TYPOGRAPHY.fontSize): number {
   if ("scale" in run.fontSize) {
     return run.fontSize.scale;
   }
@@ -400,11 +400,10 @@ export const MERMAID_ER_LABEL_FONT_SIZE_PX = 14;
  * by the size Siren draws the label at over the size Mermaid draws it at
  * (`mermaidFontSizePx`, 16px unless given), so a row holds as many
  * characters as Mermaid's does (the label-wrap ADR, nook `01M4R4WDZ`, as
- * amended). A node's 14px (`BASE_FONT_SIZE_PX`) wraps at 175, a connector
- * label's 12px (`CONNECTOR_LABEL_FONT_SIZE_PX`) at 150, and an ER
- * relationship's 12px label, which Mermaid draws at 14px
- * (`MERMAID_ER_LABEL_FONT_SIZE_PX`), at 200 × 12/14 ≈ 171.43. `wrapLabel`
- * takes the result.
+ * amended). At the default sizes (`DEFAULT_TYPOGRAPHY`), a node's 14px
+ * wraps at 175, a connector label's 12px at 150, and an ER relationship's
+ * 12px label, which Mermaid draws at 14px (`MERMAID_ER_LABEL_FONT_SIZE_PX`),
+ * at 200 × 12/14 ≈ 171.43. `wrapLabel` takes the result.
  */
 export function wrapWidthAt(fontSizePx: number, mermaidFontSizePx: number = MERMAID_FONT_SIZE_PX): number {
   return (MERMAID_WRAPPING_WIDTH_PX * fontSizePx) / mermaidFontSizePx;

@@ -1837,10 +1837,11 @@ export interface PlacedConnector {
   hops: LineHop[];
   /**
    * The connector's label, wrapped and placed: the label as drawn — its rows
-   * after wrapping its 12px text at the width its kind wraps at (the wrap
-   * function `placeConnectors` is handed: `wrapConnectorLabel`, the default,
-   * at 150px for a flowchart edge, a class relationship and a state
-   * transition; `wrapErRelationshipLabel` at 200 × 12/14 ≈ 171.43px for an
+   * after wrapping its text at the width its kind wraps at (the wrap
+   * function `placeConnectors` is handed, at the default typography:
+   * `wrapConnectorLabel`, the default, at 150px for a flowchart edge, a
+   * class relationship and a state transition, its 12px text;
+   * `wrapErRelationshipLabel` at 200 × 12/14 ≈ 171.43px for an
    * ER relationship — Mermaid wraps its 14px ER label at 200px; the
    * label-wrap ADR, nook `01M4R4WDZ`, as amended), so it may hold more rows
    * than the author wrote — the box measured for those rows, which is the

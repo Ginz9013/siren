@@ -191,16 +191,15 @@ export interface RenderOptions {
  * a refused typography leaves the container as it was.
  */
 function resolveTypography(typography: Partial<Typography> = {}): Typography {
-  const resolved: Typography = {
-    fontSize: typography.fontSize ?? DEFAULT_TYPOGRAPHY.fontSize,
-    labelFontSize: typography.labelFontSize ?? DEFAULT_TYPOGRAPHY.labelFontSize,
-    titleFontSize: typography.titleFontSize ?? DEFAULT_TYPOGRAPHY.titleFontSize,
-  };
-  for (const field of ["fontSize", "labelFontSize", "titleFontSize"] as const) {
-    const value = resolved[field];
+  const resolved: Typography = { ...DEFAULT_TYPOGRAPHY };
+  // The fields are `DEFAULT_TYPOGRAPHY`'s, in its order: a field added there
+  // is resolved and checked here without being named twice.
+  for (const field of Object.keys(DEFAULT_TYPOGRAPHY) as (keyof Typography)[]) {
+    const value = typography[field] ?? DEFAULT_TYPOGRAPHY[field];
     if (!Number.isFinite(value) || value <= 0) {
       throw new RangeError(`typography.${field} must be a finite positive number of px; got ${String(value)}`);
     }
+    resolved[field] = value;
   }
   return resolved;
 }

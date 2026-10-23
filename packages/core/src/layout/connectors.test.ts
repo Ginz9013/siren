@@ -95,6 +95,19 @@ describe("placeConnectors — the wrap phase, before the core", () => {
     expect(placement.labelBoxOf("b-c")).toEqual(cannedWrap(yes).labelBox);
     expect(placement.labelBoxOf("a-b")).toBeUndefined();
   });
+
+  it("takes its wrap and sizes as options, handing the sizes to the wrap", () => {
+    const long = plainLabel("aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj");
+    const sizes = { fontSize: 14, labelFontSize: 24 };
+    const items = [{ id: "a-b", from: "a", to: "b", label: long }];
+
+    const defaultWrap = placeConnectors(items, fakeMeasurer, { sizes });
+    const erWrap = placeConnectors(items, fakeMeasurer, { wrap: wrapErRelationshipLabel, sizes });
+
+    expect(defaultWrap.labelBoxOf("a-b")).toEqual(wrapConnectorLabel(long, fakeMeasurer, sizes).labelBox);
+    expect(defaultWrap.labelBoxOf("a-b")).not.toEqual(wrapConnectorLabel(long, fakeMeasurer).labelBox);
+    expect(erWrap.labelBoxOf("a-b")).toEqual(wrapErRelationshipLabel(long, fakeMeasurer, sizes).labelBox);
+  });
 });
 
 /** A hand-built shared-core route. */
